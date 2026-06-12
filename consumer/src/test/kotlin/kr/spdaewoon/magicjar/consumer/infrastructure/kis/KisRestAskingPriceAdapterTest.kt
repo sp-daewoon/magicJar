@@ -1,8 +1,13 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
+import io.mockk.every
 import io.mockk.mockk
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 
 /**
  * [KisRestAskingPriceAdapter] 단위 테스트 — ADR 0114 §10-3 R2-C1 FHKST01010200 응답 파싱.
@@ -27,6 +32,7 @@ class KisRestAskingPriceAdapterTest {
             kisRateLimiterPort = mockk(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             defaultUserId = "tester",
+            credentialRepositoryProvider = mockk(relaxed = true),
         )
 
     @Test
@@ -67,6 +73,72 @@ class KisRestAskingPriceAdapterTest {
 
         assertThat(q).isNotNull
         assertThat(q!!.askQty1).isNull()
+    }
+
+    // ── F11: REST fallback REAL 자격증명 resolve (hotfix c95b5391 패턴) ──────────
+
+    @Test
+    fun `REAL 자격증명 보유 user가 있으면 그 userId로 resolve한다 (ws_user-id 무시)`() {
+        val credId = ConsumerUserKisCredentialId(userId = "74683223", accountType = "REAL")
+        val entity = mockk<ConsumerUserKisCredentialJpaEntity> { every { id } returns credId }
+        val repo =
+            mockk<ConsumerUserKisCredentialJpaRepository> {
+                every { findAllByAccountType("REAL") } returns listOf(entity)
+            }
+        val provider = mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>> { every { ifAvailable } returns repo }
+        val adapterWithRepo =
+            KisRestAskingPriceAdapter(
+                webClient = mockk(relaxed = true),
+                kisAuthAdapter = mockk(relaxed = true),
+                kisRateLimiterPort = mockk(relaxed = true),
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                defaultUserId = "thdeodns", // WS approval 식별자 — REST 자격증명 없음(c95b5391 incident 재현)
+                credentialRepositoryProvider = provider,
+            )
+
+        assertThat(invokeResolveRestUserId(adapterWithRepo)).isEqualTo("74683223")
+    }
+
+    @Test
+    fun `REAL 자격증명이 없으면 ws_user-id로 fallback한다`() {
+        val repo =
+            mockk<ConsumerUserKisCredentialJpaRepository> {
+                every { findAllByAccountType("REAL") } returns emptyList()
+            }
+        val provider = mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>> { every { ifAvailable } returns repo }
+        val adapterWithRepo =
+            KisRestAskingPriceAdapter(
+                webClient = mockk(relaxed = true),
+                kisAuthAdapter = mockk(relaxed = true),
+                kisRateLimiterPort = mockk(relaxed = true),
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                defaultUserId = "thdeodns",
+                credentialRepositoryProvider = provider,
+            )
+
+        assertThat(invokeResolveRestUserId(adapterWithRepo)).isEqualTo("thdeodns")
+    }
+
+    @Test
+    fun `repository 부재(fixture) 시 ws_user-id로 fallback한다`() {
+        val provider = mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>> { every { ifAvailable } returns null }
+        val adapterNoRepo =
+            KisRestAskingPriceAdapter(
+                webClient = mockk(relaxed = true),
+                kisAuthAdapter = mockk(relaxed = true),
+                kisRateLimiterPort = mockk(relaxed = true),
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                defaultUserId = "wsuser",
+                credentialRepositoryProvider = provider,
+            )
+
+        assertThat(invokeResolveRestUserId(adapterNoRepo)).isEqualTo("wsuser")
+    }
+
+    private fun invokeResolveRestUserId(target: KisRestAskingPriceAdapter): String {
+        val m = KisRestAskingPriceAdapter::class.java.getDeclaredMethod("resolveRestUserId")
+        m.isAccessible = true
+        return m.invoke(target) as String
     }
 
     @Test
