@@ -118,6 +118,22 @@ export function NewOrderPage() {
     return () => clearInterval(timer)
   }, [userId, code])
 
+  // ── 검증 매트릭스 (layer 1·2·3) ─────────────────────────────
+  const codeValid = /^\d{6}$/.test(code)
+  const quantityValid = Number.isInteger(quantity) && quantity >= 1
+  const limitPriceNumber = limitPrice ? parseFloat(limitPrice) : NaN
+  const limitPriceValid =
+    priceType === 'MARKET' ||
+    (!Number.isNaN(limitPriceNumber) && limitPriceNumber > 0)
+
+  const formValid = codeValid && quantityValid && limitPriceValid
+  const cooldownBlocked = cooldownRemain > 0
+
+  const canOpenPreview = useMemo(
+    () => formValid && !cooldownBlocked && !killSwitchOn,
+    [formValid, cooldownBlocked, killSwitchOn],
+  )
+
   // userId 미등록 시 셋업 안내
   if (!userId) {
     return (
@@ -135,22 +151,6 @@ export function NewOrderPage() {
       </div>
     )
   }
-
-  // ── 검증 매트릭스 (layer 1·2·3) ─────────────────────────────
-  const codeValid = /^\d{6}$/.test(code)
-  const quantityValid = Number.isInteger(quantity) && quantity >= 1
-  const limitPriceNumber = limitPrice ? parseFloat(limitPrice) : NaN
-  const limitPriceValid =
-    priceType === 'MARKET' ||
-    (!Number.isNaN(limitPriceNumber) && limitPriceNumber > 0)
-
-  const formValid = codeValid && quantityValid && limitPriceValid
-  const cooldownBlocked = cooldownRemain > 0
-
-  const canOpenPreview = useMemo(
-    () => formValid && !cooldownBlocked && !killSwitchOn,
-    [formValid, cooldownBlocked, killSwitchOn],
-  )
 
   // ── 핸들러 ────────────────────────────────────────────────
   function handleInstrumentSelect(result: InstrumentSearchResultDto) {

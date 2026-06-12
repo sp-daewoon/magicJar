@@ -36,7 +36,6 @@ import java.net.URI
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -85,9 +84,10 @@ import java.util.concurrent.atomic.AtomicReference
  * 재연결 지수 백오프 (ADR 0048 §2-4-B):
  * 1차: 즉시, 2차: 2s, 3차: 5s, 4차: 10s, 5차+: 30s
  *
- * heartbeat 무신호 감지 → reconnect 트리거 (ADR 0048 §2-4-A + ADR 0076 D-1):
- *   - 정규장(09:00~15:30 KST): 30s timeout
- *   - 정규장 외(15:30~09:00 + 주말): 60s timeout (NXT/시간외 거래량 적어 자연 무신호 정합)
+ * heartbeat 무신호 감지 → reconnect 트리거 (ADR 0048 §2-4-A + REAL canary F3):
+ *   - `magicjar.kis.ws.heartbeat-timeout-seconds` 설정값 사용 (기본 10s).
+ *   - ADR 0076 D-1의 30s/60s 동적 timeout은 장마감·시간외 자연 무신호 재연결 스팸 완화 목적이었으나,
+ *     REAL canary에서 ghost session 2h 공백이 확인되어 운영 설정으로 더 엄격하게 조절한다.
  *
  * @PreDestroy graceful shutdown ≤ 5s (ADR 0045).
  */
@@ -111,6 +111,10 @@ class KisWebSocketBridge(
     private val magicjarMode: String,
     @Value("\${magicjar.kis.ws.user-id:}")
     private val defaultUserId: String,
+    @Value("\${magicjar.kis.ws.heartbeat-timeout-seconds:10}")
+    private val heartbeatTimeoutSeconds: Long = 10L,
+    @Value("\${magicjar.kis.ws.polling-fallback-timeout-seconds:30}")
+    private val pollingFallbackTimeoutSeconds: Long = 30L,
     /**
      * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
      *
@@ -207,14 +211,7 @@ class KisWebSocketBridge(
     // 재연결 지수 백오프 딜레이 (ms) — ADR 0048 §2-4-B
     private val reconnectDelaysMs = longArrayOf(0L, 2000L, 5000L, 10000L, 30000L)
 
-    // D-1: heartbeat watchdog timeout 동적 분기 (ADR 0076 D-1)
-    // 정규장(09:00~15:30 KST): 30s / 정규장 외: 60s
-    // KST 기준 분기 — LocalTime 기반 (ZoneId.of("Asia/Seoul"))
-    private val heartbeatTimeoutRegularSeconds = 30L // 정규장 09:00~15:30
-    private val heartbeatTimeoutOffHoursSeconds = 60L // 정규장 외 (시간외/주말)
     private val kstZone = ZoneId.of("Asia/Seoul")
-
-    private val pollingFallbackTimeoutSeconds = 30L
 
     // WS_DISCONNECTED 알림 강등 grace window (ms) — 2026-06-04 점검 사이클 #4 (companion 상수 default).
     // @Volatile var: 단위 테스트에서 reflection으로 단축(예: 100ms)해 분기 동작만 검증 가능하도록 인스턴스 필드화.
@@ -1765,33 +1762,22 @@ class KisWebSocketBridge(
     }
 
     /**
-     * 현재 시각 기준 heartbeat watchdog timeout 반환 (ADR 0076 D-1).
+     * heartbeat watchdog timeout 반환 (REAL canary F3).
      *
-     * - 정규장(09:00~15:30 KST): 30s — 체결 빈도 높아 30s 무신호 = 실제 연결 끊김 가능성 높음.
-     * - 정규장 외(15:30~09:00 + 주말): 60s — NXT/시간외 거래량 적어 자연 무신호 허용 확대.
-     *
-     * LocalTime 기반 분기 (KST ZoneId.of("Asia/Seoul")).
-     * 주말/공휴일 구분 없이 시간 기반으로만 판별 (stub 수준 — SimpleMarketSessionResolver 패턴 동일).
+     * ADR 0076 D-1에서는 10s 고정이 장마감·시간외 자연 무신호 재연결 스팸을 만들 수 있어
+     * 정규장 30s / 정규장 외 60s 하드코딩으로 늘렸었다. 그러나 REAL canary에서 PINGPONG 0 ghost session이
+     * 2시간 동안 감지되지 않은 사건이 있었으므로, 현재 운영 기본은 설정값(기본 10s)을 그대로 따른다.
      */
-    internal fun currentHeartbeatTimeoutSeconds(): Long {
-        val nowKst = LocalTime.now(kstZone)
-        val marketOpen = LocalTime.of(9, 0)
-        val marketClose = LocalTime.of(15, 30)
-        return if (!nowKst.isBefore(marketOpen) && nowKst.isBefore(marketClose)) {
-            heartbeatTimeoutRegularSeconds // 정규장: 30s
-        } else {
-            heartbeatTimeoutOffHoursSeconds // 정규장 외: 60s
-        }
-    }
+    internal fun currentHeartbeatTimeoutSeconds(): Long = heartbeatTimeoutSeconds
 
     /**
-     * Heartbeat watchdog — 무신호 시 reconnect 트리거 (ADR 0048 §2-4-A + ADR 0076 D-1).
+     * Heartbeat watchdog — 무신호 시 reconnect 트리거 (ADR 0048 §2-4-A + REAL canary F3).
      *
-     * D-1: 정규장 30s / 정규장 외 60s 동적 timeout (이전 10s 고정 → 거짓 재연결 해소).
+     * timeout은 `magicjar.kis.ws.heartbeat-timeout-seconds` 설정값(기본 10s)을 따른다.
      * reconnecting guard: CAS(false→true) 성공한 단 1회만 dispose 호출.
      * doFinally에서 reconnecting.set(false) 해제 → 다음 연결 후 watchdog 재작동 가능.
      *
-     * watchdog 주기: 10s 고정 (체크 빈도) — timeout은 currentHeartbeatTimeoutSeconds()로 동적.
+     * watchdog 주기: 10s 고정 (체크 빈도) — timeout은 currentHeartbeatTimeoutSeconds().
      */
     private fun startHeartbeatWatchdog() {
         stopHeartbeatWatchdog()
@@ -1800,7 +1786,6 @@ class KisWebSocketBridge(
                 if (!session.connected || session.shuttingDown) return@scheduleAtFixedRate
                 val lastMsg = session.lastMessageAt.get() ?: return@scheduleAtFixedRate
                 val elapsed = Clock.System.now().epochSeconds - lastMsg.epochSeconds
-                // D-1: 동적 timeout — 정규장 30s / 정규장 외 60s
                 val timeoutSec = currentHeartbeatTimeoutSeconds()
                 if (elapsed > timeoutSec && session.subscribedCodes.isNotEmpty()) {
                     // reconnecting CAS: 이미 재연결 중이면 중복 dispose 차단.

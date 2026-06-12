@@ -381,67 +381,19 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(KisWsMessageParser.isOpsp8996(otherError)).isFalse()
     }
 
-    // ===== ADR 0076 D-1: heartbeat watchdog 동적 timeout 테스트 =====
+    // ===== REAL canary F3: heartbeat watchdog 설정 timeout 테스트 =====
 
     /**
-     * [ADR 0076 D-1] 정규장 시간(09:00~15:30 KST) → heartbeat timeout 30s 검증.
-     *
-     * currentHeartbeatTimeoutSeconds()가 LocalTime 기반으로 정규장 여부를 판별.
-     * 정규장 중: 거래 빈도 높아 30s 무신호 = 실질적 연결 끊김 판단.
+     * [REAL canary F3] heartbeat timeout 은 설정 기본값 10s 를 그대로 사용한다.
+     * ADR 0076 D-1 의 30s/60s 동적 timeout 은 ghost session 감지 지연 때문에 운영 기본에서 제외.
      */
     @Test
-    fun `D-1 정규장 시간(09-00~15-30 KST) heartbeat timeout 30s 반환`() {
-        // given: bridge.currentHeartbeatTimeoutSeconds()는 LocalTime.now(kstZone) 기반
-        // LocalTime mock이 불가능하므로, 테스트용 헬퍼로 시각 인수를 받는 내부 함수 로직을 직접 검증
-        val marketOpen = java.time.LocalTime.of(9, 0)
-        val marketClose = java.time.LocalTime.of(15, 30)
+    fun `heartbeat timeout 설정 기본값 10s 반환`() {
+        val timeoutField = KisWebSocketBridge::class.java.getDeclaredField("heartbeatTimeoutSeconds")
+        timeoutField.isAccessible = true
 
-        // 정규장 시간대 예시: 10:00, 09:00, 15:29
-        val regularTimes =
-            listOf(
-                java.time.LocalTime.of(10, 0),
-                java.time.LocalTime.of(9, 0),
-                java.time.LocalTime.of(15, 29),
-            )
-        regularTimes.forEach { t ->
-            val isRegular = !t.isBefore(marketOpen) && t.isBefore(marketClose)
-            assertThat(isRegular).describedAs("시각 $t 는 정규장").isTrue()
-        }
-
-        // bridge.heartbeatTimeoutRegularSeconds = 30 (reflection 확인)
-        val regularField = KisWebSocketBridge::class.java.getDeclaredField("heartbeatTimeoutRegularSeconds")
-        regularField.isAccessible = true
-        assertThat(regularField.get(bridge) as Long).isEqualTo(30L)
-    }
-
-    /**
-     * [ADR 0076 D-1] 정규장 외 시간(15:30~09:00 + 주말) → heartbeat timeout 60s 검증.
-     *
-     * 정규장 외: NXT/시간외 거래량 적어 자연 무신호 허용 — 60s 확대.
-     * 이전 10s 고정 → 장 마감 직후 자연 무신호 거짓 재연결 스팸 해소.
-     */
-    @Test
-    fun `D-1 정규장 외 시간(15-30 이후 또는 09-00 이전) heartbeat timeout 60s 반환`() {
-        val marketOpen = java.time.LocalTime.of(9, 0)
-        val marketClose = java.time.LocalTime.of(15, 30)
-
-        // 정규장 외 시간대 예시: 15:30, 16:00, 08:59, 00:00
-        val offHoursTimes =
-            listOf(
-                java.time.LocalTime.of(15, 30),
-                java.time.LocalTime.of(16, 0),
-                java.time.LocalTime.of(8, 59),
-                java.time.LocalTime.of(0, 0),
-            )
-        offHoursTimes.forEach { t ->
-            val isOffHours = t.isBefore(marketOpen) || !t.isBefore(marketClose)
-            assertThat(isOffHours).describedAs("시각 $t 는 정규장 외").isTrue()
-        }
-
-        // bridge.heartbeatTimeoutOffHoursSeconds = 60 (reflection 확인)
-        val offField = KisWebSocketBridge::class.java.getDeclaredField("heartbeatTimeoutOffHoursSeconds")
-        offField.isAccessible = true
-        assertThat(offField.get(bridge) as Long).isEqualTo(60L)
+        assertThat(timeoutField.get(bridge) as Long).isEqualTo(10L)
+        assertThat(bridge.currentHeartbeatTimeoutSeconds()).isEqualTo(10L)
     }
 
     // ===== ADR 0076 E-1: destroy() unsubscribe ACK 2s 대기 테스트 =====

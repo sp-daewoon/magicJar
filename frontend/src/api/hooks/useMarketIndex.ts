@@ -9,6 +9,7 @@
  * race-safe merge — STOMP 메시지 도달 시 해당 code row만 갱신 (다른 row 보존).
  * mock 합성 0 — backend 빈 list → '데이터 없음' UI 표시 의무.
  */
+import { useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DEFAULT_INDEX_CODES,
@@ -37,25 +38,27 @@ export function useMarketIndex(opts?: { enabled?: boolean }) {
     staleTime: 5_000,
   })
 
+  const mergeIndexPayload = useCallback(
+    (payload: IndexTrendResponse) => {
+      queryClient.setQueryData<IndexSnapshotResponse>(MARKET_INDEX_QUERY_KEY, (prev) => {
+        if (!prev) return { indexes: [payload] }
+        const next = prev.indexes.map((row) => (row.code === payload.code ? payload : row))
+        // 신규 code (snapshot 0건 + push 도달) 시 append
+        if (!prev.indexes.some((row) => row.code === payload.code)) {
+          return { indexes: [...prev.indexes, payload] }
+        }
+        return { indexes: next }
+      })
+    },
+    [queryClient],
+  )
+
   // 4 default index 구독 — race-safe merge (다른 row 보존).
-  // hook은 항상 동일 4 topic 구독 (조건부 useStompTopic 호출 — React rules-of-hooks 정합).
-  for (const code of DEFAULT_INDEX_CODES) {
-    useStompTopic<IndexTrendResponse>(
-      `/topic/market.index.${code}`,
-      (payload) => {
-        queryClient.setQueryData<IndexSnapshotResponse>(MARKET_INDEX_QUERY_KEY, (prev) => {
-          if (!prev) return { indexes: [payload] }
-          const next = prev.indexes.map((row) => (row.code === payload.code ? payload : row))
-          // 신규 code (snapshot 0건 + push 도달) 시 append
-          if (!prev.indexes.some((row) => row.code === payload.code)) {
-            return { indexes: [...prev.indexes, payload] }
-          }
-          return { indexes: next }
-        })
-      },
-      enabled,
-    )
-  }
+  // hook은 항상 동일 4 topic 을 같은 순서로 구독한다.
+  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[0]}`, mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[1]}`, mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[2]}`, mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[3]}`, mergeIndexPayload, enabled)
 
   return {
     snapshot: query.data,

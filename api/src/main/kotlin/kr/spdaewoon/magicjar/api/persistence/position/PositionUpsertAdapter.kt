@@ -21,31 +21,24 @@ import java.time.Instant
  */
 interface PositionReconJpaRepository : JpaRepository<PositionJpaEntity, Long> {
     /**
-     * userId + code + source로 포지션 단건 조회 — REAL/MOCK 분리 upsert 존재 여부 판단용.
-     */
-    fun findByUserIdAndCodeAndSource(
-        userId: String,
-        code: String,
-        source: String,
-    ): PositionJpaEntity?
-
-    /**
-     * userId + code로 포지션 갱신 (qty·avgPrice·entryTs·source) — KIS 신뢰원 갱신.
+     * userId + code + source로 포지션 upsert (quantity·qty 동시 갱신) — KIS 신뢰원 갱신.
      */
     @Modifying
     @Transactional
     @Query(
         value = """
-            UPDATE position
-               SET qty = :qty,
-                   avg_price = :avgPrice,
-                   entry_ts = :entryTs,
-                   source = :source
-             WHERE user_id = :userId AND code = :code AND source = :source
+            INSERT INTO position (user_id, code, quantity, qty, avg_price, source, entry_ts, updated_at)
+            VALUES (:userId, :code, CAST(:qty AS INTEGER), :qty, :avgPrice, :source, :entryTs, now())
+            ON CONFLICT (user_id, code, source) DO UPDATE
+                SET quantity = EXCLUDED.quantity,
+                    qty = EXCLUDED.qty,
+                    avg_price = EXCLUDED.avg_price,
+                    entry_ts = EXCLUDED.entry_ts,
+                    updated_at = now()
         """,
         nativeQuery = true,
     )
-    fun updateByUserIdAndCode(
+    fun upsertByUserIdAndCodeAndSource(
         @Param("userId") userId: String,
         @Param("code") code: String,
         @Param("qty") qty: Long,
@@ -62,7 +55,7 @@ interface PositionReconJpaRepository : JpaRepository<PositionJpaEntity, Long> {
  * 기존 position 테이블 (Flyway V18) reuse.
  *
  * ### upsert 전략
- * - symbol(code) + userId로 기존 행 조회 → qty·avg_price 갱신 또는 신규 INSERT
+ * - symbol(code) + userId + source로 native upsert → quantity·qty·avg_price 동시 갱신
  * - qty=0이면 포지션 청산 (DB 행 유지 — ADR 0042 Position.isClosed 정합)
  * - source = holding.accountType.name (REAL/MOCK 계좌 유형)
  *
@@ -83,45 +76,23 @@ class PositionUpsertAdapter(
     ) {
         try {
             val source = holding.accountType.name
-            val existing = positionReconJpaRepository.findByUserIdAndCodeAndSource(userId, holding.symbol, source)
-            if (existing != null) {
-                // 기존 행 있으면 UPDATE
-                val updated =
-                    positionReconJpaRepository.updateByUserIdAndCode(
-                        userId = userId,
-                        code = holding.symbol,
-                        qty = holding.quantity.toLong(),
-                        avgPrice = holding.avgPrice,
-                        entryTs = Instant.now(),
-                        source = source,
-                    )
-                log.info(
-                    "PositionUpsertAdapter — 갱신: userId={}**** code={} qty={} rows={}",
-                    maskUserId(userId),
-                    holding.symbol,
-                    holding.quantity,
-                    updated,
+            val updated =
+                positionReconJpaRepository.upsertByUserIdAndCodeAndSource(
+                    userId = userId,
+                    code = holding.symbol,
+                    qty = holding.quantity.toLong(),
+                    avgPrice = holding.avgPrice,
+                    entryTs = Instant.now(),
+                    source = source,
                 )
-            } else {
-                // 신규 행 INSERT
-                val entity =
-                    PositionJpaEntity(
-                        userId = userId,
-                        code = holding.symbol,
-                        qty = holding.quantity.toLong(),
-                        avgPrice = holding.avgPrice,
-                        entryTs = Instant.now(),
-                        source = source,
-                        createdAt = Instant.now(),
-                    )
-                positionReconJpaRepository.save(entity)
-                log.info(
-                    "PositionUpsertAdapter — 신규 INSERT: userId={}**** code={} qty={}",
-                    maskUserId(userId),
-                    holding.symbol,
-                    holding.quantity,
-                )
-            }
+            log.info(
+                "PositionUpsertAdapter — upsert: userId={}**** code={} source={} qty={} rows={}",
+                maskUserId(userId),
+                holding.symbol,
+                source,
+                holding.quantity,
+                updated,
+            )
         } catch (e: Exception) {
             log.error(
                 "PositionUpsertAdapter.upsertFromKis 실패: userId={}**** code={} err={}",
