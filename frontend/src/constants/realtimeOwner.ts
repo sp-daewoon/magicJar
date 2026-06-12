@@ -15,7 +15,6 @@ export type OwnerBadgeTone =
   | 'detail'
   | 'holding'
   | 'pending_buy'
-  | 'watchlist'
   | 'screener'
   | 'default'
 
@@ -34,7 +33,6 @@ export const OWNER_BADGE_CLASS: Record<OwnerBadgeTone, string> = {
   detail: 'bg-blue-950 text-blue-300 border-blue-800',
   holding: 'bg-emerald-950 text-emerald-300 border-emerald-800',
   pending_buy: 'bg-orange-950 text-orange-300 border-orange-800',
-  watchlist: 'bg-teal-950 text-teal-300 border-teal-800',
   screener: 'bg-amber-950 text-amber-300 border-amber-800',
   default: 'bg-gray-800 text-gray-300 border-gray-700',
 }
@@ -63,19 +61,18 @@ export interface OwnerLegendEntry {
 }
 
 export const OWNER_LEGEND: OwnerLegendEntry[] = [
-  { tone: 'strategy', label: '전략 #N', desc: '전략이 ACTIVE 상태라 이 종목 실시간 시세를 요구 중' },
-  { tone: 'detail', label: '상세 보기', desc: '사용자가 종목 상세 화면을 보는 중이라 구독' },
-  { tone: 'holding', label: '보유 종목', desc: '보유 포지션 감시를 위해 구독' },
-  { tone: 'pending_buy', label: '주문 대기', desc: '매수 주문 대기 중이라 체결가 추적' },
-  { tone: 'watchlist', label: '관심목록', desc: '사용자 고정 관심목록' },
-  { tone: 'screener', label: '스크리너', desc: '스크리너 후보 평가' },
+  { tone: 'strategy', label: '전략 #N', desc: '전략이 ACTIVE 상태라 체결가를 추적합니다.' },
+  { tone: 'detail', label: '종목 상세', desc: '종목 상세 화면 진입 중인 종목입니다.' },
+  { tone: 'holding', label: '보유 감시', desc: '보유 포지션 감시를 위해 체결가를 유지합니다.' },
+  { tone: 'pending_buy', label: '매수 대기', desc: '매수 주문 대기 중 체결가를 추적합니다.' },
+  { tone: 'screener', label: '스크리너 후보', desc: '스크리너 후보 평가/관찰 수요입니다.' },
 ]
 
 /**
  * owner 문자열 → 인간화 view.
  *
  * @example ownerView('strategy:86')        // { label: '전략 #86', tone: 'strategy', ... }
- * @example ownerView('detail:74683223')    // { label: '상세 보기 (74683223)', tone: 'detail', ... }
+ * @example ownerView('detail:74683223')    // { label: '종목 상세 (74683223)', tone: 'detail', ... }
  * @example ownerView('strategy:strategy:86')// collapse 후 '전략 #86'
  */
 export function ownerView(raw: string): OwnerView {
@@ -89,37 +86,37 @@ export function ownerView(raw: string): OwnerView {
       return {
         label: arg ? `전략 #${arg}` : '전략',
         tone: 'strategy',
-        title: `${raw} — 전략 #${arg || '?'}이 ACTIVE 상태라 이 종목 실시간 시세를 요구 중`,
+        title: `${raw} — 전략 #${arg || '?'}이 ACTIVE 상태라 체결가를 추적합니다.`,
       }
     case 'detail':
       return {
-        label: arg ? `상세 보기 (${arg})` : '상세 보기',
+        label: arg ? `종목 상세 (${arg})` : '종목 상세',
         tone: 'detail',
-        title: `${raw} — 사용자가 종목 상세 화면을 보는 중이라 구독(이탈 시 해제)`,
+        title: `${raw} — 종목 상세 화면 진입 중인 종목입니다.`,
       }
     case 'holding':
       return {
-        label: '보유 종목',
+        label: '보유 감시',
         tone: 'holding',
-        title: `${raw} — 보유 포지션 감시를 위해 실시간 시세 구독`,
+        title: `${raw} — 보유 포지션 감시를 위해 체결가를 유지합니다.`,
       }
     case 'pending_buy':
       return {
-        label: '주문 대기',
+        label: '매수 대기',
         tone: 'pending_buy',
-        title: `${raw} — 매수 주문 대기 중이라 체결가 추적`,
+        title: `${raw} — 매수 주문 대기 중 체결가를 추적합니다.`,
       }
     case 'watchlist':
       return {
-        label: '관심목록',
-        tone: 'watchlist',
-        title: `${raw} — 사용자 고정 관심목록`,
+        label: '관심목록(구형)',
+        tone: 'default',
+        title: `${raw} — 현재 WS owner로 사용하지 않는 구형 값입니다.`,
       }
     case 'screener':
       return {
-        label: '스크리너',
+        label: '스크리너 후보',
         tone: 'screener',
-        title: `${raw} — 스크리너 후보 평가`,
+        title: `${raw} — 스크리너 후보 평가/관찰 수요입니다.`,
       }
     default:
       return {

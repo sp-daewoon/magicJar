@@ -35,13 +35,28 @@ class RealtimeSubscriptionRouterTest {
     }
 
     @Test
-    fun `DETAIL 이탈은 grace TTL 동안 가격 WS를 유지한다`() {
+    fun `DETAIL 이탈은 다른 owner가 없으면 가격 WS를 즉시 해제한다`() {
         router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+        router.release(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+
+        assertFalse(kisWsPort.priceSubscribed.contains("005930"))
+        assertFalse(router.isExternallyDemanded("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.contains("005930"))
+    }
+
+    @Test
+    fun `DETAIL 이탈은 STRATEGY owner가 남으면 가격 WS를 유지한다`() {
+        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
+
         router.release(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
 
         assertTrue(kisWsPort.priceSubscribed.contains("005930"))
         assertTrue(router.isExternallyDemanded("005930"))
         assertFalse(kisWsPort.priceUnsubscribed.contains("005930"))
+        val owners = router.snapshotDemands().first { it.code == "005930" }.owners
+        assertTrue(owners.contains("strategy:42"))
+        assertFalse(owners.any { it.startsWith("detail:") })
     }
 
     @Test

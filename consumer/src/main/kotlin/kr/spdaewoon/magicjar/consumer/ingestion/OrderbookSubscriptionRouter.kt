@@ -32,9 +32,9 @@ import kotlin.concurrent.withLock
  *
  * ## DETAIL idle 안전망 (브라우저 강제 종료 대비)
  * 정상 흐름은 페이지 이탈 시 EXIT 명령이 와 즉시 해제하지만, 브라우저 강제 종료·네트워크 단절로 EXIT가 누락될 수 있다.
- * 이를 대비해 DETAIL 호가 demand에 한해 [DETAIL_IDLE_TIMEOUT_MS](15분) idle 안전망을 둔다(현재가 DETAIL grace TTL
- * 5분보다 길게 — 현재가가 이미 끊긴 뒤에도 호가만 잠깐 남는 보수적 여유). enter 시 lastSeenMs를 갱신하므로 표시 중인
- * 종목은 안전망에 걸리지 않는다. STRATEGY demand는 idle 대상 아님(registrar TTL이 관리 — 진입가 호가 공백 = 자본 risk).
+ * 이를 대비해 DETAIL 호가 demand에 한해 [DETAIL_IDLE_TIMEOUT_MS](15분) idle 안전망을 둔다. enter 시 lastSeenMs를
+ * 갱신하므로 표시 중인 종목은 안전망에 걸리지 않는다. STRATEGY demand는 idle 대상 아님(registrar TTL이 관리 —
+ * 진입가 호가 공백 = 자본 risk).
  *
  * ## WS 슬롯 회계 (ADR 0123)
  * subscribe/unsubscribe 발사 시 [WsSlotBudgetLedger]에 (H0UNASP0, code) 채널을 register/release한다
@@ -46,7 +46,7 @@ import kotlin.concurrent.withLock
 class OrderbookSubscriptionRouter(
     private val kisWsPort: KisWsPort,
     private val wsSlotBudgetLedger: WsSlotBudgetLedger,
-    // DETAIL 호가 idle 안전망 timeout(ms). default 15분(EXIT 누락 보완 — 현재가 DETAIL grace 5분보다 길게).
+    // DETAIL 호가 idle 안전망 timeout(ms). default 15분(EXIT 누락 보완).
     // 테스트는 짧은 값을 주입해 안전망 동작을 검증한다(운영 흐름엔 노출되는 설정 키 없음 — 상수 default).
     private val detailIdleTimeoutMs: Long = DETAIL_IDLE_TIMEOUT_MS,
 ) {

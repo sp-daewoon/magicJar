@@ -16,7 +16,7 @@ import kotlin.concurrent.withLock
 /**
  * 실시간 체결가 KIS WS 구독 라우터 — owner demand 단위 (HOLDING/PENDING_BUY/STRATEGY/DETAIL).
  *
- * watchlist는 사용자가 고정해서 보는 목록이고, 종목 상세 진입·전략 후보·보유·미체결은 별도 수요다.
+ * 종목 상세 진입·전략 후보·보유·미체결은 서로 다른 수요다.
  * 이 라우터는 그 owner 수요를 단위로 추적해 단순 합집합으로 섞이지 않게 KIS WS slot을 배정한다.
  *
  * ## watchlist 분리 (ADR 0124 결정 2 · 2026-06-13)
@@ -68,6 +68,8 @@ class RealtimeSubscriptionRouter(
     private val seedCooldownMs = 60_000L
 
     private val detailDebounceMs = 200L
+
+    // DETAIL은 EXIT 수신 시 즉시 해제한다. 이 TTL은 EXIT 누락/브라우저 비정상 종료 대비 안전 정리용이다.
     private val detailTtlMs = 5L * 60L * 1000L
     private val strategyTtlMs = 30L * 60L * 1000L
 
@@ -158,22 +160,7 @@ class RealtimeSubscriptionRouter(
 
         val ownerKey = OwnerKey(owner, ownerId.ifBlank { owner.name })
         val owners = demandsByCode[code] ?: return@withLock
-        val demand = owners[ownerKey] ?: return@withLock
-
-        if (owner == RealtimeDemandOwner.DETAIL) {
-            demand.expiresAtMs = now + detailTtlMs
-            demand.lastAccessMs = now
-            log.info(
-                "realtime demand grace: owner={} ownerId={} code={} ttlMs={}",
-                owner,
-                ownerKey.ownerId,
-                code,
-                detailTtlMs,
-            )
-            return@withLock
-        }
-
-        owners.remove(ownerKey)
+        if (owners.remove(ownerKey) == null) return@withLock
         if (owners.isEmpty()) {
             demandsByCode.remove(code)
             pendingDebounce.remove(code)
