@@ -13,6 +13,20 @@
  * 모두 정상이면 녹색 톤 + "정상" 요약.
  */
 import type { RealtimeExecutionNotice, RealtimeWsStatus } from '../../api/adminRealtime'
+import { trIdDisplay } from '../../constants/kisTrId'
+
+/**
+ * 체결 통보 mode → KIS WS trId 추론.
+ * 실전 계좌(REAL)는 H0STCNI0, 모의(MOCK/VPS)는 H0STCNI9 채널을 구독한다.
+ * mode 미상이면 null (병기 생략).
+ */
+function executionNoticeTrId(mode: string | null): string | null {
+  if (!mode) return null
+  const m = mode.toUpperCase()
+  if (m.includes('REAL') || m.includes('PROD')) return 'H0STCNI0'
+  if (m.includes('MOCK') || m.includes('VPS') || m.includes('VIRTUAL')) return 'H0STCNI9'
+  return null
+}
 
 interface Props {
   stale: boolean
@@ -90,6 +104,10 @@ export function RealtimeStatusBanner({ stale, updatedAt, ws, executionNotice }: 
 
   const anyAbnormal = !staleOk || !wsOk || !noticeOk
 
+  // 체결 통보 채널 trId (실전 H0STCNI0 / 모의 H0STCNI9) — mode 기반 추론
+  const noticeTrId = executionNoticeTrId(executionNotice.mode)
+  const noticeChannelLabel = noticeTrId ? trIdDisplay(noticeTrId) : null
+
   return (
     <section
       aria-label="실시간 상태 요약"
@@ -138,7 +156,7 @@ export function RealtimeStatusBanner({ stale, updatedAt, ws, executionNotice }: 
           value={noticeOk ? '구독 중' : '미구독'}
           detail={
             noticeOk
-              ? `${executionNotice.mode ?? '-'} · ${executionNotice.userIdMasked ?? '-'}`
+              ? `${noticeChannelLabel ?? executionNotice.mode ?? '-'} · ${executionNotice.userIdMasked ?? '-'}`
               : '체결 알림 경로 없음'
           }
           hint="체결 통보 구독 끊김 — 주문 체결 알림 정지. 실주문 체결이 화면에 안 뜰 수 있음."

@@ -12,7 +12,9 @@
  *
  * 순수 props 컴포넌트라 MSW 없이 직접 주입으로 분기만 검증한다.
  */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import type { ReactElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import type {
   RealtimeCandleFreshness,
@@ -25,6 +27,11 @@ import { RealtimeStatusBanner } from '../../components/admin/RealtimeStatusBanne
 import { RealtimeSlotGauge } from '../../components/admin/RealtimeSlotGauge'
 import { RealtimeSubscriptionTable } from '../../components/admin/RealtimeSubscriptionTable'
 import { RealtimeCandleFreshnessPanel } from '../../components/admin/RealtimeCandleFreshnessPanel'
+
+/** Link 를 쓰는 컴포넌트용 router 래퍼 render */
+function renderWithRouter(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 // ──────────────────────────────────────────────
 // fixture
@@ -111,37 +118,69 @@ describe('RealtimeStatusBanner', () => {
 // ──────────────────────────────────────────────
 
 describe('RealtimeSlotGauge', () => {
-  it('used/max 와 사용률을 표시한다', () => {
+  it('used/max 와 사용률 + trId 라벨·코드 병기를 표시한다', () => {
     const slots: RealtimeSlots = { used: 12, max: 40, byTrId: { H0STCNT0: 8, H0STASP0: 4 } }
-    render(<RealtimeSlotGauge slots={slots} />)
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/40/)).toBeInTheDocument()
     expect(screen.getByText(/30%/)).toBeInTheDocument()
-    // trId 분해 표시
+    // trId 코드 + 한국어 라벨 병기
     expect(screen.getByText('H0STCNT0')).toBeInTheDocument()
     expect(screen.getByText('H0STASP0')).toBeInTheDocument()
+    expect(screen.getByText('체결가')).toBeInTheDocument()
+    expect(screen.getByText('호가')).toBeInTheDocument()
+    // 채널 카운트 병기
+    expect(screen.getByText('8채널')).toBeInTheDocument()
+  })
+
+  it('trId 행 클릭 시 점유 종목 목록이 펼쳐진다 (drill-down)', () => {
+    const slots: RealtimeSlots = {
+      used: 2,
+      max: 40,
+      byTrId: { H0STCNT0: 2 },
+      channelsByTrId: {
+        H0STCNT0: [
+          { code: '005930', codeName: '삼성전자' },
+          { code: '000660', codeName: null },
+        ],
+      },
+    }
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
+    // 펼치기 전엔 종목명 미노출
+    expect(screen.queryByText('삼성전자')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /체결가/ }))
+    expect(screen.getByText('삼성전자')).toBeInTheDocument()
+    // codeName null 이면 코드만 (링크)
+    expect(screen.getByRole('link', { name: '000660' })).toBeInTheDocument()
+  })
+
+  it('구버전 스냅샷(channelsByTrId 없음)이면 상세 정보 없음을 표기한다', () => {
+    const slots: RealtimeSlots = { used: 8, max: 40, byTrId: { H0STCNT0: 8 } }
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
+    fireEvent.click(screen.getByRole('button', { name: /체결가/ }))
+    expect(screen.getByText(/상세 정보 없음 \(구버전 스냅샷/)).toBeInTheDocument()
   })
 
   it('사용률 90% 이상이면 고갈 임박 힌트가 뜬다', () => {
     const slots: RealtimeSlots = { used: 38, max: 40, byTrId: {} }
-    render(<RealtimeSlotGauge slots={slots} />)
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/슬롯 고갈 임박/)).toBeInTheDocument()
   })
 
   it('사용률 70~90% 면 사용률 높음 힌트가 뜬다', () => {
     const slots: RealtimeSlots = { used: 32, max: 40, byTrId: {} }
-    render(<RealtimeSlotGauge slots={slots} />)
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/슬롯 사용률 높음/)).toBeInTheDocument()
   })
 
   it('trId 점유가 없으면 정직하게 안내한다', () => {
     const slots: RealtimeSlots = { used: 0, max: 40, byTrId: {} }
-    render(<RealtimeSlotGauge slots={slots} />)
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/점유 중인 trId가 없습니다/)).toBeInTheDocument()
   })
 
   it('max=0 이어도 0 나눗셈 없이 0%로 처리한다', () => {
     const slots: RealtimeSlots = { used: 0, max: 0, byTrId: {} }
-    render(<RealtimeSlotGauge slots={slots} />)
+    renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/0%/)).toBeInTheDocument()
   })
 })
@@ -156,27 +195,45 @@ describe('RealtimeSubscriptionTable', () => {
       trId: 'H0STCNT0',
       code: '005930',
       codeName: '삼성전자',
-      owners: ['STRATEGY', 'detail'],
+      owners: ['strategy:86', 'detail:74683223'],
       since: '2026-06-12T09:01:00+09:00',
     },
   ]
 
-  it('구독 항목과 owner 배지를 렌더링한다 (대소문자 무관)', () => {
-    render(<RealtimeSubscriptionTable subscriptions={subs} />)
+  it('구독 항목과 인간화된 owner 배지·trId 라벨을 렌더링한다', () => {
+    renderWithRouter(<RealtimeSubscriptionTable subscriptions={subs} />)
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
     expect(screen.getByText('005930')).toBeInTheDocument()
-    // owner 배지 — 표기 그대로 노출
-    expect(screen.getByText('STRATEGY')).toBeInTheDocument()
-    expect(screen.getByText('detail')).toBeInTheDocument()
+    // trId 라벨 병기
+    expect(screen.getByText('체결가')).toBeInTheDocument()
+    // owner 배지 — 인간화 라벨
+    expect(screen.getByText('전략 #86')).toBeInTheDocument()
+    expect(screen.getByText('상세 보기 (74683223)')).toBeInTheDocument()
+  })
+
+  it('legacy 이중 prefix(strategy:strategy:86)를 collapse 해 표기한다', () => {
+    renderWithRouter(
+      <RealtimeSubscriptionTable
+        subscriptions={[{ ...subs[0], owners: ['strategy:strategy:86'] }]}
+      />,
+    )
+    // 중복 prefix 가 접혀 "전략 #86" 으로 (배지 + 범례 중복 가능 → getAllByText)
+    expect(screen.getAllByText('전략 #86').length).toBeGreaterThan(0)
+  })
+
+  it('종목명을 클릭하면 /symbol/:code 로 가는 링크다', () => {
+    renderWithRouter(<RealtimeSubscriptionTable subscriptions={subs} />)
+    const link = screen.getByRole('link', { name: /삼성전자/ })
+    expect(link).toHaveAttribute('href', '/symbol/005930')
   })
 
   it('빈 목록이면 정직하게 표기한다 (mock 0)', () => {
-    render(<RealtimeSubscriptionTable subscriptions={[]} />)
+    renderWithRouter(<RealtimeSubscriptionTable subscriptions={[]} />)
     expect(screen.getByText(/구독 중인 종목이 없습니다/)).toBeInTheDocument()
   })
 
   it('owner 가 없는 구독은 (owner 없음) 으로 표기한다', () => {
-    render(
+    renderWithRouter(
       <RealtimeSubscriptionTable
         subscriptions={[{ ...subs[0], owners: [] }]}
       />,
@@ -192,34 +249,44 @@ describe('RealtimeSubscriptionTable', () => {
 describe('RealtimeCandleFreshnessPanel', () => {
   it('180초 초과 항목이 있으면 경고 + 마감 동시호가 정상 힌트를 노출한다', () => {
     const items: RealtimeCandleFreshness[] = [
-      { code: '005930', interval: '1m', ageSeconds: 240 },
-      { code: '000660', interval: '1m', ageSeconds: 12 },
+      { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 240 },
+      { code: '000660', codeName: 'SK하이닉스', interval: '1m', ageSeconds: 12 },
     ]
-    render(<RealtimeCandleFreshnessPanel items={items} />)
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
     expect(screen.getByText(/시세 유입 정지 의심/)).toBeInTheDocument()
     expect(screen.getByText(/15:20 이후는 마감/)).toBeInTheDocument()
     expect(screen.getByText(/정체 1건/)).toBeInTheDocument()
+    // 종목명 표시
+    expect(screen.getByText('삼성전자')).toBeInTheDocument()
+  })
+
+  it('codeName 이 null 이면 코드만 표시한다', () => {
+    const items: RealtimeCandleFreshness[] = [
+      { code: '005930', codeName: null, interval: '1m', ageSeconds: 5 },
+    ]
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
+    expect(screen.getByRole('link', { name: /005930/ })).toHaveAttribute('href', '/symbol/005930')
   })
 
   it('모두 신선하면 경고가 없다', () => {
     const items: RealtimeCandleFreshness[] = [
-      { code: '005930', interval: '1m', ageSeconds: 5 },
+      { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 5 },
     ]
-    render(<RealtimeCandleFreshnessPanel items={items} />)
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
     expect(screen.queryByText(/시세 유입 정지 의심/)).not.toBeInTheDocument()
     expect(screen.getByText(/5초 전/)).toBeInTheDocument()
   })
 
   it('빈 목록이면 정직하게 표기한다 (mock 0)', () => {
-    render(<RealtimeCandleFreshnessPanel items={[]} />)
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={[]} />)
     expect(screen.getByText(/캔들 신선도 데이터가 없습니다/)).toBeInTheDocument()
   })
 
   it('경과 시간을 분/초 한국어로 포맷한다', () => {
     const items: RealtimeCandleFreshness[] = [
-      { code: '005930', interval: '1m', ageSeconds: 200 },
+      { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 200 },
     ]
-    render(<RealtimeCandleFreshnessPanel items={items} />)
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
     expect(screen.getByText(/3분 20초 전/)).toBeInTheDocument()
   })
 })

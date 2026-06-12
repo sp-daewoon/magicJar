@@ -11,6 +11,7 @@
  *
  * 경과 시간은 사람이 읽기 쉬운 한국어 포맷(초/분)으로 변환.
  */
+import { Link } from 'react-router-dom'
 import type { RealtimeCandleFreshness } from '../../api/adminRealtime'
 
 interface Props {
@@ -77,7 +78,16 @@ export function RealtimeCandleFreshnessPanel({ items }: Props) {
                 data-stale={isStale}
               >
                 <div className="min-w-0">
-                  <span className="font-mono text-xs text-gray-300">{it.code}</span>
+                  <Link
+                    to={`/symbol/${it.code}`}
+                    className="inline-flex max-w-full items-baseline gap-1.5 hover:underline"
+                    title={`${it.codeName ?? it.code} 상세 보기`}
+                  >
+                    {it.codeName && (
+                      <span className="truncate text-xs text-gray-100">{it.codeName}</span>
+                    )}
+                    <span className="font-mono text-xs text-blue-400">{it.code}</span>
+                  </Link>
                   <span className="ml-1.5 rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-400">
                     {it.interval}
                   </span>
