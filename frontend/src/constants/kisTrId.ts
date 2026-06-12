@@ -12,6 +12,7 @@
 
 /** trId → 한국어 라벨 (LOCK — 사용자 결재 명칭) */
 export const KIS_TR_ID_LABEL: Record<string, string> = {
+  H0UNCNT0: '체결가(통합)',
   H0STCNT0: '체결가',
   H0STASP0: '호가',
   H0NXCNT0: 'NXT 체결가',
