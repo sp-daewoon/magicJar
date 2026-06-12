@@ -369,3 +369,8 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 | **MOCK(모의) 주문 발행·취소** | 사후 보고로 충분 — 발행 즉시 사유·주문 ID·결과를 보고에 명시 |
 | **KillSwitch ON** (비상 차단) | **예외 — 즉시 실행** 후 보고 (자본 보호 방향이므로 지체 금지). OFF는 기존 룰대로 사용자 단독 결재 (R3 §3-2) |
 | 전략 자동매매의 REAL 주문 (시그널 경로) | 본 매트릭스 대상 아님 — canary/운영 결재(체크리스트·runbook)가 승인 권위 |
+
+## §13. 롱 온리 원칙 ref (2026-06-12 — 최고 관리자 결재)
+
+> **본문 권위 = [`docs/architecture/policies/long-only-trading.md`](../../docs/architecture/policies/long-only-trading.md)** (charter는 ref만 — policies 중복 처리 룰).
+> 요지: **magicJar에 공매도(숏)는 없다. 매도 = 항상 보유분 청산.** 전략 생성·매도/매수 로직·cap 설계·AI 추천 전부 이 전제를 따른다. BUY=가격 보호 / SELL=체결 보장 비대칭 원칙.

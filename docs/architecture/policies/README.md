@@ -25,6 +25,7 @@ magicJar는 **메타 룰**을 두 층위로 분리한다:
 
 | 영역 | 정책 | 위치 | 변경 빈도 |
 |------|------|------|----------|
+| **도메인** | 롱 온리(공매도 없음) 매매 원칙 | [long-only-trading.md](long-only-trading.md) | 낮음 |
 | **외부 통합** | KIS Credential 식별 규약 | [kis-credential-identity.md](kis-credential-identity.md) | 낮음 |
 | **외부 통합** | KIS-first raw fetch 의무 | [kis-first-raw-fetch.md](kis-first-raw-fetch.md) | 낮음 |
 | **운영** | 모듈별 로그 레벨 | [logging-levels.md](logging-levels.md) | 중간 |
