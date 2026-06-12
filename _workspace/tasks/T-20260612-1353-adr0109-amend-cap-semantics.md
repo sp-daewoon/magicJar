@@ -3,10 +3,10 @@ id: T-20260612-1353-adr0109-amend-cap-semantics
 agent: architect
 model: opus
 branch: docs/adr0109-amend-cap-semantics
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T13:53:35.555+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T14:00:19.531+09:00
+pr: #929
 parentPhase: ?
 ---
 
