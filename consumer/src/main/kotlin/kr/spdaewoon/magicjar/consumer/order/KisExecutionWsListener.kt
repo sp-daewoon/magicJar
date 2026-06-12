@@ -151,6 +151,15 @@ class KisExecutionWsListener(
      * 1. findByKisOrderNo == null 시 즉시 skip 대신 짧은 retry (50ms × 3회) — REST ACK 처리 race window 흡수
      * 2. retry 후에도 null이면 pre-insert 패턴 진입 ([preInsertOrderRequest]) — 후속 REST ACK이 동일 kisOrderNo update로 정합
      * 3. pre-insert 실패 시에도 graceful skip (자본 보호 — listener thread 안 죽이기 + log.error + audit)
+     *
+     * ### F7 — 취소 신규 ODNO 매핑 fallback (2026-06-12 라이브 incident · 최고 관리자 결재)
+     * KIS는 취소(TTTC0013U) 발행을 **별도 신규 주문번호**로 채번한다. 그 취소 통보(`CNTG_YN=1 ACPT_YN=3`)가
+     * WS로 돌아오면 `ODER_NO`(idx2)는 취소 신규번호이고 우리 DB에 없다. 기존 path는 즉시 pre-insert로 빠져
+     * 자기 취소를 **EXTERNAL 유령 행**으로 흡수했다(11:26 incident — orderId=292 WS_PREINSERT).
+     * 그러나 KIS는 같은 통보에 `OODER_NO`(idx3 = 원주문번호)를 함께 실어 보낸다. 따라서 주문/정정/취소/거부 통보
+     * (`CNTG_YN=1`)에 한해 odno miss 시 [findByOriginalOrderNo] 로 원주문을 fallback 조회해 자기 주문임을 회복한다.
+     * - 체결 통보(`CNTG_YN=2`)는 fallback 미적용 — 체결은 본인 ODNO 기준이라 원주문 오귀속 회귀 차단.
+     * - originalOdno 도 우리 DB에 없으면 = 진짜 외부 주문(한투앱 수동) → 기존 pre-insert 흡수 경로 그대로 보존.
      */
     fun processMessage(msg: KisExecutionMessage) {
         val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
@@ -165,11 +174,14 @@ class KisExecutionWsListener(
 
         // ADR 0084 P0-3 — race fix 1단계: short retry (50ms × 3회)
         // REST submit ACK 응답이 WS 통보보다 늦게 도달하는 race window 흡수.
-        val request = findOrderRequestWithRetry(orderRepo, msg.odno)
+        // F7 — null 시 취소 신규 ODNO 대비 OODER_NO fallback 시도 (CNTG_YN=1 통보 한정).
+        val request =
+            findOrderRequestWithRetry(orderRepo, msg.odno)
+                ?: findByOriginalOrderNo(orderRepo, msg)
 
         if (request == null) {
             // ADR 0084 P0-3 — race fix 2단계: pre-insert 패턴
-            // retry 후에도 못 찾으면 WS 통보가 진실원 → OrderRequest stub row INSERT.
+            // retry·OODER_NO fallback 모두 miss → 진짜 외부 주문 → WS 통보가 진실원 → OrderRequest stub row INSERT.
             // 후속 REST ACK 응답 시 OrderRouterKafkaListener step 8이 동일 kisOrderNo로 update 정합.
             val preInserted = preInsertOrderRequest(orderRepo, msg)
             if (preInserted == null) {
@@ -185,6 +197,51 @@ class KisExecutionWsListener(
         }
 
         dispatchByFlag(msg, request)
+    }
+
+    /**
+     * F7 — 취소 신규 ODNO 매핑 fallback (2026-06-12 라이브 incident fix · 최고 관리자 결재).
+     *
+     * KIS 취소 통보의 `ODER_NO`(취소 신규번호)는 우리 DB에 없으나 `OODER_NO`(원주문번호)는 우리가 발행한 원주문.
+     * 주문/정정/취소/거부 통보(`CNTG_YN=1`)에 한해 — 체결 통보(`CNTG_YN=2`)는 본인 ODNO 기준이므로 적용 제외 —
+     * odno miss 시 originalOdno 로 원주문을 조회해 자기 주문임을 회복한다.
+     *
+     * 반환:
+     *   원주문 hit  → 그 OrderRequest (caller가 dispatchByFlag로 CANCELLED/REJECTED 정상 종결)
+     *   조건 불충족·miss → null (caller가 진짜 외부 주문으로 보고 기존 pre-insert 흡수 경로 유지 — 회귀 0)
+     *
+     * raw 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (idx3 OODER_NO 원주문번호).
+     */
+    private fun findByOriginalOrderNo(
+        orderRepo: OrderRequestRepository,
+        msg: KisExecutionMessage,
+    ): OrderRequest? {
+        // 체결 통보(CNTG_YN=2)는 OODER_NO fallback 미적용 — 원주문 오귀속 회귀 차단.
+        if (msg.cntgYn != "1") return null
+        val originalOdno = msg.originalOdno.takeIf { it.isNotBlank() && it != msg.odno } ?: return null
+
+        val original =
+            try {
+                orderRepo.findByKisOrderNo(originalOdno)
+            } catch (e: Exception) {
+                log.error(
+                    "KisExecutionWsListener findByKisOrderNo(OODER_NO) 실패: odno={} oodno={} err={}",
+                    msg.odno,
+                    originalOdno,
+                    e.message,
+                )
+                null
+            } ?: return null
+
+        log.info(
+            "KisExecutionWsListener — 취소 신규 ODNO를 OODER_NO로 원주문 회복 (외부 흡수 차단): " +
+                "cancelOdno={} originalOdno={} orderId={} acptYn={}",
+            msg.odno,
+            originalOdno,
+            original.id,
+            msg.acptYn,
+        )
+        return original
     }
 
     /**
