@@ -27,6 +27,7 @@ import kr.spdaewoon.magicjar.domain.position.Position
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalOutcome
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
 import kr.spdaewoon.magicjar.domain.risk.port.RiskEventRepository
@@ -83,7 +84,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `BUY ALLOWED — risk budget 기반 주문 수량을 계산해서 order intent에 싣는다 (limit-enabled opt-in → LIMIT)`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -103,6 +104,79 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `F10 — capital 조회 불가(Unavailable)는 0 fabricate·POSITION_LIMIT 위반 없이 시그널을 skip한다`() {
+        // 14:12 incident 회귀: rate limit → capital 0 fabricate → "총자산 0원 × 70% = 한도 0원" POSITION_LIMIT 거짓 차단
+        //   + risk_event·Slack 위반 알람·AutoPause 카운트 오염. 본 hotfix는 capital 조회 불가를 위반이 아니라 skip 으로 종결.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Unavailable("KIS_RATE_LIMIT")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        // 1) skip audit(SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE) 만 발사 — 위반 경로 진입 0.
+        verify(exactly = 1) {
+            systemEventLogger.emit(match { it.action == "SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE" })
+        }
+        // 2) risk_event INSERT·violation publish·AutoPause·markBlocked·주문발행 전부 0 (POSITION_LIMIT 위반 없음).
+        verify(exactly = 0) { riskEventRepository.save(any()) }
+        verify(exactly = 0) { riskViolationKafkaProducer.publish(any(), any(), any()) }
+        verify(exactly = 0) { autoPauseGuard.checkAndPauseIfNeeded(any(), any()) }
+        verify(exactly = 0) { signalRiskStatusUpdater.markBlocked(any(), any(), any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        verify(exactly = 0) { signalRiskStatusUpdater.markAllowed(any()) }
+    }
+
+    @Test
+    fun `F10 — capital stale-cache(Available stale) 는 직전 잔고로 정상 평가한다 (skip 아님)`() {
+        // 재시도 실패했지만 유효 TTL 내 직전 성공 잔고가 있으면 그 값으로 정상 룰 평가 — 0 차단·skip 둘 다 아님.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns
+            CapitalOutcome.Available(BigDecimal("10000000"), stale = true)
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(entryLimitEnabled = true).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        // stale 직전 잔고(1천만)로 정상 ALLOWED → 20주 발행. skip audit·위반 0.
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) {
+            orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000"))
+        }
+        verify(exactly = 0) { systemEventLogger.emit(match { it.action == "SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE" }) }
+        verify(exactly = 0) { riskEventRepository.save(any()) }
+    }
+
+    @Test
+    fun `F10 — SELL 은 capital 조회 불가여도 skip·차단 없이 청산을 진행한다 (capital 불요)`() {
+        // SELL 은 청산·리스크 축소 액션 — 잔고조회 실패로 스킵/차단하면 포지션이 묶인다. capital 미상이어도 진행.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Unavailable("KIS_RATE_LIMIT")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "71000")), ack())
+
+        // SELL 청산 정상 발행 — skip audit·위반 0.
+        verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+        verify(exactly = 0) { systemEventLogger.emit(match { it.action == "SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE" }) }
+        verify(exactly = 0) { riskEventRepository.save(any()) }
+    }
+
+    @Test
     fun `incident 회귀 — RiskConfigRepository DB값(5M·70%)이 buildContext budget에 반영된다`() {
         // 2026-06-10 incident: consumer에 RiskConfigRepository 빈이 부재해 항상 defaultFor(1M·10%)만 평가 →
         //   사용자 DB risk_config(5M·70%)가 자동매매 경로에서 전면 무시되던 silent 배선 결함.
@@ -110,7 +184,7 @@ class SignalGeneratedKafkaListenerTest {
         //   (기존 BUY ALLOWED 테스트의 1M/10%는 20주 — 동일 capital·price에서 config가 수량을 가른다.)
         every { riskConfigRepository.getOrDefault("user-A", now) } returns
             sampleConfig(maxPositionAmount = BigDecimal("5000000"), maxPositionPercent = BigDecimal("70.00"))
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -131,7 +205,7 @@ class SignalGeneratedKafkaListenerTest {
     fun `incident 가드 — RiskConfigRepository 빈 부재(MOCK) → defaultFor(1M·10%) fallback (silent 아님)`() {
         // 빈 부재 시 buildContext가 defaultFor(1M/10%)로 fallback. MOCK은 graceful 진행하되 ERROR 로그로 가시화.
         // budget = min(1M, 10M×10%=1M)=1M → 1M/50000=20주.
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -182,7 +256,7 @@ class SignalGeneratedKafkaListenerTest {
         // 회귀 핵심: 과거엔 entry_policy=null이어도 marketable-limit 적용 → 호가 미가용 종목 NO_QUOTE 스킵 → BUY 0.
         // 정정: entry_policy 없는 전략은 MARKET 발행으로 즉시 진입 복구(NO_QUOTE 스킵 0).
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -203,7 +277,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `KillSwitch ON — risk 단계에서 BLOCKED 처리하고 order intent를 발행하지 않는다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -224,7 +298,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `KillSwitchQueryPort 미합류 — fail closed로 BLOCKED 처리한다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -244,7 +318,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL ALLOWED — 보유 수량 전체를 주문 수량으로 사용한다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -262,7 +336,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL 익절(contextJson LIMIT) — LIMIT 발행 (ADR 0114 §3-3·§5)`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -283,7 +357,7 @@ class SignalGeneratedKafkaListenerTest {
     fun `SELL 익절 LIMIT 지정가 산정 실패(exitLimitPrice 누락) — MARKET fallback 발행 (F8)`() {
         // 2026-06-12 F8 · 최고 관리자 결재: 매도는 지정가를 못 구하면 거부하지 않고 시장가로 던진다(체결 보장 우선).
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -303,7 +377,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL 익절 LIMIT 지정가 0(비정상) — MARKET fallback 발행 (F8)`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -321,7 +395,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL 손절(contextJson MARKET) — MARKET 발행`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -451,7 +525,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL BLOCKED — 내부 보유가 있어도 KIS 잔고에 없으면 주문 의도를 발행하지 않는다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -472,7 +546,7 @@ class SignalGeneratedKafkaListenerTest {
     @Test
     fun `SELL BLOCKED — KIS 잔고 조회 실패는 주문 전 차단하되 전략 auto-pause 누적은 제외한다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
@@ -507,14 +581,14 @@ class SignalGeneratedKafkaListenerTest {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.RISK_PLAN_REQUIRED, match { it.contains("MISSING_STOP") })
         }
         verify(exactly = 0) { riskPositionPort.findCurrentByUser(any()) }
-        verify(exactly = 0) { capitalSnapshotProvider.getCapital(any()) }
+        verify(exactly = 0) { capitalSnapshotProvider.capitalOutcome(any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
     }
 
     @Test
     fun `BUY ALLOWED — 단타형 RiskPlan은 익절 기준이 손절 기준 이하라도 차단하지 않는다`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -581,7 +655,7 @@ class SignalGeneratedKafkaListenerTest {
                 syncedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
             )
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -648,7 +722,7 @@ class SignalGeneratedKafkaListenerTest {
                 syncedAt = java.time.Instant.parse("2026-05-22T01:00:00Z"),
             )
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } throws IllegalStateException("DB down")
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
@@ -677,7 +751,7 @@ class SignalGeneratedKafkaListenerTest {
         // 결함 재현: 과거 ALLOWED 시점에 무조건 record → BUY Skip(호가 미가용 등)으로 발행 0건이어도 한도 차감.
         // 정정: 발행되지 않으면 record 호출 0(canary D2 — 거래 0인데 한도 5건 도달 차단 폭주 방지).
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -736,7 +810,7 @@ class SignalGeneratedKafkaListenerTest {
         }
         // 핵심: 차단 시 KIS 체결동기화·잔고 호출 0 + capital 조회 0(원장 TR 절약).
         verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
-        verify(exactly = 0) { capitalSnapshotProvider.getCapital(any()) }
+        verify(exactly = 0) { capitalSnapshotProvider.capitalOutcome(any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
     }
 
@@ -753,7 +827,7 @@ class SignalGeneratedKafkaListenerTest {
 
         verify(exactly = 1) { signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, any()) }
         verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
-        verify(exactly = 0) { capitalSnapshotProvider.getCapital(any()) }
+        verify(exactly = 0) { capitalSnapshotProvider.capitalOutcome(any()) }
     }
 
     @Test
@@ -761,7 +835,7 @@ class SignalGeneratedKafkaListenerTest {
         // 동일 (user·strategy·code·rule) SELL_WITHOUT_POSITION 매분 재발 시 STOMP 알람은 쿨다운 1회만(플러딩 완화).
         // risk_event DB·Kafka 는 매회 유지(감사 누락 0).
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList() // 미보유 → SELL_WITHOUT_POSITION
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -846,7 +920,7 @@ class SignalGeneratedKafkaListenerTest {
     /** SELL 경로 공통 stub — 보유 [positionQty]주(기본 7) + ALLOWED 통과(resting SELL 시나리오 전용). */
     private fun sellContext(positionQty: Int = 7) {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
-        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns
             listOf(Position(userId = "user-A", code = "005930", quantity = positionQty, avgPrice = BigDecimal("70000"), updatedAt = now))
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO

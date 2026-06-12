@@ -1,7 +1,5 @@
 package kr.spdaewoon.magicjar.domain.risk.port
 
-import java.math.BigDecimal
-
 /**
  * 평가 대상 전략의 출처에 따라 **실 자본 vs 가상(페이퍼) 자본** provider를 선택하는 계약
  * (ADR 0122 §2-C + spec §3-R1 "선택 분기 LOCK"). 순수 도메인 — Spring·enum 직접 의존 0.
@@ -32,16 +30,20 @@ import java.math.BigDecimal
  */
 fun interface CapitalSnapshotSelector {
     /**
-     * 평가 대상 전략의 [isPaper] 술어에 따라 자본 잔액을 산출한다.
+     * 평가 대상 전략의 [isPaper] 술어에 따라 자본 산출 **결과**([CapitalOutcome])를 반환한다.
+     *
+     * F10 hotfix(2026-06-12) — 반환 타입을 [BigDecimal] → [CapitalOutcome] 로 격상. 실 KIS 잔고조회는
+     * 실패(rate limit 등) 시 [CapitalOutcome.Unavailable] 로 "이번 시그널 skip"을 호출부에 전달한다
+     * (0 fabricate 금지). 페이퍼는 가상 자본이라 항상 [CapitalOutcome.Available].
      *
      * @param userId 평가 대상 사용자 식별자(실/페이퍼 동일 키 — 페이퍼는 가상 자본 seed 키로 재사용).
      * @param isPaper `true`면 페이퍼(`origin=PAPER_DISCOVERY`) 전략 — 가상 자본. `false`면 실 KIS 잔고.
-     * @return 선택된 provider의 자본 잔액. 음수 방지 책임은 각 provider 구현에 위임.
+     * @return 선택된 provider의 자본 산출 결과(값 또는 조회 불가). 음수 방지 책임은 각 provider 구현에 위임.
      */
     fun capitalFor(
         userId: String,
         isPaper: Boolean,
-    ): BigDecimal
+    ): CapitalOutcome
 
     companion object {
         /**
@@ -50,7 +52,8 @@ fun interface CapitalSnapshotSelector {
          * - [paperProvider]가 null이면 비페이퍼 전용 환경(페이퍼 비활성 `MAGICJAR_DAYTRADE_PAPER_ENABLED=false`)으로
          *   간주 — 비페이퍼(`isPaper=false`)는 정상 동작하고, 페이퍼(`isPaper=true`) 요청은
          *   [PaperCapitalProviderUnavailableException] fail-fast(헌법 §11 silent fallback 금지).
-         * - 비페이퍼 경로는 항상 [realProvider] — 기존 동작과 byte 동일(zero-regression).
+         * - 비페이퍼 경로는 항상 [realProvider]의 [CapitalSnapshotProvider.capitalOutcome] — F10 재시도·stale·skip 정책 적용.
+         * - 페이퍼 경로는 [PaperCapitalSnapshotProvider.getCapital]을 [CapitalOutcome.Available]로 감싼다(가상 자본 = 실패 개념 없음).
          */
         fun forStrategy(
             realProvider: CapitalSnapshotProvider,
@@ -58,12 +61,10 @@ fun interface CapitalSnapshotSelector {
         ): CapitalSnapshotSelector =
             CapitalSnapshotSelector { userId, isPaper ->
                 if (isPaper) {
-                    (
-                        paperProvider
-                            ?: throw PaperCapitalProviderUnavailableException(userId)
-                    ).getCapital(userId)
+                    val paper = paperProvider ?: throw PaperCapitalProviderUnavailableException(userId)
+                    CapitalOutcome.Available(capital = paper.getCapital(userId), stale = false)
                 } else {
-                    realProvider.getCapital(userId)
+                    realProvider.capitalOutcome(userId)
                 }
             }
     }

@@ -239,6 +239,11 @@ magicjar:
       bucket-ttl-seconds: 10
       acquire-poll-interval-millis: 50
     balance-rate-limit-backoff-millis: ${MAGICJAR_KIS_BALANCE_RATE_LIMIT_BACKOFF_MS:1000}
+    # F10 (2026-06-12) — 잔고조회 rate limit 시 backoff 재시도 횟수 (KIS per-TR 1/s 고려). 소진 시 stale-cache·skip.
+    balance-rate-limit-max-retries: ${MAGICJAR_KIS_BALANCE_RATE_LIMIT_MAX_RETRIES:2}
+  # F10 (2026-06-12) — 주문경로 capital 산출 정책. 조회 실패 시 직전 성공 잔고(stale)를 이 TTL 내에서 재사용(0 fabricate 금지).
+  risk:
+    capital-stale-cache-ttl-minutes: ${MAGICJAR_RISK_CAPITAL_STALE_CACHE_TTL_MINUTES:5}
   # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
   yahoo:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}

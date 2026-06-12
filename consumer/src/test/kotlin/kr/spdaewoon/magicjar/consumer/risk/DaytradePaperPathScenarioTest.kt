@@ -27,7 +27,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.RiskEvent
-import kr.spdaewoon.magicjar.domain.risk.RiskRule
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalOutcome
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.risk.port.PaperCapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
@@ -65,8 +65,9 @@ import java.util.concurrent.CompletableFuture
  *   provider + `<userId>:paper` RiskConfig 키로 RiskGateway 평가 → 가상 자본 예산 기반 주문. 실
  *   CapitalSnapshotProvider(KIS 잔고) **미호출**(오염 0 — spec §1-3).
  * - **S-3 fail-fast**: 페이퍼 전략인데 PaperCapitalSnapshotProvider 미배선 → CapitalSnapshotSelector가
- *   `PaperCapitalProviderUnavailableException` → 실 잔고 silent 폴백 0(헌법 §11). MOCK이므로 capital 0
- *   fail-safe → POSITION_LIMIT BLOCKED(주문 0). 실 provider 미호출 검증.
+ *   `PaperCapitalProviderUnavailableException` → 실 잔고 silent 폴백 금지(헌법 §11). **F10(2026-06-12)**:
+ *   과거 capital 0 fabricate → POSITION_LIMIT BLOCKED 였으나, 조회 불가를 0 으로 위장 금지 → BUY 시그널
+ *   skip(SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE audit, 위반·주문 0). 실 provider 미호출 검증.
  * - **S-4 격리(zero-regression)**: 같은 user의 USER_DSL 전략은 항상 실 capital 경로 + `<userId>` 실 키.
  *   페이퍼 provider **미호출** — 비페이퍼 동작 byte 동일.
  * - **S-6 키 사슬**: 페이퍼 시그널 파생 주문 intent는 `orderTrigger=STRATEGY_SIGNAL` + `triggerRefId=signalId`
@@ -167,9 +168,11 @@ class DaytradePaperPathScenarioTest {
     // ── S-3 fail-fast — paper provider 미배선 ─────────────────────────────────
 
     @Test
-    fun `S-3 페이퍼 전략인데 paper provider 미배선이면 실 잔고 폴백 0 + capital 0 fail-safe로 BUY 차단`() {
+    fun `S-3 페이퍼 전략인데 paper provider 미배선이면 실 잔고 폴백 0 없이 BUY 시그널 skip(F10 — 0 fabricate 금지)`() {
         // CapitalSnapshotSelector.forStrategy(real, null)가 페이퍼 요청에 PaperCapitalProviderUnavailableException →
-        // buildContext capital 분기가 실 폴백 없이 capital 0(MOCK fail-safe) → POSITION_LIMIT BLOCKED.
+        // buildContext capital 분기가 실 폴백 없이 조회 불가로 간주.
+        // F10(2026-06-12 결재) 변경: 과거엔 capital 0 fabricate → POSITION_LIMIT BLOCKED 였으나, "조회 불가"를 0 으로
+        //   위장하는 것이 14:12 incident 의 근본이었다. 이제 BUY capital 불가는 위반이 아니라 skip(audit) 으로 종결한다.
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(paperStrategy())
         every { riskConfigRepository.getOrDefault("user-A:paper", now) } returns paperConfig()
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
@@ -182,13 +185,14 @@ class DaytradePaperPathScenarioTest {
         // paperProvider 미배선(null) — 페이퍼 비활성 환경 재현.
         listener(paperProvider = nullableProvider()).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
-        // capital 0 → POSITION_LIMIT(unitCost > remainingBudget=0) BLOCKED. 주문 0.
-        verify(exactly = 1) {
-            signalRiskStatusUpdater.markBlocked(77L, RiskRule.POSITION_LIMIT, any())
-        }
+        // F10 — capital 조회 불가 → skip audit 만. POSITION_LIMIT 위반 평가·주문 0.
+        verify(exactly = 1) { systemEventLogger.emit(match { it.action == "SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE" }) }
+        verify(exactly = 0) { signalRiskStatusUpdater.markBlocked(any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
         // 헌법 §11 — 페이퍼 fail-fast가 실 KIS 잔고로 silent 폴백하지 않는다(오염 0).
         verify(exactly = 0) { realCapitalProvider.getCapital(any()) }
+        verify(exactly = 0) { realCapitalProvider.capitalOutcome(any()) }
     }
 
     // ── S-4 격리 — USER_DSL 전략은 항상 실 capital 경로(zero-regression) ────────
@@ -198,7 +202,7 @@ class DaytradePaperPathScenarioTest {
         // origin=USER_DSL(default) — isPaper=false → 실 키("user-A") + 실 capital provider. 페이퍼 경로 자원 0.
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(userDslStrategy())
         every { riskConfigRepository.getOrDefault("user-A", now) } returns realConfig()
-        every { realCapitalProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { realCapitalProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -212,7 +216,8 @@ class DaytradePaperPathScenarioTest {
         // 실 capital 1천만 + 실 config(1M/10%) → 20주.
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.MARKET, null) }
         // zero-regression — USER_DSL은 실 capital provider만 쓰고 페이퍼 provider는 건드리지 않는다.
-        verify(exactly = 1) { realCapitalProvider.getCapital("user-A") }
+        // F10 — 주문경로 capital 산출은 capitalOutcome 경로(0 fabricate 금지).
+        verify(exactly = 1) { realCapitalProvider.capitalOutcome("user-A") }
         verify(exactly = 0) { paperCapitalProvider.getCapital(any()) }
         // 파생 키("user-A:paper") config 조회 0 — 실 키만.
         verify(exactly = 0) { riskConfigRepository.getOrDefault("user-A:paper", any()) }
