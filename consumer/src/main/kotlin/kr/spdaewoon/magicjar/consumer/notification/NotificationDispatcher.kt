@@ -65,6 +65,18 @@ class NotificationDispatcher(
         const val RISK_REPEAT_COOLDOWN_WINDOW_MIN = 15
 
         private val RISK_REPEAT_COOLDOWN_RULES = setOf("POSITION_LIMIT", "SELL_WITHOUT_POSITION")
+
+        /**
+         * Slack 발송 제외 리스크 룰 set (2026-06-12 최고 관리자 결재).
+         *
+         * 진보 페르소나 (ADR 0087):
+         *   - 💡 보유 0 매도 차단(`SELL_WITHOUT_POSITION`)은 order intent·KIS 접수 이전 단계에서 종결되는
+         *     **확정적 가드** — 사용자 행동을 요하지 않으므로 Slack 알림 불요(오늘 62건 차단 → 주문 0건).
+         *   - ✨ 하드코딩 1종 제외 대신 set 상수화 — 향후 동일 성격 룰 추가 시 한 곳만 보강(과개발 회피).
+         *   - 제외는 **Slack 채널 한정** — `risk_event` DB 기록·Kafka·STOMP 화면 표시는 별도 경로
+         *     (ConsumerRiskEventJpaAdapter·RiskViolationKafkaProducer·StompRiskNotifier)에서 유지(감사 추적 보존).
+         */
+        private val SLACK_MUTED_RISK_RULES = setOf("SELL_WITHOUT_POSITION")
     }
 
     // --- 7 @KafkaListener ---
@@ -205,6 +217,15 @@ class NotificationDispatcher(
         eventType: NotificationEventType,
         raw: Map<String, Any?>,
     ): Boolean {
+        if (eventType == NotificationEventType.RISK_VIOLATION && isSlackMutedRisk(raw)) {
+            // Slack 채널만 제외 — DB·Kafka·STOMP 는 별도 경로에서 이미 처리됨(감사 추적 보존).
+            log.debug(
+                "NotificationDispatcher Slack 제외 룰 — userId={} rule={}",
+                userId.take(4) + "****",
+                raw["rule"],
+            )
+            return false
+        }
         if (eventType == NotificationEventType.RISK_VIOLATION && isCooldownRisk(raw)) {
             val rateLimiter = rateLimiterProvider.getIfAvailable() ?: return true
             val cooldownKey = riskCooldownTopicHash(raw)
@@ -427,6 +448,13 @@ class NotificationDispatcher(
             ?.toString()
             ?.uppercase()
             ?.let { it in RISK_REPEAT_COOLDOWN_RULES }
+            ?: false
+
+    private fun isSlackMutedRisk(raw: Map<String, Any?>): Boolean =
+        raw["rule"]
+            ?.toString()
+            ?.uppercase()
+            ?.let { it in SLACK_MUTED_RISK_RULES }
             ?: false
 
     private fun riskCooldownTopicHash(raw: Map<String, Any?>): String =
