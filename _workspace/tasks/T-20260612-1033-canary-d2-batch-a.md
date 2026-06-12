@@ -3,10 +3,10 @@ id: T-20260612-1033-canary-d2-batch-a
 agent: backend-core
 model: opus
 branch: hotfix/canary-d2-batch-a
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T10:33:00.469+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T10:53:52.492+09:00
+pr: #925
 parentPhase: ?
 ---
 
