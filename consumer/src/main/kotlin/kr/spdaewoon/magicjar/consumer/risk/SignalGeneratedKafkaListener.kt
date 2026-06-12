@@ -288,6 +288,22 @@ class SignalGeneratedKafkaListener(
         val isTakeProfitLimit =
             exit != null && exit.priceType == OrderPriceType.LIMIT && exit.limitPrice != null && exit.limitPrice > BigDecimal.ZERO
 
+        // F8 (2026-06-12 · 최고 관리자 결재) — 매도 LIMIT을 의도했으나 지정가 산정이 실패(평단·트리거 가격 미산정으로
+        // exitLimitPrice null/0)한 경우, 매도는 체결 보장이 우선이므로 거부하지 않고 MARKET으로 떨어진다. 결재 문구:
+        // "지정가를 어디 둘지 정하려고 조회한 거라면 조회 실패 시 그냥 시장가로 던져버리는 거지." 아래 분기에서 자연
+        // MARKET 발행(§3-3)되지만, 그 fallback이 "의도적 손절 MARKET"인지 "익절 LIMIT 산정 실패 MARKET"인지
+        // 운영자가 구분할 수 있도록 가시화한다. (매수 진입의 시장가 fallback 금지(ADR 0114 §3-1-5)는 불변 — 본
+        // fallback은 SELL 방향 한정.)
+        if (exit != null && exit.priceType == OrderPriceType.LIMIT && !isTakeProfitLimit) {
+            log.info(
+                "SELL 지정가 산정 실패 → MARKET fallback (F8 — 매도는 체결 보장 우선): signalId={} code={} qty={} exitLimitPrice={}",
+                signal.id,
+                signal.code,
+                quantity,
+                exit.limitPrice,
+            )
+        }
+
         val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
         if (orderRepo == null) {
             // fail-closed — resting SELL 검사 불가 시 SELL 발행 보류(이중 SELL·수량 잠금 충돌 회피).
@@ -340,7 +356,7 @@ class SignalGeneratedKafkaListener(
             orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, exit.limitPrice)
             return true
         }
-        // 손절(MARKET) 또는 exit 정보 부재 — 체결 확실성 우선 MARKET(§3-3).
+        // 손절(MARKET) / exit 정보 부재 / 익절 LIMIT 지정가 산정 실패(F8 fallback) — 체결 확실성 우선 MARKET(§3-3).
         orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
         return true
     }

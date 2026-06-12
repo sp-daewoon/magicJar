@@ -697,9 +697,18 @@ class OrderRouterKafkaListener(
      * - MOCK 모드: 전체 비활성 (ENV 무관) — canary는 REAL 안전선이므로.
      * - REAL 모드: 각 ENV `> 0` 일 때만 해당 cap 활성. `≤ 0`(미설정 포함)이면 통과 = 일반 REAL 운용.
      *
-     * ### 3 cap (ADR 0109 §2 표)
-     * 1. `MAGICJAR_CANARY_MAX_ORDER_QTY` — 주문 1건 수량 절대 상한 → reason `CANARY_QTY_CAP`
-     * 2. `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` — 주문 1건 notional(qty × price) 절대 상한 → `CANARY_NOTIONAL_CAP`
+     * ### SELL 전면 면제 (2026-06-12 F8 hotfix · 최고 관리자 결재 LOCK)
+     * **숏(공매도) 부재** — 매도는 보유 수량이 자연 상한이다. canary cap은 본질적으로 "매수가 실수로 과대 노출되는
+     * 것"을 막는 진입 안전선이며, 매도(익절·손절·DSL 청산·수동 청산)는 신호가 나오면 팔면 끝인 청산 행위다. 결재
+     * 문구: "매수일 때나 이런 룰인 거지 매도나 익절 손절일 때는 이 조건을 보면 안 돼. 우리 시스템에는 숏이 없어.
+     * 매도는 신호 나오면 팔면 끝." 따라서 `side == SELL`이면 **QTY·NOTIONAL cap 검사를 전부 건너뛴다**(매수는 현행
+     * 유지). MAX_ORDERS_PER_DAY는 이미 BUY-only(PR #927). 라이브 13:31 incident — 수동 시장가 SELL이
+     * NOTIONAL cap의 `PRICE_UNAVAILABLE`(시장가 매도 금액 검증용 현재가 조회 실패 → fail-closed)로 거부되어
+     * **청산이 차단**된 자본 보호 역전을 본 면제가 닫는다.
+     *
+     * ### 3 cap (ADR 0109 §2 표 · BUY 한정)
+     * 1. `MAGICJAR_CANARY_MAX_ORDER_QTY` — 주문 1건 수량 절대 상한 → reason `CANARY_QTY_CAP` (BUY only)
+     * 2. `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` — 주문 1건 notional(qty × price) 절대 상한 → `CANARY_NOTIONAL_CAP` (BUY only)
      *    - price source: LIMIT은 `limitPrice`, MARKET은 `priceAtSignal` (ADR 0109 §2-5).
      *    - 둘 다 null/0 이하면 notional 산정 불가 → fail-closed로 차단(`CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE`).
      * 3. `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` — 당일(KST) BUY 주문 횟수 전역 상한 → `CANARY_DAILY_ORDER_CAP`
@@ -707,7 +716,7 @@ class OrderRouterKafkaListener(
      *      ≥ cap 이면 차단. SELL(익절·손절·DSL 청산)은 cap 무관 — 매수 cap 도달 후 청산이 거부되는
      *      자본 보호 역전 차단(2026-06-12 라이브 incident · 최고 관리자 결재: "왕복 1회 = 1카운트").
      *
-     * @return 차단 시 reject reason 문자열, 통과(또는 비활성) 시 null.
+     * @return 차단 시 reject reason 문자열, 통과(또는 비활성·SELL 면제) 시 null.
      */
     internal fun evaluateCanaryHardCap(
         intent: OrderIntent,
@@ -715,12 +724,25 @@ class OrderRouterKafkaListener(
     ): String? {
         if (mode != TradingMode.REAL) return null
 
-        // cap 1 — 수량 상한
+        // SELL 전면 면제 (F8 — 숏 부재로 매도는 보유량이 자연 상한). QTY·NOTIONAL cap을 건너뛴다.
+        // (MAX_ORDERS_PER_DAY는 cap 3 내부에서 이미 BUY-only count — 본 early return으로 일관 표현.)
+        if (intent.side == OrderSide.SELL) {
+            log.debug(
+                "CanaryHardCap SELL 면제 (숏 부재 — 매도 청산은 cap 무관): userId={} signalId={} code={} qty={}",
+                intent.userId,
+                intent.signalId,
+                intent.code,
+                intent.quantity,
+            )
+            return null
+        }
+
+        // cap 1 — 수량 상한 (BUY only)
         if (canaryMaxOrderQty > 0 && intent.quantity > canaryMaxOrderQty) {
             return "CANARY_QTY_CAP:${intent.quantity}>$canaryMaxOrderQty"
         }
 
-        // cap 2 — notional 상한 (qty × price)
+        // cap 2 — notional 상한 (qty × price) (BUY only — SELL은 위에서 early return)
         if (canaryMaxOrderNotionalKrw > 0) {
             val unitPrice = canaryNotionalPrice(intent)
             if (unitPrice == null || unitPrice <= BigDecimal.ZERO) {

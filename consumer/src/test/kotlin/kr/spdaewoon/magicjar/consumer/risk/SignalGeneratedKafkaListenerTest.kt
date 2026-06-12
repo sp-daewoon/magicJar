@@ -280,6 +280,45 @@ class SignalGeneratedKafkaListenerTest {
     }
 
     @Test
+    fun `SELL 익절 LIMIT 지정가 산정 실패(exitLimitPrice 누락) — MARKET fallback 발행 (F8)`() {
+        // 2026-06-12 F8 · 최고 관리자 결재: 매도는 지정가를 못 구하면 거부하지 않고 시장가로 던진다(체결 보장 우선).
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        // exitPriceType=LIMIT 의도였으나 exitLimitPrice 미산정(평단·트리거 가격 조회 실패) → MARKET fallback.
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT"))
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), OrderPriceType.LIMIT, any()) }
+    }
+
+    @Test
+    fun `SELL 익절 LIMIT 지정가 0(비정상) — MARKET fallback 발행 (F8)`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT", "exitLimitPrice" to "0"))
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+    }
+
+    @Test
     fun `SELL 손절(contextJson MARKET) — MARKET 발행`() {
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
         every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
