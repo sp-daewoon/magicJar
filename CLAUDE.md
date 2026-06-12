@@ -23,7 +23,7 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 - 기존 방향을 바꾸는 변경은 작은 버그 수정처럼 처리하지 않는다. 대안·위험·마이그레이션·롤백 가능성을 정리하고 사용자 확인 또는 ADR/spec 갱신을 거친다.
 - 불필요한 대규모 재작성보다 현 구조 위에 보수적으로 보강하는 경로를 우선한다.
 - 실시간 시세 수요를 watchlist 단순 합집합으로 다루지 않는다. watchlist는 사용자가 고정해서 보는 목록이고, 종목 상세 진입은 `DETAIL`, 스크리너/전략 후보는 `STRATEGY` owner로 TTL·우선순위가 분리된 KIS WS 수요여야 한다. 전략 후보를 watchlist에 자동 삽입하지 않는다.
-- 종목 상세 화면은 watchlist 등록 여부와 무관하게 KIS WS 현재가·진행 중 캔들 close를 요청해야 한다. REST는 bootstrap/backfill/fallback이며 장중 실시간 권위는 KIS WS tick이다. **호가(H0STASP0)는 종목 상세에서 구독하지 않는다** — 호가는 전략 ACTIVE 매매 경로(STRATEGY owner, marketable limit 진입가 산정)에서만 구독한다(2026-06-12 결정, anchor `detail-orderbook-removal`).
+- 종목 상세 화면은 watchlist 등록 여부와 무관하게 KIS WS 현재가·진행 중 캔들 close를 요청해야 한다. REST는 bootstrap/backfill/fallback이며 장중 실시간 권위는 KIS WS tick이다. **호가(H0STASP0)는 ① 전략 ACTIVE 매매 경로(STRATEGY owner, marketable limit 진입가 산정) ② 종목 상세 화면 표시 중(DETAIL owner — 진입 시 구독, 이탈 즉시 해제) 두 경로에서만 구독한다**(2026-06-12 재결정, anchor `detail-orderbook-live-only`). DETAIL 호가는 보기용 합집합/LRU 잔류로 슬롯을 누적 잠식하지 않고 현재 보는 종목만 점유하며, EXIT 누락(브라우저 강제 종료) 대비 15분 idle 안전망을 둔다. 같은 종목을 두 owner가 요구하면 단일 H0STASP0 구독을 공유한다.
 
 ### FVG / OrderBlock 작업 가드
 

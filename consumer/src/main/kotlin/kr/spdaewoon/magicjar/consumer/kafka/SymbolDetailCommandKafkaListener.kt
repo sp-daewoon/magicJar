@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.ingestion.OrderbookSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeDemandOwner
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseCache
@@ -15,13 +16,14 @@ import org.springframework.stereotype.Component
  * symbol.detail.command.v1 Kafka consumer — 종목 상세 실시간 slot 라이프사이클 (ADR 0048 §2-1).
  *
  * payload: {"action": "ENTER"|"EXIT", "code": "005930", "userId": "...", "ts": "..."}
- * - ENTER → RealtimeSubscriptionRouter DETAIL(현재가) + universe 기록 + 분봉 gap-fill
- * - EXIT  → RealtimeSubscriptionRouter DETAIL(현재가) release
+ * - ENTER → RealtimeSubscriptionRouter DETAIL(현재가) + OrderbookSubscriptionRouter DETAIL(호가) + universe 기록 + 분봉 gap-fill
+ * - EXIT  → RealtimeSubscriptionRouter DETAIL(현재가) release + OrderbookSubscriptionRouter DETAIL(호가) 즉시 해제
  *
- * ## 호가(H0STASP0) DETAIL 경로 제거 (2026-06-12 — anchor `detail-orderbook-removal`)
- * 종목 상세 진입 시 호가창을 구독하던 경로([OrderbookSubscriptionRouter.onSymbolDetailEntered/Exited])는
- * 최고 관리자 결재로 제거됐다. 호가는 전략 ACTIVE 매매 경로(STRATEGY owner)에서만 구독된다
- * (ActiveStrategyDemandRegistrar). **현재가(H0STCNT0) DETAIL 구독은 불변** — 본 listener의 핵심 책임이다.
+ * ## 호가(H0STASP0) DETAIL 경로 — 표시 중에만 복원 (2026-06-12 — anchor `detail-orderbook-live-only`)
+ * 종목 상세 진입 시 호가 구독은 #939에서 전면 제거됐다가, 수동매매 시 호가가 필요하다는 최고 관리자 결재로
+ * **표시 중에만** 방식으로 부분 복원됐다([OrderbookSubscriptionRouter.onSymbolDetailEntered/Exited] —
+ * 진입 즉시 구독 / 이탈 즉시 해제, 옛 LRU·debounce·5분 idle 잔류 폐기). 같은 종목 STRATEGY demand와 단일
+ * 구독을 공유한다(F11 공존). **현재가(H0STCNT0) DETAIL 구독은 불변** — 본 listener의 핵심 책임이다.
  *
  * groupId: magicjar-consumer-symbol-detail
  * manual ack (MANUAL_IMMEDIATE)
@@ -34,6 +36,7 @@ import org.springframework.stereotype.Component
 class SymbolDetailCommandKafkaListener(
     private val objectMapper: ObjectMapper,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
+    private val orderbookSubscriptionRouter: OrderbookSubscriptionRouter,
     private val universeCache: ManagedCandleUniverseCache,
     private val minuteGapFillService: SymbolDetailMinuteGapFillService,
 ) {
@@ -73,6 +76,8 @@ class SymbolDetailCommandKafkaListener(
                         ownerId = ownerId,
                         code = code,
                     )
+                    // 호가(H0STASP0) — 상세 표시 중에만 구독 (anchor `detail-orderbook-live-only`).
+                    orderbookSubscriptionRouter.onSymbolDetailEntered(code)
                     universeCache.recordDetail(code)
                     minuteGapFillService.submitIfNeeded(code)
                 }
@@ -82,6 +87,8 @@ class SymbolDetailCommandKafkaListener(
                         ownerId = ownerId,
                         code = code,
                     )
+                    // 호가 — 이탈 즉시 해제(STRATEGY demand 남으면 단일 구독 유지).
+                    orderbookSubscriptionRouter.onSymbolDetailExited(code)
                 }
                 else -> log.warn("알 수 없는 action: {} — 무시", action)
             }
