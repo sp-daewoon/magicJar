@@ -8,7 +8,8 @@
 - 2026-05-20 갱신 (ADR 0091): **KOSPI=UN/KOSDAQ=J market-level 분기 폐기**. NXT 후보 종목(`is_kospi200` 또는 `is_kosdaq150`)은 `UN` 우선 + `J` fallback, 그 외는 `J` 기본값.
 - 2026-05-31 갱신: **3m·4h·12h 합산 interval 정규 편입 + 사용자 재수집(recollect) path 추가**. 스크리닝은 야간 전용이 아니라 사용자가 언제든 실행하는 기능이며, 1차 broad screening 기본 기준봉은 1d, 2차/사용자 선택 기준봉은 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y 중 선택 가능. 잘못 모인 캔들은 mock 보정 없이 DB row 삭제 후 KIS 원천 재수집, 합산봉은 1m 재수집 후 `CandleAggregator` 재생성.
 - 2026-05-31 갱신: **실시간 수요 owner 분리**. Watchlist는 사용자 고정 목록, SymbolDetail은 `DETAIL` owner, Screener/Strategy 후보는 `STRATEGY` owner TTL 수요다. 후보군을 watchlist에 자동 합치지 않는다. 장중 현재가·모든 기준봉 마지막 close는 KIS WS tick 기반 Redis current candle이 권위다.
-- 2026-06-12 갱신 (anchor `detail-orderbook-removal`): **종목 상세 호가(H0STASP0) 구독 제거**. 호가는 사용자가 보기 위한 데이터가 아니라 전략 ACTIVE 매매 경로(STRATEGY owner, marketable limit 진입가 산정)에서만 필요하다. SymbolDetail DETAIL owner는 현재가·진행 중 캔들 close만 요청한다. `OrderbookSubscriptionRouter`는 STRATEGY owner 전용으로 단일화(LRU 10 slot·debounce·idle timeout 제거 → 호가 slot 예산이 전략 ACTIVE 종목 수로 수렴).
+- 2026-06-12 갱신 (anchor `detail-orderbook-removal`): **종목 상세 호가(H0STASP0) 구독 제거** — 호가는 전략 ACTIVE 매매 경로(STRATEGY owner) 전용으로 단일화. (※ 아래 `detail-orderbook-live-only`로 부분 복원됨.)
+- 2026-06-12 재결정 (anchor `detail-orderbook-live-only`): **종목 상세 호가(H0STASP0)를 "표시 중에만" 방식으로 부분 복원**. 수동매매 시 호가 없이 주문하면 안 된다는 최고 관리자 결재. 옛 LRU 10 slot·debounce·5분 idle 잔류 방식이 아니라 **진입 시 구독 / 이탈 즉시 해제**(현재 보는 종목만 슬롯 점유 — 보기용 합집합 잠식 차단). 호가 owner는 ① STRATEGY(전략 ACTIVE, marketable limit 진입가 산정) ② DETAIL(종목 상세 표시 중) 두 경로다. 같은 종목을 두 owner가 요구하면 단일 H0STASP0 구독을 공유하고 모든 owner가 빠질 때만 unsub(F11 패턴). EXIT 누락(브라우저 강제 종료) 대비 DETAIL 호가 한정 15분 idle 안전망(현재가 DETAIL grace 5분보다 길게). `OrderbookSubscriptionRouter`는 STRATEGY + DETAIL 두 owner를 추적한다.
 - 2026-05-31 갱신 (ADR 0105): **캔들 Reconciliation + 장기 1m 보관/복구 정책**. 1m은 기본 최근 6개월 거래일, admin/manual 최대 1년을 목표로 하고, 지난 gap은 KIS `FHKST03010230`로 복구한다. 자동매매는 data readiness `READY`가 아니면 전략 평가와 주문 발행을 skip/fail-closed 한다.
 - 2026-06-01 갱신 (ADR 0105 amend): **실전 운용 시나리오 acceptance matrix 추가**. A→B→A 재진입 gap fill, 3일 off 후 boot managed universe reconciliation, 3일 1m gap 자동 복구+합산봉 재생성, 1년 초과 1m 복구 불가, 자동매매 data readiness fail-closed, 장기 backfill progress streaming 원칙을 LOCK.
 - 2026-06-01 갱신: **합산 interval boundary 문서/구현 NXT 통합 재정렬**. 3m·5m·15m·30m·90m·1h·4h·12h boundary는 KRX 09:00~15:30 고정이 아니라 NXT 통합 08:00~20:00 기준이다. KRX-only 종목은 해당 구간에 실제 1m tick/bar가 없으면 빈 구간으로 남기며 mock 합성하지 않는다.
@@ -143,7 +144,8 @@ consumer WatchlistChangedKafkaListener
 사용자 /symbol/{code} 진입 시:
   - POST /api/symbols/{code}/realtime/subscribe → symbol.detail.command.v1
   - consumer RealtimeSubscriptionRouter DETAIL owner → KIS WS 현재가(H0STCNT0/H0NXCNT0)
-  - 호가(H0STASP0)는 종목 상세에서 구독하지 않음 (2026-06-12 제거 — 전략 ACTIVE 경로 전용)
+  - consumer OrderbookSubscriptionRouter DETAIL owner → KIS WS 호가(H0STASP0) — 표시 중에만 구독, 이탈 즉시 해제
+    (2026-06-12 재결정 `detail-orderbook-live-only` — 전략 ACTIVE + 종목 상세 표시 중 두 경로, 15분 idle 안전망)
   - SymbolDetailMinuteGapFillService → 마지막 DB 1m 이후 현재 직전분까지 REST gap fill queue
   - 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y → DB + Redis current 합류
   - watchlist에 없는 종목이어도 현재가·마지막 close 실시간 갱신 가능
@@ -185,7 +187,8 @@ flowchart TD
     F --> R
 
     R --> K["KIS WS 현재가 H0STCNT0 / H0NXCNT0"]
-    F --> O["KIS WS 호가 H0STASP0 (STRATEGY owner 전용 — 2026-06-12 DETAIL 제거)"]
+    F --> O["KIS WS 호가 H0STASP0 (STRATEGY + DETAIL 표시 중 — 2026-06-12 detail-orderbook-live-only)"]
+    E --> O
 
     K --> Q["quote:last:{code}"]
     K --> C["candle:current:{code}:{interval}"]
@@ -300,8 +303,8 @@ KIS WS tick 도달 (08:00~20:00 KST NXT cover)
 |---|---|---|
 | `consumer/.../kafka/WatchlistChangedKafkaListener.kt` | Kafka 진입점 | watchlist.changed.v1 수신 → ColdStartExecutor.submit(code) |
 | `consumer/.../kafka/RealtimeDemandKafkaListener.kt` | 전략 후보 실시간 수요 진입점 | market.realtime.demand.v1 수신 → STRATEGY owner KIS WS 수요 |
-| `consumer/.../kafka/SymbolDetailCommandKafkaListener.kt` | 종목 상세 실시간 수요 진입점 | symbol.detail.command.v1 수신 → DETAIL owner 가격 WS (호가 구독 제거 — 2026-06-12) |
-| `consumer/.../ingestion/OrderbookSubscriptionRouter.kt` | 호가(H0STASP0) STRATEGY owner 라우터 | 전략 ACTIVE 종목 호가 구독 전용. DETAIL 경로는 2026-06-12 제거 |
+| `consumer/.../kafka/SymbolDetailCommandKafkaListener.kt` | 종목 상세 실시간 수요 진입점 | symbol.detail.command.v1 수신 → DETAIL owner 가격 WS + 호가 WS(표시 중에만 — 2026-06-12 `detail-orderbook-live-only`) |
+| `consumer/.../ingestion/OrderbookSubscriptionRouter.kt` | 호가(H0STASP0) STRATEGY + DETAIL owner 라우터 | 전략 ACTIVE 종목(STRATEGY) + 종목 상세 표시 중(DETAIL, 진입 구독·이탈 즉시 해제·15분 idle 안전망) 호가 구독. 단일 구독 공유 |
 | `consumer/.../ingestion/RealtimeSubscriptionRouter.kt` | owner-aware KIS WS 가격 slot 라우터 | DETAIL/STRATEGY 수요 TTL·priority 관리, watchlist 자동 삽입 금지 |
 | `consumer/.../ingestion/ColdStartExecutor.kt` | KIS cold-start 5종 + halt skip + AggregateBackfillRunner 호출 (PR #303·#304) | KIS_COLD_START_INTERVALS 5종 fetch + audit 발행 |
 | `consumer/.../aggregation/AggregateBackfillRunner.kt` | 1m 합산 → 3m·5m·15m·30m·90m·1h·4h·12h DB INSERT | cold-start trigger + 20:00 flushAggregations trigger |

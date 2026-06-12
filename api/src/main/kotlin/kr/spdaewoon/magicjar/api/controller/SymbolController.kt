@@ -36,16 +36,16 @@ import java.time.Instant
  *
  * - GET  /api/symbols/{code}                        — SymbolDto (현재가·PER·PBR·시총·업종)
  * - GET  /api/symbols/{code}/candles                — CandlesResponseDto (차트 series)
- * - POST /api/symbols/{code}/realtime/subscribe     — 현재가 slot ENTER 명령(호가 제외 — 2026-06-12)
- * - POST /api/symbols/{code}/realtime/unsubscribe   — 현재가 slot EXIT 명령
- * - POST /api/symbols/{code}/orderbook/subscribe    — deprecated 호환 alias(현재가 ENTER만 발행)
- * - POST /api/symbols/{code}/orderbook/unsubscribe  — deprecated 호환 alias(현재가 EXIT만 발행)
+ * - POST /api/symbols/{code}/realtime/subscribe     — 현재가 + 호가 slot ENTER 명령(표시 중에만 — 2026-06-12)
+ * - POST /api/symbols/{code}/realtime/unsubscribe   — 현재가 + 호가 slot EXIT 명령(이탈 즉시 해제)
+ * - POST /api/symbols/{code}/orderbook/subscribe    — deprecated 호환 alias(realtime/subscribe와 동일 ENTER)
+ * - POST /api/symbols/{code}/orderbook/unsubscribe  — deprecated 호환 alias(realtime/unsubscribe와 동일 EXIT)
  *
  * OnboardingGuardFilter 통과 의무 (PR-6 정합 — 자동).
  * Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합).
  * 룰 5 위반 금지: LLM provider import 0건.
  */
-@Tag(name = "Symbol", description = "종목 상세 REST — 현재가·캔들·캔들 갱신 (T-S1). 호가는 전략 ACTIVE 경로 전용(2026-06-12)")
+@Tag(name = "Symbol", description = "종목 상세 REST — 현재가·캔들·호가(상세 표시 중)·캔들 갱신 (T-S1). 호가는 전략 ACTIVE + 종목 상세 표시 중 두 경로(2026-06-12)")
 @RestController
 @RequestMapping("/api/symbols")
 class SymbolController(
@@ -338,10 +338,10 @@ class SymbolController(
     @Operation(
         summary = "종목 상세 실시간 구독 시작",
         description =
-            "SymbolDetail 페이지 진입 시 호출 — watchlist 등록 여부와 무관하게 KIS WS 현재가(H0STCNT0/H0NXCNT0)와 " +
+            "SymbolDetail 페이지 진입 시 호출 — watchlist 등록 여부와 무관하게 KIS WS 현재가(H0STCNT0/H0NXCNT0)·호가(H0STASP0)와 " +
                 "진행 중 캔들 close를 요청합니다. Kafka symbol.detail.command.v1 {action:ENTER} 발행 → consumer가 " +
-                "DETAIL owner 실시간 가격 구독을 처리합니다. STOMP /topic/market.tick.{code}로 push 시작. " +
-                "호가(H0STASP0)는 더 이상 종목 상세에서 구독하지 않습니다(2026-06-12 — 전략 ACTIVE 경로 전용).",
+                "DETAIL owner 실시간 가격 + 호가 구독을 처리합니다. STOMP /topic/market.tick.{code}로 push 시작. " +
+                "호가(H0STASP0)는 종목 상세를 표시 중인 동안만 구독되고 이탈 즉시 해제됩니다(2026-06-12 — anchor `detail-orderbook-live-only`).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 명령 발행 성공"),
@@ -354,15 +354,17 @@ class SymbolController(
     ): RealtimeSubscribeResponse {
         validateCode(code)
         publishSymbolDetailCommand(code, "ENTER")
-        // orderbookSlot=none — 종목 상세 호가 구독 제거(anchor `detail-orderbook-removal`). 현재가만 live.
-        return RealtimeSubscribeResponse(subscribed = true, priceSlot = "live", orderbookSlot = "none")
+        // ENTER 명령으로 현재가(H0STCNT0)·호가(H0STASP0) DETAIL 구독을 consumer가 표시 중에만 수립한다
+        // (anchor `detail-orderbook-live-only`). orderbookSlot=live — frontend 호가창 복원 계약.
+        return RealtimeSubscribeResponse(subscribed = true, priceSlot = "live", orderbookSlot = "live")
     }
 
     @Operation(
         summary = "종목 상세 실시간 구독 해제",
         description =
-            "SymbolDetail 페이지 이탈 시 호출 — DETAIL owner 현재가 수요를 회수합니다. " +
-                "해당 종목이 watchlist 또는 strategy owner로도 요구 중이면 현재가 WS 구독은 유지됩니다.",
+            "SymbolDetail 페이지 이탈 시 호출 — DETAIL owner 현재가·호가 수요를 회수합니다. " +
+                "호가는 이탈 즉시 해제되고(표시 중에만 — anchor `detail-orderbook-live-only`), " +
+                "해당 종목이 watchlist·strategy owner로도 요구 중이면 현재가/호가 WS 구독은 유지됩니다.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 해제 명령 발행 성공"),
@@ -379,17 +381,17 @@ class SymbolController(
     }
 
     /**
-     * @deprecated 종목 상세 호가 구독 제거(2026-06-12, anchor `detail-orderbook-removal`)로 소비처 0 수렴.
-     *   호가는 전략 ACTIVE 경로(STRATEGY owner)에서만 구독된다. 본 alias는 더 이상 호가 slot을 만들지 않고
-     *   현재가 ENTER 명령만 발행한다(과거 클라이언트 호환). 삭제는 후속 정리 라운드로 보류.
+     * @deprecated 종목 상세 진입은 `/realtime/subscribe` 단일 endpoint가 현재가+호가를 함께 다룬다
+     *   (2026-06-12, anchor `detail-orderbook-live-only`). 본 alias는 그와 동일한 ENTER 명령을 발행한다
+     *   (과거 클라이언트 호환 — 호가는 표시 중에만 구독·이탈 즉시 해제). 삭제는 후속 정리 라운드로 보류.
      */
-    @Deprecated("종목 상세 호가 구독 제거 — 호가는 전략 ACTIVE 경로 전용. 현재가 구독은 realtime/subscribe 사용")
+    @Deprecated("종목 상세 진입은 realtime/subscribe 단일 endpoint가 현재가+호가를 함께 다룬다")
     @Operation(
         summary = "호가 구독 시작 (deprecated 호환 alias)",
         description =
-            "⚠ deprecated — 종목 상세 호가 구독은 제거됐습니다(2026-06-12). 본 alias는 호가 slot을 만들지 않고 " +
-                "현재가 ENTER 명령만 발행합니다. 신규 클라이언트는 /realtime/subscribe를 사용하세요. " +
-                "호가는 전략 ACTIVE 매매 경로에서만 구독됩니다.",
+            "⚠ deprecated — 종목 상세 호가는 /realtime/subscribe가 현재가와 함께 다룹니다(2026-06-12). " +
+                "본 alias는 동일한 ENTER 명령을 발행합니다(현재가+호가 표시 중에만 구독). " +
+                "신규 클라이언트는 /realtime/subscribe를 사용하세요.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 명령 발행 성공"),
@@ -402,20 +404,21 @@ class SymbolController(
     ): OrderbookSubscribeResponse {
         validateCode(code)
         publishSymbolDetailCommand(code, "ENTER")
-        // slot=none — 호가 DETAIL 구독 제거. 현재가만 ENTER로 요청된다.
-        return OrderbookSubscribeResponse(subscribed = true, slot = "none")
+        // slot=live — ENTER가 현재가+호가 DETAIL 구독을 표시 중에만 수립(anchor `detail-orderbook-live-only`).
+        return OrderbookSubscribeResponse(subscribed = true, slot = "live")
     }
 
     /**
-     * @deprecated 종목 상세 호가 구독 제거(2026-06-12, anchor `detail-orderbook-removal`)로 소비처 0 수렴.
-     *   현재가 EXIT 명령만 발행한다(과거 클라이언트 호환). 삭제는 후속 정리 라운드로 보류.
+     * @deprecated 종목 상세 이탈은 `/realtime/unsubscribe` 단일 endpoint가 현재가+호가를 함께 회수한다
+     *   (2026-06-12, anchor `detail-orderbook-live-only`). 본 alias는 동일한 EXIT 명령을 발행한다
+     *   (과거 클라이언트 호환). 삭제는 후속 정리 라운드로 보류.
      */
-    @Deprecated("종목 상세 호가 구독 제거 — 호가는 전략 ACTIVE 경로 전용. 현재가 해제는 realtime/unsubscribe 사용")
+    @Deprecated("종목 상세 이탈은 realtime/unsubscribe 단일 endpoint가 현재가+호가를 함께 회수한다")
     @Operation(
         summary = "호가 구독 해제 (deprecated 호환 alias)",
         description =
-            "⚠ deprecated — 종목 상세 호가 구독은 제거됐습니다(2026-06-12). 본 alias는 현재가 EXIT 명령만 발행합니다. " +
-                "신규 클라이언트는 /realtime/unsubscribe를 사용하세요.",
+            "⚠ deprecated — 종목 상세 호가는 /realtime/unsubscribe가 현재가와 함께 회수합니다(2026-06-12). " +
+                "본 alias는 동일한 EXIT 명령을 발행합니다. 신규 클라이언트는 /realtime/unsubscribe를 사용하세요.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 해제 명령 발행 성공"),
