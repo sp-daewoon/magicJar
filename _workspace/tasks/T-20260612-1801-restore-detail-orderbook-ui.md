@@ -3,10 +3,10 @@ id: T-20260612-1801-restore-detail-orderbook-ui
 agent: frontend
 model: opus
 branch: agent/frontend/restore-detail-orderbook-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T18:01:11.638+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T18:08:01.196+09:00
+pr: #943
 parentPhase: ?
 ---
 
