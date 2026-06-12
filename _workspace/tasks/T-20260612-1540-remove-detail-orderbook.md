@@ -3,10 +3,10 @@ id: T-20260612-1540-remove-detail-orderbook
 agent: market-data
 model: opus
 branch: refactor/remove-detail-orderbook
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T15:40:36.151+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T15:49:49.965+09:00
+pr: #939
 parentPhase: ?
 ---
 
