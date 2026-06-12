@@ -96,7 +96,7 @@
 | 0062 | 5m·15m·30m·90m·1h 합산 가공 — Accepted (백엔드 precomputed + 과거 30 거래일 + 5종 활성화) |
 | 0063 | NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드) — Accepted (UN 통합 + 08:00~20:00 + threshold 700, ADR 0091로 market-level 분기 보강) |
 | 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed |
-| ~~0073~~ | T-NEWS feasibility 분석 — **Superseded by 0075** (현행 권위 = 0075 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
+| ~~0073~~ | T-NEWS feasibility 분석 — **Superseded by 0075** (현행 권위 = 0075 · 본문 분리 → [§15](역사 §15)) |
 | 0075 | T-NEWS 트랙 진입 spec/plan — Accepted (DART + Naver Open API + Flyway V32·V33 + Kafka 2 토픽 + Redis dedup/rate limit) |
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 — Proposed (v3.6.9 Phase 1·2·3 채택 완료) |
 | 0077 | **OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) — 자격증명 미등록 시나리오 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함 — Proposed (2026-05-17)** |
@@ -162,14 +162,14 @@
 | 0032 | Husky v9 git hooks (pre-commit author whitelist + pre-push) |
 | 0033 | 단일 worktree + 순차 작업 정책 |
 | 0034 | 머지 흐름 단순화 (`agent/* → main`) |
-| ~~0035~~ | 에이전트별 모델 차등 + 에스컬레이션 — **Superseded by 0080** (현행 권위 = 0080 전체 opus 통일 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
+| ~~0035~~ | 에이전트별 모델 차등 + 에스컬레이션 — **Superseded by 0080** (현행 권위 = 0080 전체 opus 통일 · 본문 분리 → [§15](역사 §15)) |
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) |
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
 | 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
 | 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18) — Amended by ADR 0094 (2026-05-21): 8 → 7 actor (chart-curator 해고) + qa Visual 격상. opus 4.7 LOCK 유지** |
 | 0081 | **계좌 잔고·예수금 사용자 노출 endpoint + UI (T-ACCT 신규 트랙) — Accepted (2026-05-19 격상 · Phase 1·2·3·4 머지 evidence · v3.6.17 release 포함)** |
 | 0082 | **사용자 수동 주문 발행 트랙 (T-MAN — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제) — Proposed (2026-05-18 · spec 발행 단계)** |
-| ~~0085~~ | chart-curator 신규 에이전트 영입 (8번째 sub-agent) — **Superseded by 0094** (현행 권위 = 0094 chart-curator 해고·책임 이관 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
+| ~~0085~~ | chart-curator 신규 에이전트 영입 (8번째 sub-agent) — **Superseded by 0094** (현행 권위 = 0094 chart-curator 해고·책임 이관 · 본문 분리 → [§15](역사 §15)) |
 | 0086 | **T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (신입 chart-curator 보호) — Accepted (2026-05-19 격상 · Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN · v3.6.17 release 포함)** |
 | 0087 | **Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템 — Accepted (2026-05-21 ADR 0094 amend 동반 격상) — Amended by ADR 0094: 7 actor 페르소나 매트릭스 (chart-curator 보수 흡수 → frontend·market-data + qa Visual "품질 헌터" 신규 + ai-engineer 균형 추가)** |
 | 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 7 reshuffle: 해고 chart-curator·격상 qa Visual "품질 헌터"·유지 ai-engineer·거절 sre · backend-core P0 OPS 6건 인수 · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식 · spec 2건 동반 발행) — Accepted (2026-05-21 사용자 위임 결재 · orchestrator 자율 결정 매트릭스 반영 · ADR 0080·0087 amend + ADR 0085 supersede)** |
@@ -228,7 +228,7 @@
 
 | 번호 | 제목 | 영향 Wave |
 |------|------|------|
-| ~~0049~~ | GitHub Actions = release 트리거 한정 — **Superseded (폐기)** GHA 결제 폐기(`feedback_no_github_actions.md`) · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기) | 횡단 |
+| ~~0049~~ | GitHub Actions = release 트리거 한정 — **Superseded (폐기)** GHA 결제 폐기(`feedback_no_github_actions.md`) · 본문 분리 → [§15](역사 §15) | 횡단 |
 | 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 횡단 (병렬 디스패치 사이클) |
 | 0051 | Spring Data Repository default fun 함정 (회피 패턴) | 횡단 (backend-core·market-data 핵심 risk) |
 | 0052 | Baseline Documentation Cycle (skill + slash + 스크립트 4종) | 횡단 (release 사이클·문서화) |
