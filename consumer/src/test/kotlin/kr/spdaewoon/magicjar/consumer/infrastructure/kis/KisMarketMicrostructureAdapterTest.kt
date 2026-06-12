@@ -18,7 +18,6 @@ class KisMarketMicrostructureAdapterTest {
             credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>(relaxed = true),
             kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true),
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
-            kisBaseVps = "https://openapivts.koreainvestment.com:29443",
         )
 
     @Test

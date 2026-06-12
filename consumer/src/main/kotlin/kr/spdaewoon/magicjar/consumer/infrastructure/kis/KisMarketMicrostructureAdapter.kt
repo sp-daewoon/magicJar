@@ -34,8 +34,6 @@ class KisMarketMicrostructureAdapter(
     private val kisRateLimiterPort: KisRateLimiterPort,
     @Value("\${magicjar.kis.base-url-prod:https://openapi.koreainvestment.com:9443}")
     private val kisBaseProd: String,
-    @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
-    private val kisBaseVps: String,
 ) : KisMarketMicrostructurePort {
     private val log = LoggerFactory.getLogger(KisMarketMicrostructureAdapter::class.java)
 
@@ -96,7 +94,15 @@ class KisMarketMicrostructureAdapter(
         marketDivCode: String,
         code: String,
     ): List<Map<String, String>> {
-        val accountType = if (mode == TradingMode.REAL) AccountType.REAL else AccountType.MOCK
+        val accountType = AccountType.REAL
+        if (mode != TradingMode.REAL) {
+            log.debug(
+                "KIS 미시구조 조회는 주문 mode={} 요청이어도 REAL 데이터 키를 사용: trId={} userId={}",
+                mode,
+                trId,
+                maskUserId(userId),
+            )
+        }
         val cred =
             credentialRepository
                 .findAllByAccountType(accountType.name)
@@ -104,7 +110,7 @@ class KisMarketMicrostructureAdapter(
                 ?: error("KIS 미시구조 조회 자격증명 없음 — userId=${maskUserId(userId)} type=${accountType.name}")
 
         val accessToken = kisAuthAdapter.getAccessToken(userId, accountType)
-        val baseUrl = if (accountType == AccountType.REAL) kisBaseProd else kisBaseVps
+        val baseUrl = kisBaseProd
 
         var appKey: ByteArray? = null
         var secretKey: ByteArray? = null

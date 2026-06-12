@@ -11,8 +11,8 @@ package kr.spdaewoon.magicjar.domain.market.port
  *
  * NXT(H0NXCNT0) 추가 시 슬롯 정합 (한도 단위 = "코드 × tr_id" 채널 — ADR 0123 §1-3 KIS-first 정정):
  *   H0STCNT0 종목당 1 slot + H0NXCNT0 종목당 1 slot = 동일 종목 2 slot 소모.
- *   NXT_TICK_MAX = 20: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 정합.
- *   Watchlist 풀 ≤ 20 환경(MVP)에서는 안전. 풀 > 20 시 slot 초과 risk → ADR 0123 R2 owner 우선순위 eviction.
+ *   NXT_TICK_MAX = 20 유지 시 H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 40 한도 초과.
+ *   WsSlotBudgetLedger/owner priority가 실제 점유를 40 이하로 관리하고, H0UNCNT0 통합 채널은 R3 후보로 둔다.
  *
  * ★ ADR 0123 §1-3 — TOTAL_SLOTS 41→40 KIS-first 정정 (헌법 §3, 자체 추론 0):
  *   KIS 공식 예제 `kis_auth.py` `__runner()`가 40을 hard enforce:
@@ -42,7 +42,8 @@ object SubscriptionPolicy {
 
     /**
      * H0NXCNT0 NXT 대체거래소 체결가 최대 구독 종목 수.
-     * H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot 정합.
+     * H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41이므로 40 slot 한도에서는 1 slot 초과한다.
+     * 실제 발사는 WsSlotBudgetLedger/SubscriptionRouter가 점유·우선순위 기준으로 제한한다.
      * KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
      * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
      */
@@ -54,8 +55,8 @@ object SubscriptionPolicy {
      * 활성 시간: 16:00~18:00 KST (시간외 단일가 세션).
      * 이 시간대에 H0STCNT0·H0NXCNT0 체결 tick 0건 → slot 미소모 상태.
      * 따라서 H0STOUP0 20 slot 추가해도 실질 동시 사용 slot:
-     *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 41 안전.
-     *   정규장(09:00~15:30):       H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 안전.
+     *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40 안전.
+     *   정규장(09:00~15:30):       H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 full dual tick은 제한 필요.
      *
      * KIS-first 출처: open-trading-api domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
      *   tr_id = "H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component
  * 보유 종목 KIS WS 구독 보장 — ADR 0114 §4-3 P3 ([RealtimeDemandOwner.HOLDING] 등록·해제).
  *
  * ## 왜 필요한가 (ADR 0114 §4-3)
- * 41 slot 경합에서 보유 종목이 evict되면 tick·1m 캔들이 끊겨 **청산 평가 재료가 사라진다**(자본 risk).
+ * 40 slot 경합에서 보유 종목이 evict되면 tick·1m 캔들이 끊겨 **청산 평가 재료가 사라진다**(자본 risk).
  * HOLDING owner는 [RealtimeSubscriptionRouter.findEvictionCandidateLocked]에서 절대 제외되므로,
  * 본 registrar가 보유 code를 HOLDING demand로 등록하면 구독이 끊기지 않는다.
  *

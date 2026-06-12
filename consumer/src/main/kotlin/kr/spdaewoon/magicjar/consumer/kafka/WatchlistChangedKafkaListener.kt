@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component
  *   1m은 WS 구독(SubscriptionRouter)이 실시간으로 채운다. 과거 1m 정밀 갭은 차트 진입
  *   on-demand(SymbolDetailMinuteGapFillService) 또는 admin 수동 backfill(CandleBackfillWorker)만 수행.
  *
- * 41 slot 한도 게이트: SubscriptionRouter.add 내부에서 처리.
+ * 40 slot 한도 게이트: SubscriptionRouter.add 내부에서 처리.
  * slot 상태는 응답 payload로 노출하지 않음 (UI 배지는 T-S1에서 별도 endpoint 구현 예정).
  *
  * 룰 5 위반 금지: LLM provider import 0건.

@@ -164,19 +164,16 @@ class KisRealizedProfitAdapter(
                     .header("tr_id", TR_ID)
                     .header("tr_cont", trCont)
                     .header("custtype", "P")
-                    .exchangeToMono { clientResponse ->
-                        val headers = clientResponse.headers().asHttpHeaders()
-                        clientResponse
-                            .bodyToMono(Map::class.java)
-                            .map { body -> headers to body }
-                    }.timeout(TIMEOUT)
+                    .retrieve()
+                    .toEntity(Map::class.java)
+                    .timeout(TIMEOUT)
                     .block()
                     ?: error("KIS 실현손익 조회 응답 없음 — userId=$userId")
 
             kisRateLimiterPort.onSuccess()
             signalSent = true
 
-            val body = response.second as? Map<String, Any?> ?: error("KIS 실현손익 조회 body 형식 오류")
+            val body = response.body as? Map<String, Any?> ?: error("KIS 실현손익 조회 body 형식 오류")
             val rtCd = body["rt_cd"]?.toString()
             if (rtCd != "0") {
                 error("KIS 실현손익 조회 실패: rt_cd=$rtCd msg=${body["msg1"]}")
@@ -187,7 +184,7 @@ class KisRealizedProfitAdapter(
                 output2 = rows(body["output2"]),
                 ctxAreaFk100 = body["ctx_area_fk100"]?.toString().orEmpty(),
                 ctxAreaNk100 = body["ctx_area_nk100"]?.toString().orEmpty(),
-                trCont = response.first.getFirst("tr_cont").orEmpty(),
+                trCont = response.headers.getFirst("tr_cont").orEmpty(),
             )
         } catch (e: WebClientResponseException) {
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {

@@ -8,8 +8,8 @@ import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.core.script.DefaultRedisScript
 import org.springframework.stereotype.Component
-import java.time.Duration
 
 /**
  * 계좌 availability snapshot Redis 저장소.
@@ -30,6 +30,28 @@ class RedisAccountAvailabilitySnapshotAdapter(
 
     companion object {
         private const val KEY_PREFIX = "account:availability"
+
+        private val PUT_IF_NEWER_SCRIPT =
+            DefaultRedisScript<Long>().apply {
+                setScriptText(
+                    """
+                    local current = redis.call('GET', KEYS[1])
+                    local incomingVersion = tonumber(ARGV[2])
+                    if current then
+                        local ok, decoded = pcall(cjson.decode, current)
+                        if ok and decoded and decoded['versionMillis'] ~= nil then
+                            local currentVersion = tonumber(decoded['versionMillis'])
+                            if currentVersion and incomingVersion and currentVersion > incomingVersion then
+                                return 0
+                            end
+                        end
+                    end
+                    redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[3]))
+                    return 1
+                    """.trimIndent(),
+                )
+                setResultType(Long::class.java)
+            }
     }
 
     override fun read(
@@ -52,21 +74,22 @@ class RedisAccountAvailabilitySnapshotAdapter(
 
     override fun putIfNewer(snapshot: AccountAvailabilitySnapshot): Boolean {
         val key = key(snapshot.mode, snapshot.userId)
-        val current = read(snapshot.userId, snapshot.mode)
-        if (current != null && current.versionMillis > snapshot.versionMillis) {
+        val stored =
+            redisTemplate.execute(
+                PUT_IF_NEWER_SCRIPT,
+                listOf(key),
+                objectMapper.writeValueAsString(snapshot),
+                snapshot.versionMillis.toString(),
+                ttlSeconds.coerceAtLeast(1).toString(),
+            ) == 1L
+        if (!stored) {
             log.debug(
-                "account availability snapshot LWW skip: key={} currentVersion={} incomingVersion={}",
+                "account availability snapshot LWW skip: key={} incomingVersion={}",
                 maskKey(key),
-                current.versionMillis,
                 snapshot.versionMillis,
             )
-            return false
         }
-
-        redisTemplate
-            .opsForValue()
-            .set(key, objectMapper.writeValueAsString(snapshot), Duration.ofSeconds(ttlSeconds))
-        return true
+        return stored
     }
 
     internal fun key(

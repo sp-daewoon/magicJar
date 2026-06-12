@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ws
 
+import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
@@ -160,7 +161,7 @@ class KisWsMessageParserTest {
      */
     @Test
     fun `TOTAL_SLOTS 40 — ADR 0123 KIS-first 정정 (41에서 40)`() {
-        assertThat(kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy.TOTAL_SLOTS)
+        assertThat(SubscriptionPolicy.TOTAL_SLOTS)
             .isEqualTo(40)
             .describedAs("ADR 0123 §1-3: KIS kis_auth.py __runner() enforce 값 40 정합")
     }
@@ -283,26 +284,29 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * 41 slot 정합 — NXT(H0NXCNT0) 추가 후 SubscriptionPolicy 상수 검증.
+     * 40 slot 한도 — NXT(H0NXCNT0) full dual tick 상수 검증.
      *
-     * ADR 0048 §2-1 정합:
-     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot.
-     *   NXT_TICK_MAX = 20 (PRICE_TICK_MAX=30이 아닌 NXT 병행 시 안전 한도).
+     * ADR 0123 §1-3 정합:
+     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot으로 40 한도를 1 초과한다.
+     *   실제 발사는 WsSlotBudgetLedger/SubscriptionRouter가 점유·우선순위 기준으로 제한한다.
      *
      * KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
      * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
      */
     @Test
-    fun `41 slot NXT 추가 후 정합 — H0STCNT0(NXT_TICK_MAX) + H0NXCNT0(NXT_TICK_MAX) + H0STCNI0(1) = 41`() {
-        val totalSlots = 41
-        val executionNoticeReserved = 1 // H0STCNI0
-        val nxtTickMax = 20 // H0NXCNT0 (SubscriptionPolicy.NXT_TICK_MAX)
+    fun `40 slot 한도에서 NXT full dual tick 20개는 체결통보 포함 1 slot 초과`() {
+        val totalSlots = SubscriptionPolicy.TOTAL_SLOTS
+        val executionNoticeReserved = SubscriptionPolicy.EXECUTION_NOTICE_RESERVED
+        val nxtTickMax = SubscriptionPolicy.NXT_TICK_MAX
         // NXT 병행 시 H0STCNT0도 20 종목으로 제한 (각 1 slot)
         val priceTickMaxWithNxt = 20 // H0STCNT0 (NXT 병행)
+        val usedSlots = executionNoticeReserved + priceTickMaxWithNxt + nxtTickMax
 
-        assertThat(executionNoticeReserved + priceTickMaxWithNxt + nxtTickMax)
-            .isEqualTo(totalSlots)
-            .describedAs("ADR 0048 §2-1 + NXT: H0STCNI0(1) + H0STCNT0(20) + H0NXCNT0(20) = 41 slot 정합")
+        assertThat(totalSlots).isEqualTo(40)
+        assertThat(usedSlots)
+            .isEqualTo(41)
+            .isGreaterThan(totalSlots)
+            .describedAs("ADR 0123: H0STCNI0(1) + H0STCNT0(20) + H0NXCNT0(20)은 40 slot 한도 초과")
     }
 
     // ===== H0STOUP0 시간외 단일가 구독 테스트 (ADR 0076 Phase 3 B-2) =====
@@ -390,33 +394,34 @@ class KisWsMessageParserTest {
     }
 
     /**
-     * 41 slot 정합 — H0STOUP0 시간 분리 slot 예산 검증 (ADR 0076 Phase 3 B-2).
+     * 40 slot 한도 — H0STOUP0 시간 분리 slot 예산 검증 (ADR 0076 Phase 3 B-2).
      *
      * 시간외 단일가(16:00~18:00 KST):
-     *   H0STOUP0(OVERTIME_SINGLE_PRICE_MAX=20) + H0STCNI0(1) = 21 ≤ 41 안전.
+     *   H0STOUP0(OVERTIME_SINGLE_PRICE_MAX=20) + H0STCNI0(1) = 21 ≤ 40 안전.
      * 정규장(09:00~15:30 KST):
-     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 — H0STOUP0 0건.
+     *   H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 — full dual tick은 제한 필요.
      *
      * KIS-first: overtime_ccnl_krx.py 16:00~18:00 활성 시간 명시.
      * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
      */
     @Test
-    fun `41 slot H0STOUP0 시간 분리 정합 — 시간외(16~18시) 21 slot, 정규장 41 slot`() {
-        val totalSlots = 41
-        val executionNoticeReserved = 1 // H0STCNI0
+    fun `40 slot H0STOUP0 시간 분리 정합 — 시간외 21 slot 안전, 정규장 full dual tick은 초과`() {
+        val totalSlots = SubscriptionPolicy.TOTAL_SLOTS
+        val executionNoticeReserved = SubscriptionPolicy.EXECUTION_NOTICE_RESERVED
 
         // 시간외 단일가 시간대 (16:00~18:00 KST) — H0STOUP0만 활성
-        val overtimeSinglePriceMax = 20 // H0STOUP0 (SubscriptionPolicy.OVERTIME_SINGLE_PRICE_MAX)
+        val overtimeSinglePriceMax = SubscriptionPolicy.OVERTIME_SINGLE_PRICE_MAX
         val overtimeUsedSlots = overtimeSinglePriceMax + executionNoticeReserved // 21
         assertThat(overtimeUsedSlots)
             .isLessThanOrEqualTo(totalSlots)
-            .describedAs("시간외 단일가: H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 41")
+            .describedAs("시간외 단일가: H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40")
 
         // 정규장 시간대 (09:00~15:30 KST) — H0STCNT0 + H0NXCNT0 활성, H0STOUP0 = 0
         val regularUsedSlots = 20 + 20 + executionNoticeReserved // 41
         assertThat(regularUsedSlots)
-            .isEqualTo(totalSlots)
-            .describedAs("정규장: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 slot 정합")
+            .isEqualTo(41)
+            .isGreaterThan(totalSlots)
+            .describedAs("정규장 full dual tick: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1)은 40 slot 한도 초과")
     }
 
     // ===== R1-A 체결강도 흡수 테스트 (ADR 0117 §3-R1) =====

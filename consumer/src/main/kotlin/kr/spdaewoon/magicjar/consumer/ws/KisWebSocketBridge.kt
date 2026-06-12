@@ -77,15 +77,16 @@ import java.util.concurrent.atomic.AtomicReference
  *   tr_id = "H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
  *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
  *
- * 41 slot 예산 (ADR 0048 §2-1 + NXT 추가 후 + H0STOUP0 시간 분리):
+ * 40 slot 예산 (ADR 0123 KIS-first 정정 + NXT 추가 후 + H0STOUP0 시간 분리):
  * - H0STCNI0 체결통보: 1 slot (reserve — 실제 subscribe는 T-O)
  * - H0STCNT0 체결가: 최대 20 slot (NXT 병행 구독 시 slot 2배 소모)
  * - H0NXCNT0 NXT 체결가: 최대 20 slot (H0STCNT0와 동일 종목 세트)
  * - H0STASP0 호가: 최대 0 slot (NXT 추가로 slot 포화 — LRU 호가는 SubscriptionPolicy.ORDERBOOK_MAX=0 적용 검토, backlog §53)
- * - 현행 정규장(09:00~15:30): H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41 정합.
- *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 41 안전.
+ * - 현행 정규장 full dual tick: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 40 한도 초과.
+ *   R1 WsSlotBudgetLedger가 초과를 관측·보정하고, H0UNCNT0 통합 채널 전환은 운영 실측 후 R3에서 판단.
+ *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40 안전.
  *   H0STOUP0는 H0STCNT0·H0NXCNT0 비활성 시간대에만 활성 → 동시 slot 초과 0.
- *   Watchlist ≤ 20 MVP 환경에서 안전. 풀 > 20 시 SubscriptionRouter priority 재조정 필요 (backlog §53).
+ *   Watchlist 풀 증가 시 SubscriptionRouter priority/eviction은 R2 후보로 남긴다.
  *
  * 재연결 지수 백오프 (ADR 0048 §2-4-B):
  * 1차: 즉시, 2차: 2s, 3차: 5s, 4차: 10s, 5차+: 30s
@@ -890,7 +891,7 @@ class KisWebSocketBridge(
                     }
 
                     // 체결통보 자동 subscribe (H0STCNI0 REAL / H0STCNI9 MOCK) — ADR 0068 §14-6 + §7-3 LOCK
-                    // 사용자별 1 구독 (ADR 0048 §2-1 의무 reserve — 41 slot 한도 정합)
+                    // 사용자별 1 구독 (ADR 0048 §2-1 의무 reserve — 40 slot 한도 산식에 포함)
                     // KIS-first: kws.subscribe(request=ccnl_notice, data=[trenv.my_htsid])
                     //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/chk_ccnl_notice.py
                     //   tr_key = HTS 사용자 ID (defaultUserId 정합 — magicjar.kis.ws.user-id)
@@ -1225,8 +1226,8 @@ class KisWebSocketBridge(
      *
      * ADR 0048 §2-1 정합:
      *   H0STCNI0/H0STCNI9 = 사용자별 1 slot (의무 reserve).
-     *   41 slot 한도 분배: 1(체결통보) + 30(H0STCNT0+H0NXCNT0) + 10(H0STASP0) = 41.
-     *   본 메서드 1 구독 추가는 ADR 0048 한도 정합.
+     *   40 slot 한도에서는 본 메서드의 1 slot을 reserved로 먼저 반영하고, 나머지 채널은 WsSlotBudgetLedger가 점유를 계산한다.
+     *   legacy 1(체결통보) + 30(H0STCNT0+H0NXCNT0) + 10(H0STASP0) = 41 산식은 ADR 0123에서 정정됨.
      *
      * defaultUserId 비어있으면 skip — magicjar.kis.ws.user-id 미설정 환경(qa fixture 등) 보호.
      */

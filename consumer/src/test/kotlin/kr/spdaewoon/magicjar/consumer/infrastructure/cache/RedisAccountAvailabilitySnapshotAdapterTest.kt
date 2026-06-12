@@ -3,7 +3,6 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.cache
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshot
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
@@ -12,8 +11,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
+import org.springframework.data.redis.core.script.RedisScript
 import java.math.BigDecimal
-import java.time.Duration
 import java.time.Instant
 
 class RedisAccountAvailabilitySnapshotAdapterTest {
@@ -39,25 +38,54 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
 
     @Test
     fun `putIfNewer는 오래된 응답을 LWW로 버린다`() {
-        every { valueOps.get("account:availability:REAL:user1") } returns objectMapper.writeValueAsString(snapshot(2000))
+        every {
+            redisTemplate.execute(
+                any<RedisScript<Long>>(),
+                eq(listOf("account:availability:REAL:user1")),
+                any<String>(),
+                eq("1000"),
+                eq("900"),
+            )
+        } returns 0L
 
         val stored = adapter.putIfNewer(snapshot(1000))
 
         assertThat(stored).isFalse()
-        verify(exactly = 0) { valueOps.set(any<String>(), any<String>(), any<Duration>()) }
+        verify(exactly = 1) {
+            redisTemplate.execute(
+                any<RedisScript<Long>>(),
+                eq(listOf("account:availability:REAL:user1")),
+                any<String>(),
+                eq("1000"),
+                eq("900"),
+            )
+        }
     }
 
     @Test
     fun `putIfNewer는 최신 응답을 저장하고 TTL을 건다`() {
-        every { valueOps.get("account:availability:REAL:user1") } returns objectMapper.writeValueAsString(snapshot(1000))
-        val jsonSlot = slot<String>()
+        every {
+            redisTemplate.execute(
+                any<RedisScript<Long>>(),
+                eq(listOf("account:availability:REAL:user1")),
+                any<String>(),
+                eq("2000"),
+                eq("900"),
+            )
+        } returns 1L
 
         val stored = adapter.putIfNewer(snapshot(2000))
 
         assertThat(stored).isTrue()
-        verify { valueOps.set("account:availability:REAL:user1", capture(jsonSlot), Duration.ofSeconds(900)) }
-        val saved = objectMapper.readValue(jsonSlot.captured, AccountAvailabilitySnapshot::class.java)
-        assertThat(saved.versionMillis).isEqualTo(2000)
+        verify(exactly = 1) {
+            redisTemplate.execute(
+                any<RedisScript<Long>>(),
+                eq(listOf("account:availability:REAL:user1")),
+                any<String>(),
+                eq("2000"),
+                eq("900"),
+            )
+        }
     }
 
     private fun snapshot(versionMillis: Long) =

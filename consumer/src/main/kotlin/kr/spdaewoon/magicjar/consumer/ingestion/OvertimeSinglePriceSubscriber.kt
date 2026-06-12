@@ -18,8 +18,8 @@ import java.time.ZoneId
  *   overtime_ccnl_krx() tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
  *   국내주식 시간외 단일가(16:00~18:00) 시간대에 실시간체결가 데이터 확인 가능합니다.
  *
- * 41 slot 정합 (ADR 0048 §2-1):
- *   시간외 단일가(16:00~18:00): H0STOUP0(최대 20) + H0STCNI0(1) = 21 ≤ 41.
+ * 40 slot 정합 (ADR 0123 §1-3):
+ *   시간외 단일가(16:00~18:00): H0STOUP0(최대 20) + H0STCNI0(1) = 21 ≤ 40.
  *   정규장(09:00~15:30)에는 H0STOUP0 subscribe 0건 → slot 미소모.
  *   최대 구독 종목 수: SubscriptionPolicy.OVERTIME_SINGLE_PRICE_MAX = 20.
  *
@@ -93,7 +93,7 @@ class OvertimeSinglePriceSubscriber(
      * watchlist 종목 중 OVERTIME_SINGLE_PRICE_MAX 이하로 H0STOUP0 subscribe.
      *
      * priority 오름차순(낮은 값 = 높은 우선순위) 정렬 후 최대 20 종목만 선택.
-     * 41 slot 예산 — 시간외 단일가 시간대에 H0STCNT0·H0NXCNT0 0건이므로 slot 여유 충분.
+     * 40 slot 예산 — 시간외 단일가 시간대에 H0STCNT0·H0NXCNT0 0건이므로 slot 여유 충분.
      */
     private fun doSubscribeWatchlist() {
         try {
