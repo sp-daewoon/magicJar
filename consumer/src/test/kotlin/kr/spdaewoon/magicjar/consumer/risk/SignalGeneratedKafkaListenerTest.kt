@@ -155,6 +155,11 @@ class SignalGeneratedKafkaListenerTest {
         // REAL 모드에서 빈 부재 시 defaultFor로 조용히 진행하면 사용자 좁은 한도를 무시하는 역방향 위험.
         // 다른 REAL 게이트(capital·positionPort)와 정합되게 RealRiskContextUnavailableException → BLOCKED.
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+        // 공짜 룰 선차단(hotfix #5)은 config 빈 부재 시 defaultFor 로 통과 — KillSwitch off 로 buildContext fail-fast 까지 도달.
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
 
         listener(
             magicjarMode = "REAL",
@@ -499,6 +504,12 @@ class SignalGeneratedKafkaListenerTest {
                 error = "KIS_FETCH_FAILED:timeout",
             )
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+        // canary D2 hotfix #5 — 공짜 룰 선차단이 KIS sync 보다 먼저 돌므로 KillSwitch 는 off 여야 sync 차단까지 도달.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
 
         listener(
             magicjarMode = "REAL",
@@ -566,6 +577,12 @@ class SignalGeneratedKafkaListenerTest {
                 error = "KIS_FETCH_FAILED:timeout",
             )
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+        // 공짜 룰 선차단(hotfix #5) 통과 위해 KillSwitch off + config/positions/freq stub.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
 
         listener(
             magicjarMode = "MOCK",
@@ -596,6 +613,10 @@ class SignalGeneratedKafkaListenerTest {
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } throws IllegalStateException("DB down")
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+        // 공짜 룰 선차단(hotfix #5) 통과 — KillSwitch off + freq 0(sync 후 buildContext PnL 실패까지 도달).
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
 
         listener(
             magicjarMode = "REAL",
@@ -606,6 +627,117 @@ class SignalGeneratedKafkaListenerTest {
             signalRiskStatusUpdater.markBlocked(77L, RiskRule.KIS_EXECUTION_SYNC_STALE, match { it.contains("DAILY_PNL_UNAVAILABLE") })
         }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // canary D2 hotfix #2 — trade-frequency record 는 주문 intent 발행 성공 직후에만
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `hotfix #2 — BUY 진입 스킵(주문 0) 시 trade-frequency record 헛소모 0`() {
+        // 결함 재현: 과거 ALLOWED 시점에 무조건 record → BUY Skip(호가 미가용 등)으로 발행 0건이어도 한도 차감.
+        // 정정: 발행되지 않으면 record 호출 0(canary D2 — 거래 0인데 한도 5건 도달 차단 폭주 방지).
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        // entryLimitEnabled=true + 호가 null → marketable-limit 산정 불가 → Skip(주문 0).
+        listener(entryLimitEnabled = true, entryQuote = null)
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        // 핵심: 발행 0 → record 0(한도 헛소모 차단).
+        verify(exactly = 0) { tradeFrequencyGuard.record(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `hotfix #2 — SELL 익절 LIMIT 정합 skip(발행 0) 시 record 0 (오늘 incident 헛소모)`() {
+        // 오늘 incident 회귀: 동일가·동일수량 auto-tp 가 이미 있어 발행 skip 되는데도 record 가 돌아 한도를 소모했다.
+        sellContext()
+        val exitCtx = objectMapper.writeValueAsString(mapOf("exitPriceType" to "LIMIT", "exitLimitPrice" to "73500"))
+        listener(openOrders = listOf(restingAutoTp(quantity = 7, limitPrice = "73500")))
+            .onSignalGenerated(record(payload(side = "SELL", price = "72000", contextJson = exitCtx)), ack())
+
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        verify(exactly = 0) { tradeFrequencyGuard.record(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `hotfix #2 — 정상 발행 시에는 record 1회(발행 직후)`() {
+        sellContext()
+        listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
+        verify(exactly = 1) { tradeFrequencyGuard.record(100L, "user-A", 77L, now) }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // canary D2 hotfix #5 — 공짜 룰 선차단이 KIS 원장 TR 호출보다 먼저(자가 rate limit 압박 회피)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `hotfix #5 — 거래빈도 일 한도 차단 시 KIS 체결동기화 TR 호출 0(원장 절약)`() {
+        // 어차피 차단될 시그널은 KIS 체결동기화·잔고 TR 을 소모하지 않는다(어제 EGW00201 자가 압박 차단).
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig(maxTradesPerDay = 5)
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 5
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(executionBackfillProvider = providerOf(executionBackfillService))
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(77L, RiskRule.TRADE_FREQUENCY_DAY, any())
+        }
+        // 핵심: 차단 시 KIS 체결동기화·잔고 호출 0 + capital 조회 0(원장 TR 절약).
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
+        verify(exactly = 0) { capitalSnapshotProvider.getCapital(any()) }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+    }
+
+    @Test
+    fun `hotfix #5 — KillSwitch ON 시 positions·KIS 호출조차 생략하고 즉시 차단`() {
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns true
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        listener(executionBackfillProvider = providerOf(executionBackfillService))
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { signalRiskStatusUpdater.markBlocked(77L, RiskRule.KILL_SWITCH_ON, any()) }
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
+        verify(exactly = 0) { capitalSnapshotProvider.getCapital(any()) }
+    }
+
+    @Test
+    fun `hotfix #5 보너스 — flat SELL_WITHOUT_POSITION 연속 차단은 STOMP 알람 1회만(쿨다운)`() {
+        // 동일 (user·strategy·code·rule) SELL_WITHOUT_POSITION 매분 재발 시 STOMP 알람은 쿨다운 1회만(플러딩 완화).
+        // risk_event DB·Kafka 는 매회 유지(감사 누락 0).
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.getCapital("user-A") } returns BigDecimal("10000000")
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList() // 미보유 → SELL_WITHOUT_POSITION
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+        every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
+
+        val l = listener(kisBalance = sampleKisBalance(quantity = 0))
+        // 같은 listener 인스턴스로 동일 차단 3회 연속.
+        repeat(3) { l.onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack()) }
+
+        // risk_event 는 3회 모두 저장(감사 유지).
+        verify(exactly = 3) { riskEventRepository.save(any()) }
+        // STOMP 알람(notifyViolation)은 쿨다운으로 1회만.
+        verify(exactly = 1) { riskNotifier.notifyViolation(any(), any()) }
     }
 
     private fun listener(
@@ -716,6 +848,7 @@ class SignalGeneratedKafkaListenerTest {
     private fun sampleConfig(
         maxPositionAmount: BigDecimal = BigDecimal("1000000"),
         maxPositionPercent: BigDecimal = BigDecimal("10.00"),
+        maxTradesPerDay: Int = 50,
     ): RiskConfig =
         RiskConfig(
             userId = "user-A",
@@ -725,7 +858,7 @@ class SignalGeneratedKafkaListenerTest {
             dailyLossLimitPercent = BigDecimal("3.00"),
             maxConcurrentPositions = 5,
             maxTradesPerMinute = 3,
-            maxTradesPerDay = 50,
+            maxTradesPerDay = maxTradesPerDay,
             autoPauseThreshold = 10,
             createdAt = now,
             updatedAt = now,

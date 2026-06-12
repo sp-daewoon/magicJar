@@ -241,6 +241,87 @@ class RiskGatewayEvaluator {
         return RiskGatewayResult.Allowed(signalId)
     }
 
+    /**
+     * 공짜 룰 선차단 (canary D2 hotfix #5 — KIS rate limit 자가 압박 회피).
+     *
+     * 외부 KIS TR(체결 동기화·잔고 조회) 호출 **전에** I/O 0 인 룰만 먼저 평가해, 어차피 차단될 시그널이
+     * 원장 TR 을 소모하지 않게 한다(어제 EGW00201 자가 기여 차단). 판정 **의미는 [evaluate]와 동일**(같은 룰·같은
+     * short-circuit 순서) — 호출 순서만 앞당긴 것이다. 통과 시 caller 가 KIS 호출 후 [evaluate]로 전체 재평가한다.
+     *
+     * 평가 룰(공짜 입력만):
+     *  1. [RiskRule.KILL_SWITCH_ON]            — killSwitch 포트(부재 시 fail-closed=ON 은 caller 책임)
+     *  2. [RiskRule.MAX_CONCURRENT_POSITIONS]  — BUY 만, positions count
+     *  3. [RiskRule.TRADE_FREQUENCY_MINUTE]
+     *  4. [RiskRule.TRADE_FREQUENCY_DAY]
+     *
+     * 자본·체결 의존 룰(DAILY_LOSS·POSITION_LIMIT·SELL 잔고 가드)은 KIS 입력이 필요하므로 본 선차단 대상이 아니며
+     * [evaluate] 전체 평가에서만 판정한다(의미 보존).
+     */
+    fun preCheckFreeRules(
+        signal: Signal,
+        killSwitchOn: Boolean,
+        config: kr.spdaewoon.magicjar.domain.risk.RiskConfig,
+        currentPositionCount: Int,
+        currentCodes: List<String>,
+        recentTradesMinute: Int,
+        recentTradesDay: Int,
+    ): RiskGatewayResult.Blocked? {
+        val signalId = signal.id ?: error("Signal.id must be non-null for risk evaluation")
+
+        if (killSwitchOn) {
+            return blocked(
+                signalId,
+                RiskRule.KILL_SWITCH_ON,
+                reason = "KillSwitch enabled for user=${signal.userId}",
+                context = mapOf("userId" to signal.userId),
+            )
+        }
+
+        if (signal.side == SignalSide.BUY && currentPositionCount >= config.maxConcurrentPositions) {
+            return blocked(
+                signalId,
+                RiskRule.MAX_CONCURRENT_POSITIONS,
+                reason = "Concurrent positions $currentPositionCount >= limit ${config.maxConcurrentPositions}",
+                context =
+                    mapOf(
+                        "currentCount" to currentPositionCount,
+                        "limit" to config.maxConcurrentPositions,
+                        "codes" to currentCodes,
+                    ),
+            )
+        }
+
+        if (recentTradesMinute >= config.maxTradesPerMinute) {
+            return blocked(
+                signalId,
+                RiskRule.TRADE_FREQUENCY_MINUTE,
+                reason = "Strategy minute trade count $recentTradesMinute >= limit ${config.maxTradesPerMinute}",
+                context =
+                    mapOf(
+                        "strategyId" to signal.strategyId,
+                        "recentTradesMinute" to recentTradesMinute,
+                        "limit" to config.maxTradesPerMinute,
+                    ),
+            )
+        }
+
+        if (recentTradesDay >= config.maxTradesPerDay) {
+            return blocked(
+                signalId,
+                RiskRule.TRADE_FREQUENCY_DAY,
+                reason = "Strategy daily trade count $recentTradesDay >= limit ${config.maxTradesPerDay}",
+                context =
+                    mapOf(
+                        "strategyId" to signal.strategyId,
+                        "recentTradesDay" to recentTradesDay,
+                        "limit" to config.maxTradesPerDay,
+                    ),
+            )
+        }
+
+        return null
+    }
+
     fun resolveBuyQuantity(
         signal: Signal,
         context: RiskContext,
@@ -291,13 +372,19 @@ class RiskGatewayEvaluator {
      *
      * - `context.strategyPosition != null`(분할매수 전략 lot 존재) → **그 전략 보유 수량**(다전략 교차 청산 방지).
      * - null(분할매수 미사용 전략·과거 보유) → 기존 user+code 합산 보유(하위호환 fallback — zero-regression).
+     *
+     * ## 원장 0 → 실잔고 fallback (canary D2 hotfix #4 — D1 잔여)
+     * 과거엔 strategyPosition 행이 **존재하면 quantity=0 이어도 그 0을 채택**해 실잔고(currentPositions) fallback 을
+     * 못 탔다. strategy_position 원장이 오염(체결 누락·replay 미스)돼 quantity=0 으로 떨어지면, 실제로는 KIS 잔고에
+     * 보유가 있는데도 SELL 이 `SELL_WITHOUT_POSITION` 으로 영구 차단 → 청산 마비가 재발한다. `quantity > 0` 조건을
+     * takeIf 에 추가해, 원장 0 이면 user+code 실잔고 합산을 최후 방어선으로 사용한다(분할매수 정상 lot 은 영향 0).
      */
     private fun holdingQuantity(
         signal: Signal,
         context: RiskContext,
     ): Int =
         context.strategyPosition
-            ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId }
+            ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId && it.quantity > 0 }
             ?.quantity
             ?: context.currentPositions
                 .firstOrNull { it.code == signal.code && it.quantity > 0 }

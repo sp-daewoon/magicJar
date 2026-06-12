@@ -280,12 +280,31 @@ class RiskGatewayEvaluatorTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `SELL_WITHOUT_POSITION — strategyPosition 행 존재 + 전략 보유 0이면 차단(다전략 교차 청산 방지)`() {
+    fun `canary D2 hotfix #4 — strategyPosition quantity=0(원장 오염)이면 실잔고 fallback이 최후 방어선(청산 마비 방지)`() {
+        // ADR 0110 원안은 "lot=0 → 차단(다전략 교차 청산 방지)"이었으나, canary D1·D2 에서 strategy_position 원장이
+        // 체결 누락·replay 미스로 quantity=0 으로 오염되면 KIS 실잔고 보유가 있는데도 SELL 이 영구 차단(청산 마비)되는
+        // 결함이 드러났다(최고 관리자 결재). holdingQuantity 의 takeIf 에 `quantity > 0` 추가 → 원장 0 이면 user+code
+        // 실잔고(50주) fallback 을 타 ALLOWED 로 전환(최후 방어선). 정상 lot(>0)은 영향 0(아래 테스트들이 보장).
         val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
-        // user+code 합산엔 다른 전략 물량이 있어도(currentPositions), 이 전략의 strategy_position quantity=0이면 차단.
         val context =
             sampleContext(
                 currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 0),
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        // 원장 0 → 실잔고 50 fallback → 차단되지 않는다(청산 가능).
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `SELL_WITHOUT_POSITION — strategyPosition 0 + 실잔고도 0이면 그대로 차단`() {
+        // 원장 0 + 실잔고도 0(진짜 미보유) → fallback 도 0 → SELL_WITHOUT_POSITION 정상 차단.
+        val signal = sampleSignal(side = SignalSide.SELL, priceAtSignal = BigDecimal("10000"))
+        val context =
+            sampleContext(
+                currentPositions = emptyList(),
                 strategyPosition = sampleStrategyPosition(quantity = 0),
             )
 
@@ -355,6 +374,91 @@ class RiskGatewayEvaluatorTest {
         val result = evaluator.evaluate(signal, context)
 
         assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // canary D2 hotfix #5 — preCheckFreeRules (공짜 룰 선차단, evaluate 와 의미 동일)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `preCheckFreeRules — KillSwitch ON 즉시 BLOCKED`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = true,
+                config = sampleConfig(),
+                currentPositionCount = 0,
+                currentCodes = emptyList(),
+                recentTradesMinute = 0,
+                recentTradesDay = 0,
+            )
+        assertThat(result?.rule).isEqualTo(RiskRule.KILL_SWITCH_ON)
+    }
+
+    @Test
+    fun `preCheckFreeRules — 거래빈도 일 한도 도달 BLOCKED (KIS 호출 전 차단)`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = false,
+                config = sampleConfig(maxTradesPerDay = 5),
+                currentPositionCount = 0,
+                currentCodes = emptyList(),
+                recentTradesMinute = 0,
+                recentTradesDay = 5,
+            )
+        assertThat(result?.rule).isEqualTo(RiskRule.TRADE_FREQUENCY_DAY)
+    }
+
+    @Test
+    fun `preCheckFreeRules — BUY 동시보유 한도 도달 BLOCKED`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = false,
+                config = sampleConfig(maxConcurrentPositions = 2),
+                currentPositionCount = 2,
+                currentCodes = listOf("000660", "035720"),
+                recentTradesMinute = 0,
+                recentTradesDay = 0,
+            )
+        assertThat(result?.rule).isEqualTo(RiskRule.MAX_CONCURRENT_POSITIONS)
+    }
+
+    @Test
+    fun `preCheckFreeRules — SELL은 동시보유 한도 무관(통과 — 자본 룰은 evaluate가 판정)`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = false,
+                config = sampleConfig(maxConcurrentPositions = 1),
+                currentPositionCount = 9,
+                currentCodes = (1..9).map { "00${it}000" },
+                recentTradesMinute = 0,
+                recentTradesDay = 0,
+            )
+        // SELL 은 동시보유·거래빈도만 자유 룰 — 동시보유 초과여도 SELL 은 차단 0(BUY 한정 룰).
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `preCheckFreeRules — 공짜 룰 모두 통과 null (KIS 호출 단계로 진행)`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = false,
+                config = sampleConfig(),
+                currentPositionCount = 0,
+                currentCodes = emptyList(),
+                recentTradesMinute = 0,
+                recentTradesDay = 0,
+            )
+        assertThat(result).isNull()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
