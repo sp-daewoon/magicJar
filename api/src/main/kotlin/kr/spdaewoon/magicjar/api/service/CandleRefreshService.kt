@@ -564,7 +564,7 @@ class CandleRefreshService(
      * 주면 그대로 채택하고 J 를 영영 안 보는 결함이 있었다. 실시간 1m 은 정상인데 일봉만 멈추던 근본 원인.
      *   → **항상 `listOf("J")` 반환.** UN/NX 분기·fallback 전면 제거. (consumer KisRestCandleAdapter 와 동일 정책)
      * trade-off: 일봉 거래량에서 NXT 분 제외 — 차트/지표/메타용 본시장 OHLC 권위로 수용. 실시간 tick 은 별도로
-     * KRX+NXT(H0STCNT0·H0NXCNT0) 동시 구독 유지(분봉 합산은 NXT 포함).
+     * KRX+NXT 통합 H0UNCNT0 단일 채널 구독 유지(분봉 합산은 NXT 포함 — ADR 0124).
      */
     private fun resolveMrktDivCode(code: String): String = resolveMrktDivCodeCandidates(code).first()
 

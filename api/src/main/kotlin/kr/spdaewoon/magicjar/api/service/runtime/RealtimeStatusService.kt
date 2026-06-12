@@ -261,7 +261,7 @@ data class SlotStatusDto(
     val byTrId: Map<String, Int> = emptyMap(),
     @field:Schema(
         description = "tr_id별 점유 종목 drill-down(코드+종목명) — 카운트가 실제 어느 종목인지 확인용",
-        example = "{\"H0STCNT0\":[{\"code\":\"005930\",\"codeName\":\"삼성전자\"}]}",
+        example = "{\"H0UNCNT0\":[{\"code\":\"005930\",\"codeName\":\"삼성전자\"}]}",
     )
     val channelsByTrId: Map<String, List<SlotChannelDto>> = emptyMap(),
 )
@@ -276,7 +276,7 @@ data class SlotChannelDto(
 
 @Schema(description = "토픽별 구독 항목 (통합 체결가 H0UNCNT0 · 통합 호가 H0UNASP0)")
 data class SubscriptionStatusDto(
-    @field:Schema(description = "KIS tr_id", example = "H0STCNT0")
+    @field:Schema(description = "KIS tr_id", example = "H0UNCNT0")
     val trId: String,
     @field:Schema(description = "종목코드", example = "005930")
     val code: String,

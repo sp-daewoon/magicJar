@@ -173,7 +173,7 @@ class WsSlotBudgetLedger(
      * 회계 로직 변경 0 — occupiedChannels(key="trId|code") read만 (point-in-time 1회 순회로 카운트·코드 목록을
      * 동시에 산출 — 동시 변경 시 미세 불일치 가능하나 관측 레이어라 무해). ledger 비활성(toggle off) 시 used=0.
      *
-     * codesByTrId는 "H0STCNT0 15개가 뭔지" drill-down용 — trId별 정렬된 종목코드 목록.
+     * codesByTrId는 "H0UNCNT0 15개가 뭔지" drill-down용 — trId별 정렬된 종목코드 목록.
      *
      * @return SlotSnapshot(used=점유 채널 수, max=maxSlots, byTrId=tr_id별 점유 카운트, codesByTrId=tr_id별 종목코드 목록).
      */

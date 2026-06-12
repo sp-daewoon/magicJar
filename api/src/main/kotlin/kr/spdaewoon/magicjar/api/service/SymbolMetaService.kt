@@ -24,7 +24,7 @@ import java.time.ZoneId
  *
  * 2026-05-20 가격 source LOCK 정정 (사용자 dogfooding evidence — SK하이닉스):
  * - 이전: Redis quote:last → KIS metrics.currentPrice 우선
- *   결함: quote:last가 NXT 라이브 가격(source=live-nxt) publish → 정규장 종가와 다른 가격 표시
+ *   결함: quote:last가 NXT 라이브 가격 publish → 정규장 종가와 다른 가격 표시
  * - 신규: candle DB 1d 최신 row → currentPrice·previousClose·시·고·저·거래량 single source
  *   효과: 차트 ↔ 좌측 시세창 LOCK 동기 (모두 candle DB), MTS 정규장 종가 정합 보장
  *
@@ -123,7 +123,7 @@ class SymbolMetaService(
         val intradayCandle = if (candleLatestIsToday) candleLatest else null
 
         // 2. Redis quote:last:{code} — 장중 실시간 변동 (NXT 오염 검사 LOCK)
-        //    source ∈ {"live", "ws", "tick", ...} 정규장 출처만 허용. "live-nxt"·"nxt-*"는 무시.
+        //    source ∈ {"live", "live-unified", "ws", "tick", ...} 정규장 출처만 허용. "nxt-*" 등 NXT 오염 source는 무시.
         val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
         val quoteMap: Map<String, Any?> =
             if (quoteJson != null) {

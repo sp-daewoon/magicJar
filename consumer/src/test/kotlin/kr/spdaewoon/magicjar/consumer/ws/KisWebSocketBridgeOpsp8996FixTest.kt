@@ -250,7 +250,7 @@ class KisWebSocketBridgeOpsp8996FixTest {
         handleMessage.isAccessible = true
         // rt_cd="0" + msg_cd != OPSP8996 → isSubscriptionSuccess=true → counter reset
         val successJson =
-            """{"header":{"tr_id":"H0STCNT0","tr_key":"005930"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS","output":{}}}"""
+            """{"header":{"tr_id":"H0UNCNT0","tr_key":"005930"},"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS","output":{}}}"""
         handleMessage.invoke(bridge, successJson)
 
         // then: subscribe 성공 → opsp8996RetryCount.get() == 0 (reset 확인)
