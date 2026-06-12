@@ -237,10 +237,10 @@ data class OrderListItemDto(
     @field:Schema(
         description =
             "발사 출처 (ADR 0115 키 사슬) — STRATEGY_SIGNAL=시그널 / AUTO_EXIT=자동익절 / STOP_LOSS=손절 / " +
-                "PARTIAL_TAKE_PROFIT=분할익절 / MANUAL=수동 / EXTERNAL=외부. null=V80 이전 legacy 미분류",
+                "VI_AUTO_EXIT=VI자동청산 / PARTIAL_TAKE_PROFIT=분할익절 / MANUAL=수동 / EXTERNAL=외부. null=V80 이전 legacy 미분류",
         example = "STRATEGY_SIGNAL",
         nullable = true,
-        allowableValues = ["STRATEGY_SIGNAL", "AUTO_EXIT", "STOP_LOSS", "PARTIAL_TAKE_PROFIT", "MANUAL", "EXTERNAL"],
+        allowableValues = ["STRATEGY_SIGNAL", "AUTO_EXIT", "STOP_LOSS", "VI_AUTO_EXIT", "PARTIAL_TAKE_PROFIT", "MANUAL", "EXTERNAL"],
     )
     val orderTrigger: String?,
     @field:Schema(

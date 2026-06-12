@@ -109,7 +109,7 @@
   <div class="tagrow" style="margin-top:0">
     <span class="tag"><span class="dot blue"></span>v3.13.1</span>
     <span class="tag"><span class="dot green"></span>주문 hot path KIS 호출 0</span>
-    <span class="tag"><span class="dot amber"></span>H0UNCNT0 기본 OFF</span>
+    <span class="tag"><span class="dot amber"></span>H0UNCNT0 기본 ON</span>
     <span class="tag"><span class="dot purple"></span>MCP/API 채용 기준</span>
   </div>
   <h1>KIS API/MCP 현행 → 변경 플로우 비교</h1>
@@ -136,7 +136,7 @@
   </div>
   <div class="card">
     <h3 class="before">운영 채택</h3>
-    <p>새 guard, refresh, insufficient reject, <code>H0UNCNT0</code>는 모두 기본 OFF다. 운영 검증 후 켠다.</p>
+    <p>availability guard/refresh/insufficient reject는 기본 OFF이고, <code>H0UNCNT0</code> 통합 체결가는 기본 ON이다.</p>
   </div>
 </div>
 
@@ -316,8 +316,8 @@ flowchart LR
     <tr>
       <td><code>H0UNCNT0</code></td>
       <td><code>H0STCNT0</code> + <code>H0NXCNT0</code></td>
-      <td>flag ON 시 단일 통합 체결가</td>
-      <td>기본 OFF, 운영 실측 후 채택</td>
+      <td>기본 ON 단일 통합 체결가</td>
+      <td>이중 채널은 비상 롤백 경로</td>
     </tr>
   </tbody>
 </table>
@@ -330,7 +330,7 @@ flowchart LR
     <tr><td><code>MAGICJAR_KIS_ACCOUNT_AVAILABILITY_SNAPSHOT_GUARD_ENABLED</code></td><td>false</td><td>주문 라우터 Redis snapshot guard 활성화</td></tr>
     <tr><td><code>MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REJECT_ON_INSUFFICIENT</code></td><td>false</td><td>fresh snapshot 부족 확정 시 local reject</td></tr>
     <tr><td><code>MAGICJAR_KIS_ACCOUNT_AVAILABILITY_MAX_AGE_SECONDS</code></td><td>300</td><td>fresh 판단 기준</td></tr>
-    <tr><td><code>MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED</code></td><td>false</td><td><code>H0UNCNT0</code> 통합 체결가 구독 전환</td></tr>
+    <tr><td><code>MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED</code></td><td>true</td><td><code>H0UNCNT0</code> 통합 체결가 구독 기본값</td></tr>
   </tbody>
 </table>
 

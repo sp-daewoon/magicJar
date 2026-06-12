@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import java.math.BigDecimal
@@ -72,6 +73,8 @@ object StrategyEntityMapper {
                 takeProfitPct = entity.takeProfitPct,
                 // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
                 minHoldBars = entity.minHoldBars,
+                // V82 VI 행동 정책 — invalid row는 ALERT_ONLY(주문 0)로 흡수.
+                viActionPolicy = safeViActionPolicy(entity.viActionPolicy),
                 // ADR 0111 scale-in/partial-exit JSONB(V65) → 도메인 wiring (분할매수 R3-a).
                 scaleIn = deserializeScaleIn(entity.scaleInConfig, objectMapper),
                 partialExits = deserializePartialExits(entity.partialExits, objectMapper),
@@ -133,6 +136,13 @@ object StrategyEntityMapper {
         }
 
     fun safeStatus(value: String): StrategyStatus = runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    fun safeViActionPolicy(value: String?): ViActionPolicy =
+        value
+            ?.trim()
+            ?.uppercase()
+            ?.let { runCatching { ViActionPolicy.valueOf(it) }.getOrNull() }
+            ?: ViActionPolicy.ALERT_ONLY
 
     /**
      * `origin` 문자열(nullable) → enum (ADR 0122 §2-A · V81).

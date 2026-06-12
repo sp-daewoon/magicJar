@@ -9,6 +9,7 @@ import java.security.MessageDigest
  * tick 익절 watcher([PositionTakeProfitTickWatcher])가
  * 발행하는 OrderIntent의 `idempotencyKey`를 생성한다. **prefix가 의미를 갖는다**:
  * - `auto-sl:` — 손절 MARKET intent. open SELL 검사([PositionStopLossTickWatcher.hasOpenStopOrder])가 prefix로 식별.
+ * - `auto-vi:` — VI 발동 MARKET intent. 전략별 opt-in 보유분만 대상.
  * - `auto-tp:` — 익절 LIMIT 선주문(체결 직후). 재발행(scale-in 평단 변동) 시 기존 TP를 prefix로 찾아 취소.
  * - `auto-tpt:` — 익절 MARKET tick 발사([PositionTakeProfitTickWatcher]). **KST 날짜 차원 포함**(아래 §F1 회피).
  *
@@ -28,6 +29,9 @@ internal object AutoOrderIdempotencyKeys {
     /** 손절 MARKET 키 — `auto-sl:<digest>`. parts: userId·strategyId·code·quantity·epoch. */
     fun stopLoss(vararg parts: Any?): String = shortKey(PREFIX_STOP_LOSS, parts.asList())
 
+    /** VI MARKET 자동청산 키 — `auto-vi:<digest>`. parts: userId·strategyId·code·quantity·epoch·viCode. */
+    fun viAutoExit(vararg parts: Any?): String = shortKey(PREFIX_VI_AUTO_EXIT, parts.asList())
+
     /**
      * 익절 MARKET tick 발사 키 — `auto-tpt:<digest>`. parts: userId·strategyId·code·quantity·**kstDate(yyyyMMdd)**.
      *
@@ -43,6 +47,7 @@ internal object AutoOrderIdempotencyKeys {
 
     const val PREFIX_TAKE_PROFIT: String = "auto-tp"
     const val PREFIX_STOP_LOSS: String = "auto-sl"
+    const val PREFIX_VI_AUTO_EXIT: String = "auto-vi"
     const val PREFIX_TAKE_PROFIT_TICK: String = "auto-tpt"
 
     private fun shortKey(

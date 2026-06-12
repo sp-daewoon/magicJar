@@ -312,7 +312,7 @@ object KisWsMessageParser {
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
      *   ccnl_total() columns 배열 — H0STCNT0와 동일 핵심 필드 인덱스 구조.
      *
-     * TickEvent.source = "live-unified" 로 구분한다. 운영 검증 전 기본 OFF라 기존 live/live-nxt 흐름은 유지된다.
+     * TickEvent.source = "live-unified" 로 구분한다. H0STCNT0/H0NXCNT0 이중 채널은 비상 롤백 경로로만 유지된다.
      */
     fun parseH0Uncnt0(
         rawData: String,

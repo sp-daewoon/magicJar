@@ -8,6 +8,7 @@
  *   STRATEGY_SIGNAL     → 파랑  "전략 사인"
  *   AUTO_EXIT           → 노랑  "자동 익절"
  *   STOP_LOSS           → 빨강  "손절"
+ *   VI_AUTO_EXIT        → 자주  "VI 자동청산"
  *   PARTIAL_TAKE_PROFIT → 주황  "분할 익절"
  *   MANUAL              → 회색  "수동"
  *   EXTERNAL            → 보라  "외부"
@@ -42,6 +43,11 @@ const TRIGGER_STYLES: Record<OrderTrigger, { bg: string; label: string; refKind:
     bg: 'bg-red-100 text-red-800 border border-red-300',
     label: '손절',
     refKind: '포지션',
+  },
+  VI_AUTO_EXIT: {
+    bg: 'bg-rose-100 text-rose-800 border border-rose-300',
+    label: 'VI 자동청산',
+    refKind: '전략',
   },
   PARTIAL_TAKE_PROFIT: {
     bg: 'bg-orange-100 text-orange-800 border border-orange-300',

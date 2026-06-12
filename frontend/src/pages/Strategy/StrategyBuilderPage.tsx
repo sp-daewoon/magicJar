@@ -750,6 +750,7 @@ export function StrategyBuilderPage() {
             loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct ?? aiDraftMeta?.riskPlan.takeProfitPct ?? undefined
           }
           initialMinHoldBars={loadedStrategy?.minHoldBars ?? aiDraftMeta?.riskPlan.minHoldBars ?? null}
+          initialViActionPolicy={loadedStrategy?.viActionPolicy ?? null}
           initialScaleIn={loadedStrategy?.scaleIn}
           initialPartialExits={loadedStrategy?.partialExits}
           onSaved={handleSaved}

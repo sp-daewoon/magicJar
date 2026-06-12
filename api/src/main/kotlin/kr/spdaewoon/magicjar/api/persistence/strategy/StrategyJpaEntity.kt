@@ -49,6 +49,9 @@ class StrategyJpaEntity(
     // V73 추가 컬럼 — 잔익절 방어 B안. 진입 후 N캔들 동안 DSL 매도 무시(손절·익절 무관). null=비활성(현행).
     @Column(name = "min_hold_bars")
     val minHoldBars: Int? = null,
+    // V82 추가 컬럼 — VI 발동 행동 정책. 기본 ALERT_ONLY(기존 전략 주문 0).
+    @Column(name = "vi_action_policy", nullable = false, length = 24)
+    val viActionPolicy: String = "ALERT_ONLY",
     // V65 추가 컬럼 — ADR 0111 scale-in/partial-exit 정책 (raw JSON 보관. 도메인 직렬화 wiring은 R2).
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "scale_in_config", columnDefinition = "jsonb")

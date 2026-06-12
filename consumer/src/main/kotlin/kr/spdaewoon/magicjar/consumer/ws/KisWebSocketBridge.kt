@@ -83,6 +83,7 @@ import java.util.concurrent.atomic.AtomicReference
  * - H0STCNT0 체결가: 최대 20 slot (NXT 병행 구독 시 slot 2배 소모)
  * - H0NXCNT0 NXT 체결가: 최대 20 slot (H0STCNT0와 동일 종목 세트)
  * - H0UNASP0 통합 호가: DETAIL/STRATEGY demand만 점유(종목당 1 slot, KRX+NXT 통합)
+ * - H0UNMKO0 통합 장운영/VI: VI 정책 EXIT_MARKET/ALERT_ONLY 보유 종목만 점유(종목당 1 slot)
  * - 현행 정규장 full dual tick: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 40 한도 초과.
  *   R1 WsSlotBudgetLedger가 초과를 관측·보정하고, H0UNCNT0 통합 채널 전환은 운영 실측 후 R3에서 판단.
  *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40 안전.
@@ -192,6 +193,7 @@ class KisWebSocketBridge(
         internal const val TR_ID_NXT_TICK = "H0NXCNT0"
         internal const val TR_ID_UNIFIED_TICK = "H0UNCNT0"
         internal const val TR_ID_UNIFIED_ORDERBOOK = "H0UNASP0"
+        internal const val TR_ID_UNIFIED_MARKET_STATUS = "H0UNMKO0"
 
         internal fun tickPriceTrIds(integratedTickEnabled: Boolean): List<String> =
             if (integratedTickEnabled) {
@@ -285,6 +287,9 @@ class KisWebSocketBridge(
 
     // 호가 구독 종목코드 Set (H0UNASP0 — KRX+NXT 통합 호가)
     private val orderbookSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    // 장운영/VI 구독 종목코드 Set (H0UNMKO0 — KRX+NXT 통합 장운영정보)
+    private val marketStatusSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // NXT 체결가 구독 종목코드 Set (H0NXCNT0 — ADR 0063 NXT 08:00~20:00 KST cover)
     // KIS-first 출처: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
@@ -650,6 +655,55 @@ class KisWebSocketBridge(
     }
 
     override fun subscribedOrderbookCodes(): Set<String> = orderbookSubscribedCodes.toSet()
+
+    /**
+     * KIS WS 통합 장운영/VI 구독 (H0UNMKO0).
+     * KIS-first 출처: open-trading-api domestic_stock_functions_ws.py market_status_total() tr_type="1"
+     */
+    override fun subscribeMarketStatus(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS market-status subscribe skip — approval_key 발급 불가: codes={}", codes)
+                return
+            }
+        codes.forEach { code ->
+            if (!marketStatusSubscribedCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_MARKET_STATUS)
+                sendSink?.tryEmitNext(msg)
+                marketStatusSubscribedCodes.add(code)
+                slotLedger()?.register(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
+                log.info("KIS WS market-status subscribe: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
+            }
+        }
+    }
+
+    /**
+     * KIS WS 통합 장운영/VI 구독 해제 (H0UNMKO0).
+     */
+    override fun unsubscribeMarketStatus(codes: List<String>) {
+        if (codes.isEmpty()) return
+        val approvalKey =
+            getApprovalKey() ?: run {
+                log.warn("KIS WS market-status unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
+                codes.forEach { code ->
+                    marketStatusSubscribedCodes.remove(code)
+                    slotLedger()?.release(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
+                }
+                return
+            }
+        codes.forEach { code ->
+            if (marketStatusSubscribedCodes.contains(code)) {
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_MARKET_STATUS)
+                sendSink?.tryEmitNext(msg)
+                marketStatusSubscribedCodes.remove(code)
+                slotLedger()?.release(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
+                log.info("KIS WS market-status unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
+            }
+        }
+    }
+
+    override fun subscribedMarketStatusCodes(): Set<String> = marketStatusSubscribedCodes.toSet()
 
     /**
      * KIS WS 시간외 단일가 구독 (H0STOUP0 — ADR 0076 Phase 3 B-2).
@@ -1050,6 +1104,9 @@ class KisWebSocketBridge(
                     // KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py
                     TR_ID_UNIFIED_TICK -> handleUnifiedTickData(data)
                     TR_ID_UNIFIED_ORDERBOOK -> handleOrderbookData(data)
+                    // H0UNMKO0 통합 장운영/VI — VI 정책 EXIT_MARKET/ALERT_ONLY 보유 종목 관측.
+                    // KIS-first: domestic_stock_functions_ws.py market_status_total()
+                    TR_ID_UNIFIED_MARKET_STATUS -> handleMarketStatusData(data)
                     // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
                     // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
                     //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
@@ -1143,6 +1200,45 @@ class KisWebSocketBridge(
         }
     }
 
+    private fun handleMarketStatusData(rawData: String) {
+        val fallbackCode = marketStatusSubscribedCodes.singleOrNull()
+        val event = KisWsMarketStatusParser.parseH0Unmko0(rawData, fallbackCode = fallbackCode) ?: return
+        log.info(
+            "KIS WS market-status: code={} viActive={} viCls={} ovtmViCls={} exch={}",
+            event.code,
+            event.isViActive,
+            event.viClassCode,
+            event.overtimeViClassCode,
+            event.exchangeClassCode,
+        )
+
+        try {
+            val payload =
+                objectMapper.writeValueAsString(
+                    mapOf(
+                        "code" to event.code,
+                        "ts" to event.ts.toString(),
+                        "sourceTrId" to TR_ID_UNIFIED_MARKET_STATUS,
+                        "isViActive" to event.isViActive,
+                        "tradeHaltYn" to event.tradeHaltYn,
+                        "tradeSuspensionReason" to event.tradeSuspensionReason,
+                        "marketOpenClassCode" to event.marketOpenClassCode,
+                        "anticipatedMarketOpenClassCode" to event.anticipatedMarketOpenClassCode,
+                        "marketTreatmentClassCode" to event.marketTreatmentClassCode,
+                        "divisionApplyClassCode" to event.divisionApplyClassCode,
+                        "instrumentStatusClassCode" to event.instrumentStatusClassCode,
+                        "viClassCode" to event.viClassCode,
+                        "overtimeViClassCode" to event.overtimeViClassCode,
+                        "exchangeClassCode" to event.exchangeClassCode,
+                        "rawFieldCount" to event.rawFieldCount,
+                    ),
+                )
+            kafkaTemplate.send("market.status.v1", event.code, payload)
+        } catch (e: Exception) {
+            log.error("KIS WS market-status Kafka publish 실패: code={} error={}", event.code, e.message)
+        }
+    }
+
     private fun handleTickData(rawData: String) {
         val tick = KisWsMessageParser.parseH0Stcnt0(rawData) ?: return
         log.debug("KIS WS tick: code={} price={} vol={}", tick.code, tick.price, tick.volume)
@@ -1181,8 +1277,8 @@ class KisWebSocketBridge(
     /**
      * H0UNCNT0 통합 체결가 tick 처리.
      *
-     * KRX+NXT를 KIS 통합 체결가 한 채널로 받는 slot 절감 후보(ADR 0123 R3)다.
-     * 기본 OFF flag로만 사용하며, 운영 검증 실패 시 H0STCNT0+H0NXCNT0 이중 채널로 즉시 복귀한다.
+     * KRX+NXT를 KIS 통합 체결가 한 채널로 받는 기본 경로다.
+     * 운영 검증 실패 시에만 H0STCNT0+H0NXCNT0 이중 채널로 복귀한다.
      */
     private fun handleUnifiedTickData(rawData: String) {
         val tick = KisWsMessageParser.parseH0Uncnt0(rawData) ?: return
@@ -2072,6 +2168,7 @@ class KisWebSocketBridge(
             TR_ID_NXT_TICK -> nxtSubscribedCodes.remove(code)
             TR_ID_UNIFIED_TICK -> session.subscribedCodes.remove(code)
             TR_ID_UNIFIED_ORDERBOOK -> orderbookSubscribedCodes.remove(code)
+            TR_ID_UNIFIED_MARKET_STATUS -> marketStatusSubscribedCodes.remove(code)
             "H0STOUP0" -> overtimeSinglePriceCodes.remove(code)
             else -> log.debug("KIS WS OPSP0008 — set 정합 대상 아닌 trId={} (체결통보 등)", trId)
         }
@@ -2114,8 +2211,15 @@ class KisWebSocketBridge(
         val tickTrIds = tickPriceTrIds()
         val extraNxtCodes = nxtSubscribedCodes.filterNot { it in codes }
         val orderbookCodes = orderbookSubscribedCodes.toList()
+        val marketStatusCodes = marketStatusSubscribedCodes.toList()
         val overtimeCodes = overtimeSinglePriceCodes.toList()
-        if (codes.isNotEmpty() || extraNxtCodes.isNotEmpty() || orderbookCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
+        val hasSubscriptionsToRelease =
+            codes.isNotEmpty() ||
+                extraNxtCodes.isNotEmpty() ||
+                orderbookCodes.isNotEmpty() ||
+                marketStatusCodes.isNotEmpty() ||
+                overtimeCodes.isNotEmpty()
+        if (hasSubscriptionsToRelease) {
             try {
                 val approvalKey = getApprovalKey()
                 // G-1: approval_key null 시 unsubscribe 메시지 전송 불가 — WS session 강제 종료로 대체.
@@ -2153,6 +2257,13 @@ class KisWebSocketBridge(
                         buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_ORDERBOOK)
                     sendSink?.tryEmitNext(orderbookMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
+                }
+                // H0UNMKO0 통합 장운영/VI unsubscribe — KIS-first: market_status_total() tr_type "0" = 구독 해제
+                marketStatusCodes.forEach { code ->
+                    val marketStatusMsg =
+                        buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_MARKET_STATUS)
+                    sendSink?.tryEmitNext(marketStatusMsg)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
                 }
                 // H0STOUP0 시간외 단일가 unsubscribe — ADR 0076 Phase 3 B-2
                 // KIS-first: overtime_ccnl_krx.py tr_type "0" = 구독 해제

@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.order
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
@@ -80,6 +81,7 @@ class HoldingPositionIndex(
      * 보유 lot 스냅샷 — tick 손절 평가에 필요한 최소 필드만(평단·수량·stop-loss%·전략 메타).
      *
      * @param stopLossPct 전략 fixed stop-loss%(null이면 손절 미설정 → watcher가 평가 skip).
+     * @param viActionPolicy 전략별 VI 행동 정책. EXIT_MARKET만 주문 발행, ALERT_ONLY는 알림/관측만.
      * @param updatedAtEpoch 평단 변동 추적(멱등 키 입력). position.updatedAt.epochSecond.
      */
     data class HeldPosition(
@@ -91,6 +93,13 @@ class HoldingPositionIndex(
         val stopLossPct: BigDecimal?,
         val takeProfitPct: BigDecimal?,
         val updatedAtEpoch: Long,
+        val viActionPolicy: ViActionPolicy = ViActionPolicy.ALERT_ONLY,
+    )
+
+    private data class StrategyExitMeta(
+        val stopLossPct: BigDecimal?,
+        val takeProfitPct: BigDecimal?,
+        val viActionPolicy: ViActionPolicy,
     )
 
     /** 부팅 직후 1회 + 60초 주기 refresh. tick 폭주 전에 인덱스를 채운다. */
@@ -105,14 +114,18 @@ class HoldingPositionIndex(
                 .getOrNull() ?: return
 
         // strategy 메타(stop/take%)는 strategyId 단위로 1회만 조회(N+1 회피 — Codex 매 tick findById 대비 보강).
-        val strategyMetaCache = HashMap<Long, Pair<BigDecimal?, BigDecimal?>>()
+        val strategyMetaCache = HashMap<Long, StrategyExitMeta>()
         val next = HashMap<String, MutableList<HeldPosition>>()
         for (p in holdings) {
             if (p.quantity <= 0 || p.avgPrice <= BigDecimal.ZERO) continue
-            val (stop, take) =
+            val meta =
                 strategyMetaCache.getOrPut(p.strategyId) {
                     val strategy = runCatching { strategyRepository.findById(p.strategyId).orElse(null) }.getOrNull()
-                    (strategy?.fixedStopLossPct) to (strategy?.takeProfitPct)
+                    StrategyExitMeta(
+                        stopLossPct = strategy?.fixedStopLossPct,
+                        takeProfitPct = strategy?.takeProfitPct,
+                        viActionPolicy = safeViActionPolicy(strategy?.viActionPolicy),
+                    )
                 }
             next.getOrPut(p.code) { mutableListOf() }.add(
                 HeldPosition(
@@ -121,9 +134,10 @@ class HoldingPositionIndex(
                     code = p.code,
                     quantity = p.quantity,
                     avgPrice = p.avgPrice,
-                    stopLossPct = stop,
-                    takeProfitPct = take,
+                    stopLossPct = meta.stopLossPct,
+                    takeProfitPct = meta.takeProfitPct,
                     updatedAtEpoch = p.updatedAt.epochSecond,
+                    viActionPolicy = meta.viActionPolicy,
                 ),
             )
         }
@@ -164,15 +178,19 @@ class HoldingPositionIndex(
             log.debug("HoldingPositionIndex onFillRefresh: code={} 전량 청산 — 인덱스 제거", code)
             return
         }
-        val strategyMetaCache = HashMap<Long, Pair<BigDecimal?, BigDecimal?>>()
+        val strategyMetaCache = HashMap<Long, StrategyExitMeta>()
         val held =
             lots
                 .filter { it.quantity > 0 && it.avgPrice > BigDecimal.ZERO }
                 .map { p ->
-                    val (stop, take) =
+                    val meta =
                         strategyMetaCache.getOrPut(p.strategyId) {
                             val strategy = runCatching { strategyRepository.findById(p.strategyId).orElse(null) }.getOrNull()
-                            (strategy?.fixedStopLossPct) to (strategy?.takeProfitPct)
+                            StrategyExitMeta(
+                                stopLossPct = strategy?.fixedStopLossPct,
+                                takeProfitPct = strategy?.takeProfitPct,
+                                viActionPolicy = safeViActionPolicy(strategy?.viActionPolicy),
+                            )
                         }
                     HeldPosition(
                         userId = p.userId,
@@ -180,9 +198,10 @@ class HoldingPositionIndex(
                         code = p.code,
                         quantity = p.quantity,
                         avgPrice = p.avgPrice,
-                        stopLossPct = stop,
-                        takeProfitPct = take,
+                        stopLossPct = meta.stopLossPct,
+                        takeProfitPct = meta.takeProfitPct,
                         updatedAtEpoch = p.updatedAt.epochSecond,
+                        viActionPolicy = meta.viActionPolicy,
                     )
                 }
         // ★ writeLock — refresh 의 retainAll 과 원자화. 추가 시퀀스를 기록해 동시 진행 중인 refresh 가 이 code 를 보존하게 한다.
@@ -209,4 +228,11 @@ class HoldingPositionIndex(
         index.clear()
         index.putAll(snapshot)
     }
+
+    private fun safeViActionPolicy(value: String?): ViActionPolicy =
+        value
+            ?.trim()
+            ?.uppercase()
+            ?.let { runCatching { ViActionPolicy.valueOf(it) }.getOrNull() }
+            ?: ViActionPolicy.ALERT_ONLY
 }

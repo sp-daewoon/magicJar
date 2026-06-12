@@ -25,6 +25,7 @@ package kr.spdaewoon.magicjar.domain.order.execution
  * | [AUTO_EXIT]            | `AutoExitOrderCoordinator` 익절 선주문(takeProfitPct 전량) | strategy id |
  * | [PARTIAL_TAKE_PROFIT]  | 분할 익절(다단계 stage) 청산 — stage 발화 | strategy id (stage는 audit) |
  * | [STOP_LOSS]            | `PositionStopLossTickWatcher` tick 손절 | strategy id |
+ * | [VI_AUTO_EXIT]         | `PositionViAutoExitWatcher` H0UNMKO0 VI 발동 자동청산 | strategy id |
  * | [MANUAL]               | `ManualOrderService`(POST /api/orders/manual) | null |
  * | [EXTERNAL]             | KIS HTS·MTS 외부 주문을 WS·REST backfill이 흡수 | null |
  *
@@ -44,6 +45,9 @@ enum class OrderTrigger {
 
     /** 손절(stop-loss) tick watcher 발사 — trigger_ref_id = strategy id. */
     STOP_LOSS,
+
+    /** VI 발동 자동청산 — trigger_ref_id = strategy id. */
+    VI_AUTO_EXIT,
 
     /** 분할 익절(다단계 stage) 청산 — trigger_ref_id = strategy id. */
     PARTIAL_TAKE_PROFIT,

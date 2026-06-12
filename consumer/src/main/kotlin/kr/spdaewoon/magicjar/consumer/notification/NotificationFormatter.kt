@@ -207,6 +207,7 @@ object NotificationFormatter {
                 val strategyLabel = strategyDisplay(strategyId, meta)
                 when (trigger) {
                     "STOP_LOSS" -> "주문출처: 자동 손절${strategyLabel?.let { " $it" } ?: ""}"
+                    "VI_AUTO_EXIT" -> "주문출처: VI 자동청산${strategyLabel?.let { " $it" } ?: ""}"
                     "AUTO_EXIT" -> "주문출처: 자동 익절${strategyLabel?.let { " $it" } ?: ""}"
                     "PARTIAL_TAKE_PROFIT" -> "주문출처: 분할 익절${strategyLabel?.let { " $it" } ?: ""}"
                     "EXTERNAL" -> "주문출처: 외부 주문(HTS·MTS)"

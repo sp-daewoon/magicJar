@@ -377,7 +377,7 @@ data class TracedOrderDto(
         description = "발사 출처 (ADR 0115 키 사슬). null=legacy 미분류",
         example = "STRATEGY_SIGNAL",
         nullable = true,
-        allowableValues = ["STRATEGY_SIGNAL", "AUTO_EXIT", "STOP_LOSS", "PARTIAL_TAKE_PROFIT", "MANUAL", "EXTERNAL"],
+        allowableValues = ["STRATEGY_SIGNAL", "AUTO_EXIT", "STOP_LOSS", "VI_AUTO_EXIT", "PARTIAL_TAKE_PROFIT", "MANUAL", "EXTERNAL"],
     )
     val orderTrigger: String?,
     @field:Schema(description = "유발 근거 실키 (이 사인 id)", example = "709", nullable = true)

@@ -12,6 +12,7 @@ import org.springframework.kafka.config.TopicBuilder
  * - market.tick.v1                  — KIS WS tick + polling fallback publish (retention 1h)
  * - market.candle.minute.closed.v1  — 1m closing 캔들 (retention 1d)
  * - market.orderbook.v1             — H0UNASP0 통합 호가 스냅샷 (retention 1h)
+ * - market.status.v1                — H0UNMKO0 통합 장운영/VI 이벤트 (retention 1h)
  * - symbol.detail.command.v1        — 종목 상세 실시간 sub/unsub 명령 (retention 1h)
  * - market.realtime.demand.v1       — 전략 후보 실시간 관찰 수요 (retention 1h)
  * - system.event.v1                  — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
@@ -55,6 +56,19 @@ class KafkaTopicConfig {
     fun marketOrderbookTopic(): NewTopic =
         TopicBuilder
             .name("market.orderbook.v1")
+            .partitions(1)
+            .replicas(1)
+            .config("retention.ms", "3600000") // 1h
+            .build()
+
+    /**
+     * 장운영/VI 이벤트 (KIS WS H0UNMKO0 → KisWebSocketBridge publish).
+     * retention: 1h (자동청산 watcher 실시간 소비용)
+     */
+    @Bean
+    fun marketStatusTopic(): NewTopic =
+        TopicBuilder
+            .name("market.status.v1")
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h

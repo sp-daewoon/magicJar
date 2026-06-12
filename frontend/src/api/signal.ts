@@ -94,6 +94,7 @@ export type TraceOrderTrigger =
   | 'STRATEGY_SIGNAL'
   | 'AUTO_EXIT'
   | 'STOP_LOSS'
+  | 'VI_AUTO_EXIT'
   | 'PARTIAL_TAKE_PROFIT'
   | 'MANUAL'
   | 'EXTERNAL'

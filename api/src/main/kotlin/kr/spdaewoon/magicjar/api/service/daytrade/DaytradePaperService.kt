@@ -18,6 +18,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
 import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
@@ -137,6 +138,7 @@ class DaytradePaperService(
                 fixedStopLoss = candidate.stopLossPct ?: DEFAULT_STOP_LOSS_PCT,
                 takeProfitPct = candidate.targetProfitPct ?: DEFAULT_TAKE_PROFIT_PCT,
                 minHoldBars = candidate.maxHoldBars,
+                viActionPolicy = ViActionPolicy.EXIT_MARKET,
             )
         val strategy =
             Strategy(

@@ -262,5 +262,11 @@ class OrderbookSubscriptionRouterTest {
         }
 
         override fun subscribedOrderbookCodes(): Set<String> = orderbookSubscribed.toSet()
+
+        override fun subscribeMarketStatus(codes: List<String>) {}
+
+        override fun unsubscribeMarketStatus(codes: List<String>) {}
+
+        override fun subscribedMarketStatusCodes(): Set<String> = emptySet()
     }
 }

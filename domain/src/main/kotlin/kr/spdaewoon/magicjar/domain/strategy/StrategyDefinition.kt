@@ -23,6 +23,7 @@ import java.math.BigDecimal
  * @param minHoldBars 최소 보유 캔들 수 (잔익절 방어 B안). 진입 체결 후 N캔들(전략 interval 기준) 동안
  *   **DSL 매도 시그널만 무시**(손절·익절 라인은 절대 차단 안 함 — 안전망 우선). null=비활성(현행). scale-in 재진입 시
  *   기준 시점은 최초 진입 ts 유지(추가 매수로 리셋하지 않음). 0..[MinHoldLimits.MAX_BARS] 범위.
+ * @param viActionPolicy VI 발동 시 전략별 행동 정책. 자동청산은 EXIT_MARKET에서만 수행한다.
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -37,6 +38,7 @@ data class StrategyDefinition(
     val partialExits: List<PartialExit>? = null,
     val entryPolicy: EntryPolicy? = null,
     val minHoldBars: Int? = null,
+    val viActionPolicy: ViActionPolicy = ViActionPolicy.ALERT_ONLY,
 ) {
     init {
         // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.
@@ -44,6 +46,19 @@ data class StrategyDefinition(
         partialExits?.let { ExitLimits.validatePartialExits(it) }
         minHoldBars?.let { MinHoldLimits.validate(it) }
     }
+}
+
+/**
+ * VI 발동 시 전략별 행동 정책.
+ *
+ * - EXIT_MARKET: 보유분 시장가 자동청산.
+ * - ALERT_ONLY: 주문 없이 알림/관측 이벤트만 남김.
+ * - HOLD: 구독/주문 없이 보유 유지.
+ */
+enum class ViActionPolicy {
+    EXIT_MARKET,
+    ALERT_ONLY,
+    HOLD,
 }
 
 /**

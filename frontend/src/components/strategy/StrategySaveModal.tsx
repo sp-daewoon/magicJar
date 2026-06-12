@@ -16,7 +16,7 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { useCreateSigStrategy, useUpdateSigStrategy } from '../../api/hooks/useSigStrategy'
-import type { PartialExitDto, ScaleInDto } from '../../api/strategy'
+import type { PartialExitDto, ScaleInDto, ViActionPolicy } from '../../api/strategy'
 import { InstrumentSearchInput } from '../InstrumentSearchInput'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import { ScaleInExitPanel } from './ScaleInExitPanel'
@@ -56,6 +56,8 @@ interface StrategySaveModalProps {
   initialTakeProfitPct?: number | string | null
   /** 기존 전략의 최소 보유 캔들(잔익절 방어 B안) */
   initialMinHoldBars?: number | null
+  /** 기존 전략의 VI 행동 정책 */
+  initialViActionPolicy?: ViActionPolicy | null
   /** 기존 전략의 분할 매수 설정 (수정 모드) */
   initialScaleIn?: ScaleInDto | null
   /** 기존 전략의 분할 익절 단계 (수정 모드) */
@@ -89,6 +91,22 @@ const TF_OPTIONS = [
   { value: '1y', label: '년봉' },
 ]
 
+const VI_POLICY_OPTIONS: Array<{ value: ViActionPolicy; label: string; hint: string }> = [
+  { value: 'ALERT_ONLY', label: '알림만', hint: 'VI 감지 이벤트만 남기고 주문하지 않습니다.' },
+  { value: 'EXIT_MARKET', label: '시장가 청산', hint: '보유 중 VI가 감지되면 시장가 매도합니다.' },
+  { value: 'HOLD', label: '보유 유지', hint: 'VI 감시 구독과 주문을 모두 하지 않습니다.' },
+]
+
+function defaultViActionPolicy(
+  name?: string,
+  nameKo?: string,
+): ViActionPolicy {
+  const text = `${name ?? ''} ${nameKo ?? ''}`.toUpperCase()
+  if (text.includes('DAYTRADE') || text.includes('SCALP')) return 'EXIT_MARKET'
+  if (text.includes('SWING') || text.includes('POSITION')) return 'HOLD'
+  return 'ALERT_ONLY'
+}
+
 function extractInstrumentCode(value: string): string | null {
   const trimmed = value.trim()
   const labelMatch = trimmed.match(/\((\d{6})\)\s*$/)
@@ -118,6 +136,7 @@ export function StrategySaveModal({
   initialStopLossPct,
   initialTakeProfitPct,
   initialMinHoldBars,
+  initialViActionPolicy,
   initialScaleIn,
   initialPartialExits,
   onSaved,
@@ -135,6 +154,9 @@ export function StrategySaveModal({
   const [takeProfitPct, setTakeProfitPct] = useState(initialTakeProfitPct?.toString() ?? '10')
   // 잔익절 방어 B안 — 최소 보유 캔들(빈 문자열·0 = 비활성 현행)
   const [minHoldBars, setMinHoldBars] = useState(initialMinHoldBars?.toString() ?? '')
+  const [viActionPolicy, setViActionPolicy] = useState<ViActionPolicy>(
+    initialViActionPolicy ?? defaultViActionPolicy(initialName, initialNameKo),
+  )
   const [previewEntryPrice, setPreviewEntryPrice] = useState('100000')
   const [formError, setFormError] = useState<string | null>(null)
   const [formNotice, setFormNotice] = useState<string | null>(null)
@@ -174,6 +196,7 @@ export function StrategySaveModal({
     setStopLossPct(initialStopLossPct?.toString() ?? '5')
     setTakeProfitPct(initialTakeProfitPct?.toString() ?? '10')
     setMinHoldBars(initialMinHoldBars?.toString() ?? '')
+    setViActionPolicy(initialViActionPolicy ?? defaultViActionPolicy(initialName, initialNameKo))
     setScaleInEnabled(!!initialScaleIn)
     setScaleIn(initialScaleIn ?? DEFAULT_SCALE_IN)
     setManualWeights(!!initialScaleIn?.sliceWeights)
@@ -191,6 +214,7 @@ export function StrategySaveModal({
     initialStopLossPct,
     initialTakeProfitPct,
     initialMinHoldBars,
+    initialViActionPolicy,
     initialScaleIn,
     initialPartialExits,
   ])
@@ -315,6 +339,7 @@ export function StrategySaveModal({
       stopLossPct: parsedStopLossPct,
       takeProfitPct: parsedTakeProfitPct,
       minHoldBars: minHoldBarsPayload,
+      viActionPolicy,
       codes: normalizedCodes,
       intervals: [tf],
       scaleIn: scaleInPayload,
@@ -595,6 +620,23 @@ export function StrategySaveModal({
             <p className="mt-2 text-xs leading-5 text-amber-100/70">
               자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
             </p>
+            <div className="mt-3 rounded-md border border-red-900/50 bg-red-950/20 px-3 py-2">
+              <label className="mb-1 block text-xs font-semibold text-red-200">VI 발동 정책</label>
+              <select
+                value={viActionPolicy}
+                onChange={(e) => setViActionPolicy(e.target.value as ViActionPolicy)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+              >
+                {VI_POLICY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs leading-5 text-red-100/75">
+                {VI_POLICY_OPTIONS.find((option) => option.value === viActionPolicy)?.hint}
+              </p>
+            </div>
           </div>
 
           {/* 분할 매수 / 분할 익절 (ADR 0111 · 분할매수 R3-a · add-only) */}

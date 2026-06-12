@@ -14,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.CompositeCondition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Condition
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
@@ -114,6 +115,7 @@ class StrategyService(
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
         minHoldBars: Int? = null,
+        viActionPolicy: ViActionPolicy? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val entryComplexity = validateAndComputeComplexity(entryAst)
@@ -143,6 +145,7 @@ class StrategyService(
                 scaleIn = scaleIn,
                 partialExits = partialExits?.takeIf { it.isNotEmpty() },
                 minHoldBars = normalizedMinHoldBars,
+                viActionPolicy = viActionPolicy ?: defaultViActionPolicy(name),
             )
         val normalizedCodes = normalizeCodes(codes, requireCodes)
         val strategy =
@@ -177,6 +180,7 @@ class StrategyService(
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
         minHoldBars: Int? = null,
+        viActionPolicy: ViActionPolicy? = null,
         requireCodes: Boolean = false,
     ): Strategy {
         val existing =
@@ -215,6 +219,7 @@ class StrategyService(
                         scaleIn = scaleIn,
                         partialExits = partialExits?.takeIf { it.isNotEmpty() },
                         minHoldBars = normalizedMinHoldBars,
+                        viActionPolicy = viActionPolicy ?: existing.definition.viActionPolicy,
                     ),
                 complexity = combinedComplexity,
                 codes = normalizedCodes,
@@ -468,6 +473,15 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "minHoldBars는 ${MinHoldLimits.MAX_BARS} 이하여야 합니다")
         }
         return value
+    }
+
+    private fun defaultViActionPolicy(name: String): ViActionPolicy {
+        val upper = name.uppercase()
+        return when {
+            "DAYTRADE" in upper || "SCALP" in upper -> ViActionPolicy.EXIT_MARKET
+            "SWING" in upper || "POSITION" in upper -> ViActionPolicy.HOLD
+            else -> ViActionPolicy.ALERT_ONLY
+        }
     }
 
     companion object {

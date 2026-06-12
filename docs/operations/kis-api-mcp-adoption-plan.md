@@ -22,6 +22,7 @@
 | A0 | 예탁원 정보 | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | corp action batch | 사용 중 |
 | A0 | WS 체결가 | `H0UNCNT0`, `H0STOUP0` | 실시간 tick | 사용 중 |
 | A0 | WS 호가 | `H0UNASP0` | 상세/진입 통합 호가 + 예상체결 필드 | 사용 중 (`H0STASP0` 퇴역) |
+| A0 | WS 장운영/VI | `H0UNMKO0` | 보유 포지션 VI 관측 + 정책별 알림/시장가 청산 | 사용 중 |
 | A0 | WS 체결통보 | `H0STCNI0`, `H0STCNI9` | order execution | 사용 중 |
 
 ## 1. 현재 사용 중인 MCP tool
@@ -44,6 +45,7 @@
 | P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | REAL read-only |
 | A0 | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄인다. | 사용 중 |
 | A0 | 통합 호가 WS | `asking_price_total` `H0UNASP0` | DETAIL/STRATEGY 호가를 KRX+NXT 통합 1채널로 공급한다. | 사용 중 |
+| A0 | 통합 장운영/VI WS | `market_status_total` `H0UNMKO0` | VI 발동을 주문 정책과 분리해 ALERT_ONLY/EXIT_MARKET 보유분만 감시한다. | 사용 중 |
 | P2 | 주문조건별 가능수량 정밀조회 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | 계좌 snapshot으로 부족한 예외 분석/수동 진단용. 주문 hot path 기본 사용 금지. | 보류 |
 | P2 | 재무비율 | `FHKST66430300` 등 | 스크리너/fundamental 설명 강화. | batch only |
 | P2 | 추정실적/투자의견 | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI 설명/종목 상세 보조. | batch/cache |
@@ -259,7 +261,7 @@ flowchart TD
 
 | 현재 | 변경 | 코멘트 |
 |---|---|---|
-| 정규+NXT 체결가를 `H0STCNT0` + `H0NXCNT0` 두 채널로 구독한다. | `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`일 때만 `H0UNCNT0` 한 채널을 구독한다. | 코드만 미리 합류했고, 운영 검증 전 기본 OFF가 맞다. |
+| 정규+NXT 체결가를 `H0STCNT0` + `H0NXCNT0` 두 채널로 구독하던 구조. | 기본값 `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`로 `H0UNCNT0` 한 채널을 구독한다. | 이중 체결가 구독은 비상 롤백 경로로만 유지한다. |
 
 ## 5. 구현 순서
 

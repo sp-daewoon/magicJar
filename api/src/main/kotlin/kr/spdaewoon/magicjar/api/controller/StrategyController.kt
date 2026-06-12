@@ -16,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
@@ -94,6 +95,7 @@ class StrategyController(
                 exitText = req.exit,
                 stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
+                viActionPolicy = parseViActionPolicy(req.viActionPolicy),
             )
         return CreateStrategyResponse(
             strategyId = strategy.id ?: 0L,
@@ -270,6 +272,13 @@ class StrategyController(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 캔들 인터벌: $interval")
         }
 
+    private fun parseViActionPolicy(value: String?): ViActionPolicy? {
+        val normalized = value?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching { ViActionPolicy.valueOf(normalized) }.getOrElse {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 VI 정책: $value")
+        }
+    }
+
     private fun toStrategyResponse(strategy: Strategy): StrategyResponse =
         StrategyResponse(
             id = strategy.id ?: 0L,
@@ -280,6 +289,7 @@ class StrategyController(
             tf = strategy.definition.tf,
             stopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
+            viActionPolicy = strategy.definition.viActionPolicy.name,
             complexity = toComplexityDto(strategy.complexity),
             disabledReason = strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
@@ -322,6 +332,8 @@ data class CreateStrategyRequest(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD). 생략 시 전략명 기반 기본값", example = "ALERT_ONLY")
+    val viActionPolicy: String? = null,
 )
 
 @Schema(description = "전략 등록 응답")
@@ -350,6 +362,8 @@ data class StrategyResponse(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD)", example = "ALERT_ONLY")
+    val viActionPolicy: String = "ALERT_ONLY",
     @field:Schema(description = "DSL 복잡도 메타")
     val complexity: StrategyComplexityDto,
     @field:Schema(description = "비활성화 사유 (NULL=정상)", example = "NULL")

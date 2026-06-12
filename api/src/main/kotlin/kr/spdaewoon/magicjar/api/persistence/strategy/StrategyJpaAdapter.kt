@@ -98,6 +98,8 @@ class StrategyJpaAdapter(
             takeProfitPct = strategy.definition.takeProfitPct,
             // V73 잔익절 방어 B안 — minHoldBars 영속 (null=비활성 현행).
             minHoldBars = strategy.definition.minHoldBars,
+            // V82 VI 행동 정책 — EXIT_MARKET/ALERT_ONLY/HOLD.
+            viActionPolicy = strategy.definition.viActionPolicy.name,
             // ADR 0111 scale-in/partial-exit 도메인 → JSONB(V65) 직렬화 (분할매수 R3-a).
             // ScaleInPlan·PartialExit는 jackson 어노테이션 없는 평탄 데이터 클래스 → 기본 직렬화가 KDoc 스키마 정합.
             scaleInConfig = strategy.definition.scaleIn?.let { objectMapper.writeValueAsString(it) },

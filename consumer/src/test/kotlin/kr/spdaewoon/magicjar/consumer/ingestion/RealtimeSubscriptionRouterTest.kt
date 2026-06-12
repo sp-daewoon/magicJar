@@ -197,5 +197,11 @@ class RealtimeSubscriptionRouterTest {
         override fun unsubscribeOrderbook(codes: List<String>) {}
 
         override fun subscribedOrderbookCodes(): Set<String> = emptySet()
+
+        override fun subscribeMarketStatus(codes: List<String>) {}
+
+        override fun unsubscribeMarketStatus(codes: List<String>) {}
+
+        override fun subscribedMarketStatusCodes(): Set<String> = emptySet()
     }
 }

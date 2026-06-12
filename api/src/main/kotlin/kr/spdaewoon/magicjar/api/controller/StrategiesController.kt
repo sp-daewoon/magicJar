@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
@@ -102,6 +103,7 @@ class StrategiesController(
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
                 minHoldBars = req.minHoldBars,
+                viActionPolicy = parseViActionPolicy(req.viActionPolicy),
                 requireCodes = true,
             )
         return toDetailResponse(strategy)
@@ -211,6 +213,7 @@ class StrategiesController(
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
                 minHoldBars = req.minHoldBars,
+                viActionPolicy = parseViActionPolicy(req.viActionPolicy),
                 requireCodes = true,
             )
         log.info("전략 수정: id={}", id)
@@ -352,6 +355,13 @@ class StrategiesController(
         return ast
     }
 
+    private fun parseViActionPolicy(value: String?): ViActionPolicy? {
+        val normalized = value?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching { ViActionPolicy.valueOf(normalized) }.getOrElse {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 VI 정책: $value")
+        }
+    }
+
     private fun toDetailResponse(strategy: Strategy): StrategyDetailResponse {
         val activationBlockedReason = strategyService.activationBlockedReason(strategy)
         return StrategyDetailResponse(
@@ -365,6 +375,7 @@ class StrategiesController(
             stopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
             minHoldBars = strategy.definition.minHoldBars,
+            viActionPolicy = strategy.definition.viActionPolicy.name,
             warnings = strategyService.exitNoiseWarnings(strategy),
             codes = strategy.codes,
             codeNames = codeNamesFor(strategy.codes),
@@ -495,6 +506,8 @@ data class StrategyCreateRequest(
         example = "3",
     )
     val minHoldBars: Int? = null,
+    @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD). 생략 시 전략명 기반 기본값", example = "ALERT_ONLY")
+    val viActionPolicy: String? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
@@ -530,6 +543,8 @@ data class StrategyUpdateRequest(
         example = "3",
     )
     val minHoldBars: Int? = null,
+    @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD). 생략 시 기존값 유지", example = "ALERT_ONLY")
+    val viActionPolicy: String? = null,
     @field:Schema(description = "감시 종목 코드 목록", example = "[\"005930\"]")
     val codes: List<String> = emptyList(),
     @field:Schema(description = "감시 인터벌 목록", example = "[\"5m\"]")
@@ -577,6 +592,8 @@ data class StrategyDetailResponse(
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(description = "잔익절 방어 B안 — 최소 보유 캔들 수. null=비활성(현행)", example = "3")
     val minHoldBars: Int? = null,
+    @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD)", example = "ALERT_ONLY")
+    val viActionPolicy: String = "ALERT_ONLY",
     @field:Schema(
         description = "잔익절 방어 A안 — 저장 경고(비차단). 익절 목표가 왕복 거래비용 근접·미만 시 1건. 빈 배열=경고 없음",
         example = "[]",

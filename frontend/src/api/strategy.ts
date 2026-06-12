@@ -80,6 +80,7 @@ export interface CreateStrategyRequest {
   tf?: string
   stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
+  viActionPolicy?: ViActionPolicy | string | null
 }
 
 /** POST /api/strategy 응답 */
@@ -100,6 +101,7 @@ export interface StrategyDto {
   tf?: string
   stopLossPct?: number | string | null
   takeProfitPct?: number | string | null
+  viActionPolicy?: ViActionPolicy | string | null
   enabled: boolean
   createdAt: string
   complexity?: StrategyComplexityDto
@@ -182,6 +184,7 @@ export const strategyApi = {
 /** 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태) */
 export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'DELETED'
 export type StrategyOrigin = 'USER_DSL' | 'PAPER_DISCOVERY'
+export type ViActionPolicy = 'EXIT_MARKET' | 'ALERT_ONLY' | 'HOLD'
 
 // ──────────────────────────────────────────────
 // 분할 매수(scale-in) / 분할 익절(partial-exit) DTO — ADR 0111 (분할매수 R3-a)
@@ -237,6 +240,8 @@ export interface SigStrategyDto {
   takeProfitPct?: number | string | null
   /** 잔익절 방어 B안 — 최소 보유 캔들 수. null=비활성(현행) */
   minHoldBars?: number | null
+  /** VI 발동 행동 정책 */
+  viActionPolicy?: ViActionPolicy
   /** 잔익절 방어 A안 — 저장 경고(비차단). 익절 목표가 왕복 거래비용 근접·미만 시 1건 */
   warnings?: string[]
   complexity?: StrategyComplexityDto
@@ -292,6 +297,8 @@ export interface CreateSigStrategyRequest {
   takeProfitPct?: number | string | null
   /** 잔익절 방어 B안 — 최소 보유 캔들 수. null·0이면 비활성(현행) */
   minHoldBars?: number | null
+  /** VI 발동 행동 정책 */
+  viActionPolicy?: ViActionPolicy
   codes?: string[]
   intervals?: string[]
   buyCondition?: string
@@ -315,6 +322,8 @@ export interface UpdateSigStrategyRequest {
   takeProfitPct?: number | string | null
   /** 잔익절 방어 B안 — 최소 보유 캔들 수. null·0이면 비활성(현행) */
   minHoldBars?: number | null
+  /** VI 발동 행동 정책 */
+  viActionPolicy?: ViActionPolicy
   codes?: string[]
   intervals?: string[]
   buyCondition?: string
@@ -397,6 +406,7 @@ function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrat
     tf: req.tf ?? req.intervals?.[0] ?? '1d',
     stopLossPct: req.stopLossPct ?? null,
     takeProfitPct: req.takeProfitPct ?? null,
+    viActionPolicy: req.viActionPolicy,
     // 잔익절 방어 B안 — null·0이면 키 생략(현행 비활성 하위호환)
     ...(req.minHoldBars ? { minHoldBars: req.minHoldBars } : {}),
     codes: req.codes ?? [],
@@ -455,6 +465,12 @@ function normalizeOrigin(raw: SigStrategyBackendDto): StrategyOrigin {
   return 'USER_DSL'
 }
 
+function normalizeViActionPolicy(value: unknown): ViActionPolicy {
+  return value === 'EXIT_MARKET' || value === 'ALERT_ONLY' || value === 'HOLD'
+    ? value
+    : 'ALERT_ONLY'
+}
+
 function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
   const codes = asStringArray(raw.codes)
   const intervals = asStringArray(raw.intervals)
@@ -471,6 +487,7 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     stopLossPct: raw.stopLossPct ?? null,
     takeProfitPct: raw.takeProfitPct ?? null,
     minHoldBars: raw.minHoldBars ?? null,
+    viActionPolicy: normalizeViActionPolicy(raw.viActionPolicy),
     warnings: Array.isArray(raw.warnings) ? raw.warnings.map((w) => String(w)).filter(Boolean) : [],
     codes,
     codeNames: asCodeNames(raw.codeNames),

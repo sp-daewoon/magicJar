@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
+import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
@@ -89,6 +90,8 @@ class ConsumerStrategyLookupJpaAdapter(
                 takeProfitPct = entity.takeProfitPct,
                 // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
                 minHoldBars = entity.minHoldBars,
+                // V82 VI 행동 정책 — invalid row는 ALERT_ONLY(주문 0)로 흡수.
+                viActionPolicy = safeViActionPolicy(entity.viActionPolicy),
                 // ADR 0114 진입 정책 JSONB(V72) → 도메인 (BUY 가격 산정 입력). 역직렬화 실패 시 null = 전역 default.
                 entryPolicy = deserializeEntryPolicy(entity.entryPolicy),
             )
@@ -148,6 +151,13 @@ class ConsumerStrategyLookupJpaAdapter(
 
     private fun safeStatus(value: String): StrategyStatus =
         runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    private fun safeViActionPolicy(value: String?): ViActionPolicy =
+        value
+            ?.trim()
+            ?.uppercase()
+            ?.let { runCatching { ViActionPolicy.valueOf(it) }.getOrNull() }
+            ?: ViActionPolicy.ALERT_ONLY
 
     /**
      * `origin` JSONB 없는 VARCHAR(V81) → enum (ADR 0122 §2-A · consumer capital 분기 판정 키).

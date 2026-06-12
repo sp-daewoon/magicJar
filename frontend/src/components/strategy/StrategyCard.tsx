@@ -340,6 +340,20 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           )}
         </div>
       )}
+      {strategy.viActionPolicy && (
+        <div
+          className={[
+            'rounded border px-3 py-2 text-xs font-semibold',
+            strategy.viActionPolicy === 'EXIT_MARKET'
+              ? 'border-red-900/60 bg-red-950/20 text-red-200'
+              : strategy.viActionPolicy === 'ALERT_ONLY'
+              ? 'border-amber-900/60 bg-amber-950/20 text-amber-200'
+              : 'border-gray-800 bg-gray-900/60 text-gray-400',
+          ].join(' ')}
+        >
+          VI {strategy.viActionPolicy === 'EXIT_MARKET' ? '시장가 청산' : strategy.viActionPolicy === 'ALERT_ONLY' ? '알림만' : '보유 유지'}
+        </div>
+      )}
 
       {/* 전략별 보유 현황 (ADR 0110) */}
       {showPositionPanel && (
@@ -455,6 +469,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
             sellCondition: strategy.sellCondition ?? null,
             stopLossPct: strategy.stopLossPct ?? null,
             takeProfitPct: strategy.takeProfitPct ?? null,
+            viActionPolicy: strategy.viActionPolicy ?? 'ALERT_ONLY',
             recentSignalCount: strategy.recentSignalCount ?? 0,
           }}
         />

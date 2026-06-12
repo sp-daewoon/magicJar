@@ -52,6 +52,7 @@ export type OrderSource = 'AUTO' | 'MANUAL' | 'EXTERNAL'
  *  - STRATEGY_SIGNAL     : 시그널 파생 주문 (triggerRefId = signal id)
  *  - AUTO_EXIT           : 자동 익절 전량 청산 (triggerRefId = strategy id)
  *  - STOP_LOSS           : 손절 (triggerRefId = position/룰 id)
+ *  - VI_AUTO_EXIT        : VI 발동 자동청산 (triggerRefId = strategy id)
  *  - PARTIAL_TAKE_PROFIT : 분할 익절 stage 청산 (triggerRefId = strategy id)
  *  - MANUAL              : 사용자 수동
  *  - EXTERNAL            : 외부 직접 주문 흡수 (귀속 불능을 sentinel로 위장하지 않음)
@@ -62,6 +63,7 @@ export type OrderTrigger =
   | 'STRATEGY_SIGNAL'
   | 'AUTO_EXIT'
   | 'STOP_LOSS'
+  | 'VI_AUTO_EXIT'
   | 'PARTIAL_TAKE_PROFIT'
   | 'MANUAL'
   | 'EXTERNAL'

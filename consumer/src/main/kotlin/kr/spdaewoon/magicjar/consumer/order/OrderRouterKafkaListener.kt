@@ -584,7 +584,7 @@ class OrderRouterKafkaListener(
         intent.triggerRefId?.takeIf { it != 0L }
             ?: when (resolveOrderTrigger(intent)) {
                 OrderTrigger.STRATEGY_SIGNAL -> intent.signalId.takeIf { it != 0L }
-                OrderTrigger.AUTO_EXIT, OrderTrigger.STOP_LOSS, OrderTrigger.PARTIAL_TAKE_PROFIT ->
+                OrderTrigger.AUTO_EXIT, OrderTrigger.STOP_LOSS, OrderTrigger.VI_AUTO_EXIT, OrderTrigger.PARTIAL_TAKE_PROFIT ->
                     intent.strategyId.takeIf { it != 0L }
                 OrderTrigger.MANUAL, OrderTrigger.EXTERNAL -> null
             }

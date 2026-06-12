@@ -106,6 +106,16 @@ class RealtimeStatusSnapshotPublisher(
                 ),
             )
         }
+        bridge.subscribedMarketStatusCodes().forEach { code ->
+            subscriptions.add(
+                SubscriptionView(
+                    trId = "H0UNMKO0",
+                    code = code,
+                    owners = listOf("vi:held"),
+                    sinceMs = null,
+                ),
+            )
+        }
 
         return RealtimeStatusSnapshot(
             updatedAt = Instant.now().toString(),

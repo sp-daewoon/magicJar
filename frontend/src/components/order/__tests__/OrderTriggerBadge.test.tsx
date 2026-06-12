@@ -30,6 +30,11 @@ describe('OrderTriggerBadge', () => {
     expect(screen.getByText('손절').className).toContain('bg-red-100')
   })
 
+  it('VI_AUTO_EXIT → "VI 자동청산" 자주', () => {
+    render(<OrderTriggerBadge trigger="VI_AUTO_EXIT" />)
+    expect(screen.getByText('VI 자동청산').className).toContain('bg-rose-100')
+  })
+
   it('PARTIAL_TAKE_PROFIT → "분할 익절" 주황', () => {
     render(<OrderTriggerBadge trigger="PARTIAL_TAKE_PROFIT" />)
     expect(screen.getByText('분할 익절').className).toContain('bg-orange-100')

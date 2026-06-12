@@ -28,7 +28,7 @@
 | A0 | 멀티시세 | `intstock-multprice` `FHKST11300006` | nightly snapshot, NXT 검증 |
 | A0 | 휴장일 | `chk-holiday` `CTCA0903R` | 캘린더/수집 gate |
 | A0 | 예탁원 | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | corp action batch |
-| A0 | WS | `H0UNCNT0`, `H0UNASP0`, `H0STOUP0`, `H0STCNI0`, `H0STCNI9` | integrated tick/orderbook/execution notice |
+| A0 | WS | `H0UNCNT0`, `H0UNASP0`, `H0UNMKO0`, `H0STOUP0`, `H0STCNI0`, `H0STCNI9` | integrated tick/orderbook/market-status VI/execution notice |
 
 ## 1-2. 다음 채용 후보 우선순위
 
@@ -40,6 +40,7 @@
 | P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | REAL read-only 채용 |
 | A0 | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | 사용 중 |
 | A0 | `asking_price_total` | `H0UNASP0` | KRX+NXT 통합 호가 WS, 예상체결 필드 포함 | 사용 중 (`H0STASP0` 퇴역) |
+| A0 | `market_status_total` | `H0UNMKO0` | 통합 장운영/VI 상태 WS, 전략별 VI 정책 관측/청산 | 사용 중 |
 | P2 | `inquire-psbl-order` / `inquire-psbl-sell` | `TTTC8908R`/`VTTC8908R`, `TTTC8408R` | 주문조건별 가능수량 정밀 진단 | hot path 보류 |
 | P2 | finance ratios | `FHKST66430300` 등 | screener fundamental | 후순위 |
 | P2 | estimate/opinion | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI/상세 보조 | 후순위 |
@@ -143,7 +144,7 @@
 ### F. 통합 체결가 WS — `H0UNCNT0`
 - 공식 예제 `ccnl_total` 기준 통합 실시간체결가.
 - `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`일 때만 `KisWebSocketBridge`가 `H0STCNT0`+`H0NXCNT0` 대신 `H0UNCNT0`를 구독한다.
-- ADR 0123 R3 후보. 기본 OFF로 두고, 운영 검증 후 KRX+NXT 이중 채널 대체 여부를 결정한다.
+- 기본 ON. `H0STCNT0`+`H0NXCNT0` 이중 체결가 구독은 비상 롤백 경로로만 남긴다.
 
 ### G. 종목 추정 실적 — `HHKST668300C0`
 - 애널리스트 컨센서스 (매출·영업이익 추정)
