@@ -62,7 +62,7 @@ priority(낮을수록 상위): **HOLDING(0) > PENDING_BUY(5) > DETAIL(10) > WATC
 ### 2-3. 채널 다이어트 (slot 절반화 — 최대 레버)
 
 - **NXT(H0NXCNT0) owner별 선택화**: DETAIL·HOLDING·PENDING_BUY만 NXT 동시. WATCHLIST·STRATEGY는 KRX 단독. **HOLDING·PENDING_BUY는 NXT 유지** (#878 체결통보 회귀 fix 정합 — 자본 path 시간외 cover 의무).
-- **H0UNCNT0 통합 체결가 검토(R3)**: H0STCNT0+H0NXCNT0(2) → H0UNCNT0(1)로 통합 시 KRX+NXT 단일 cover. **risk**: ADR 0091 REST UN 빈 응답 결함의 WS 재현 가능성 → R3 실측 검증 + fallback 가드(빈 tick 감지 시 이중 구독 복귀) + default false 게이트.
+- **H0UNCNT0 통합 체결가 검토(R3)**: H0STCNT0+H0NXCNT0(2) → H0UNCNT0(1)로 통합 시 KRX+NXT 단일 cover. **risk**: ADR 0091 REST UN 빈 응답 결함의 WS 재현 가능성 → R3 실측 검증 + fallback 가드(빈 tick 감지 시 이중 구독 복귀) + default false 게이트. **→ 0124 채택**(2026-06-13 라이브 실측 31→16 + 최고 관리자 결재 — `INTEGRATED_TICK_ENABLED` default true 반전 + owner priority 재정렬 + watchlist owner 폐지. 본 §의 default false 게이트는 0124에서 해제됨).
 
 ### 2-4. 거부 시 graceful path (헌법 §11-2 정합)
 
