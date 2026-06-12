@@ -26,6 +26,7 @@ import kr.spdaewoon.magicjar.domain.risk.RiskEvent
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.risk.RiskVerdict
+import kr.spdaewoon.magicjar.domain.risk.port.CapitalOutcome
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotSelector
 import kr.spdaewoon.magicjar.domain.risk.port.PaperCapitalSnapshotProvider
@@ -169,6 +170,12 @@ class SignalGeneratedKafkaListener(
             val context =
                 try {
                     buildContext(signal)
+                } catch (e: SignalSkippedCapitalUnavailableException) {
+                    // F10 — capital 조회 불가(재시도·stale-cache 모두 실패). 0 fabricate 금지 → 위반(POSITION_LIMIT)
+                    // 평가로 흐르지 않고 이번 시그널만 조용히 audit 종결(risk_event·Slack·AutoPause 전부 제외).
+                    handleCapitalUnavailableSkip(signal, e.reason)
+                    ack.acknowledge()
+                    return
                 } catch (e: RealRiskContextUnavailableException) {
                     handleBlocked(signal, syncBlocked(signal, e.reasonCode))
                     ack.acknowledge()
@@ -466,6 +473,52 @@ class SignalGeneratedKafkaListener(
                 emitEntrySkipAudit(signal, decision)
                 false
             }
+        }
+    }
+
+    /**
+     * F10 — capital 조회 불가 시그널 skip 종결(2026-06-12 결재 §3).
+     *
+     * 0 fabricate 로 POSITION_LIMIT 위반 평가하던 경로를 대체한다. **위반(risk_event)·Slack 위반 알람·
+     * AutoPause 카운트 전부 제외** — 자본을 "알 수 없음"으로 다루는 것이 "0원"으로 거짓 차단하는 것보다 옳다.
+     * 감사(audit)만 SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE 로 남겨 운영자가 빈도를 추적할 수 있게 한다.
+     */
+    private fun handleCapitalUnavailableSkip(
+        signal: Signal,
+        reason: String,
+    ) {
+        log.warn(
+            "시그널 skip — capital 조회 불가(재시도·stale-cache 실패, 0 fabricate 금지): " +
+                "signalId={} userId={} code={} side={} reason={}",
+            signal.id,
+            signal.userId,
+            signal.code,
+            signal.side,
+            reason,
+        )
+        val logger = systemEventLoggerProvider.getIfAvailable() ?: return
+        runCatching {
+            logger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.OTHER,
+                    severity = SystemEventSeverity.WARN,
+                    actor = "SignalGeneratedKafkaListener",
+                    action = "SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE",
+                    userId = signal.userId,
+                    detailJson =
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "signalId" to signal.id,
+                                "strategyId" to signal.strategyId,
+                                "code" to signal.code,
+                                "side" to signal.side.name,
+                                "reason" to reason,
+                            ),
+                        ),
+                ),
+            )
+        }.onFailure { e ->
+            log.error("capital skip audit emit 실패: signalId={} reason={} err={}", signal.id, reason, e.message)
         }
     }
 
@@ -958,27 +1011,67 @@ class SignalGeneratedKafkaListener(
 
         // ADR 0122 §2-C — capital 분기: 페이퍼면 가상 자본(PaperCapitalSnapshotProvider), 아니면 실 KIS 잔고.
         // CapitalSnapshotSelector.forStrategy 가 fail-fast(페이퍼인데 provider 미배선 → PaperCapitalProviderUnavailableException)를
-        // 캡슐화 — 실 잔고 silent fallback 금지(헌법 §11 · spec §1-3 격리). 비페이퍼는 realProvider byte 동일.
+        // 캡슐화 — 실 잔고 silent fallback 금지(헌법 §11 · spec §1-3 격리). 비페이퍼는 realProvider 경로.
+        //
+        // F10 (2026-06-12 최고 관리자 결재) — capital 산출은 [CapitalOutcome] sealed 로 받는다.
+        //   - Available(값) → 그대로 룰 평가(stale-cache 재사용 포함 — 직전 실제 잔고가 0 보다 사실에 가까움).
+        //   - Unavailable(조회 불가) → **0 fabricate 금지**.
+        //       · BUY: capital 은 POSITION_LIMIT 예산 산정에 필수 → SignalSkippedCapitalUnavailableException 로 빠져나가
+        //         이번 시그널만 조용히 audit(skip) 종결(POSITION_LIMIT 위반·Slack·AutoPause 전부 제외 · 14:12 incident 차단).
+        //       · SELL: capital 불요(POSITION_LIMIT=BUY 전용, DAILY_LOSS percent 는 currentCapital>0 가드 내장).
+        //         매도는 청산·리스크 축소 액션이라 잔고조회 실패로 **스킵/차단하면 포지션이 묶인다**. capital 미상이면
+        //         DAILY_LOSS percent 만 자연 비활성(가드)되도록 0 으로 진행하되 skip 하지 않는다(SELL 영향 0 — 결재 §SELL).
+        // 재시도·stale-cache 는 provider([KisCapitalSnapshotProviderAdapter])가 캡슐화(SRP) — 여기선 분기만.
+        // 페이퍼 provider 미배선(PaperCapitalProviderUnavailableException)은 selector fail-fast → 아래 catch 에서
+        //   REAL=fail-fast / 그 외=skip(0 합성 금지).
         val capitalSelector =
             CapitalSnapshotSelector.forStrategy(
                 realProvider = capitalSnapshotProvider,
                 paperProvider = paperCapitalSnapshotProviderProvider.getIfAvailable(),
             )
         val capital =
-            try {
-                capitalSelector.capitalFor(signal.userId, isPaper)
-            } catch (e: Exception) {
-                if (realMode && !isPaper) {
-                    throw RealRiskContextUnavailableException("CAPITAL_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+            when (
+                val outcome =
+                    try {
+                        capitalSelector.capitalFor(signal.userId, isPaper)
+                    } catch (e: Exception) {
+                        if (realMode && !isPaper) {
+                            throw RealRiskContextUnavailableException("CAPITAL_UNAVAILABLE:${e.message ?: "UNKNOWN"}")
+                        }
+                        // 페이퍼 provider 미배선 등 — 0 합성 금지. 조회 불가로 간주(아래 Unavailable 분기와 동일 처리).
+                        log.warn(
+                            "Capital selector 예외 — 조회 불가 처리(0 fabricate 금지): userId={} isPaper={} err={}",
+                            signal.userId,
+                            isPaper,
+                            e.message,
+                        )
+                        CapitalOutcome.Unavailable("CAPITAL_SELECTOR_EXCEPTION:${e.message ?: "UNKNOWN"}")
+                    }
+            ) {
+                is CapitalOutcome.Available -> {
+                    if (outcome.stale) {
+                        log.info(
+                            "Capital stale-cache 사용 — 직전 성공 잔고로 룰 평가(0 fabricate 회피): userId={} capital={}",
+                            signal.userId,
+                            outcome.capital,
+                        )
+                    }
+                    outcome.capital
                 }
-                // 페이퍼 provider 미배선(fail-fast) 또는 MOCK 실패 → capital 0 (POSITION_LIMIT 으로 BUY 차단 fail-safe).
-                log.warn(
-                    "Capital 산출 실패 (fallback 0): userId={} isPaper={} err={}",
-                    signal.userId,
-                    isPaper,
-                    e.message,
-                )
-                BigDecimal.ZERO
+                is CapitalOutcome.Unavailable ->
+                    if (signal.side == SignalSide.BUY) {
+                        // BUY 만 capital 필수 → skip(위반 평가로 흐르지 않음).
+                        throw SignalSkippedCapitalUnavailableException(outcome.reason)
+                    } else {
+                        // SELL — capital 불요. 청산을 잔고조회 실패로 막지 않는다(DAILY_LOSS percent 만 자연 비활성).
+                        log.info(
+                            "SELL capital 조회 불가 — 청산 진행(skip 아님, DAILY_LOSS percent 비활성): userId={} code={} reason={}",
+                            signal.userId,
+                            signal.code,
+                            outcome.reason,
+                        )
+                        BigDecimal.ZERO
+                    }
             }
 
         val positionPort = riskPositionPortProvider.getIfAvailable()
@@ -1137,6 +1230,15 @@ class SignalGeneratedKafkaListener(
     private class RealRiskContextUnavailableException(
         val reasonCode: String,
     ) : RuntimeException(reasonCode)
+
+    /**
+     * F10 — capital 조회 불가(재시도·stale-cache 모두 실패)로 이번 시그널을 **위반이 아니라 skip** 으로 종결해야 함을
+     * 알리는 내부 신호. [buildContext] 에서 던지고 [onSignalGenerated] 가 [handleCapitalUnavailableSkip] 로 받는다.
+     * 0 fabricate 로 POSITION_LIMIT 거짓 차단하던 14:12 incident 경로를 대체.
+     */
+    private class SignalSkippedCapitalUnavailableException(
+        val reason: String,
+    ) : RuntimeException(reason)
 
     /** 반복 차단 알람 쿨다운 타임스탬프 — key=`userId:strategyId:code:rule` → 마지막 fanout epoch ms (hotfix #5 보너스). */
     private val blockedAlarmCooldownAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()

@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -80,6 +81,49 @@ class ConsumerKisBalanceQueryAdapterTest {
         verify(exactly = 2) { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L, any()) }
         verify(exactly = 1) { kisRateLimiterPort.onTpsExceeded() }
         verify(exactly = 1) { kisRateLimiterPort.onSuccess() }
+    }
+
+    @Test
+    fun `F10 — EGW00201 rate limit 재시도(2회) 소진 시 KisBalanceRateLimitedException 을 던진다`() {
+        stubCredential()
+        every { secretCipher.decrypt(any()) } answers { "plain-key".toByteArray() }
+        every { kisAuthAdapter.getAccessToken("u-001", AccountType.MOCK) } returns "valid-token"
+        every { kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, 3000L, any()) } just Runs
+        every { kisRateLimiterPort.onTpsExceeded() } just Runs
+        every { kisRateLimiterPort.onSuccess() } just Runs
+
+        // 매 호출 EGW00201 — 재시도까지 모두 rate limit.
+        val callCount = AtomicInteger(0)
+        val exchange =
+            ExchangeFunction {
+                callCount.incrementAndGet()
+                Mono.just(
+                    ClientResponse
+                        .create(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .body("""{"rt_cd":"1","msg1":"초당 거래건수를 초과하였습니다.","msg_cd":"EGW00201"}""")
+                        .build(),
+                )
+            }
+
+        val sut =
+            ConsumerKisBalanceQueryAdapter(
+                webClient = webClientWith(exchange),
+                secretCipher = secretCipher,
+                credentialRepository = credentialRepository,
+                kisAuthAdapter = kisAuthAdapter,
+                kisRateLimiterPort = kisRateLimiterPort,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+                rateLimitBackoffMillis = 0L,
+                rateLimitMaxRetries = 2,
+            )
+
+        assertThatThrownBy { sut.fetchFullBalance("u-001", AccountType.MOCK) }
+            .isInstanceOf(KisBalanceRateLimitedException::class.java)
+        // 최초 1 + 재시도 2 = 총 3회 호출.
+        assertThat(callCount.get()).isEqualTo(3)
+        verify(exactly = 3) { kisRateLimiterPort.onTpsExceeded() }
     }
 
     private fun stubCredential() {

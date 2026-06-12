@@ -26,7 +26,8 @@ class CapitalSnapshotSelectorTest {
     fun `비페이퍼 전략은 실 CapitalSnapshotProvider 잔고를 쓴다(기존 동작 동일)`() {
         val selector = CapitalSnapshotSelector.forStrategy(real, paper)
 
-        selector.capitalFor(userId = "u1", isPaper = false) shouldBe BigDecimal("20000000")
+        // F10 — 반환 타입 CapitalOutcome. 비페이퍼는 realProvider.capitalOutcome 경로(default=Available(getCapital)).
+        selector.capitalFor(userId = "u1", isPaper = false) shouldBe CapitalOutcome.Available(BigDecimal("20000000"))
     }
 
     @Test
@@ -41,9 +42,22 @@ class CapitalSnapshotSelectorTest {
             }
         val selector = CapitalSnapshotSelector.forStrategy(trackedReal, paper)
 
-        selector.capitalFor(userId = "u1", isPaper = true) shouldBe BigDecimal("10000000")
+        selector.capitalFor(userId = "u1", isPaper = true) shouldBe CapitalOutcome.Available(BigDecimal("10000000"))
         // spec §1-3 격리 LOCK — 페이퍼 평가가 실 KIS 잔고 provider를 건드리지 않는다
         realCalls shouldBe 0
+    }
+
+    @Test
+    fun `F10 — 비페이퍼 실 provider가 조회 불가면 Unavailable 을 그대로 전달한다(0 fabricate 금지)`() {
+        val unavailableReal =
+            object : CapitalSnapshotProvider {
+                override fun getCapital(userId: String): BigDecimal = BigDecimal.ZERO
+
+                override fun capitalOutcome(userId: String): CapitalOutcome = CapitalOutcome.Unavailable("KIS_RATE_LIMIT")
+            }
+        val selector = CapitalSnapshotSelector.forStrategy(unavailableReal, paper)
+
+        selector.capitalFor(userId = "u1", isPaper = false) shouldBe CapitalOutcome.Unavailable("KIS_RATE_LIMIT")
     }
 
     @Test
@@ -62,7 +76,7 @@ class CapitalSnapshotSelectorTest {
     fun `페이퍼 provider 미배선이어도 비페이퍼 경로는 정상(페이퍼 비활성 환경 zero-regression)`() {
         val selector = CapitalSnapshotSelector.forStrategy(realProvider = real, paperProvider = null)
 
-        selector.capitalFor(userId = "u1", isPaper = false) shouldBe BigDecimal("20000000")
+        selector.capitalFor(userId = "u1", isPaper = false) shouldBe CapitalOutcome.Available(BigDecimal("20000000"))
     }
 
     @Test

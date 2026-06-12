@@ -41,6 +41,10 @@ class ConsumerKisBalanceQueryAdapter(
     private val kisBaseVps: String,
     @Value("\${magicjar.kis.balance-rate-limit-backoff-millis:1000}")
     private val rateLimitBackoffMillis: Long = 1000L,
+    // F10 (2026-06-12) — rate limit 시 재시도 횟수(KIS per-TR 1/s 고려 — 간격 1s+ 권장).
+    // 1회 retry 로는 burst 구간에서 부족 → default 2회. 모든 재시도 소진 시 KisBalanceRateLimitedException.
+    @Value("\${magicjar.kis.balance-rate-limit-max-retries:2}")
+    private val rateLimitMaxRetries: Int = 2,
 ) : KisBalanceQueryPort {
     private val log = LoggerFactory.getLogger(ConsumerKisBalanceQueryAdapter::class.java)
 
@@ -152,10 +156,15 @@ class ConsumerKisBalanceQueryAdapter(
             if (errorClass is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
-                if (retryAttempt == 0) {
+                // F10 — rate limit 은 일시적이므로 backoff 후 재시도(default 2회 — burst 구간 흡수).
+                // 기다렸다 다시 잔고를 재확인하는 것이 0원 fabricate 보다 우선(결재 §1).
+                if (retryAttempt < rateLimitMaxRetries) {
+                    val nextAttempt = retryAttempt + 1
                     log.warn(
-                        "consumer KIS 잔고조회 Rate Limit — {}ms backoff 후 1회 재시도: user={} status={}",
+                        "consumer KIS 잔고조회 Rate Limit — {}ms backoff 후 재시도 {}/{}: user={} status={}",
                         rateLimitBackoffMillis,
+                        nextAttempt,
+                        rateLimitMaxRetries,
                         maskUserId(userId),
                         e.statusCode.value(),
                     )
@@ -168,9 +177,18 @@ class ConsumerKisBalanceQueryAdapter(
                         trId = trId,
                         baseUrl = baseUrl,
                         userId = userId,
-                        retryAttempt = 1,
+                        retryAttempt = nextAttempt,
                     )
                 }
+                // 모든 재시도 소진 — rate limit 임을 타입으로 드러내 호출부(snapshot provider)가
+                // stale-cache·skip 으로 분기하게 한다(0 fabricate 금지 · F10).
+                log.error(
+                    "consumer KIS 잔고조회 Rate Limit — 재시도 {}회 모두 소진: user={} status={}",
+                    rateLimitMaxRetries,
+                    maskUserId(userId),
+                    e.statusCode.value(),
+                )
+                throw KisBalanceRateLimitedException(userId, rateLimitMaxRetries, e)
             }
             log.error(
                 "consumer KIS 잔고조회 실패: user={} status={} body={}",
@@ -273,3 +291,14 @@ class ConsumerKisBalanceQueryAdapter(
         private const val TR_ID_MOCK = "VTTC8434R"
     }
 }
+
+/**
+ * KIS 잔고조회가 rate limit(EGW00201/EGW00215 등)으로 **재시도까지 모두 소진**됐음을 드러내는 타입
+ * (F10 hotfix · 2026-06-12). 일반 조회 실패와 구분해 호출부([kr.spdaewoon.magicjar.consumer.risk
+ * .KisCapitalSnapshotProviderAdapter])가 stale-cache → skip 으로 분기하게 한다(0 fabricate 금지).
+ */
+class KisBalanceRateLimitedException(
+    userId: String,
+    retries: Int,
+    cause: Throwable,
+) : RuntimeException("KIS 잔고조회 rate limit — 재시도 ${retries}회 소진 (userId=$userId)", cause)
