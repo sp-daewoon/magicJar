@@ -3,10 +3,10 @@ id: T-20260612-1508-kis-queue-approved-r0-audit
 agent: market-data
 model: opus
 branch: docs/kis-queue-approved-r0-audit
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T15:08:28.548+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T15:13:21.475+09:00
+pr: #934
 parentPhase: ?
 ---
 
