@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
  * thread-safe — AtomicReference·ConcurrentHashMap 사용.
  */
 class KisWebSocketSession {
-    /** 현재 구독 중인 종목코드 set (H0STCNT0) */
+    /** 현재 구독 중인 종목코드 set (H0UNCNT0 통합 체결가) */
     val subscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** 마지막 메시지 수신 시각 (heartbeat 무신호 감지용 — ADR 0048 §2-4-A) */

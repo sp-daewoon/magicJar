@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component
  * 종목 상세 진입 시 호가 구독은 #939에서 전면 제거됐다가, 수동매매 시 호가가 필요하다는 최고 관리자 결재로
  * **표시 중에만** 방식으로 부분 복원됐다([OrderbookSubscriptionRouter.onSymbolDetailEntered/Exited] —
  * 진입 즉시 구독 / 이탈 즉시 해제, 옛 LRU·debounce·5분 idle 잔류 폐기). 같은 종목 STRATEGY demand와 단일
- * 구독을 공유한다(F11 공존). **현재가(H0STCNT0) DETAIL 구독은 불변** — 본 listener의 핵심 책임이다.
+ * 구독을 공유한다(F11 공존). **현재가(H0UNCNT0) DETAIL 구독은 불변** — 본 listener의 핵심 책임이다.
  *
  * groupId: magicjar-consumer-symbol-detail
  * manual ack (MANUAL_IMMEDIATE)

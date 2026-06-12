@@ -327,7 +327,7 @@ class RealtimeSubscriptionRouter(
 /**
  * 관리자 실시간 상태 스냅샷용 체결가 demand 투영 (read-only).
  *
- * 실제 trId 라벨은 활성 채널(통합 flag ON 시 H0UNCNT0, OFF 시 H0STCNT0)을 publisher가 표기한다(ADR 0124 결정 4).
+ * 실제 trId 라벨은 활성 채널(H0UNCNT0 통합 체결가)을 publisher가 표기한다(ADR 0124).
  *
  * @param code 종목코드.
  * @param owners owner 식별자 목록(`<owner>:<ownerId>`, 정렬).

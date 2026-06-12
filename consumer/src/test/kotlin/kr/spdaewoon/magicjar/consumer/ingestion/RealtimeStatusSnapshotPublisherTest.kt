@@ -51,8 +51,9 @@ class RealtimeStatusSnapshotPublisherTest {
                         executionTrId = "H0STCNI9",
                         executionUserIdMasked = "7468****",
                     )
-                // ADR 0124 결정 4 — 통합 flag ON 기본값에서 체결가 라벨은 H0UNCNT0.
+                // ADR 0124 — 체결가 라벨은 단일 채널 H0UNCNT0.
                 every { activeTickTrId() } returns "H0UNCNT0"
+                every { subscribedMarketStatusCodes() } returns emptySet()
             }
         val realtimeRouter =
             mockk<RealtimeSubscriptionRouter> {
@@ -100,53 +101,6 @@ class RealtimeStatusSnapshotPublisherTest {
         assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0UNASP0", "H0UNCNT0")
         assertThat(payload.executionNotice.subscribed).isTrue()
         assertThat(payload.executionNotice.trId).isEqualTo("H0STCNI9")
-    }
-
-    @Test
-    fun `통합 flag OFF(롤백) — 체결가 라벨은 H0STCNT0 (ADR 0124 결정 4)`() {
-        val redis = mockk<StringRedisTemplate>()
-        val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
-        every { redis.opsForValue() } returns valueOps
-        val jsonSlot = slot<String>()
-        every { valueOps.set(any(), capture(jsonSlot), any<Duration>()) } returns Unit
-
-        val bridge =
-            mockk<KisWebSocketBridge> {
-                every { wsStatusSnapshot() } returns
-                    WsStatusSnapshot(
-                        connected = true,
-                        sessionCid = "cid-1",
-                        reconnects24h = 0,
-                        lastConnectedAtMs = 1_700_000_000_000L,
-                        executionSubscribed = false,
-                        executionMode = "MOCK",
-                        executionTrId = "H0STCNI9",
-                        executionUserIdMasked = null,
-                    )
-                // 비상 롤백(integratedTickEnabled=false) 시 대표 채널 H0STCNT0.
-                every { activeTickTrId() } returns "H0STCNT0"
-            }
-        val realtimeRouter =
-            mockk<RealtimeSubscriptionRouter> {
-                every { snapshotDemands() } returns
-                    listOf(RealtimeDemandSnapshot("005930", listOf("strategy:86"), 1_700_000_000_000L))
-            }
-
-        val publisher =
-            RealtimeStatusSnapshotPublisher(
-                redisTemplate = redis,
-                objectMapper = objectMapper,
-                bridgeProvider = provider(bridge),
-                realtimeRouterProvider = provider(realtimeRouter),
-                orderbookRouterProvider = provider(null),
-                slotLedgerProvider = provider(null),
-            )
-
-        publisher.publishNow()
-
-        val payload = objectMapper.readValue(jsonSlot.captured, RealtimeStatusSnapshot::class.java)
-        assertThat(payload.subscriptions).hasSize(1)
-        assertThat(payload.subscriptions.first().trId).isEqualTo("H0STCNT0")
     }
 
     @Test
