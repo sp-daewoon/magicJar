@@ -33,4 +33,20 @@ interface RiskEventJpaRepository : JpaRepository<RiskEventJpaEntity, Long> {
         @Param("strategyId") strategyId: Long,
         @Param("since") since: Instant,
     ): Int
+
+    /**
+     * 무해 가드 rule 제외 BLOCKED 카운트 (F9 — consumer-side AutoPauseGuard 와 동일 의미).
+     * caller(adapter)는 비어있지 않은 set 일 때만 본 query 를 사용한다(빈 collection IN 절 hazard 회피).
+     */
+    @Query(
+        "SELECT COUNT(e) FROM RiskEventJpaEntity e " +
+            "WHERE e.signalId IN (" +
+            "  SELECT s.id FROM SignalJpaEntity s WHERE s.strategyId = :strategyId" +
+            ") AND e.verdict = 'BLOCKED' AND e.ts >= :since AND e.rule NOT IN :excludedRules",
+    )
+    fun countRecentBlockedByStrategyExcludingRules(
+        @Param("strategyId") strategyId: Long,
+        @Param("since") since: Instant,
+        @Param("excludedRules") excludedRules: Set<String>,
+    ): Int
 }

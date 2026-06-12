@@ -38,9 +38,15 @@ class RiskEventJpaAdapter(
     override fun countRecentBlockedByStrategy(
         strategyId: Long,
         windowMinutes: Long,
+        excludedRules: Set<String>,
     ): Int {
         val since = JInstant.now().minusSeconds(windowMinutes * 60)
-        return riskEventJpaRepository.countRecentBlockedByStrategy(strategyId, since)
+        // 빈 set 이면 기존 전수 카운트 query — 빈 collection IN 절 hazard 회피(F9, consumer adapter 와 동일 분기).
+        return if (excludedRules.isEmpty()) {
+            riskEventJpaRepository.countRecentBlockedByStrategy(strategyId, since)
+        } else {
+            riskEventJpaRepository.countRecentBlockedByStrategyExcludingRules(strategyId, since, excludedRules)
+        }
     }
 
     /**
