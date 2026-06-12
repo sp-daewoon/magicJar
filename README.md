@@ -548,7 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
-| **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 미시구조/실현손익 + H0UNCNT0 flag OFF 합류 | — | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 미시구조/실현손익 + H0UNCNT0 flag OFF 합류 + [flow HTML](docs/operations/kis-api-mcp-flow-comparison.html) | — | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.0** | 2026-06-12 | REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화 | — | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.12.5** | 2026-06-10 | (검토) | — | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.4** | 2026-06-10 | (검토) | — | [📊](_workspace/baseline/v3.12.0/html/index.html) |
