@@ -206,6 +206,35 @@ class OrderbookSubscriptionRouterTest {
         assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("005930"))
     }
 
+    // ── snapshotDemands owner 라벨 — 체결가 라우터와 단일 prefix 표기 대칭 ────────
+
+    @Test
+    fun `snapshotDemands — STRATEGY bare ownerId에 strategy prefix 1회, DETAIL은 detail`() {
+        router.onStrategyActivated("005930", "86") // bare
+        router.onSymbolDetailEntered("005930")
+
+        val owners = router.snapshotDemands().first { it.code == "005930" }.owners
+        assertTrue(owners.contains("strategy:86")) // strategy: prefix 1회 부여
+        assertTrue(owners.contains("detail")) // DETAIL은 ownerId 미추적
+    }
+
+    @Test
+    fun `snapshotDemands — legacy strategy prefix ownerId여도 이중 prefix 방어`() {
+        router.onStrategyActivated("005930", "strategy:86") // 이미 prefix 포함(롤링 배포 잔존)
+
+        val owners = router.snapshotDemands().first { it.code == "005930" }.owners
+        assertTrue(owners.contains("strategy:86")) // strategy:strategy:86 아님
+        assertTrue(owners.none { it.startsWith("strategy:strategy:") })
+    }
+
+    @Test
+    fun `snapshotDemands — 세션 식별자 ownerId(daytrade-paper)는 보존 + strategy prefix 1회`() {
+        router.onStrategyActivated("005930", "daytrade-paper:5")
+
+        val owners = router.snapshotDemands().first { it.code == "005930" }.owners
+        assertTrue(owners.contains("strategy:daytrade-paper:5")) // 세션 식별자 보존 + 단일 strategy prefix
+    }
+
     /**
      * 테스트용 KisWsPort mock (Mockito 대신 직접 구현 — 단순 추적)
      */

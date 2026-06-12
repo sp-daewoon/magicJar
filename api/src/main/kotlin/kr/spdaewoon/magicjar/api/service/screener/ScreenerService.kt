@@ -251,7 +251,8 @@ class ScreenerService(
                         mapOf(
                             "action" to "ENTER",
                             "owner" to "STRATEGY",
-                            "ownerId" to "strategy:${request.strategyId}",
+                            // bare ownerId — prefix(`strategy:`)는 consumer 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
+                            "ownerId" to "${request.strategyId}",
                             "code" to match.instrumentCode,
                             "priority" to (STRATEGY_REALTIME_PRIORITY_BASE + index),
                             "ttlSeconds" to STRATEGY_REALTIME_TTL_SECONDS,

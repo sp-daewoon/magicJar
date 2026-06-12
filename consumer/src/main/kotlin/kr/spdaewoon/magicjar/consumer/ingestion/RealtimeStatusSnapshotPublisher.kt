@@ -115,8 +115,8 @@ class RealtimeStatusSnapshotPublisher(
                 ),
             slots =
                 slot?.let {
-                    SlotView(used = it.used, max = it.max, byTrId = it.byTrId)
-                } ?: SlotView(used = 0, max = 0, byTrId = emptyMap()),
+                    SlotView(used = it.used, max = it.max, byTrId = it.byTrId, codesByTrId = it.codesByTrId)
+                } ?: SlotView(used = 0, max = 0, byTrId = emptyMap(), codesByTrId = emptyMap()),
             subscriptions = subscriptions.sortedWith(compareBy({ it.trId }, { it.code })),
             executionNotice =
                 ExecutionNoticeView(
@@ -154,6 +154,8 @@ data class SlotView(
     val used: Int = 0,
     val max: Int = 0,
     val byTrId: Map<String, Int> = emptyMap(),
+    // tr_id별 점유 종목코드 목록 drill-down. default 필수 — 롤링 배포 호환(옛 consumer 페이로드엔 부재).
+    val codesByTrId: Map<String, List<String>> = emptyMap(),
 )
 
 data class SubscriptionView(

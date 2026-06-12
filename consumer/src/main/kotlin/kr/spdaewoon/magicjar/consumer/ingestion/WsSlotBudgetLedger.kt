@@ -168,22 +168,28 @@ class WsSlotBudgetLedger(
     fun occupiedCount(): Int = occupiedChannels.size
 
     /**
-     * 관리자 실시간 상태 스냅샷용 — 점유 채널의 tr_id별 카운트 + 한도(read-only).
+     * 관리자 실시간 상태 스냅샷용 — 점유 채널의 tr_id별 카운트 + tr_id별 종목코드 목록 + 한도(read-only).
      *
-     * 회계 로직 변경 0 — occupiedChannels(key="trId|code") read만. ledger 비활성(toggle off) 시 used=0.
+     * 회계 로직 변경 0 — occupiedChannels(key="trId|code") read만 (point-in-time 1회 순회로 카운트·코드 목록을
+     * 동시에 산출 — 동시 변경 시 미세 불일치 가능하나 관측 레이어라 무해). ledger 비활성(toggle off) 시 used=0.
      *
-     * @return SlotSnapshot(used=점유 채널 수, max=maxSlots, byTrId=tr_id별 점유 카운트).
+     * codesByTrId는 "H0STCNT0 15개가 뭔지" drill-down용 — trId별 정렬된 종목코드 목록.
+     *
+     * @return SlotSnapshot(used=점유 채널 수, max=maxSlots, byTrId=tr_id별 점유 카운트, codesByTrId=tr_id별 종목코드 목록).
      */
     fun snapshot(): SlotSnapshot {
-        val byTrId =
+        // occupiedChannels(key="trId|code")를 1회 순회해 trId → 정렬된 code 목록으로 그룹화.
+        val codesByTrId =
             occupiedChannels
-                .groupingBy { it.substringBefore('|') }
-                .eachCount()
+                .groupBy({ it.substringBefore('|') }, { it.substringAfter('|') })
+                .mapValues { (_, codes) -> codes.sorted() }
                 .toSortedMap()
+        val byTrId = codesByTrId.mapValues { (_, codes) -> codes.size }.toSortedMap()
         return SlotSnapshot(
             used = occupiedChannels.size,
             max = maxSlots,
             byTrId = byTrId,
+            codesByTrId = codesByTrId,
         )
     }
 
@@ -192,11 +198,13 @@ class WsSlotBudgetLedger(
      * @param used 점유 채널 수(code × tr_id).
      * @param max 운영 상한(maxSlots — 기본 40, ENV `magicjar.kis.ws.max-slots`).
      * @param byTrId tr_id별 점유 채널 수.
+     * @param codesByTrId tr_id별 점유 종목코드 목록(정렬) — drill-down용.
      */
     data class SlotSnapshot(
         val used: Int,
         val max: Int,
         val byTrId: Map<String, Int>,
+        val codesByTrId: Map<String, List<String>> = emptyMap(),
     )
 
     /**

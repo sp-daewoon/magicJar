@@ -13,7 +13,10 @@ import org.springframework.stereotype.Component
  *
  * 전략 목록에서 ACTIVE로 전환된 사용자 전략은 DB의 strategy.codes 배열 전체가 실시간 평가 대상이다.
  * API가 즉시 realtime demand를 발행하지만, consumer 재시작·Kafka 일시 실패·TTL 만료에 대비해 이 registrar가
- * active 전략을 주기적으로 읽고 동일 ownerId(`strategy:<id>`)로 갱신한다.
+ * active 전략을 주기적으로 읽고 동일 ownerId(bare `<id>`)로 갱신한다.
+ *
+ * ownerId는 bare id(예: `86`)다 — owner enum prefix(`strategy:`)는 스냅샷 직렬화([RealtimeSubscriptionRouter.snapshotDemands]·
+ * [OrderbookSubscriptionRouter.snapshotDemands])에서 1회만 부여한다(이중 prefix `strategy:strategy:86` 회피).
  */
 @Component
 class ActiveStrategyDemandRegistrar(
@@ -116,7 +119,9 @@ class ActiveStrategyDemandRegistrar(
         }
     }
 
-    private fun ownerId(strategyId: Long): String = "strategy:$strategyId"
+    // bare ownerId — prefix(`strategy:`)는 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
+    // request/release/onStrategyActivated/onStrategyDeactivated 모두 본 함수를 쓰므로 멱등 매칭 키 동일.
+    private fun ownerId(strategyId: Long): String = "$strategyId"
 
     private companion object {
         const val STRATEGY_DEMAND_TTL_SECONDS = 180L
