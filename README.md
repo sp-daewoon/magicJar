@@ -5,7 +5,7 @@
 **개인 맞춤형 한국 주식 자동매매 시스템**
 _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
-[![Version](https://img.shields.io/badge/version-v3.13.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
+[![Version](https://img.shields.io/badge/version-v3.13.1-blue)](https://github.com/sp-daewoon/magicJar/releases)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0_(K2)-purple)](https://kotlinlang.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6db33f)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 미시구조/실현손익 + H0UNCNT0 flag OFF 합류 | — | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.0** | 2026-06-12 | REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화 | — | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.12.5** | 2026-06-10 | (검토) | — | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.4** | 2026-06-10 | (검토) | — | [📊](_workspace/baseline/v3.12.0/html/index.html) |
