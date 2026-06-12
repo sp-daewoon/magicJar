@@ -1,6 +1,7 @@
 # spec — KIS Rate Limit 큐 기반 재설계 + 백필 인벤토리 전수조사 + 정리안
 
-- 상태: **Proposed (2026-06-10 · 사용자 결재 대기)** — 권고안 1개 명시(§4-6). 사용자 결재 전 코드 0 touch.
+- 상태: **결재됨 (2026-06-12 최고 관리자 — "큐 재설계까지 다 진행해줘" 4의제 전체 승인 · R0 즉시 착수)** — 권고안 "대안 C + per-TR(A)"(§4-6) 채택 확정. R0 audit 산출물: `_workspace/specs/2026-06-12-kis-queue-r0-audit.md`. (직전: Proposed 2026-06-10)
+  - **결재 evidence(오늘 incident 인용)**: 단일 전략 운영에서도 **원장 per-TR 한도(EGW00215 계열)가 BUY 평가 잔고조회를 직격**. 2026-06-12 REAL canary D2 — 시그널마다 KIS 원장 TR(체결동기화·잔고)을 공짜 룰(KillSwitch·동시보유·거래빈도)보다 **먼저** 호출 → 차단될 시그널도 원장 TR 소모하여 자가 압박(EGW00201/EGW00215 자가 기여). 14:12 무렵 **총자산 0원 fabricate incident** 발생 → backend-core hotfix **F10(`8644f10a` canary D2 배치 A #5 `preCheckFreeRules` — I/O 0 룰 선차단으로 원장 TR 호출 자체를 줄이는 순서 재배치)** 으로 **임시 수선**. F10은 "원장 TR을 덜 부른다"일 뿐 **per-TR 한도를 구조적으로 표현하지 못함** — 근본 해소는 본 spec §4-5 per-TR(원장) sub-limit 게이트. → **결재 핵심 동기: 다전략 확장이 아니라 단일 전략 운영에서도 이미 원장 per-TR가 자본 path를 직격하므로 R1 즉시 착수.**
 - 작성: architect (opus 4.8 1M)
 - 브랜치: `agent/architect/kis-ratelimit-queue-redesign-spec`
 - 배경 권위: 최고 관리자 지시 (2026-06-10) — "버킷을 잘게 쪼개서 큐로 관리하는 큰 그림 + 내부 백필 정리"
@@ -291,4 +292,5 @@ caller adapter (api/batch/consumer)
 
 | 일자 | 변경 | 작성 |
 |------|------|------|
+| 2026-06-12 | **결재됨 (최고 관리자 — 4의제 전체 승인, R0 즉시 착수)**. 결재 evidence: 2026-06-12 REAL canary D2 단일 전략 운영에서도 원장 per-TR(EGW00215 계열)가 BUY 평가 잔고조회 직격 → 14:12 총자산 0원 fabricate incident → backend-core F10(`8644f10a` canary D2 #5 preCheckFreeRules) 임시 수선(원장 TR 호출 순서 재배치, per-TR 한도 구조 표현 X — 근본은 본 spec §4-5). R0 audit 수행 → 산출물 `_workspace/specs/2026-06-12-kis-queue-r0-audit.md`(L4 polling 결론·L2 jitter 결론·per-TR 화이트리스트 확정·R1~R3 dispatch 매트릭스). 코드 0 touch. (market-data, opus 4.8) | market-data |
 | 2026-06-10 | spec 신설 — KIS rate limit 큐 기반 재설계(대안 A/B/C 비교 + 권고 "C+per-TR") + 백필/폴링 전수조사 인벤토리 13 컴포넌트(장중 6 + 야간 7 + 비-KIS 2) + 백필 통폐합 정리안(장중 일봉 이원화·MarketIndex jitter·reconcile per-TR·watchlist polling audit) + ADR 0119(1m backfill 폐지) 정합 audit GREEN + EGW00201 회복/실패 2-시그널 설계 + 자원 audit 5종(C add-only GREEN) + 운영 ADR 3슬롯. Proposed — 사용자 결재 대기. 코드 0 touch. KIS 호출 0 · 자본 영향 0 · AI 호출 0 · mock 0. (architect, opus 4.8 1M) | architect |

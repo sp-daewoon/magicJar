@@ -14,9 +14,9 @@ parentPhase: ?
 KIS rate limit 큐 재설계 spec 결재 반영 + R0 audit 수행 (L4 polling/L2 jitter/per-TR 화이트리스트)
 
 ## 결과물 체크리스트
-- [ ] spec 상태 결재됨 갱신
-- [ ] R0 audit 문서
-- [ ] CHANGELOG row
+- [x] spec 상태 결재됨 갱신
+- [x] R0 audit 문서
+- [x] CHANGELOG row
 
 ## 의존성
 - (필요 시 기록)
