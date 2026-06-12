@@ -14,7 +14,7 @@ import java.math.BigDecimal
  * 수신 raw 메시지 형식:
  *   {타입}|{TR_ID}|{N}|{데이터}
  *   - 타입: "0" = 실시간 데이터, "1" = 구독 응답, "PINGPONG" = heartbeat
- *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0STASP0(호가), H0STCNI0(체결통보)
+ *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0UNCNT0(통합 체결가), H0STASP0(호가), H0STCNI0(체결통보)
  *   - N: 데이터 건수
  *   - 데이터: ^(캐럿) 구분 필드열
  *
@@ -51,6 +51,22 @@ import java.math.BigDecimal
  *
  * NXT 대체거래소 cover 시간: ADR 0063 정합 — 08:00~20:00 KST.
  * 전체 46개 필드 (인덱스 0~45) — 자세한 내용은 KIS open-trading-api 레포 domestic_stock/domestic_stock_functions_ws.py 참조.
+ *
+ * H0UNCNT0 필드 인덱스 (open-trading-api examples_llm/domestic_stock/ccnl_total/ccnl_total.py columns 배열):
+ * KIS-first raw 출처:
+ *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+ *   ccnl_total() tr_id="H0UNCNT0" — 국내주식 실시간체결가 (통합)
+ *   H0STCNT0와 동일 위치에 핵심 필드 매핑.
+ *   [0]  MKSC_SHRN_ISCD      — 종목코드
+ *   [1]  STCK_CNTG_HOUR      — 체결시각 (HHMMSS)
+ *   [2]  STCK_PRPR           — 현재가
+ *   [3]  PRDY_VRSS_SIGN      — 전일대비부호
+ *   [4]  PRDY_VRSS           — 전일대비
+ *   [5]  PRDY_CTRT           — 전일대비율 (%)
+ *  [12]  CNTG_VOL            — 체결거래량
+ *  [14]  ACML_TR_PBMN        — 누적거래대금(원)
+ *  [18]  CTTR                — 체결강도
+ *  [33]  BSOP_DATE           — 영업일자 (YYYYMMDD)
  *
  * H0STOUP0 필드 인덱스 (open-trading-api examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py columns 배열):
  * KIS-first raw 출처:
@@ -287,6 +303,23 @@ object KisWsMessageParser {
         // source 필드만 "live-nxt"로 오버라이드.
         val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
         return base.copy(source = "live-nxt")
+    }
+
+    /**
+     * H0UNCNT0 통합 실시간 체결가 데이터 파싱 → TickEvent.
+     *
+     * KIS-first raw 출처:
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+     *   ccnl_total() columns 배열 — H0STCNT0와 동일 핵심 필드 인덱스 구조.
+     *
+     * TickEvent.source = "live-unified" 로 구분한다. 운영 검증 전 기본 OFF라 기존 live/live-nxt 흐름은 유지된다.
+     */
+    fun parseH0Uncnt0(
+        rawData: String,
+        expectedCode: String? = null,
+    ): TickEvent? {
+        val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
+        return base.copy(source = "live-unified")
     }
 
     /**

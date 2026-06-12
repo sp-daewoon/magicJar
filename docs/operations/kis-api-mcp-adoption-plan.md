@@ -41,7 +41,7 @@
 | P0 | 계좌 availability snapshot | 기존 `inquire-balance` `TTTC8434R`/`VTTC8434R` output1 `ord_psbl_qty` + output2 cash | 주문 path KIS 호출 0을 유지하면서 예수금/매도가능수량 stale 위험을 낮춘다. | refresh/guard flag OFF |
 | P1 | 투자자/체결 REST 보강 | `inquire-investor` `FHKST01010900`, `inquire-ccnl` `FHKST01010300` | 종목 상세/스크리너/WS stale 보강에 쓰는 read-only 정보다. | read-only |
 | P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | REAL read-only |
-| P1-deferred | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄일 가능성이 있다. | feature flag OFF |
+| P1-deferred | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄일 가능성이 있다. | 코드 합류, feature flag OFF |
 | P2 | 통합 호가 WS | `asking_price_total` 후보 `H0UNASP0` | DETAIL/STRATEGY 호가 슬롯 절감 후보. | raw 재확인 후 |
 | P2 | 주문조건별 가능수량 정밀조회 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | 계좌 snapshot으로 부족한 예외 분석/수동 진단용. 주문 hot path 기본 사용 금지. | 보류 |
 | P2 | 재무비율 | `FHKST66430300` 등 | 스크리너/fundamental 설명 강화. | batch only |
@@ -258,7 +258,7 @@ flowchart TD
 
 | 현재 | 변경 | 코멘트 |
 |---|---|---|
-| 정규+NXT 체결가를 `H0STCNT0` + `H0NXCNT0` 두 채널로 구독한다. | flag ON 시 `H0UNCNT0` 한 채널을 구독하고, 문제가 있으면 기존 이중 채널로 되돌린다. | 슬롯 절감은 크지만 운영 검증 전 기본 OFF가 맞다. |
+| 정규+NXT 체결가를 `H0STCNT0` + `H0NXCNT0` 두 채널로 구독한다. | `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`일 때만 `H0UNCNT0` 한 채널을 구독한다. | 코드만 미리 합류했고, 운영 검증 전 기본 OFF가 맞다. |
 
 ## 5. 구현 순서
 
@@ -266,7 +266,7 @@ flowchart TD
 2. 계좌 availability snapshot: `inquire-balance` ord_psbl_qty 파싱 + Redis LWW snapshot + 주문 path read-only guard.
 3. 투자자/체결 REST: read-only adapter + cache/API/MCP 후보 연결.
 4. 계좌 손익: `inquire-balance-rlz-pl` realized P/L adapter + reconcile snapshot 후보.
-5. `H0UNCNT0`: feature flag + ledger 반영 + fallback.
+5. `H0UNCNT0`: feature flag + ledger 반영. 운영 채택은 canary에서 통합 tick 공백/필드 정합 확인 후 별도 결정.
 
 ## 6. 원천 링크
 

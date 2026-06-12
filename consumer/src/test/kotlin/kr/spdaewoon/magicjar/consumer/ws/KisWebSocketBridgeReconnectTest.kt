@@ -179,6 +179,23 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(nxtCodes).containsExactlyInAnyOrder("005930", "000660")
     }
 
+    @Test
+    fun `통합 체결가 flag OFF는 KRX+NXT, ON은 H0UNCNT0 단일 TR을 선택한다`() {
+        assertThat(KisWebSocketBridge.tickPriceTrIds(false)).containsExactly("H0STCNT0", "H0NXCNT0")
+        assertThat(KisWebSocketBridge.tickPriceTrIds(true)).containsExactly("H0UNCNT0")
+    }
+
+    @Test
+    fun `통합 체결가 flag ON이면 NXT 별도 구독 set을 늘리지 않는다`() {
+        val unifiedBridge = newBridge("REAL", integratedTickEnabled = true)
+
+        unifiedBridge.subscribe(listOf("005930"))
+
+        val session = getSession(unifiedBridge)
+        assertThat(session.subscribedCodes).containsExactly("005930")
+        assertThat(getNxtSubscribedCodes(unifiedBridge)).isEmpty()
+    }
+
     /**
      * [ADR 0076 A-1] connect() 시 approvalAdapter.invalidate() 미호출 검증.
      *
@@ -1136,7 +1153,10 @@ class KisWebSocketBridgeReconnectTest {
     // 2026-06-10 P1 회귀 fix — getWsUrl endpoint↔거래환경 정합 (체결통보 H0STCNI9 수신 0 fix)
     // ─────────────────────────────────────────────────────────────────────
 
-    private fun newBridge(mode: String): KisWebSocketBridge {
+    private fun newBridge(
+        mode: String,
+        integratedTickEnabled: Boolean = false,
+    ): KisWebSocketBridge {
         val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { executionListenerProvider.getIfAvailable() } returns null
         val priceMetricsPortProvider =
@@ -1153,6 +1173,7 @@ class KisWebSocketBridgeReconnectTest {
             wsUrlVps = "ws://localhost:31000",
             magicjarMode = mode,
             defaultUserId = "user001",
+            integratedTickEnabled = integratedTickEnabled,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,

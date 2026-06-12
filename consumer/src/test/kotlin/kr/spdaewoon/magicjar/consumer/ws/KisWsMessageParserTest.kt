@@ -244,6 +244,45 @@ class KisWsMessageParserTest {
     }
 
     /**
+     * H0UNCNT0 통합 체결가 파싱 — ccnl_total.py columns는 H0STCNT0 핵심 인덱스와 동일하다.
+     */
+    @Test
+    fun `H0UNCNT0 raw 메시지 파싱 → TickEvent source=live-unified 정합`() {
+        val fields =
+            Array(46) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "100012"
+                    2 -> "61200"
+                    3 -> "2"
+                    4 -> "1200"
+                    5 -> "2.00"
+                    12 -> "44"
+                    14 -> "7000000000"
+                    18 -> "123.45"
+                    33 -> "20260612"
+                    else -> "0"
+                }
+            }
+        val raw = "0|H0UNCNT0|001|${fields.joinToString("^")}"
+
+        val parsed = KisWsMessageParser.parse(raw)
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.trId).isEqualTo("H0UNCNT0")
+
+        val tick = KisWsMessageParser.parseH0Uncnt0(data.rawData)
+        assertThat(tick).isNotNull
+        assertThat(tick!!.code).isEqualTo("005930")
+        assertThat(tick.price).isEqualByComparingTo(BigDecimal("61200"))
+        assertThat(tick.volume).isEqualTo(44L)
+        assertThat(tick.changeRate).isEqualByComparingTo(BigDecimal("2.00"))
+        assertThat(tick.tradeIntensity).isEqualByComparingTo(BigDecimal("123.45"))
+        assertThat(tick.turnoverAccum).isEqualByComparingTo(BigDecimal("7000000000"))
+        assertThat(tick.source).isEqualTo("live-unified")
+    }
+
+    /**
      * 41 slot 정합 — NXT(H0NXCNT0) 추가 후 SubscriptionPolicy 상수 검증.
      *
      * ADR 0048 §2-1 정합:

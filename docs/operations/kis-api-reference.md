@@ -37,7 +37,7 @@
 | P1 | `inquire-investor` | `FHKST01010900` | 외국인/기관 수급 | 채용 |
 | P1 | `inquire-ccnl` | `FHKST01010300` | 최근 체결 REST 보강 | 채용 |
 | P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | REAL read-only 채용 |
-| P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | flag OFF로 도입 |
+| P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | 코드 합류, flag OFF |
 | P2 | `asking_price_total` | `H0UNASP0` 후보 | 통합 호가 WS, slot 절감 | raw 재확인 후 |
 | P2 | `inquire-psbl-order` / `inquire-psbl-sell` | `TTTC8908R`/`VTTC8908R`, `TTTC8408R` | 주문조건별 가능수량 정밀 진단 | hot path 보류 |
 | P2 | finance ratios | `FHKST66430300` 등 | screener fundamental | 후순위 |
@@ -141,7 +141,8 @@
 
 ### F. 통합 체결가 WS — `H0UNCNT0`
 - 공식 예제 `ccnl_total` 기준 통합 실시간체결가.
-- ADR 0123 R3 후보. 기본 OFF로 도입하고, 운영 검증 후 KRX+NXT 이중 채널 대체 여부를 결정한다.
+- `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`일 때만 `KisWebSocketBridge`가 `H0STCNT0`+`H0NXCNT0` 대신 `H0UNCNT0`를 구독한다.
+- ADR 0123 R3 후보. 기본 OFF로 두고, 운영 검증 후 KRX+NXT 이중 채널 대체 여부를 결정한다.
 
 ### G. 종목 추정 실적 — `HHKST668300C0`
 - 애널리스트 컨센서스 (매출·영업이익 추정)

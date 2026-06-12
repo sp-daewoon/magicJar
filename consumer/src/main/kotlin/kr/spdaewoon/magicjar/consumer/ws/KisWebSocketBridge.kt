@@ -64,6 +64,12 @@ import java.util.concurrent.atomic.AtomicReference
  * - KIS-first 출처: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
  *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
  *
+ * H0UNCNT0 통합 체결가 구독 (ADR 0123 R3 후보):
+ * - `magicjar.kis.ws.integrated-tick-enabled=false` 기본값에서는 기존 H0STCNT0+H0NXCNT0 이중 채널 유지.
+ * - true일 때만 종목당 H0UNCNT0 1채널로 대체한다. 운영 실측 전 default OFF.
+ * - KIS-first 출처: open-trading-api examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+ *   tr_id = "H0UNCNT0" — 국내주식 실시간체결가 (통합)
+ *
  * H0STOUP0 시간외 단일가 체결가 구독 (ADR 0076 Phase 3 B-2 — 16:00~18:00 KST):
  * - subscribeOvertimeSinglePrice(codes) / unsubscribeOvertimeSinglePrice(codes)
  * - 16:00~18:00 KST 한정 활성 — OvertimeSinglePriceSubscriber가 Scheduled로 관리.
@@ -115,6 +121,8 @@ class KisWebSocketBridge(
     private val heartbeatTimeoutSeconds: Long = 10L,
     @Value("\${magicjar.kis.ws.polling-fallback-timeout-seconds:30}")
     private val pollingFallbackTimeoutSeconds: Long = 30L,
+    @Value("\${magicjar.kis.ws.integrated-tick-enabled:false}")
+    private val integratedTickEnabled: Boolean = false,
     /**
      * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
      *
@@ -176,6 +184,17 @@ class KisWebSocketBridge(
 
         /** SystemEvent actor — P1 catalog (spec §6.1 emit point #4·#5). */
         private const val SYSTEM_EVENT_ACTOR = "KisWebSocketBridge"
+
+        internal const val TR_ID_KRX_TICK = "H0STCNT0"
+        internal const val TR_ID_NXT_TICK = "H0NXCNT0"
+        internal const val TR_ID_UNIFIED_TICK = "H0UNCNT0"
+
+        internal fun tickPriceTrIds(integratedTickEnabled: Boolean): List<String> =
+            if (integratedTickEnabled) {
+                listOf(TR_ID_UNIFIED_TICK)
+            } else {
+                listOf(TR_ID_KRX_TICK, TR_ID_NXT_TICK)
+            }
 
         /**
          * WS_DISCONNECTED 알림 강등 grace window (초) — 2026-06-04 점검 사이클 #4.
@@ -414,6 +433,40 @@ class KisWebSocketBridge(
 
     private fun slotLedger(): kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger? = slotLedgerProvider.ifAvailable
 
+    private fun tickPriceTrIds(): List<String> = tickPriceTrIds(integratedTickEnabled)
+
+    private fun tickUnsubscribeType(trId: String): String = if (trId == TR_ID_UNIFIED_TICK) "0" else "2"
+
+    private fun registerTickLocalState(
+        trId: String,
+        code: String,
+    ) {
+        if (trId == TR_ID_NXT_TICK) {
+            nxtSubscribedCodes.add(code)
+        }
+        slotLedger()?.register(trId = trId, code = code)
+    }
+
+    private fun releaseTickLocalState(
+        trId: String,
+        code: String,
+    ) {
+        if (trId == TR_ID_NXT_TICK) {
+            nxtSubscribedCodes.remove(code)
+        }
+        slotLedger()?.release(trId = trId, code = code)
+    }
+
+    private fun sendTickSubscribe(
+        approvalKey: String,
+        code: String,
+        trId: String,
+        trType: String,
+    ) {
+        val msg = buildSubscribeMessage(approvalKey, code, trType = trType, trId = trId)
+        sendSink?.tryEmitNext(msg)
+    }
+
     /**
      * KIS WS에 종목 구독 (H0STCNT0 + H0NXCNT0 동시 구독).
      * slot 여유 확인은 SubscriptionRouter 책임 — 여기서는 단순 subscribe 메시지 송신.
@@ -424,6 +477,10 @@ class KisWebSocketBridge(
      * KIS-first 출처:
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
      *   ccnl_nxt() tr_id="H0NXCNT0" — NXT 대체거래소 실시간 체결가
+     *
+     * H0UNCNT0 통합 체결가 flag:
+     *   integratedTickEnabled=false(default): H0STCNT0 + H0NXCNT0.
+     *   integratedTickEnabled=true: H0UNCNT0 단일 구독. slot 절감 검증 전 운영 default OFF.
      */
     override fun subscribe(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -440,38 +497,33 @@ class KisWebSocketBridge(
         //   부팅 시 subscribedCodes 등록만 수행하고 실제 발사는 onConnected 재구독에 단일 위임한다.
         //   연결 후(런타임 add — watchlist 추가·promotion 등)에는 즉시 emit (sink live).
         val live = session.connected && sendSink != null
+        val trIds = tickPriceTrIds()
         codes.forEach { code ->
-            if (!session.subscribedCodes.contains(code)) {
-                session.subscribedCodes.add(code)
-                // ADR 0123 R1 — 채널(code × H0STCNT0) 점유 ledger 등록 (회계 단일화).
-                slotLedger()?.register(trId = "H0STCNT0", code = code)
+            val newLogicalSubscription = session.subscribedCodes.add(code)
+            if (newLogicalSubscription) {
                 seedTodayCandle(code)
-                if (live) {
-                    val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
-                    sendSink?.tryEmitNext(msg)
-                    log.info("KIS WS subscribe: code={} trId=H0STCNT0", code)
-                } else {
-                    log.info("KIS WS subscribe 등록(연결 전 — onConnected 재구독 위임): code={} trId=H0STCNT0", code)
-                }
             }
-            // H0NXCNT0 NXT 대체거래소 동시 구독 — ADR 0063 NXT 08:00~20:00 KST cover
-            // KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
-            // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-            if (!nxtSubscribedCodes.contains(code)) {
-                nxtSubscribedCodes.add(code)
-                // ADR 0123 R1 — NXT(code × H0NXCNT0)는 H0STCNT0와 별도 채널 = 별도 slot.
-                slotLedger()?.register(trId = "H0NXCNT0", code = code)
-                if (live) {
-                    val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
-                    sendSink?.tryEmitNext(nxtMsg)
-                    log.info("KIS WS subscribe: code={} trId=H0NXCNT0", code)
+            trIds.forEach { trId ->
+                val shouldRegister =
+                    when (trId) {
+                        TR_ID_NXT_TICK -> !nxtSubscribedCodes.contains(code)
+                        else -> newLogicalSubscription
+                    }
+                if (shouldRegister) {
+                    registerTickLocalState(trId, code)
+                    if (live) {
+                        sendTickSubscribe(approvalKey, code, trId, trType = "1")
+                        log.info("KIS WS subscribe: code={} trId={}", code, trId)
+                    } else {
+                        log.info("KIS WS subscribe 등록(연결 전 — onConnected 재구독 위임): code={} trId={}", code, trId)
+                    }
                 }
             }
         }
     }
 
     /**
-     * KIS WS 종목 구독 해제 (H0STCNT0 + H0NXCNT0 동시 해제).
+     * KIS WS 종목 구독 해제 (기본 H0STCNT0 + H0NXCNT0, flag ON 시 H0UNCNT0).
      */
     override fun unsubscribe(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -481,28 +533,22 @@ class KisWebSocketBridge(
                 log.warn("KIS WS unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
                 codes.forEach { code ->
                     session.subscribedCodes.remove(code)
-                    nxtSubscribedCodes.remove(code)
-                    // ADR 0123 R1 — local state 정리 시 ledger 회계도 함께 release (drift 방지).
-                    slotLedger()?.release(trId = "H0STCNT0", code = code)
-                    slotLedger()?.release(trId = "H0NXCNT0", code = code)
+                    tickPriceTrIds().forEach { trId -> releaseTickLocalState(trId, code) }
                 }
                 return
             }
         codes.forEach { code ->
             if (session.subscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "2")
-                sendSink?.tryEmitNext(msg)
+                tickPriceTrIds().forEach { trId ->
+                    sendTickSubscribe(approvalKey, code, trId, trType = tickUnsubscribeType(trId))
+                    releaseTickLocalState(trId, code)
+                    log.info("KIS WS unsubscribe: code={} trId={}", code, trId)
+                }
                 session.subscribedCodes.remove(code)
-                slotLedger()?.release(trId = "H0STCNT0", code = code) // ADR 0123 R1
-                log.info("KIS WS unsubscribe: code={} trId=H0STCNT0", code)
-            }
-            // H0NXCNT0 구독 해제
-            if (nxtSubscribedCodes.contains(code)) {
-                val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0NXCNT0")
-                sendSink?.tryEmitNext(nxtMsg)
-                nxtSubscribedCodes.remove(code)
-                slotLedger()?.release(trId = "H0NXCNT0", code = code) // ADR 0123 R1
-                log.info("KIS WS unsubscribe: code={} trId=H0NXCNT0", code)
+            } else if (nxtSubscribedCodes.contains(code)) {
+                sendTickSubscribe(approvalKey, code, TR_ID_NXT_TICK, trType = "2")
+                releaseTickLocalState(TR_ID_NXT_TICK, code)
+                log.info("KIS WS unsubscribe: code={} trId={} (extra)", code, TR_ID_NXT_TICK)
             }
         }
     }
@@ -827,19 +873,20 @@ class KisWebSocketBridge(
                             e,
                         )
                     }
-                    // 기존 구독 종목 재구독 (H0STCNT0 + H0NXCNT0)
+                    // 기존 구독 종목 재구독 (기본 H0STCNT0+H0NXCNT0, flag ON 시 H0UNCNT0)
                     val existingCodes = session.subscribedCodes.toList()
                     if (existingCodes.isNotEmpty()) {
+                        val trIds = tickPriceTrIds()
                         existingCodes.forEach { code ->
-                            val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
-                            sink.tryEmitNext(msg)
-                            // H0NXCNT0 NXT 재구독 — ADR 0063 NXT cover 정합
-                            // KIS-first raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-                            val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
-                            sink.tryEmitNext(nxtMsg)
-                            nxtSubscribedCodes.add(code)
+                            trIds.forEach { trId ->
+                                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = trId)
+                                sink.tryEmitNext(msg)
+                                if (trId == TR_ID_NXT_TICK) {
+                                    nxtSubscribedCodes.add(code)
+                                }
+                            }
                         }
-                        log.info("KIS WS 재구독 완료: 종목 {}건 (H0STCNT0 + H0NXCNT0 각각)", existingCodes.size)
+                        log.info("KIS WS 재구독 완료: 종목 {}건 trIds={}", existingCodes.size, trIds)
                     }
 
                     // 체결통보 자동 subscribe (H0STCNI0 REAL / H0STCNI9 MOCK) — ADR 0068 §14-6 + §7-3 LOCK
@@ -982,11 +1029,14 @@ class KisWebSocketBridge(
                         parsed.rawData
                     }
                 when (parsed.trId) {
-                    "H0STCNT0" -> handleTickData(data)
+                    TR_ID_KRX_TICK -> handleTickData(data)
                     // H0NXCNT0 NXT 대체거래소 체결가 — ADR 0063 NXT 08:00~20:00 KST cover
                     // KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-                    "H0NXCNT0" -> handleNxtTickData(data)
+                    TR_ID_NXT_TICK -> handleNxtTickData(data)
+                    // H0UNCNT0 통합 체결가 — ADR 0123 R3 후보. 기본 OFF flag로만 활성화.
+                    // KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+                    TR_ID_UNIFIED_TICK -> handleUnifiedTickData(data)
                     "H0STASP0" -> handleOrderbookData(data)
                     // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
                     // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
@@ -1098,6 +1148,21 @@ class KisWebSocketBridge(
         log.debug("KIS WS NXT tick: code={} price={} vol={} source={}", tick.code, tick.price, tick.volume, tick.source)
 
         // 동일 처리 흐름 — Redis update + candle 갱신 + Kafka publish
+        writeToRedis(tick)
+        updateLiveCandles(tick)
+        publishTickEvent(tick)
+    }
+
+    /**
+     * H0UNCNT0 통합 체결가 tick 처리.
+     *
+     * KRX+NXT를 KIS 통합 체결가 한 채널로 받는 slot 절감 후보(ADR 0123 R3)다.
+     * 기본 OFF flag로만 사용하며, 운영 검증 실패 시 H0STCNT0+H0NXCNT0 이중 채널로 즉시 복귀한다.
+     */
+    private fun handleUnifiedTickData(rawData: String) {
+        val tick = KisWsMessageParser.parseH0Uncnt0(rawData) ?: return
+        log.debug("KIS WS unified tick: code={} price={} vol={} source={}", tick.code, tick.price, tick.volume, tick.source)
+
         writeToRedis(tick)
         updateLiveCandles(tick)
         publishTickEvent(tick)
@@ -1926,13 +1991,11 @@ class KisWebSocketBridge(
         }
         val resubscribeCodes = session.subscribedCodes.toList()
         if (resubscribeCodes.isNotEmpty()) {
+            val trIds = tickPriceTrIds()
             resubscribeCodes.forEach { code ->
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1")
-                sendSink?.tryEmitNext(msg)
-                val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0NXCNT0")
-                sendSink?.tryEmitNext(nxtMsg)
+                trIds.forEach { trId -> sendTickSubscribe(approvalKey, code, trId, trType = "1") }
             }
-            log.info("KIS WS OPSP8996 retry 재구독 전송: {}건", resubscribeCodes.size)
+            log.info("KIS WS OPSP8996 retry 재구독 전송: {}건 trIds={}", resubscribeCodes.size, trIds)
         } else {
             log.warn("KIS WS OPSP8996 retry — 재구독 목록 없음, skip")
             opsp8996RetryCount.set(0) // I-1: 재구독 없음 시에도 reset
@@ -1973,8 +2036,9 @@ class KisWebSocketBridge(
 
         // 3. subscribedCodes 정합 — 거부된 채널을 구독 set에서 제거 (stale "구독 중" 상태 해소).
         when (trId) {
-            "H0STCNT0" -> session.subscribedCodes.remove(code)
-            "H0NXCNT0" -> nxtSubscribedCodes.remove(code)
+            TR_ID_KRX_TICK -> session.subscribedCodes.remove(code)
+            TR_ID_NXT_TICK -> nxtSubscribedCodes.remove(code)
+            TR_ID_UNIFIED_TICK -> session.subscribedCodes.remove(code)
             "H0STASP0" -> orderbookSubscribedCodes.remove(code)
             "H0STOUP0" -> overtimeSinglePriceCodes.remove(code)
             else -> log.debug("KIS WS OPSP0008 — set 정합 대상 아닌 trId={} (체결통보 등)", trId)
@@ -2013,11 +2077,12 @@ class KisWebSocketBridge(
         session.shuttingDown = true
         stopHeartbeatWatchdog()
 
-        // 모든 종목 unsubscribe (H0STCNT0 + H0NXCNT0 + H0STOUP0)
+        // 모든 종목 unsubscribe (기본 H0STCNT0+H0NXCNT0, flag ON 시 H0UNCNT0, plus H0STOUP0)
         val codes = session.subscribedCodes.toList()
-        val nxtCodes = nxtSubscribedCodes.toList()
+        val tickTrIds = tickPriceTrIds()
+        val extraNxtCodes = nxtSubscribedCodes.filterNot { it in codes }
         val overtimeCodes = overtimeSinglePriceCodes.toList()
-        if (codes.isNotEmpty() || nxtCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
+        if (codes.isNotEmpty() || extraNxtCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
             try {
                 val approvalKey = getApprovalKey()
                 // G-1: approval_key null 시 unsubscribe 메시지 전송 불가 — WS session 강제 종료로 대체.
@@ -2037,15 +2102,17 @@ class KisWebSocketBridge(
                 pendingUnsubAckLatch.set(ackLatch)
 
                 codes.forEach { code ->
-                    val msg = buildSubscribeMessage(approvalKey, code, trType = "2")
-                    sendSink?.tryEmitNext(msg)
-                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0STCNT0", code)
+                    tickTrIds.forEach { trId ->
+                        val msg = buildSubscribeMessage(approvalKey, code, trType = tickUnsubscribeType(trId), trId = trId)
+                        sendSink?.tryEmitNext(msg)
+                        log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, trId)
+                    }
                 }
-                // H0NXCNT0 unsubscribe
-                nxtCodes.forEach { code ->
-                    val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0NXCNT0")
+                // 방어적 정리: session set에는 없지만 NXT set에 남은 drift code 해제.
+                extraNxtCodes.forEach { code ->
+                    val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = TR_ID_NXT_TICK)
                     sendSink?.tryEmitNext(nxtMsg)
-                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0NXCNT0", code)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={} (extra)", code, TR_ID_NXT_TICK)
                 }
                 // H0STOUP0 시간외 단일가 unsubscribe — ADR 0076 Phase 3 B-2
                 // KIS-first: overtime_ccnl_krx.py tr_type "0" = 구독 해제
@@ -2170,7 +2237,7 @@ class KisWebSocketBridge(
         approvalKey: String,
         code: String,
         trType: String, // "1" = subscribe, "2" = unsubscribe
-        trId: String = "H0STCNT0", // 기본: H0STCNT0 체결가 / H0STASP0 호가
+        trId: String = TR_ID_KRX_TICK, // 기본: H0STCNT0 체결가 / H0STASP0 호가
     ): String =
         objectMapper.writeValueAsString(
             mapOf(
