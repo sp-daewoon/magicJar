@@ -210,8 +210,10 @@ magicjar:
       user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
-      # ADR 0123 R3 후보 — H0UNCNT0 통합 체결가. default false = 기존 H0STCNT0+H0NXCNT0 유지.
-      integrated-tick-enabled: ${MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED:false}
+      # ADR 0124 — H0UNCNT0 통합 체결가 단일 채널 기본화("사실상 폐기"). 2026-06-13 최고 관리자 결재.
+      #   default true = H0UNCNT0 단일 구독(KRX+NXT 통합, slot 절감). 장중 실증 후 이중 발사 코드 경로 제거 예정.
+      # deprecated — 비상 롤백 전용. false 로 내리면 기존 H0STCNT0+H0NXCNT0 이중 채널로 즉시 회귀(보존).
+      integrated-tick-enabled: ${MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED:true}
       # ADR 0123 R1 — KIS WS 구독 슬롯 단일 회계기 (WsSlotBudgetLedger).
       # max-slots: KIS 동시 구독 한도 (KIS-first kis_auth.py __runner() enforce 값 40, 상수 아닌 설정).
       #   KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
