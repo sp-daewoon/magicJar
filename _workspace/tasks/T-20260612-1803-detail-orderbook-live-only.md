@@ -3,10 +3,10 @@ id: T-20260612-1803-detail-orderbook-live-only
 agent: market-data
 model: opus
 branch: agent/market-data/detail-orderbook-live-only
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T18:03:20.446+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T18:14:37.549+09:00
+pr: #944
 parentPhase: ?
 ---
 
