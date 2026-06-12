@@ -5,10 +5,15 @@
  *  - 전체 게이지 바 + used/max 텍스트
  *  - 사용률 임계: < 70% 녹색, 70~90% amber, >= 90% 빨강 (슬롯 고갈 임박 경고)
  *  - trId 별 분해 (byTrId) — 어떤 거래 ID가 슬롯을 점유하는지
+ *    · trId 코드 + 한국어 라벨 병기 (체결가 · H0STCNT0)
+ *    · 클릭 시 점유 채널(종목) 목록 drill-down — "15채널이 무엇인지" 눈으로 검증
  *
  * 슬롯 고갈은 신규 종목 상세/전략 후보 구독 실패의 직접 원인 → 운영자 핵심 지표.
  */
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { RealtimeSlots } from '../../api/adminRealtime'
+import { trIdLabel } from '../../constants/kisTrId'
 
 interface Props {
   slots: RealtimeSlots
@@ -30,13 +35,18 @@ function gaugeTone(ratio: number): { bar: string; text: string; hint: string | n
 }
 
 export function RealtimeSlotGauge({ slots }: Props) {
-  const { used, max, byTrId } = slots
+  const { used, max, byTrId, channelsByTrId } = slots
   const ratio = max > 0 ? used / max : 0
   const pct = Math.min(100, Math.round(ratio * 100))
   const tone = gaugeTone(ratio)
 
   // byTrId 내림차순 (점유 큰 trId 먼저)
   const trIdEntries = Object.entries(byTrId ?? {}).sort(([, a], [, b]) => b - a)
+
+  // 펼침 상태 (trId → boolean)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const toggle = (trId: string) =>
+    setExpanded((prev) => ({ ...prev, [trId]: !prev[trId] }))
 
   return (
     <section
@@ -73,26 +83,91 @@ export function RealtimeSlotGauge({ slots }: Props) {
         </p>
       )}
 
-      {/* trId 별 분해 */}
+      {/* trId 별 분해 + drill-down */}
       <div className="mt-4">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-          trId 별 점유
+          trId 별 점유 · 행 클릭 시 종목 목록 펼침
         </p>
         {trIdEntries.length === 0 ? (
           <p className="text-xs text-gray-500">점유 중인 trId가 없습니다.</p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {trIdEntries.map(([trId, count]) => (
-              <span
-                key={trId}
-                className="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-950/60 px-2.5 py-1 text-xs"
-              >
-                <span className="font-mono text-gray-300">{trId}</span>
-                <span className="rounded bg-gray-800 px-1.5 font-semibold text-gray-200 tabular-nums">
-                  {count.toLocaleString('ko-KR')}
-                </span>
-              </span>
-            ))}
+          <div className="space-y-1.5">
+            {trIdEntries.map(([trId, count]) => {
+              const channels = channelsByTrId?.[trId]
+              const hasDrill = channelsByTrId != null // 신버전 스냅샷 여부
+              const isOpen = !!expanded[trId]
+              return (
+                <div
+                  key={trId}
+                  className="overflow-hidden rounded-md border border-gray-700 bg-gray-950/60"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggle(trId)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-gray-900/60 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={[
+                          'text-gray-500 transition-transform',
+                          isOpen ? 'rotate-90' : '',
+                        ].join(' ')}
+                        aria-hidden
+                      >
+                        ▶
+                      </span>
+                      <span className="font-medium text-gray-200">{trIdLabel(trId)}</span>
+                      <span className="font-mono text-[11px] text-gray-500">{trId}</span>
+                    </span>
+                    <span className="rounded bg-gray-800 px-1.5 font-semibold text-gray-200 tabular-nums">
+                      {count.toLocaleString('ko-KR')}채널
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-gray-800 px-2.5 py-2">
+                      {!hasDrill ? (
+                        <p className="text-[11px] text-gray-500">
+                          상세 정보 없음 (구버전 스냅샷 — 채널 목록 미제공)
+                        </p>
+                      ) : !channels || channels.length === 0 ? (
+                        <p className="text-[11px] text-gray-500">점유 채널 데이터가 없습니다.</p>
+                      ) : (
+                        <>
+                          <p className="mb-1.5 text-[11px] text-gray-500">
+                            {trIdLabel(trId)} — {channels.length.toLocaleString('ko-KR')}채널
+                            {channels.length !== count && (
+                              <span className="ml-1 text-amber-400">
+                                (집계 {count.toLocaleString('ko-KR')}와 불일치)
+                              </span>
+                            )}
+                          </p>
+                          <ul className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+                            {channels.map((ch) => (
+                              <li
+                                key={ch.code}
+                                className="flex items-baseline gap-1.5 text-[11px]"
+                              >
+                                <Link
+                                  to={`/symbol/${ch.code}`}
+                                  className="font-mono text-blue-400 hover:text-blue-300 hover:underline"
+                                >
+                                  {ch.code}
+                                </Link>
+                                {ch.codeName && (
+                                  <span className="truncate text-gray-300">{ch.codeName}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

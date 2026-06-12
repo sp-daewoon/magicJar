@@ -36,17 +36,31 @@ export interface RealtimeWsStatus {
 }
 
 /**
+ * trId 별 점유 채널(종목) 1건 — slot drill-down 용.
+ *
+ * - code: 종목 코드
+ * - codeName: 종목명 (null = 미상 — 코드만 표시)
+ */
+export interface RealtimeSlotChannel {
+  code: string
+  codeName: string | null
+}
+
+/**
  * KIS WS 구독 슬롯 사용량.
  *
  * KIS OpenAPI 는 동시 WS 구독 슬롯 수에 상한이 있음 (max).
  * - used: 현재 사용 슬롯
  * - max: 허용 상한
  * - byTrId: trId 별 사용 슬롯 분해 (예: { "H0STCNT0": 12, "H0STASP0": 4 })
+ * - channelsByTrId: trId → 점유 채널(종목) 목록 — slot drill-down.
+ *   optional: 구버전 백엔드 스냅샷엔 없음 (없으면 "상세 정보 없음" 표시).
  */
 export interface RealtimeSlots {
   used: number
   max: number
   byTrId: Record<string, number>
+  channelsByTrId?: Record<string, RealtimeSlotChannel[]>
 }
 
 /**
@@ -86,6 +100,8 @@ export interface RealtimeExecutionNotice {
  */
 export interface RealtimeCandleFreshness {
   code: string
+  /** 종목명 (백엔드 제공 — null = 미상, 코드만 표시) */
+  codeName: string | null
   interval: string
   ageSeconds: number
 }
