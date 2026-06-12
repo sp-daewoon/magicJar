@@ -29,7 +29,7 @@ export type RuntimeMode = 'MOCK' | 'REAL'
  *  - allowReal: MAGICJAR_ALLOW_REAL=true 여부 (REAL 모드에서만 의미 있음)
  *  - killSwitchEnabled: system_config KILL_SWITCH row.enabled
  *  - killSwitchReason: KillSwitch ON 사유 (nullable)
- *  - userConsented: real_trading_consent_at IS NOT NULL (단일 사용자 시스템 기준)
+ *  - userConsented: real_trading_consent_at IS NOT NULL (userId 미지정 시 null)
  *  - fetchedAt: 서버 조회 시각 (ISO 8601 UTC)
  */
 export interface RuntimeFlagsDto {
@@ -37,7 +37,7 @@ export interface RuntimeFlagsDto {
   allowReal: boolean
   killSwitchEnabled: boolean
   killSwitchReason: string | null
-  userConsented: boolean
+  userConsented: boolean | null
   fetchedAt: string
 }
 
@@ -74,7 +74,7 @@ export const runtimeApi = {
       allowReal: raw.allowReal ?? raw.magicjarAllowReal ?? false,
       killSwitchEnabled: raw.killSwitchEnabled ?? raw.killSwitchActive ?? false,
       killSwitchReason: raw.killSwitchReason ?? null,
-      userConsented: raw.userConsented ?? false,
+      userConsented: raw.userConsented ?? null,
       fetchedAt: raw.fetchedAt ?? new Date().toISOString(),
     }
   },

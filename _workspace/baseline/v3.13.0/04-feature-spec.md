@@ -1,0 +1,204 @@
+# v3.13.0 기능 명세 (REAL canary 운영 정합 baseline)
+
+- baseline: v3.13.0
+- 작성일: 2026-06-12
+- 작성자: Codex (Claude Code 중단 지점 인수)
+- SoT: `CHANGELOG.md` + `_workspace/arch/adr/README.md` + ADR 0109/0115/0122/0123 + `docs/architecture/policies/long-only-trading.md` + v3.13.0 코드 inspection
+- 기준: v3.12.0 04-feature-spec 전체 이월 + REAL canary 실전 운용 중 확인된 결함 F1~F11의 정합 보강 + 운영 가시화 + 발굴→페이퍼 검증 레인
+
+---
+
+## 0. 변경 요약
+
+v3.13.0은 기능을 크게 늘린 minor라기보다, v3.12.0의 자본 path를 실전 계좌에서 처음 돌리며 드러난 경계 결함을 운영 가능한 상태로 잠근 baseline이다.
+
+| 트랙 | v3.12.0 | v3.13.0 |
+|---|---|---|
+| T-CANARY | hard cap 3종이 BUY/SELL 공통 적용 | 롱 온리 정책에 맞춰 BUY 한정 적용. SELL은 보유분 청산이라 cap 면제 |
+| T-LEDGER | `signal_id=0` sentinel, source/mode 일부 불명확 | `OrderTrigger` + `trigger_ref_id`로 발사 출처를 1급 키로 복원 |
+| T-CAPITAL | KIS 잔고 조회 실패를 0원처럼 다룰 수 있음 | `CapitalOutcome` sealed 타입으로 실제 0과 조회 실패 분리 |
+| T-EXIT | 손절 tick watcher 중심 | 익절 tick watcher와 만료 주문 동기화 추가 |
+| T-PAPER | 발굴 후보를 곧장 검증할 격리 레인 없음 | `StrategyOrigin.PAPER_DISCOVERY` + 페이퍼 자본 스냅샷 |
+| T-WS | 라우터별 부분 슬롯 관리 | R1 `WsSlotBudgetLedger` + OPSP0008 감지 + fallback + 메트릭 |
+| T-OPS | 장애 상태를 로그/Prometheus로 조합 | `/admin/realtime`, `/system` Detail 모달, `/magicjar-ops-monitor` |
+
+```mermaid
+flowchart LR
+    Signal["Signal / Manual / TP / SL / External"] --> Trigger["OrderTrigger + triggerRefId"]
+    Trigger --> Risk["RiskGateway + long-only canary cap"]
+    Risk --> Capital["CapitalOutcome Available / Unavailable"]
+    Capital --> Order["OrderRouter -> KIS order"]
+    Order --> Execution["KIS execution notice"]
+    Execution --> Ledger["order_execution immutable evidence"]
+    Ledger --> Position["position + strategy_position"]
+    Position --> Watchers["TP / SL tick watchers"]
+    Watchers --> Trigger
+
+    WS["KIS WS subscribe"] --> Slot["WsSlotBudgetLedger R1"]
+    Slot --> Realtime["/admin/realtime snapshot"]
+```
+
+---
+
+## 1. T-CANARY — 롱 온리 운영 게이트
+
+### REST
+
+- 신규 전용 REST 없음.
+- 설정과 상태 표시는 기존 Runtime Flags, Settings, order/manual precheck를 재사용한다.
+
+### 도메인/정책
+
+- `docs/architecture/policies/long-only-trading.md`: 공매도 없음, SELL은 보유분 청산이라는 운영 정책 권위.
+- ADR 0109 §7 amend: canary hard cap 의미를 BUY 보호로 재정의.
+- 헌법 §13: 롱 온리 참조 anchor.
+
+### 구현
+
+- `OrderRouterKafkaListener` canary hard cap 평가에서 SELL cap 면제.
+- `MAX_ORDERS_PER_DAY`는 매수만 count. 왕복 1건을 BUY 1회로 본다.
+- SELL 가격 산정 실패 시 MARKET fallback 허용. BUY의 market fallback 금지(ADR 0114)는 유지한다.
+- `SELL_WITHOUT_POSITION`은 정상 가드로 보며 Slack/AutoPause noise에서 제외한다.
+
+### 한계
+
+- 숏 전략/대주/파생 숏은 범위 밖이다.
+- SELL 면제는 보유 수량 하드 게이트가 작동한다는 전제 위에 있다.
+
+---
+
+## 2. T-LEDGER — 체결-원장-리스크 키 사슬 무결성
+
+### 도메인
+
+| 개념 | 설명 |
+|---|---|
+| `OrderTrigger` | 주문 발사 출처 enum. signal/manual/take-profit/stop-loss/external 등 출처를 데이터 차원으로 보존 |
+| `trigger_ref_id` | 출처별 실제 참조 키. 0-sentinel 폐지 |
+| `order_execution` | KIS 체결 통보/조회 evidence의 immutable 진실원 |
+| `strategy_position` | 전략별 lot ledger. 장기 방향은 `order_execution` 파생 재계산 가능 구조 |
+
+### 구현 포인트
+
+- `signal_id=0`, `strategy_id=0`로 의미를 숨기던 경로를 `OrderTrigger`와 nullable ref로 분리한다.
+- consumer reconcile은 `order_execution` evidence를 기준으로 position/strategy_position drift를 보정한다.
+- API side position reconcile도 `qty`와 `quantity` 양쪽을 갱신하도록 정합했다.
+
+### 테스트/운영
+
+- replay/backfill/cancelled 대조와 단일전략 evidence 자동보정 테스트가 회귀 가드다.
+- 장중 배포 시 in-flight drain 없이 키 사슬 변경을 넣지 않는 운영 절차가 붙는다.
+
+---
+
+## 3. T-CAPITAL — 잔고 조회 실패 타입화
+
+### 문제
+
+KIS 잔고 조회가 EGW00215 등으로 실패했는데 이를 `0`으로 fabricate하면 POSITION_LIMIT이 "가용 자본 0원"으로 오판한다. 실제 0원과 조회 실패는 완전히 다른 상태다.
+
+### 도메인
+
+```kotlin
+sealed interface CapitalOutcome {
+    data class Available(val amount: BigDecimal, val stale: Boolean) : CapitalOutcome
+    data class Unavailable(val reason: String) : CapitalOutcome
+}
+```
+
+### 정책
+
+- KIS 실패 → backoff 재시도.
+- 최근 정상 스냅샷이 있으면 stale 표시와 함께 제한적으로 사용.
+- stale도 없으면 BUY 평가 skip. 0원으로 위장하지 않는다.
+- SELL 청산은 capital 조회 실패로 막지 않는다.
+
+---
+
+## 4. T-EXIT — 익절/손절/만료 주문 운영 안전망
+
+| 기능 | v3.13.0 상태 |
+|---|---|
+| 손절 tick watcher | v3.12.0에서 도입, 유지 |
+| 익절 tick watcher | tick >= takeProfitPrice 시 MARKET SELL 실행 경로 추가 |
+| 만료 LIMIT 동기화 | KIS 일별체결조회로 당일 만료된 ACK 주문을 동기화 |
+| 취소 ODNO 매핑 | KIS 취소 신규 ODNO를 외부 주문으로 오인하지 않도록 `OODER_NO` fallback |
+
+익절 LIMIT 선주문은 여전히 방어선이고, tick watcher는 만료/누락/재발행 실패를 보완하는 운영 안전망이다.
+
+---
+
+## 5. T-PAPER — 발굴 후보 MOCK 페이퍼 dispatch
+
+### 목표
+
+발굴 후보를 바로 실전 주문 후보로 보지 않고, MOCK origin과 가상 자본으로 격리해서 검증한다.
+
+### 구성
+
+| 요소 | 설명 |
+|---|---|
+| `StrategyOrigin.PAPER_DISCOVERY` | 발굴에서 승격된 전략 origin |
+| `PaperCapitalSnapshotProvider` | 실계좌 capital과 분리된 가상 자본 |
+| `TradingModeGate` paper 인지 | paper origin은 MOCK 경로로 강제 |
+| `/strategy/paper` | 페이퍼 전략/포지션/중단 화면 |
+
+### 금지
+
+- 실계좌 주문 발행 금지.
+- 실 capital 오염 금지.
+- 자동 watchlist 등록 금지.
+
+---
+
+## 6. T-WS — KIS WebSocket 슬롯 회계 R1
+
+### 현재 baseline
+
+ADR 0123 중 v3.13.0에 반영된 범위는 R1이다.
+
+| 항목 | 상태 |
+|---|---|
+| 한도 | `MAGICJAR_KIS_WS_MAX_SLOTS`, default 40 |
+| 단위 | `(code, trId)` 채널 |
+| 회계 | `WsSlotBudgetLedger.register/release/onRejected` |
+| 거부 감지 | OPSP0008 parse 후 ledger 보정 |
+| fallback | 체결가 거부 시 gap-fill + polling |
+| 관측 | occupied/available/rejected metrics + `/admin/realtime` snapshot |
+| rollback | `MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED=false` |
+
+### 명시적 deferred
+
+R2 owner eviction, R3 채널 다이어트(H0UNCNT0 포함)는 v3.13.0 baseline에 포함하지 않는다. 현재 R1만으로도 "보이지 않는 초과"는 관측/보정되며, 운영 테스트에서 실제 거부율·분봉 결손·slot 포화가 반복될 때 진행한다.
+
+### 남은 부채
+
+- live 주석/test 일부의 41 slot 표현 정리 필요.
+- `H0STOUP0` 시간외 구독은 ledger KDoc에는 포함되어 있으나 bridge subscribe/release 회계가 빠져 있어 follow-up 후보다.
+- occupied gauge는 total 중심이고, trId별 상세는 admin snapshot에 있다.
+
+---
+
+## 7. T-OPS — 관리자 가시화
+
+### 화면/API
+
+| 진입점 | 내용 |
+|---|---|
+| `/admin/realtime` | KIS WS 연결, 체결통보, 슬롯, 구독 owner, 캔들 신선도 |
+| `GET /api/admin/realtime-status` | consumer Redis snapshot을 api가 read-only 가공 |
+| `/system` Detail modal | hover tooltip + click modal + copy |
+| `/magicjar-ops-monitor` | 운영 감시 커맨드/일일 보고 체계 |
+
+### Runtime indicator 정합
+
+헤더 RuntimeFlagsIndicator는 `GET /api/runtime/flags?userId={registeredUserId}` 기준으로 `user_account.real_trading_consent_at`을 반영한다. `userId` 없이 조회된 `userConsented=null`을 동의 미체결로 표시하지 않는다.
+
+---
+
+## 8. 호환성/롤백
+
+- 신규 Flyway는 add-only이며 기존 null 값은 legacy/current behavior로 해석한다.
+- REAL canary 관련 변경은 BUY 보호/SELL 청산 보장 원칙을 우선한다.
+- AI 결정권은 0으로 유지한다.
+- R2/R3 슬롯 제어는 운영 관측 후 별도 PR로 진행한다.

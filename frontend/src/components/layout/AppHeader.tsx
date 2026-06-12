@@ -237,7 +237,7 @@ export function AppHeader() {
           >
             magic<span className="text-blue-400">Jar</span>
           </NavLink>
-          <RuntimeFlagsIndicator />
+          <RuntimeFlagsIndicator userId={registeredUserId} />
         </div>
 
         {/* 네비게이션 메뉴 */}

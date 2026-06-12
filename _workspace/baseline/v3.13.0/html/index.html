@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인덱스 — magicJar v3.13.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html" class="active">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.13.0 Baseline · 2026-06-12 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># magicJar v3.13.0 Baseline — REAL canary 진입 마일스톤 (첫 실전 주문 완주·롱 온리 정책 명문화·체결-원장-리스크 키 사슬 무결성·KIS WS 슬롯 단일 회계·관리자 실시간 가시화 — ADR 0115~0123 + 정책 long-only-trading + Flyway V75~V82)
+
+> **작성 시점**: 2026-06-12 v3.13.0 release commit 준비 (태그·release branch·GitHub Release는 커밋 이후 별도 컷)
+> **사이클**: v3.12.0(실매매 직전 자본 path 완성) → v3.12.1(포지션 정합·rate limit·관측 patch) → v3.12.2~v3.12.5(단타 발굴·롤업·드리프트 자동보정 patch) → **v3.13.0 (REAL canary 진입 마일스톤)**
+> **상태**: 7개 baseline 문서 통합 완료. ADR 0123은 R1(회계·거부 감지·관측)까지 현재 baseline에 반영, R2/R3/R4는 운영 테스트에서 필요성이 확인될 때 재개.
+> **권위**: 본 baseline 폴더는 v3.13.0 시점 **종합 기능 정의서**. SoT는 `docs/architecture/master-architecture.md` v2 (ADR 0030).
+
+---
+
+## 한 장 요약
+
+magicJar v3.13.0은 **첫 실전(REAL canary) 주문을 라이브로 완주한 마일스톤 baseline**이다. v3.12.0(실매매 직전 자본 path 완성)에서 코드로 보장했던 자본 안전선을 **2026-06-11 실계좌에서 처음 가동**(첫 REAL 매수 체결까지 1.7초)하고, 2일차(2026-06-12)까지 dwell하며 라이브에서만 드러나는 결함 11건(F1~F11)을 발굴·해소한 사이클이다. 코드의 무게중심이 "설계 → 코드"에서 "코드 → 실전 검증"으로 처음 넘어갔다.
+
+이 사이클의 본질은 **실전 첫 가동이 노출한 자본 보호 역전(역방향 위험)의 정밀 교정**이다. v3.12.0 자본 path는 정상 흐름에선 옳았으나, 실계좌에선 ① 매수용 cap이 매도(청산)까지 막아 손실을 키우는 방향 무구분 결함, ② 체결→원장→리스크 키 사슬이 mode/source 차원·0-sentinel로 끊겨 "매도했는데 포지션 남음·매수했는데 안 보임" 귀속 모호, ③ KIS WS 슬롯이 두 독립 라우터에서 부분 관리돼 총 점유 초과 인지 0, ④ 잔고 0원 fabricate가 BUY를 헛 차단하는 한계가 드러났다. v3.13.0은 이를 **롱 온리 정책 명문화 + 체결-원장-리스크 무결성 + WS 슬롯 단일 회계 + 관리자 실시간 가시화**로 add-only 교정했다.
+
+**v3.13.0 시점 동작하는 핵심 흐름** (v3.12.0 baseline + canary 실전 가동 + F1~F11 교정):
+
+1. **REAL canary 자본 path 실전 완주 + 정밀화** — v3.12.0 chain(boundary → 시그널 → RiskGateway verdict → EntryPricePolicy marketable limit → canary hard cap → OrderRouter → KIS REST → ACK → H0STCNI0/H0STCNI9 체결 → STOMP toast)이 **실계좌에서 처음 완주**(첫 매수 체결 1.7초). 3중 게이트(env × env × `user_account.real_trading_consent_at`) + canary hard cap 자본 보호 LOCK 유지. consumer `RealTradingConsentPort` 배선 결함(F2) 해소로 동의 게이트 정상 가동.
+
+2. **롱 온리(Long-Only) 매매 원칙 명문화 (정책 `long-only-trading.md` 신설 + 헌법 §13 + ADR 0109 §7 amend)** — 최고 관리자 직접 결재("우리 시스템에는 숏이 없어. 매도는 신호 나오면 팔면 끝"). **magicJar는 롱 온리** — 공매도·대주·파생 숏 부재. 매도(SELL)는 항상 보유분 청산이므로 **방향별 비대칭 원칙**(BUY=가격 보호 우선 / SELL=체결 보장 우선)을 정책화: canary cap은 BUY에만 적용(QTY·NOTIONAL cap SELL 면제·`MAX_ORDERS_PER_DAY` 매수만·왕복 1=1카운트 — PR #927·#928), 매도 가격 미가용 시 MARKET fallback(진입 MARKET fallback 금지 ADR 0114 §3-1-5와 방향 구분), `SELL_WITHOUT_POSITION` 차단은 정상 가드(Slack mute — PR #926).
+
+3. **체결-원장-리스크 키 사슬 무결성 (ADR 0115 §2-P2 정식 신설 — 대안 B-on-A)** — 2026-06-10 005930·전략8 incident(G1~G7)와 canary 라이브 D1·D2 결함이 노출한 사슬 단절을 무결성 불변식으로 차단. **R1**(체결-원장 정합 배선 — backfill CANCELLED 대조 G5·rebuild G4·단일전략 evidence 자동보정 G7·index refresh G3·drain 가드 G1) + **R2**(`OrderTrigger` enum 신설 + Flyway V80 — 0-sentinel 폐지로 발사 출처 키 차원 복원). `strategy_position`을 `order_execution`(immutable 진실원) 파생 재계산 뷰로 점진 전환(누락 영구화 불가). 헌법 §11(모듈 경계 빈 합류 + silent fallback 금지) 동반 신설.
+
+4. **KIS WS 구독 슬롯 단일 회계 (ADR 0123 신설 + ADR 0048 amend — 41→40 KIS-first 정정)** — 2026-06-11 후성(093370) 분봉 35/92 결손 incident(OPSP0008 MAX SUBSCRIBE OVER) root cause = 체결가·호가 두 독립 라우터 부분 한도 각각 관리 + NXT 이중 발사 미회계. 현재 baseline은 **R1 단일 회계기 `WsSlotBudgetLedger`**(채널=(code,trId) 단위 추적·거부 감지·회계 보정·fallback wiring·slot metrics)까지 반영한다. **R2 owner eviction**과 **R3 채널 다이어트/H0UNCNT0**는 운영 테스트에서 슬롯 포화·거부가 반복될 때 재개하는 backlog로 둔다.
+
+5. **DETAIL 호가 "표시 중에만" 정책 재결정 (CLAUDE.md anchor `detail-orderbook-live-only` + PR #943·#944)** — 호가(H0STASP0)를 ① 전략 ACTIVE 매매 경로(STRATEGY owner) ② 종목 상세 화면 표시 중(DETAIL owner — 진입 시 구독·이탈 즉시 해제) 두 경로에서만 구독. 합집합/LRU 잔류로 슬롯 누적 잠식하지 않고 현재 보는 종목만 점유 + 15분 idle 안전망. 수동매매(지정가 진입) 시 호가 없이 주문하는 risk 차단이 복원의 핵심 목적.
+
+6. **관리자 실시간 상태 가시화 + 운영 보고 체계** — `/admin/realtime` 화면(KIS WS 연결·슬롯·구독·캔들 신선도 5초 auto-refresh) + `GET /api/admin/realtime-status`(consumer Redis 스냅샷 발행·api 가공) + `/magicjar-ops-monitor` 커맨드 + 일일 운영 보고 체계. 최고 관리자 결재("내가 그 상태를 확인 못 하니깐 장애 처리가 어렵다").
+
+7. **발굴 → MOCK 페이퍼 트레이딩 dispatch (ADR 0122 Accepted) + 지정가 진입 ON** — 백테스트→모의→실전 3단 중 빠진 모의 고리를 채움(`Strategy.origin=PAPER_DISCOVERY` + 가상 자본 격리 + `TradingModeGate` paper origin 인지 GAP-0 hotfix). 자동 진입 절대 금지(opt-in 명시 액션만). 지정가 진입 ON.
+
+**v3.13.0 누적 ADR 123건** (v3.12.0 baseline 114건 + 0115·0116·0117·0118·0119·0120·0121·0122·0123 — 자세한 인덱스는 `_workspace/arch/adr/README.md`).
+
+**v3.13.0 시점 자동매매 본체 정합 핵심 충족**:
+
+1. **REAL canary 실전 첫 완주 + 자본 보호 역전 교정** — v3.12.0 자본 path를 실계좌에서 처음 가동(첫 매수 1.7초). 라이브가 노출한 cap 방향 무구분·키 사슬 단절·잔고 0 fabricate·청산 마비를 F1~F11 + ADR 0109 §7 amend로 교정. 자본 path 변경은 전부 add-only/하위호환·롱 온리 비대칭 원칙(BUY 보호/SELL 보장).
+2. **AI 호출 0 LOCK(자본 path) 보존** — 자동매매 본체 AI 호출 0. AI는 종목발굴·차트해석·전략 빌더 옵션 보조(Claude CLI bridge·ADR 0112)로 후보 출발점만 제공·매매 결정권 0.
+3. **모듈 매트릭스 보존** — domain · pattern-engine · indicator-impl · persistence-shared · strategy-engine · market-trend-engine · api · batch · consumer. 신규 모듈 0(OrderTrigger·WsSlotBudgetLedger·페이퍼는 기존 모듈 add-only).
+4. **운영 헌법 진화** — §11(모듈 경계 빈 합류 + silent fallback 금지·ADR 0115) + §12(주문 액션 승인 매트릭스) + §13(롱 온리 ref) 신설. §9·§10 운영 단계 룰 LOCK 유지.
+5. **회귀 0** — F1~F11·ADR 0115~0123 변경 모두 add-only/하위호환(OrderTrigger null=legacy·origin null=USER_DSL·entry_policy null=현행·페이퍼 미배선=현행 회귀). 자본 path 변경은 fail-closed/fail-open·롱 온리 방향 원칙 유지.
+6. **첫 실전 검증 evidence 의무 충족** — PR 머지·gradle check GREEN만으로 종결하지 않고, 라이브 incident 시각·signalId·order_request 행·KIS 응답 코드(OPSP0008·EGW00201·CONSENT_PORT_UNAVAILABLE)를 인용해 결함을 추적·교정(사용자 메모리 `feedback_verification_strict` 정합).
+
+---
+
+## 인덱스
+
+| 파일 | 작성자 | 내용 |
+|------|--------|------|
+| [01-architecture.md](01-architecture.md) | architect | Mermaid 9 JVM 모듈 + frontend + docker + 외부 통합 + REAL canary 자본 path 실전 도식(롱 온리 비대칭·키 사슬 무결성·WS 슬롯 단일 회계·DETAIL 호가 owner·관리자 가시화) + Flyway V1~V82 시계열 |
+| [02-data-flow.md](02-data-flow.md) | backend-core | 모듈별 데이터 흐름 + 체결-원장-리스크 키 사슬 흐름 + canary cap BUY 한정 흐름 + 페이퍼 MOCK 격리 흐름 + Kafka 토픽 매트릭스 |
+| [03-use-sequences.md](03-use-sequences.md) | market-data | 사용자 유즈 시퀀스 + KIS-first raw 출처(40 슬롯 회계 `kis_auth.py`·OPSP0008·H0STASP0 owner·multprice snapshot) + REAL canary 첫 주문 시퀀스 |
+| [04-feature-spec.md](04-feature-spec.md) | backend-core | 트랙 기능 명세 + 롱 온리 cap 비대칭 + OrderTrigger 키 사슬 + 페이퍼 dispatch + 관리자 실시간 상태 |
+| [05-ui-inventory.md](05-ui-inventory.md) | frontend | 화면·메뉴·버튼 인벤토리 + `/admin/realtime` + DETAIL 호가창 복원 + 키 사슬 추적 화면 + 발굴 스코어카드 |
+| [06-history-traceability.md](06-history-traceability.md) | architect | PR·ADR·기능 매핑 (v3.12.0 → v3.12.x → v3.13.0 시계열 + ADR 0115~0123 + F1~F11 incident 매트릭스 + Flyway V75~V82 매트릭스) |
+| [07-policy-evolution.md](07-policy-evolution.md) | architect | 정책 진화 — 롱 온리 명문화·canary cap 방향 비대칭·체결-원장-리스크 무결성·헌법 §11·§12·§13 신설·주문 액션 승인 매트릭스·WS 슬롯 단일 회계 |
+
+---
+
+## v3.12.0 → v3.13.0 통계 매트릭스 (REAL canary 진입 마일스톤 baseline)
+
+| 지표 | v3.12.0 (2026-06-07) | v3.13.0 (2026-06-12) | 증감 |
+|------|---------------------|---------------------|------|
+| Minor 누적 | 12 (v3.10·v3.11·v3.12) | 13 (v3.13) | +1 |
+| Patch 누적 (minor 사이) | v3.10.1 등 | v3.12.1·v3.12.2·v3.12.3·v3.12.4·v3.12.5 | +5 |
+| ADR 수 | 114 | **123** (+0115·0116·0117·0118·0119·0120·0121·0122·0123) | **+9** |
+| ADR 신규 (v3.13.0 사이클 + 직전 patch) | — | **9** (0115·0116·0117·0118·0119·0120·0121·0122·0123) | +9 |
+| ADR amend (v3.13.0 사이클) | — | **0109 §7**(canary cap 의미 정합) · **0048**(ADR 0123으로 41→40 정정) · **0115 §P1-1·§2-P2**(드리프트 귀속·체인 통합) | +3 amend |
+| 권위 정책(policies/) | 8 | **9** (+`long-only-trading.md` 신설) | +1 |
+| 운영 헌법 § | §1~§10 | **§1~§13** (+§11 모듈 경계 빈 합류 +§12 주문 액션 승인 +§13 롱 온리 ref) | +3 |
+| JVM 모듈 | 9 | 9 (보존 — OrderTrigger·WsSlotBudgetLedger·페이퍼는 기존 모듈 add-only) | 0 |
+| sub-agent 수 | 7 | 7 (ADR 0094 hierarchy LOCK) | 0 |
+| Flyway 버전 | V74 | **V82** (V75~V78 단타 발굴·V79 slack order webhook·V80 order_trigger·V81 strategy_origin·V82 ai_chart_prompt) | +8 |
+| RealtimeDemandOwner | DETAIL · STRATEGY · HOLDING | **+ PENDING_BUY · WATCHLIST** (ADR 0123 owner 모델, eviction 실행은 R2 deferred) | +2 |
+| KIS WS 슬롯 회계 | 라우터별 부분 관리 (41 추정) | **단일 `WsSlotBudgetLedger` (40 KIS-first 정정·채널 단위)** | LOCK 전환 |
+| canary cap 방향 | 방향 무구분 (BUY·SELL 동일 적용) | **BUY 한정 (SELL cap 면제·롱 온리 비대칭)** | 정합 fix |
+| 발사 출처 키 | source·signal_id (0-sentinel) | **OrderTrigger enum 6값 + trigger_ref_id (V80)** | 키 사슬 복원 |
+| REAL 주문 실전 가동 | 0건 (직전 baseline 미가동) | **첫 매수 체결 1.7초 (2026-06-11) + 2일차 dwell** | 마일스톤 |
+| 관리자 실시간 가시화 | 없음 | **/admin/realtime + GET /api/admin/realtime-status + /magicjar-ops-monitor** | 신규 |
+| AI 호출 (자동매매 본체) | 0 LOCK | 0 LOCK 보존 | 0 |
+| GitHub Actions workflow | 0 | 0 (보존) | 0 |
+
+> **Flyway 매핑 주의**: v3.13.0 사이클의 V75~V78은 직전 v3.12.x patch(단타 발굴)에서 적재됐으나 v3.12.0 baseline 06-history 매트릭스(V64~V74) 이후이므로 본 baseline에서 통합 추적한다. 실 파일(`api/src/main/resources/db/migration/`)이 권위 — 06-history §Flyway 매트릭스 참조.
+
+---
+
+## v3.12.0 → v3.13.0 사이 minor·patch 사이클 인덱스 (요약)
+
+| 버전 | 일자 | 미러스톤 | 관련 ADR |
+|------|------|----------|----------|
+| v3.12.0 | 2026-06-07 | 실매매 직전 자본 path 완성 (canary hard cap·전략별 포지션 귀속·scale-in/평단 exit·marketable limit·청산 항상 보장·AI 종목발굴) | 0109·0110·0111·0112·0113·0114 |
+| v3.12.1 | 2026-06-09 | 포지션 정합·KIS rate limit·관측 운영 patch (ADR 0115 코드 반영·status drift 정정) | 0115·0116 |
+| v3.12.2~v3.12.4 | 2026-06-09~10 | 단타 발굴(Discovery) 레이어 + 전종목 일봉 universe + 1m 백필 폐지 + 1wk/1mo/1y 1d 롤업 + 백테스트 사이징 정합 | 0117·0118·0119·0120·0121 |
+| v3.12.5 | 2026-06-10 | 체결-원장-리스크 체인 통합 진단 + execution-ledger spec 보강 | 0115 §2-P2 amend |
+| **v3.13.0** | **2026-06-12** | **REAL canary 진입 마일스톤** (첫 실전 주문 완주·롱 온리 정책 명문화·키 사슬 무결성·WS 슬롯 단일 회계·관리자 가시화·페이퍼 dispatch·지정가 진입 ON) | **0122·0123 + 0109 §7 amend + long-only 정책 + 헌법 §11·§12·§13** |
+
+---
+
+## 작성 규약
+
+- 본문 한국어, 코드/명령은 영어 그대로
+- Mermaid 다이어그램 의무 (flowchart는 `graph` 명시 — `fix-mermaid-syntax.mjs` 정합)
+- raw 출처 인용 의무 (KIS API · DART · 코드 path)
+- 추측·관념적 서술 금지 — 실코드·실문서 인용만
+- TBD 표시 — 미작성 영역
+
+---
+
+## v3.13.0 사이클 핵심 메시지
+
+**첫 실전(REAL canary) 주문을 라이브로 완주한 마일스톤 baseline** — v3.12.0(실매매 직전 자본 path 완성)에서 코드로 보장한 자본 안전선을 2026-06-11 실계좌에서 처음 가동(첫 매수 체결 1.7초)하고 2일차까지 dwell하며 결함 11건(F1~F11)을 발굴·해소했다. 이번 사이클은 실전 첫 가동이 노출한 자본 보호 역전을 정밀 교정한다: ① **롱 온리 명문화**(공매도 부재 → 매도는 보유분 청산 → cap·가격 보호는 BUY 비대칭) ② **체결-원장-리스크 키 사슬 무결성**(0-sentinel 폐지·OrderTrigger enum·order_execution 파생 재계산·헌법 §11 빈 합류 검증) ③ **KIS WS 슬롯 단일 회계 R1**(40 KIS-first 정정·OPSP0008 감지·회계 보정·관측) ④ **관리자 실시간 가시화**(/admin/realtime·ops-monitor 일일 보고). AI는 옵션 보조(Claude CLI bridge)로 매매 결정권 0 LOCK 지속. 모든 변경 add-only/하위호환 — 회귀 0. **다음 후보** = REAL canary 운영 데이터 축적 + ADR 0118·0121·0123 R-later 항목(10년 backfill 캠페인·세션함수 DSL·owner eviction·H0UNCNT0 통합 체결가) + KIS rate limit 큐 재설계 R1~R3(2026-06-12 결재·R0 audit 완료). 자동매매 본체 AI 호출 0 LOCK 지속(ADR 0023·0066·0067·0068·0080·0094 baseline).
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

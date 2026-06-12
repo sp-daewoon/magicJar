@@ -65,8 +65,12 @@ function WarnIcon() {
   )
 }
 
-export function RuntimeFlagsIndicator() {
-  const { data, isLoading, isError } = useRuntimeFlags()
+interface RuntimeFlagsIndicatorProps {
+  userId?: string | number | null
+}
+
+export function RuntimeFlagsIndicator({ userId }: RuntimeFlagsIndicatorProps) {
+  const { data, isLoading, isError } = useRuntimeFlags(userId)
 
   // 로딩 중 또는 backend 미구현 — 회색 placeholder
   if (isLoading || isError || !data) {
@@ -117,16 +121,17 @@ export function RuntimeFlagsIndicator() {
  * 우선순위 매트릭스 (불변 LOCK):
  *  1. killSwitchEnabled=true → 회색 "정지" — 모든 주문 차단
  *  2. mode=REAL && !allowReal → 노랑 "실전·차단" — MAGICJAR_ALLOW_REAL 환경변수 미허용
- *  3. mode=REAL && !userConsented → 노랑 "실전·동의대기" + 경고 — 사용자 동의 토글 미체결
- *  4. mode=REAL && allowReal && userConsented → 빨강 "실전" — 실주문 가능
- *  5. mode=MOCK → 녹색 "모의"
+ *  3. mode=REAL && userConsented=false → 노랑 "실전·동의대기" + 경고 — 사용자 동의 토글 미체결
+ *  4. mode=REAL && userConsented=null → 노랑 "실전·계좌확인" — userId 없이 조회되어 동의 판정 불가
+ *  5. mode=REAL && allowReal && userConsented=true → 빨강 "실전" — 실주문 가능
+ *  6. mode=MOCK → 녹색 "모의"
  */
 export function decideDisplayState(flags: {
   mode: 'MOCK' | 'REAL'
   allowReal: boolean
   killSwitchEnabled: boolean
   killSwitchReason: string | null
-  userConsented: boolean
+  userConsented: boolean | null
 }): DisplayState {
   if (flags.killSwitchEnabled) {
     return {
@@ -147,13 +152,22 @@ export function decideDisplayState(flags: {
           '실전 모드지만 MAGICJAR_ALLOW_REAL=false — 환경변수 검토 후 재기동 필요',
       }
     }
-    if (!flags.userConsented) {
+    if (flags.userConsented === false) {
       return {
         color: 'yellow',
         label: '실전·동의대기',
         showWarn: true,
         title:
           '실전 모드 활성 + ALLOW_REAL=true이지만 사용자 동의 미체결 — 설정 > 실거래 동의 토글 확인',
+      }
+    }
+    if (flags.userConsented === null) {
+      return {
+        color: 'yellow',
+        label: '실전·계좌확인',
+        showWarn: true,
+        title:
+          '실전 모드 활성 + ALLOW_REAL=true이지만 userId 없이 조회되어 동의 상태를 판정하지 못했습니다',
       }
     }
     return {
