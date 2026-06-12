@@ -3,10 +3,10 @@ id: T-20260612-1354-sell-exempt-canary-caps
 agent: backend-core
 model: opus
 branch: hotfix/sell-exempt-canary-caps
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T13:54:11.791+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T13:59:50.090+09:00
+pr: #928
 parentPhase: ?
 ---
 
