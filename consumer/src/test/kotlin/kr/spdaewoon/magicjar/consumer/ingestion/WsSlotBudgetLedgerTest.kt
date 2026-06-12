@@ -92,12 +92,28 @@ class WsSlotBudgetLedgerTest {
     }
 
     @Test
+    fun `snapshot — codesByTrId drill-down (정렬된 종목코드 목록, 카운트와 일관)`() {
+        val l = ledger(maxSlots = 40)
+        // 의도적으로 역순 등록 → 정렬 검증.
+        l.register("H0STCNT0", "005930")
+        l.register("H0STCNT0", "000660")
+        l.register("H0STASP0", "035720")
+        val snap = l.snapshot()
+        // trId별 종목코드 목록이 정렬돼 노출 — "H0STCNT0 N개가 뭔지" drill-down.
+        assertThat(snap.codesByTrId["H0STCNT0"]).containsExactly("000660", "005930")
+        assertThat(snap.codesByTrId["H0STASP0"]).containsExactly("035720")
+        // 카운트(byTrId)와 코드 목록 크기 일관.
+        assertThat(snap.codesByTrId["H0STCNT0"]!!.size).isEqualTo(snap.byTrId["H0STCNT0"])
+    }
+
+    @Test
     fun `snapshot — ledger 비활성 시 used 0`() {
         val l = ledger(enabled = false)
         l.register("H0STCNT0", "005930")
         val snap = l.snapshot()
         assertThat(snap.used).isEqualTo(0)
         assertThat(snap.byTrId).isEmpty()
+        assertThat(snap.codesByTrId).isEmpty()
     }
 
     @Test

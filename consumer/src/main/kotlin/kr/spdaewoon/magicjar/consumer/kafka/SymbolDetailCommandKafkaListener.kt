@@ -65,7 +65,9 @@ class SymbolDetailCommandKafkaListener(
                     return
                 }
             val userId = payload["userId"]?.toString() ?: "unknown"
-            val ownerId = "detail:$userId"
+            // bare ownerId — prefix(`detail:`)는 스냅샷 직렬화에서 1회 부여(이중 prefix `detail:detail:<id>` 회피).
+            // ENTER/EXIT 동일 값(userId)을 써 멱등 release 매칭 유지.
+            val ownerId = userId
 
             log.info("symbol.detail.command 수신: action={} code={}", action, code)
 

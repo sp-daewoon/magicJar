@@ -100,7 +100,9 @@ class HoldingDemandRegistrar(
         }.onFailure { e -> log.warn("HOLDING demand request 실패: code={} err={}", code, e.message) }
     }
 
-    private fun holdingOwnerId(code: String): String = "holding:$code"
+    // bare ownerId — prefix(`holding:`/`pending_buy:`)는 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
+    // request/release가 동일 함수를 쓰므로 OwnerKey 매칭 유지(holding=code, pending-buy=orderId 단위 멱등).
+    private fun holdingOwnerId(code: String): String = code
 
-    private fun pendingBuyOwnerId(orderId: Long?): String = "pending-buy:${orderId ?: "unknown"}"
+    private fun pendingBuyOwnerId(orderId: Long?): String = "${orderId ?: "unknown"}"
 }

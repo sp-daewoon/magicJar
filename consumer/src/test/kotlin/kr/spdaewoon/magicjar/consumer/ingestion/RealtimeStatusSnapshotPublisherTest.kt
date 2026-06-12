@@ -65,7 +65,12 @@ class RealtimeStatusSnapshotPublisherTest {
         val ledger =
             mockk<WsSlotBudgetLedger> {
                 every { snapshot() } returns
-                    WsSlotBudgetLedger.SlotSnapshot(used = 2, max = 40, byTrId = sortedMapOf("H0STCNT0" to 1, "H0STASP0" to 1))
+                    WsSlotBudgetLedger.SlotSnapshot(
+                        used = 2,
+                        max = 40,
+                        byTrId = sortedMapOf("H0STCNT0" to 1, "H0STASP0" to 1),
+                        codesByTrId = sortedMapOf("H0STCNT0" to listOf("005930"), "H0STASP0" to listOf("005930")),
+                    )
             }
 
         val publisher =
@@ -86,6 +91,8 @@ class RealtimeStatusSnapshotPublisherTest {
         assertThat(payload.ws.reconnects24h).isEqualTo(3)
         assertThat(payload.slots.used).isEqualTo(2)
         assertThat(payload.slots.byTrId["H0STCNT0"]).isEqualTo(1)
+        // 슬롯 drill-down — codesByTrId 페이로드 흐름 검증.
+        assertThat(payload.slots.codesByTrId["H0STCNT0"]).containsExactly("005930")
         assertThat(payload.subscriptions).hasSize(2)
         assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0STASP0", "H0STCNT0")
         assertThat(payload.executionNotice.subscribed).isTrue()

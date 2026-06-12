@@ -227,13 +227,17 @@ class OrderbookSubscriptionRouter(
     /**
      * 관리자 실시간 상태 스냅샷용 — 호가(H0STASP0) 구독 code별 owner 목록 + 최초 구독 시각(read-only).
      *
-     * 구독 로직 변경 0 — demand read만. owner 문자열 = STRATEGY는 ownerId(예: `strategy:86`), DETAIL은 `detail`.
+     * 구독 로직 변경 0 — demand read만. owner 문자열 = 체결가 라우터와 표기 대칭:
+     * - STRATEGY는 [ownerLabel]로 `strategy:` prefix 1회 부여(bare `86` → `strategy:86`,
+     *   세션 식별자 `daytrade-paper:5` → `strategy:daytrade-paper:5`). 이미 `strategy:`로 시작하면 재부여 생략(이중 prefix 방어).
+     * - DETAIL은 ownerId 미추적 → `detail`(현행 유지).
      */
     fun snapshotDemands(): List<OrderbookDemandSnapshot> =
         lock.withLock {
             val codes = detailDemands.keys + strategyDemands.keys
             codes.map { code ->
-                val strategyOwners = strategyDemands[code]?.toList() ?: emptyList()
+                val strategyOwners =
+                    strategyDemands[code]?.map { ownerLabel(RealtimeDemandOwner.STRATEGY, it) } ?: emptyList()
                 val detailOwner = if (detailDemands.containsKey(code)) listOf("detail") else emptyList()
                 val owners = strategyOwners + detailOwner
                 OrderbookDemandSnapshot(

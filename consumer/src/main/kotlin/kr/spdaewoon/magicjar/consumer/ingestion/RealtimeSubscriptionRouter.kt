@@ -197,7 +197,9 @@ class RealtimeSubscriptionRouter(
      * 관리자 실시간 상태 스냅샷용 — code별 owner 목록 + 최초 구독 시각(epoch ms) read-only 투영.
      *
      * 구독 로직 변경 0 — 현재 demand 맵 read만 수행한다(만료 정리 후 살아있는 demand만).
-     * owner 문자열 = `<owner>:<ownerId>` (예: `strategy:86`·`DETAIL:detail`·`HOLDING:74683223`).
+     * owner 문자열 = `<owner enum lowercase>:<bare ownerId>` (예: `strategy:86`·`detail:74683223`·`holding:005930`·`pending_buy:123`).
+     * ownerId는 producer가 bare로 넣지만, 롤링 배포·미발견 producer 잔존 대비 prefix 중복 부여를 방어한다
+     * (ownerId가 이미 `<owner>:`로 시작하면 재부여 생략 → `strategy:strategy:86` 이중 prefix 회피).
      * since = 해당 code demand 중 가장 오래된 subscribedSinceMs (최초 구독 시각 의미).
      */
     fun snapshotDemands(): List<RealtimeDemandSnapshot> =
@@ -206,7 +208,7 @@ class RealtimeSubscriptionRouter(
             demandsByCode.map { (code, owners) ->
                 RealtimeDemandSnapshot(
                     code = code,
-                    owners = owners.keys.map { "${it.owner.name.lowercase()}:${it.ownerId}" }.sorted(),
+                    owners = owners.keys.map { ownerLabel(it.owner, it.ownerId) }.sorted(),
                     sinceMs = owners.values.minOfOrNull { it.subscribedSinceMs },
                 )
             }
@@ -352,6 +354,20 @@ data class RealtimeDemandSnapshot(
     val owners: List<String>,
     val sinceMs: Long?,
 )
+
+/**
+ * 스냅샷 owner 라벨 = `<owner enum lowercase>:<bare ownerId>` (단일 prefix LOCK).
+ *
+ * ownerId가 이미 `<owner>:`로 시작하면(롤링 배포 잔존·미발견 producer) prefix 재부여를 생략해 `strategy:strategy:86`
+ * 이중 prefix를 방어한다. 체결가·호가 라우터가 공유하는 단일 라벨링 규약.
+ */
+internal fun ownerLabel(
+    owner: RealtimeDemandOwner,
+    ownerId: String,
+): String {
+    val prefix = "${owner.name.lowercase()}:"
+    return if (ownerId.startsWith(prefix)) ownerId else "$prefix$ownerId"
+}
 
 enum class RealtimeDemandOwner(
     val defaultPriority: Int,

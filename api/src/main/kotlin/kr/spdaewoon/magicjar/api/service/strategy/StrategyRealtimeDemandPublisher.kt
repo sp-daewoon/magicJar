@@ -34,7 +34,9 @@ class StrategyRealtimeDemandPublisher(
         includeInterval: Boolean,
     ) {
         val strategyId = strategy.id ?: return
-        val ownerId = "strategy:$strategyId"
+        // bare ownerId — owner enum prefix(`strategy:`)는 consumer 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
+        // consumer ActiveStrategyDemandRegistrar도 동일 bare(`<id>`)로 보강하므로 OwnerKey 일치(release 누수 0).
+        val ownerId = "$strategyId"
         val codes = normalizedCodes(strategy.codes)
         if (codes.isEmpty()) return
         val interval = strategy.intervals.firstOrNull()?.takeIf { it.isNotBlank() } ?: strategy.definition.tf

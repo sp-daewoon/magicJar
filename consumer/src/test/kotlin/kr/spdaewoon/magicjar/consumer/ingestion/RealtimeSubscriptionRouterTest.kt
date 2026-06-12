@@ -165,10 +165,22 @@ class RealtimeSubscriptionRouterTest {
         val snap = router.snapshotDemands().associateBy { it.code }
         assertTrue(snap.containsKey("005930"))
         assertTrue(snap.containsKey("000660"))
-        // 005930은 DETAIL + STRATEGY owner 합집합 (정렬).
+        // 005930은 DETAIL + STRATEGY owner 합집합 (정렬). bare ownerId → 단일 prefix 1회.
         assertTrue(snap["005930"]!!.owners.contains("detail:user001"))
         assertTrue(snap["005930"]!!.owners.contains("strategy:86"))
         assertTrue(snap["005930"]!!.sinceMs != null)
+    }
+
+    @Test
+    fun `snapshotDemands — legacy prefix 포함 ownerId여도 이중 prefix 방어`() {
+        // 롤링 배포·미발견 producer가 prefix 포함 ownerId를 넣어도 스냅샷은 단일 prefix(이중 prefix 회피).
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+
+        val owners = router.snapshotDemands().first { it.code == "005930" }.owners
+        assertTrue(owners.contains("strategy:86")) // strategy:strategy:86 아님
+        assertTrue(owners.contains("detail:user001")) // detail:detail:user001 아님
+        assertTrue(owners.none { it.startsWith("strategy:strategy:") || it.startsWith("detail:detail:") })
     }
 
     @Test

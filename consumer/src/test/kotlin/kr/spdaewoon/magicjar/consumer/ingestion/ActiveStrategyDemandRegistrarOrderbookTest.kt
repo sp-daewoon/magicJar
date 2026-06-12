@@ -47,7 +47,7 @@ class ActiveStrategyDemandRegistrarOrderbookTest {
 
         registrar(repo).refreshActiveStrategyDemands()
 
-        verify { orderbookRouter.onStrategyActivated(code = "093370", ownerId = "strategy:86") }
+        verify { orderbookRouter.onStrategyActivated(code = "093370", ownerId = "86") }
     }
 
     @Test
@@ -63,7 +63,7 @@ class ActiveStrategyDemandRegistrarOrderbookTest {
         every { repo.findActiveWithExplicitCodes() } returns listOf(activeStrategy(86, """["005930"]"""))
         reg.refreshActiveStrategyDemands()
 
-        verify { orderbookRouter.onStrategyDeactivated(code = "093370", ownerId = "strategy:86") }
-        verify { orderbookRouter.onStrategyActivated(code = "005930", ownerId = "strategy:86") }
+        verify { orderbookRouter.onStrategyDeactivated(code = "093370", ownerId = "86") }
+        verify { orderbookRouter.onStrategyActivated(code = "005930", ownerId = "86") }
     }
 }
