@@ -33,13 +33,13 @@
 
 | 순위 | API | TR_ID | 사용 목적 | 현재 결정 |
 |---|---|---|---|---|
-| P0 | `inquire-psbl-order` | `TTTC8908R`/`VTTC8908R` | BUY 주문 전 KIS 가능수량/가능금액 확인 | 채용 |
-| P0 | `inquire-psbl-sell` | `TTTC8408R` | SELL 주문 전 KIS 매도가능수량 확인 | 채용 |
+| P0 | `inquire-balance` availability snapshot | `TTTC8434R`/`VTTC8434R` | 예수금 + 종목별 주문가능수량 snapshot | 채용 |
 | P1 | `inquire-investor` | `FHKST01010900` | 외국인/기관 수급 | 채용 |
 | P1 | `inquire-ccnl` | `FHKST01010300` | 최근 체결 REST 보강 | 채용 |
 | P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | 채용 |
 | P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | flag OFF로 도입 |
 | P2 | `asking_price_total` | `H0UNASP0` 후보 | 통합 호가 WS, slot 절감 | raw 재확인 후 |
+| P2 | `inquire-psbl-order` / `inquire-psbl-sell` | `TTTC8908R`/`VTTC8908R`, `TTTC8408R` | 주문조건별 가능수량 정밀 진단 | hot path 보류 |
 | P2 | finance ratios | `FHKST66430300` 등 | screener fundamental | 후순위 |
 | P2 | estimate/opinion | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI/상세 보조 | 후순위 |
 
@@ -110,10 +110,18 @@
 - Yahoo Finance(1m 7일 한계) 대체 중. KIS 실전이 더 긴 기간 가능하면 전환 검토
 - 단점: KIS rate limit 있음 (Yahoo는 무제한)
 
-### B. 주문 가능수량 — `inquire-psbl-order` + `inquire-psbl-sell`
+### B. 계좌 availability snapshot — `inquire-balance`
+- endpoint: `/uapi/domestic-stock/v1/trading/inquire-balance`, `TTTC8434R`/`VTTC8434R`.
+- output2 `dnca_tot_amt`·`nxdy_excc_amt`·`prvs_rcdl_excc_amt`로 현금성 snapshot을 만든다.
+- output1 `hldg_qty`·`ord_psbl_qty`로 종목별 보유수량/매도가능수량 map을 만든다.
+- Redis key: `account:availability:{mode}:{userId}`. 주문 path는 이 key만 읽고 KIS REST를 호출하지 않는다.
+- refresh: 5분 periodic + `account.balance.changed.v1` 이벤트 기반, `userId+mode` debounce/coalesce, BACKFILL priority.
+
+### B-2. 주문조건별 가능수량 정밀 진단 — `inquire-psbl-order` + `inquire-psbl-sell`
 - BUY: `/uapi/domestic-stock/v1/trading/inquire-psbl-order`, `TTTC8908R`/`VTTC8908R`.
 - SELL: `/uapi/domestic-stock/v1/trading/inquire-psbl-sell`, `TTTC8408R`.
-- 본주문 전 KIS 기준 가능수량을 읽어 reject 원인을 주문 전에 관측한다. 차단은 feature flag로만 활성화한다.
+- 주문조건(`PDNO`, `ORD_UNPR`, `ORD_DVSN`) 의존성이 있어 전략 burst 시 API matrix가 커진다.
+- 운영 기본 path 채용은 보류한다. 수동 진단/사후 분석용 후보로만 유지한다.
 
 ### C. 호가창·체결 list — `inquire-asking-price-exp-ccn` + `inquire-ccnl`
 - `inquire-asking-price-exp-ccn`은 이미 entry quote fallback으로 사용 중.

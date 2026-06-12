@@ -244,6 +244,18 @@ magicjar:
     balance-rate-limit-backoff-millis: ${MAGICJAR_KIS_BALANCE_RATE_LIMIT_BACKOFF_MS:1000}
     # F10 (2026-06-12) — 잔고조회 rate limit 시 backoff 재시도 횟수 (KIS per-TR 1/s 고려). 소진 시 stale-cache·skip.
     balance-rate-limit-max-retries: ${MAGICJAR_KIS_BALANCE_RATE_LIMIT_MAX_RETRIES:2}
+    # v3.13.1 — 계좌 availability Redis snapshot guard.
+    #   snapshot-guard-enabled=false(default): 기존 주문 path 그대로, Redis/KIS 추가 판단 0.
+    #   true: 본주문 전 account:availability snapshot만 조회(KIS REST 호출 0). miss/stale/불명확 값은 pass-through.
+    #   reject-on-insufficient=true: fresh snapshot이 부족을 확정할 때만 REJECTED 처리.
+    account-availability:
+      snapshot-guard-enabled: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_SNAPSHOT_GUARD_ENABLED:false}
+      reject-on-insufficient: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REJECT_ON_INSUFFICIENT:false}
+      max-age-seconds: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_MAX_AGE_SECONDS:300}
+      snapshot-ttl-seconds: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_SNAPSHOT_TTL_SECONDS:900}
+      refresh-enabled: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REFRESH_ENABLED:false}
+      refresh-fixed-delay-ms: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REFRESH_DELAY_MS:300000}
+      refresh-debounce-ms: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REFRESH_DEBOUNCE_MS:2000}
   # F10 (2026-06-12) — 주문경로 capital 산출 정책. 조회 실패 시 직전 성공 잔고(stale)를 이 TTL 내에서 재사용(0 fabricate 금지).
   risk:
     capital-stale-cache-ttl-minutes: ${MAGICJAR_RISK_CAPITAL_STALE_CACHE_TTL_MINUTES:5}

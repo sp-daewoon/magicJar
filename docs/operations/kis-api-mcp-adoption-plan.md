@@ -38,11 +38,12 @@
 
 | 순위 | 후보 | 공식 예제 / TR_ID | 채용 이유 | 기본값 |
 |---|---|---|---|---|
-| P0 | 주문 가능수량/가능금액 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | KIS 본주문 전에 KIS 기준 가능수량을 확인해 거절과 원장 불일치를 줄인다. | 관측 ON, 차단 flag OFF |
+| P0 | 계좌 availability snapshot | 기존 `inquire-balance` `TTTC8434R`/`VTTC8434R` output1 `ord_psbl_qty` + output2 cash | 주문 path KIS 호출 0을 유지하면서 예수금/매도가능수량 stale 위험을 낮춘다. | refresh/guard flag OFF |
 | P1 | 투자자/체결 REST 보강 | `inquire-investor` `FHKST01010900`, `inquire-ccnl` `FHKST01010300` | 종목 상세/스크리너/WS stale 보강에 쓰는 read-only 정보다. | read-only |
 | P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R`, `inquire-period-profit` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | read-only |
 | P1-deferred | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄일 가능성이 있다. | feature flag OFF |
 | P2 | 통합 호가 WS | `asking_price_total` 후보 `H0UNASP0` | DETAIL/STRATEGY 호가 슬롯 절감 후보. | raw 재확인 후 |
+| P2 | 주문조건별 가능수량 정밀조회 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | 계좌 snapshot으로 부족한 예외 분석/수동 진단용. 주문 hot path 기본 사용 금지. | 보류 |
 | P2 | 재무비율 | `FHKST66430300` 등 | 스크리너/fundamental 설명 강화. | batch only |
 | P2 | 추정실적/투자의견 | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI 설명/종목 상세 보조. | batch/cache |
 | P3 | ETF/ETN NAV/구성 | `FHPST02400000` 등 | ETF 전략 활성화 시 가치. | 보류 |
@@ -78,24 +79,135 @@ flowchart LR
 
 ## 4. 네 API의 현재 -> 변경 흐름
 
-### 4-1. 주문 가능수량 API
+### 4-1. 주문 availability snapshot
+
+#### 현재 주문 경로
 
 ```mermaid
 flowchart TD
-    A["현재: OrderIntent"] --> B["Risk/Canary/KillSwitch"]
-    B --> C["KIS order-cash"]
-    C --> D["ACK 또는 KIS reject"]
+    S["SignalGeneratedKafkaListener"] --> Ctx["KIS balance fresh 조회<br/>currentCapital 산정"]
+    Ctx --> Risk["RiskConfig / position limit / daily loss"]
+    Risk --> Intent["order.intent.v1 발행"]
+    Intent --> Router["OrderRouterKafkaListener"]
+    Router --> Gate["TradingModeGate / KillSwitch / MarketHours / Canary"]
+    Gate --> Persist["order_request REQUESTED 저장"]
+    Persist --> Submit["KIS order-cash<br/>TTTC0012U/0011U"]
+    Submit --> Ack["ACK"]
+    Submit --> Reject["KIS reject"]
+    Ack --> Ws["H0STCNI0/H0STCNI9 체결통보"]
+    Ws --> Fill["order_execution 저장 + position update"]
+    Fill --> BalanceEvt["account.balance.changed.v1"]
+    Reject --> BalanceEvt
+```
 
-    A2["변경: OrderIntent"] --> B2["Risk/Canary/KillSwitch"]
-    B2 --> P["KIS psbl-order / psbl-sell preflight"]
-    P --> C2["KIS order-cash"]
-    P -. "flag ON + 부족" .-> R["KIS_PRECHECK_REJECTED"]
-    C2 --> D2["ACK 또는 KIS reject"]
+| 현재 판단 지점 | 실제 KIS 호출 | 위험 |
+|---|---|---|
+| 시그널 수량 산정에서 balance fresh 조회 | `inquire-balance` 1회 | 전략 burst 시 호출이 늘 수 있다. |
+| 주문 라우터 | `order-cash` 본주문만 호출 | 주문 직전 가능수량 사전 검증은 없고, KIS reject가 최종 방어선이다. |
+| 체결 이후 | WS 체결통보 + backfill | 체결 이벤트가 늦으면 UI/캐시 반영도 늦다. |
+
+#### 변경 후 refresh 경로
+
+```mermaid
+flowchart TD
+    Periodic["5분 periodic<br/>flag ON일 때만"] --> Queue["refresh queue<br/>key=userId+mode"]
+    BalanceEvt["account.balance.changed.v1<br/>FILLED/CANCELLED/REJECTED"] --> Queue
+    Manual["운영자 수동 refresh 후보"] --> Queue
+
+    Queue --> Debounce["debounce 2s<br/>동일 userId+mode coalesce"]
+    Debounce --> Rate["KIS rate limiter<br/>BACKFILL priority"]
+    Rate --> Kis["inquire-balance<br/>TTTC8434R/VTTC8434R"]
+    Kis --> Parse1["output1: hldg_qty + ord_psbl_qty<br/>holding/sellable map"]
+    Kis --> Parse2["output2: dnca_tot_amt / nxdy_excc_amt / prvs_rcdl_excc_amt<br/>cash snapshot"]
+    Parse1 --> Snapshot["AccountAvailabilitySnapshot"]
+    Parse2 --> Snapshot
+    Snapshot --> Lww["Redis putIfNewer<br/>versionMillis LWW"]
+    Lww --> Redis["account:availability:{mode}:{userId}<br/>TTL 15m"]
+
+    Rate -. "429/EGW rate limit" .-> Retry["retry 2회 / 500ms"]
+    Retry -. "소진" .-> NoWrite["snapshot 미갱신<br/>기존 주문 실패 처리 유지"]
 ```
 
 | 현재 | 변경 | 코멘트 |
 |---|---|---|
-| 주문 수량은 내부 RiskConfig, canary cap, 가격 source로 판단하고 KIS 본주문에서 최종 거절된다. | 본주문 직전 `TTTC8908R`/`VTTC8908R` 또는 `TTTC8408R`로 가능수량을 읽고 audit에 남긴다. | 기본은 관측만, 차단 flag를 켤 때만 실제 주문을 막는다. |
+| 가능수량은 본주문 결과 또는 reconcile 후에야 명확해진다. | `inquire-balance` 1회로 cash와 종목별 `ord_psbl_qty`를 같이 snapshot한다. | 새 API matrix를 만들지 않고 기존 잔고 API를 재사용한다. |
+| 체결 이벤트는 UI invalidation 중심이다. | 체결/취소/거절 이벤트가 availability refresh queue도 깨운다. | 실시간성은 이벤트로 당기고, 5분 주기는 안전망이다. |
+| rate limit 실패 시 주문 path가 직접 흔들릴 수 있다. | refresh 실패는 snapshot 미갱신으로 끝나며 주문 path는 KIS 본주문 reject를 최종 진실로 둔다. | 주문 앞 KIS 호출 0. |
+
+#### 변경 후 주문 경로
+
+```mermaid
+flowchart TD
+    Intent["order.intent.v1"] --> Router["OrderRouterKafkaListener"]
+    Router --> Gate["TradingModeGate / KillSwitch / MarketHours / Canary"]
+    Gate --> GuardFlag{"snapshot guard ON?"}
+    GuardFlag -- "OFF" --> Persist["order_request REQUESTED"]
+    GuardFlag -- "ON" --> Read["Redis read<br/>account:availability:{mode}:{userId}"]
+    Read --> Fresh{"fresh <= 5m?"}
+    Fresh -- "miss/stale" --> Pass["pass-through<br/>KIS 호출 없음"]
+    Fresh -- "fresh" --> Side{"BUY or SELL"}
+    Side -- "BUY" --> Cash["cashD2 >= price*qty ?"]
+    Side -- "SELL" --> Sellable["sellableQtyByCode[code] >= qty ?"]
+    Cash -- "부족 + reject flag ON" --> RejectLocal["local REJECTED<br/>KIS 호출 없음"]
+    Sellable -- "부족 + reject flag ON" --> RejectLocal
+    Cash -- "충분/불명확" --> Persist
+    Sellable -- "충분/불명확" --> Persist
+    Pass --> Persist
+    Persist --> Submit["KIS order-cash"]
+    Submit --> Final["ACK / KIS reject<br/>최종 진실"]
+```
+
+| 주문 path 규칙 | 결정 |
+|---|---|
+| 주문 라우터에서 KIS availability REST 직접 호출 | 금지 |
+| Redis snapshot miss/stale | pass-through |
+| BUY 판단 금액 | `cashD2(prvs_rcdl_excc_amt)` vs `limitPrice/priceAtSignal * qty` |
+| SELL 판단 수량 | output1 `ord_psbl_qty` 기반 `sellableQtyByCode[code]` |
+| 부족 확정 시 차단 | `reject-on-insufficient=true`일 때만 |
+| 최종 진실 | KIS `order-cash` ACK/reject + 체결통보/reconcile |
+
+#### 다음 단계: local reservation
+
+```mermaid
+flowchart TD
+    Fresh["fresh account availability snapshot"] --> Reserve{"reservation enabled?"}
+    Reserve -- "OFF, v3.13.1" --> GuardOnly["snapshot guard only"]
+    Reserve -- "ON, next" --> Atomic["Redis atomic reserve<br/>cash or sellable qty"]
+    Atomic -- "reserve ok" --> Submit["KIS order-cash"]
+    Atomic -- "reserve fail" --> LocalReject["local REJECTED"]
+    Submit -- "ACK" --> Hold["reservation 유지<br/>체결/취소 대기"]
+    Submit -- "KIS reject" --> Release["reservation release"]
+    Hold -- "FILLED" --> Reconcile["snapshot refresh/reconcile"]
+    Hold -- "CANCELLED/EXPIRED" --> Release
+```
+
+| 항목 | v3.13.1 | 다음 단계 |
+|---|---|---|
+| snapshot 부족 확정 차단 | 가능, 기본 OFF | 유지 |
+| 동시 전략 간 cash/qty 선점 | 미적용 | Redis atomic reservation |
+| release 조건 | 해당 없음 | KIS reject/cancel/expire, fill 후 reconcile |
+| 도입 조건 | 운영 snapshot 정확도 확인 | 체결 WS/REST backfill 안정 확인 후 |
+
+#### rate-limit 예산
+
+```mermaid
+flowchart LR
+    UserPath["USER_PATH<br/>order-cash/hashkey/주문 직결"] --> Reserve["최우선"]
+    Refresh["availability refresh"] --> Backfill["BACKFILL priority"]
+    Backfill --> Debounce["userId+mode debounce 2s"]
+    Debounce --> Periodic["5분 주기"]
+    Debounce --> Event["체결/취소/거절 이벤트"]
+    Backfill -. "rate limit" .-> Retry["500ms x 2"]
+    Retry -. "실패" .-> Skip["snapshot 미갱신"]
+```
+
+| 보호 장치 | 이유 |
+|---|---|
+| refresh 기본 OFF | 배포 직후 KIS 호출 증가 0 |
+| 5분 periodic | 평시 계좌 그림 보정, 1초 8회 한도와 충돌 최소화 |
+| event debounce | 체결 WS burst가 KIS burst로 번지지 않게 함 |
+| BACKFILL priority | 본주문 USER_PATH와 경쟁하지 않게 함 |
+| LWW 저장 | 늦게 끝난 과거 refresh가 최신 snapshot을 덮지 못하게 함 |
 
 ### 4-2. 투자자/체결 REST 보강
 
@@ -151,7 +263,7 @@ flowchart TD
 ## 5. 구현 순서
 
 1. 문서/레퍼런스 갱신: 현재 사용 중인 API와 후보 우선순위 고정.
-2. 주문 가능수량 preflight: adapter + audit/log + feature flag.
+2. 계좌 availability snapshot: `inquire-balance` ord_psbl_qty 파싱 + Redis LWW snapshot + 주문 path read-only guard.
 3. 투자자/체결 REST: read-only adapter + cache/API/MCP 후보 연결.
 4. 계좌 손익: realized P/L adapter + reconcile snapshot.
 5. `H0UNCNT0`: feature flag + ledger 반영 + fallback.

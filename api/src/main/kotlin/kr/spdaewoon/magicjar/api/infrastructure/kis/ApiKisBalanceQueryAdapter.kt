@@ -255,6 +255,7 @@ class ApiKisBalanceQueryAdapter(
                 evaluationAmount = bd(item["evlu_amt"]),
                 profitLoss = bd(item["evlu_pfls_amt"]),
                 profitLossRate = bd(item["evlu_pfls_rt"]),
+                orderableQuantity = item["ord_psbl_qty"]?.toString()?.toIntOrNull(),
             )
         }
     }

@@ -51,6 +51,42 @@ class ConsumerKisBalanceQueryAdapter(
     override fun fetchFullBalance(
         userId: String,
         accountType: AccountType,
+    ): KisAccountBalance =
+        fetchFullBalanceInternal(
+            userId = userId,
+            accountType = accountType,
+            priority = KisCallPriority.USER_PATH,
+            backoffMillis = rateLimitBackoffMillis,
+            maxRetries = rateLimitMaxRetries,
+            logLabel = "consumer KIS 잔고조회",
+        )
+
+    /**
+     * account availability snapshot refresh 전용 조회.
+     *
+     * 주문 hot path 와 경쟁하지 않도록 BACKFILL priority를 사용하고, rate-limit 계열은 500ms × 2회까지만
+     * 재시도한다. 실패하면 snapshot을 갱신하지 않고 기존 주문/KIS reject 흐름을 최종 진실로 둔다.
+     */
+    fun fetchFullBalanceForAvailabilityRefresh(
+        userId: String,
+        accountType: AccountType,
+    ): KisAccountBalance =
+        fetchFullBalanceInternal(
+            userId = userId,
+            accountType = accountType,
+            priority = KisCallPriority.BACKFILL,
+            backoffMillis = AVAILABILITY_REFRESH_BACKOFF_MS,
+            maxRetries = AVAILABILITY_REFRESH_MAX_RETRIES,
+            logLabel = "account availability refresh",
+        )
+
+    private fun fetchFullBalanceInternal(
+        userId: String,
+        accountType: AccountType,
+        priority: KisCallPriority,
+        backoffMillis: Long,
+        maxRetries: Int,
+        logLabel: String,
     ): KisAccountBalance {
         val cred = loadCredential(userId, accountType)
         val accessToken = kisAuthAdapter.getAccessToken(userId, accountType)
@@ -76,6 +112,9 @@ class ConsumerKisBalanceQueryAdapter(
                     baseUrl = baseUrl,
                     userId = userId,
                     retryAttempt = 0,
+                    priority = priority,
+                    backoffMillis = backoffMillis,
+                    maxRetries = maxRetries,
                 )
 
             val snapshot =
@@ -87,7 +126,8 @@ class ConsumerKisBalanceQueryAdapter(
                     fetchedAt = Instant.now(),
                 )
             log.info(
-                "consumer KIS 잔고조회 성공: user={} type={} holdings={}건 netAsset={}",
+                "{} 성공: user={} type={} holdings={}건 netAsset={}",
+                logLabel,
                 maskUserId(userId),
                 accountType.name,
                 snapshot.holdings.size,
@@ -110,11 +150,14 @@ class ConsumerKisBalanceQueryAdapter(
         baseUrl: String,
         userId: String,
         retryAttempt: Int,
+        priority: KisCallPriority,
+        backoffMillis: Long,
+        maxRetries: Int,
     ): Map<String, Any> {
         var acquiredToken = false
         var signalSent = false
         return try {
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = RATE_LIMIT_ACQUIRE_TIMEOUT_MS, trId = trId)
+            kisRateLimiterPort.acquire(priority, timeoutMillis = RATE_LIMIT_ACQUIRE_TIMEOUT_MS, trId = trId)
             acquiredToken = true
 
             val response =
@@ -158,17 +201,17 @@ class ConsumerKisBalanceQueryAdapter(
                 signalSent = true
                 // F10 — rate limit 은 일시적이므로 backoff 후 재시도(default 2회 — burst 구간 흡수).
                 // 기다렸다 다시 잔고를 재확인하는 것이 0원 fabricate 보다 우선(결재 §1).
-                if (retryAttempt < rateLimitMaxRetries) {
+                if (retryAttempt < maxRetries) {
                     val nextAttempt = retryAttempt + 1
                     log.warn(
                         "consumer KIS 잔고조회 Rate Limit — {}ms backoff 후 재시도 {}/{}: user={} status={}",
-                        rateLimitBackoffMillis,
+                        backoffMillis,
                         nextAttempt,
-                        rateLimitMaxRetries,
+                        maxRetries,
                         maskUserId(userId),
                         e.statusCode.value(),
                     )
-                    sleepBeforeRateLimitRetry()
+                    sleepBeforeRateLimitRetry(backoffMillis)
                     return requestBalanceResponse(
                         cred = cred,
                         accessToken = accessToken,
@@ -178,17 +221,20 @@ class ConsumerKisBalanceQueryAdapter(
                         baseUrl = baseUrl,
                         userId = userId,
                         retryAttempt = nextAttempt,
+                        priority = priority,
+                        backoffMillis = backoffMillis,
+                        maxRetries = maxRetries,
                     )
                 }
                 // 모든 재시도 소진 — rate limit 임을 타입으로 드러내 호출부(snapshot provider)가
                 // stale-cache·skip 으로 분기하게 한다(0 fabricate 금지 · F10).
                 log.error(
                     "consumer KIS 잔고조회 Rate Limit — 재시도 {}회 모두 소진: user={} status={}",
-                    rateLimitMaxRetries,
+                    maxRetries,
                     maskUserId(userId),
                     e.statusCode.value(),
                 )
-                throw KisBalanceRateLimitedException(userId, rateLimitMaxRetries, e)
+                throw KisBalanceRateLimitedException(userId, maxRetries, e)
             }
             log.error(
                 "consumer KIS 잔고조회 실패: user={} status={} body={}",
@@ -208,8 +254,8 @@ class ConsumerKisBalanceQueryAdapter(
         }
     }
 
-    private fun sleepBeforeRateLimitRetry() {
-        val sleepMillis = rateLimitBackoffMillis.coerceAtLeast(0L)
+    private fun sleepBeforeRateLimitRetry(backoffMillis: Long) {
+        val sleepMillis = backoffMillis.coerceAtLeast(0L)
         if (sleepMillis > 0L) {
             Thread.sleep(sleepMillis)
         }
@@ -240,6 +286,7 @@ class ConsumerKisBalanceQueryAdapter(
                 evaluationAmount = bd(item["evlu_amt"]),
                 profitLoss = bd(item["evlu_pfls_amt"]),
                 profitLossRate = bd(item["evlu_pfls_rt"]),
+                orderableQuantity = item["ord_psbl_qty"]?.toString()?.toIntOrNull(),
             )
         }
     }
@@ -286,6 +333,8 @@ class ConsumerKisBalanceQueryAdapter(
     companion object {
         private val TIMEOUT = Duration.ofSeconds(10)
         private const val RATE_LIMIT_ACQUIRE_TIMEOUT_MS = 3000L
+        private const val AVAILABILITY_REFRESH_BACKOFF_MS = 500L
+        private const val AVAILABILITY_REFRESH_MAX_RETRIES = 2
         private const val INQUIRE_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
         private const val TR_ID_REAL = "TTTC8434R"
         private const val TR_ID_MOCK = "VTTC8434R"

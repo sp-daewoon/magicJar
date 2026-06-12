@@ -5,6 +5,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshot
+import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshotPort
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
@@ -38,6 +40,7 @@ import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -105,6 +108,8 @@ class OrderRouterKafkaListener(
     // ADR 0122 §6 GAP-0 hotfix — intent.strategyId → strategy.origin 조회(페이퍼 MOCK 강제 판정).
     // ObjectProvider graceful — 부재 시 REAL fail-closed / MOCK ERROR 로그 + 진행 (헌법 §11-2).
     private val consumerStrategyJpaRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>? = null,
+    // v3.13.1 — 주문 hot path 는 계좌 availability Redis snapshot read 만 수행. KIS REST 호출은 refresh worker 전용.
+    private val accountAvailabilitySnapshotPortProvider: ObjectProvider<AccountAvailabilitySnapshotPort>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -117,6 +122,12 @@ class OrderRouterKafkaListener(
     private val canaryMaxOrderNotionalKrw: Long = 0,
     @Value("\${magicjar.canary.max-orders-per-day:0}")
     private val canaryMaxOrdersPerDay: Int = 0,
+    @Value("\${magicjar.kis.account-availability.snapshot-guard-enabled:false}")
+    private val accountAvailabilitySnapshotGuardEnabled: Boolean = false,
+    @Value("\${magicjar.kis.account-availability.reject-on-insufficient:false}")
+    private val accountAvailabilityRejectOnInsufficient: Boolean = false,
+    @Value("\${magicjar.kis.account-availability.max-age-seconds:300}")
+    private val accountAvailabilityMaxAgeSeconds: Long = 300,
 ) {
     private val log = LoggerFactory.getLogger(OrderRouterKafkaListener::class.java)
 
@@ -294,6 +305,13 @@ class OrderRouterKafkaListener(
             val canaryDeny = evaluateCanaryHardCap(intent, mode)
             if (canaryDeny != null) {
                 handleRejected(intent, mode, canaryDeny, OrderAuditEventType.INVALID_ORDER_INTENT)
+                ack.acknowledge()
+                return
+            }
+
+            val availabilityDeny = evaluateAccountAvailabilitySnapshot(intent, mode)
+            if (availabilityDeny != null) {
+                handleRejected(intent, mode, availabilityDeny, OrderAuditEventType.INVALID_ORDER_INTENT)
                 ack.acknowledge()
                 return
             }
@@ -798,6 +816,109 @@ class OrderRouterKafkaListener(
             OrderPriceType.LIMIT -> intent.limitPrice ?: intent.priceAtSignal
             else -> intent.priceAtSignal ?: intent.limitPrice
         }
+
+    /**
+     * 계좌 availability snapshot guard.
+     *
+     * 주문 hot path 에서 KIS REST를 직접 호출하지 않는다. Redis snapshot 이 fresh 하고
+     * BUY cash 또는 SELL sellable quantity 부족을 확정적으로 말할 때만 optional 차단한다.
+     */
+    internal fun evaluateAccountAvailabilitySnapshot(
+        intent: OrderIntent,
+        mode: TradingMode,
+    ): String? {
+        if (!accountAvailabilitySnapshotGuardEnabled) return null
+        val port =
+            accountAvailabilitySnapshotPortProvider?.getIfAvailable()
+                ?: run {
+                    log.warn(
+                        "account availability snapshot guard enabled but snapshot port unavailable — pass-through: userId={} signalId={}",
+                        intent.userId,
+                        intent.signalId,
+                    )
+                    return null
+                }
+
+        val snapshot =
+            try {
+                port.read(intent.userId, mode)
+            } catch (e: Exception) {
+                log.warn(
+                    "account availability snapshot read failed — pass-through: userId={} signalId={} code={} side={} err={}",
+                    intent.userId,
+                    intent.signalId,
+                    intent.code,
+                    intent.side,
+                    e.message,
+                )
+                return null
+            }
+                ?: run {
+                    log.info(
+                        "account availability snapshot miss — pass-through: userId={} signalId={} code={} side={}",
+                        intent.userId,
+                        intent.signalId,
+                        intent.code,
+                        intent.side,
+                    )
+                    return null
+                }
+
+        val maxAge = Duration.ofSeconds(accountAvailabilityMaxAgeSeconds)
+        if (!snapshot.isFresh(Instant.now(), maxAge)) {
+            log.info(
+                "account availability snapshot stale — pass-through: userId={} signalId={} code={} side={} refreshedAt={} maxAgeSec={}",
+                intent.userId,
+                intent.signalId,
+                intent.code,
+                intent.side,
+                snapshot.refreshedAt,
+                accountAvailabilityMaxAgeSeconds,
+            )
+            return null
+        }
+
+        log.info(
+            "account availability snapshot: userId={} signalId={} code={} side={} cashD2={} sellableQty={} refreshedAt={}",
+            intent.userId,
+            intent.signalId,
+            intent.code,
+            intent.side,
+            snapshot.cashD2,
+            snapshot.sellableQty(intent.code),
+            snapshot.refreshedAt,
+        )
+
+        if (!accountAvailabilityRejectOnInsufficient) return null
+        return snapshotDenyReason(intent, snapshot)
+    }
+
+    private fun snapshotDenyReason(
+        intent: OrderIntent,
+        snapshot: AccountAvailabilitySnapshot,
+    ): String? {
+        val reason =
+            when (intent.side) {
+                OrderSide.BUY -> {
+                    val orderableAmount = snapshot.cashD2
+                    val estimatedNotional = canaryNotionalPrice(intent)?.multiply(BigDecimal(intent.quantity)) ?: return null
+                    if (orderableAmount < estimatedNotional) {
+                        "INSUFFICIENT_CASH:$orderableAmount<$estimatedNotional"
+                    } else {
+                        null
+                    }
+                }
+                OrderSide.SELL -> {
+                    val availableQty = snapshot.sellableQty(intent.code) ?: return null
+                    if (availableQty < intent.quantity) {
+                        "INSUFFICIENT_SELLABLE_QTY:$availableQty<${intent.quantity}"
+                    } else {
+                        null
+                    }
+                }
+            }
+        return reason?.let { "KIS_ORDER_AVAILABILITY_SNAPSHOT:$it" }
+    }
 
     /**
      * 주어진 시각이 속한 KST 당일 `[00:00, 다음날 00:00)` 경계를 UTC [Instant] 범위로 변환.

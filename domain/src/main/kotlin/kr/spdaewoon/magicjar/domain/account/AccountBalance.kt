@@ -69,6 +69,7 @@ data class AccountBalance(
  * - evlu_amt        → evaluationAmount (평가금액)
  * - evlu_pfls_amt   → profitLoss (평가손익)
  * - evlu_pfls_rt    → profitLossRate (수익률 %)
+ * - ord_psbl_qty    → orderableQuantity (주문가능수량, null이면 KIS 응답 결손)
  *
  * Spring 의존 0 — 순수 도메인 data class.
  */
@@ -81,6 +82,7 @@ data class AccountHolding(
     val evaluationAmount: BigDecimal,
     val profitLoss: BigDecimal,
     val profitLossRate: BigDecimal,
+    val orderableQuantity: Int? = null,
 )
 
 /**
