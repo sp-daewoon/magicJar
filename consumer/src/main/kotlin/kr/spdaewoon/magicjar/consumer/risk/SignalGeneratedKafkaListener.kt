@@ -149,6 +149,16 @@ class SignalGeneratedKafkaListener(
                 return
             }
 
+            // canary D2 hotfix #5 — 공짜 룰 선차단(I/O 0)을 KIS 원장 TR 호출보다 **먼저** 평가.
+            // 어차피 KillSwitch·동시보유·거래빈도로 차단될 시그널이 KIS 체결동기화·잔고 TR 을 소모하지 않게 한다
+            // (어제 EGW00201 자가 압박 차단). 판정 의미는 evaluate 와 동일 — 통과 시 KIS 호출 후 전체 재평가한다.
+            val freeRuleBlocked = preCheckFreeRules(signal)
+            if (freeRuleBlocked != null) {
+                handleBlocked(signal, freeRuleBlocked)
+                ack.acknowledge()
+                return
+            }
+
             val syncBlocked = ensureKisExecutionSync(signal)
             if (syncBlocked != null) {
                 handleBlocked(signal, syncBlocked)
@@ -221,16 +231,28 @@ class SignalGeneratedKafkaListener(
             }
         }
 
-        // 2. TradeFrequencyGuard 누적 — 다음 평가 시 sliding window count 반영
-        tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
-
-        // 3. order.intent.v1 publish — T-O 진입.
+        // 2. order.intent.v1 publish — T-O 진입.
         //    ADR 0114 §3-1 — BUY는 marketable limit 산정(Enter→LIMIT / Skip→주문 0+audit).
         //    §3-3·§5 — SELL은 청산 trigger별 분기: 손절=MARKET / 익절(TP·PartialExit)=LIMIT(generator가 contextJson에 실음).
-        if (signal.side == SignalSide.BUY) {
-            publishBuyOrSkip(signal, quantity)
+        val intentPublished =
+            if (signal.side == SignalSide.BUY) {
+                publishBuyOrSkip(signal, quantity)
+            } else {
+                publishSell(signal, quantity)
+            }
+
+        // 3. TradeFrequencyGuard 누적 — **주문 intent 발행 성공 직후에만** (canary D2 hotfix #2).
+        //    과거엔 ALLOWED 시점(여기 위)에서 무조건 record → BUY Skip·SELL 정합 skip·발행 보류 시에도 한도를 헛소모했다
+        //    (canary D2 — 발행 0건인데 일일 5건 한도 도달 → 차단 폭주). 실제 발행된 경우에만 카운트한다.
+        if (intentPublished) {
+            tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
         } else {
-            publishSell(signal, quantity)
+            log.debug(
+                "trade-frequency record skip — 주문 intent 미발행(Skip·정합 skip·보류): signalId={} side={} code={}",
+                allowed.signalId,
+                signal.side,
+                signal.code,
+            )
         }
     }
 
@@ -255,11 +277,13 @@ class SignalGeneratedKafkaListener(
      * ## 예외 — 자기 자신이 익절 LIMIT 재발행이면 정합 시 skip (coordinator ALREADY_ALIGNED 정합)
      * 이번 SELL 자체가 익절 LIMIT(exitPriceType=LIMIT) 경로면, 동일가·동일수량 `auto-tp:` open SELL이 이미 있으면
      * 취소 없이 **발행 skip**(중복 회피). 다르면 취소 후 재발행.
+     *
+     * @return true = order.intent 실제 발행 / false = skip·보류(정합·fail-closed). trade-frequency record 게이트(hotfix #2).
      */
     private fun publishSell(
         signal: Signal,
         quantity: Int,
-    ) {
+    ): Boolean {
         val exit = parseExitContext(signal.contextJson)
         val isTakeProfitLimit =
             exit != null && exit.priceType == OrderPriceType.LIMIT && exit.limitPrice != null && exit.limitPrice > BigDecimal.ZERO
@@ -272,7 +296,7 @@ class SignalGeneratedKafkaListener(
                 signal.id,
                 signal.code,
             )
-            return
+            return false
         }
 
         // 익절 LIMIT 재발행 경로 — 동일가·동일수량 auto-tp가 이미 있으면 발행 skip(중복 회피).
@@ -284,7 +308,7 @@ class SignalGeneratedKafkaListener(
                 quantity,
                 exit.limitPrice,
             )
-            return
+            return false
         }
 
         // resting auto SELL(익절 TP 등) 선취소 — 발행 가능해야 진행("먼저 오는 쪽이 이긴다").
@@ -302,7 +326,7 @@ class SignalGeneratedKafkaListener(
                 signal.code,
                 cancelResult::class.simpleName,
             )
-            return
+            return false
         }
 
         if (isTakeProfitLimit) {
@@ -314,10 +338,11 @@ class SignalGeneratedKafkaListener(
                 exit!!.limitPrice,
             )
             orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, exit.limitPrice)
-            return
+            return true
         }
         // 손절(MARKET) 또는 exit 정보 부재 — 체결 확실성 우선 MARKET(§3-3).
         orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+        return true
     }
 
     /**
@@ -381,13 +406,15 @@ class SignalGeneratedKafkaListener(
      * - [EntryOrderDecision.Market]: priceType=MARKET 발행(현행 보존 — marketable-limit 미적용 시그널). 호가 조회 0.
      * - [EntryOrderDecision.Enter]: priceType=LIMIT + limitPrice 발행(매도1호가 상한 이내). 미체결 취소 워커가 entryTimeoutSec로 회수.
      * - [EntryOrderDecision.Skip]: **주문 0** + SIGNAL_SKIPPED_* audit(system_event). 시장가 fallback 절대 금지(§3-1-5, marketable-limit 적용 대상에 한해).
+     *
+     * @return true = order.intent 실제 발행(Market·Enter) / false = Skip(주문 0). trade-frequency record 게이트(hotfix #2).
      */
     private fun publishBuyOrSkip(
         signal: Signal,
         quantity: Int,
-    ) {
+    ): Boolean {
         val strategy = lookupStrategyOrNull(signal)
-        when (val decision = entryOrderPriceResolver.resolve(signal, strategy)) {
+        return when (val decision = entryOrderPriceResolver.resolve(signal, strategy)) {
             is EntryOrderDecision.Market -> {
                 log.info(
                     "BUY MARKET 진입 (marketable-limit 미적용 — entry_policy 없음 + limit-enabled=false): signalId={} code={} qty={}",
@@ -396,6 +423,7 @@ class SignalGeneratedKafkaListener(
                     quantity,
                 )
                 orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.MARKET, null)
+                true
             }
             is EntryOrderDecision.Enter -> {
                 log.info(
@@ -407,6 +435,7 @@ class SignalGeneratedKafkaListener(
                     decision.entryTimeoutSec,
                 )
                 orderIntentKafkaProducer.publish(signal, quantity, OrderPriceType.LIMIT, decision.limitPrice)
+                true
             }
             is EntryOrderDecision.Skip -> {
                 log.info(
@@ -419,6 +448,7 @@ class SignalGeneratedKafkaListener(
                     decision.quoteAsOf,
                 )
                 emitEntrySkipAudit(signal, decision)
+                false
             }
         }
     }
@@ -608,6 +638,71 @@ class SignalGeneratedKafkaListener(
             }.getOrNull()
         }
 
+    /**
+     * 공짜 룰 선차단 (canary D2 hotfix #5) — KIS TR 호출 전에 I/O 0 룰만 평가.
+     *
+     * 입력은 모두 비-KIS: killSwitch 포트(DB)·RiskConfig(DB/cache)·RiskPositionPort(DB)·trade-freq(Redis).
+     * KIS 잔고(capital)·체결동기화는 의도적으로 호출하지 않는다(자가 rate limit 압박 회피가 본 hotfix 목적).
+     * 입력 조회 실패는 보수적으로 처리(killSwitch 실패=ON, port 부재=빈 입력) — 통과 후 [evaluate] 전체 평가가
+     * 최종 게이트이므로 여기서의 fallback 은 "차단 못 함"이 아니라 "다음 단계로 흘려보냄"일 뿐 자본 안전 불변.
+     */
+    private fun preCheckFreeRules(signal: Signal): RiskGatewayResult.Blocked? {
+        val nowKst = clock.now()
+
+        val isPaper = lookupStrategyOrNull(signal)?.isPaperDiscovery() == true
+        val riskConfigKey = if (isPaper) "${signal.userId}:paper" else signal.userId
+
+        val config =
+            riskConfigRepositoryProvider.getIfAvailable()?.let {
+                runCatching { it.getOrDefault(riskConfigKey, nowKst) }
+                    .onFailure { e -> log.warn("preCheck RiskConfig 조회 실패 — defaultFor: key={} err={}", riskConfigKey, e.message) }
+                    .getOrNull()
+            } ?: kr.spdaewoon.magicjar.domain.risk.RiskConfig
+                .defaultFor(riskConfigKey, nowKst)
+
+        val killSwitchOn =
+            killSwitchQueryPortProvider.getIfAvailable()?.let {
+                runCatching { it.isOn(signal.userId) }
+                    .onFailure { e -> log.warn("preCheck KillSwitch 조회 실패 (fail-closed true): userId={} err={}", signal.userId, e.message) }
+                    .getOrDefault(true)
+            } ?: true
+
+        // KillSwitch 차단은 KIS 호출 0으로 즉시 결론낼 수 있으므로 positions 조회조차 생략(추가 절약).
+        if (killSwitchOn) {
+            return preCheckEvaluate(signal, killSwitchOn = true, config = config, positions = emptyList(), nowKst = nowKst)
+        }
+
+        // BUY 동시보유 룰용 positions (DB port — 비KIS). 조회 실패·부재 시 빈 목록(통과 → evaluate 가 최종 판정).
+        val positions =
+            riskPositionPortProvider.getIfAvailable()?.let {
+                runCatching { it.findCurrentByUser(signal.userId) }
+                    .onFailure { e -> log.warn("preCheck positions 조회 실패 (빈 목록 fallback): userId={} err={}", signal.userId, e.message) }
+                    .getOrDefault(emptyList())
+            } ?: emptyList()
+
+        return preCheckEvaluate(signal, killSwitchOn = false, config = config, positions = positions, nowKst = nowKst)
+    }
+
+    private fun preCheckEvaluate(
+        signal: Signal,
+        killSwitchOn: Boolean,
+        config: kr.spdaewoon.magicjar.domain.risk.RiskConfig,
+        positions: List<kr.spdaewoon.magicjar.domain.position.Position>,
+        nowKst: Instant,
+    ): RiskGatewayResult.Blocked? {
+        val recentMinute = tradeFrequencyGuard.countRecentMinute(signal.strategyId, signal.userId, nowKst)
+        val recentDay = tradeFrequencyGuard.countRecentDay(signal.strategyId, signal.userId, nowKst)
+        return riskGatewayEvaluator.preCheckFreeRules(
+            signal = signal,
+            killSwitchOn = killSwitchOn,
+            config = config,
+            currentPositionCount = positions.size,
+            currentCodes = positions.map { it.code },
+            recentTradesMinute = recentMinute,
+            recentTradesDay = recentDay,
+        )
+    }
+
     private fun ensureRiskPlanIfBuy(signal: Signal): RiskGatewayResult.Blocked? {
         if (signal.side != SignalSide.BUY) return null
         val lookup =
@@ -713,7 +808,10 @@ class SignalGeneratedKafkaListener(
         }
 
         // 3. STOMP fanout (Phase 2 어댑터 부재 시 skip)
-        if (savedEvent != null) {
+        //    canary D2 hotfix #5 보너스 — flat 상태 SELL_WITHOUT_POSITION 연속 차단은 동일 (user·strategy·code·rule)
+        //    당 N분 1회만 사용자 알람(STOMP)으로 fanout(매분 플러딩 완화). risk_event DB·Kafka publish 는 그대로 유지
+        //    (감사 누락 0 · 다운스트림 Slack 은 NotificationDispatcher 15분 쿨다운이 별도 보장).
+        if (savedEvent != null && shouldFanoutBlockedAlarm(signal, blocked, nowKst)) {
             riskNotifierProvider.getIfAvailable()?.let {
                 try {
                     it.notifyViolation(signal.userId, savedEvent)
@@ -752,6 +850,40 @@ class SignalGeneratedKafkaListener(
         val config = configRepo?.let { runCatching { it.getOrDefault(signal.userId, nowKst) }.getOrNull() }
         val threshold = config?.autoPauseThreshold ?: 10
         autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold)
+    }
+
+    /**
+     * 반복 차단 알람(STOMP) 쿨다운 게이트 (canary D2 hotfix #5 보너스 — 기존 알람 차등화 패턴 정합).
+     *
+     * flat 상태에서 매분 재발하는 [RiskRule.SELL_WITHOUT_POSITION] 같은 룰은 동일 (user·strategy·code·rule) 당
+     * [BLOCKED_ALARM_COOLDOWN] 1회만 사용자 알람으로 흘린다. 그 외 룰(KillSwitch·DailyLoss 등 1회성·중대)은 항상 통과.
+     *
+     * - 대상 룰 아님 → 항상 true(즉시 fanout).
+     * - 대상 룰 + 쿨다운 내 재발 → false(STOMP 억제 — DB·Kafka 는 별개로 진행).
+     * - in-memory(인스턴스 로컬) 충분 — flat 반복은 같은 partition(userId) 단일 consumer thread 가 처리.
+     */
+    private fun shouldFanoutBlockedAlarm(
+        signal: Signal,
+        blocked: RiskGatewayResult.Blocked,
+        nowKst: Instant,
+    ): Boolean {
+        if (blocked.rule !in REPEAT_BLOCK_COOLDOWN_RULES) return true
+        val key = "${signal.userId}:${signal.strategyId}:${signal.code}:${blocked.rule.name}"
+        val nowMs = nowKst.toEpochMilliseconds()
+        val last = blockedAlarmCooldownAtMs[key]
+        if (last != null && nowMs - last < BLOCKED_ALARM_COOLDOWN.inWholeMilliseconds) {
+            log.debug(
+                "반복 차단 알람 쿨다운 — STOMP 억제: rule={} userId={} strategyId={} code={} sinceMs={}",
+                blocked.rule,
+                signal.userId,
+                signal.strategyId,
+                signal.code,
+                nowMs - last,
+            )
+            return false
+        }
+        blockedAlarmCooldownAtMs[key] = nowMs
+        return true
     }
 
     private fun RiskGatewayResult.Blocked.countsTowardStrategyAutoPause(): Boolean =
@@ -990,8 +1122,17 @@ class SignalGeneratedKafkaListener(
         val reasonCode: String,
     ) : RuntimeException(reasonCode)
 
+    /** 반복 차단 알람 쿨다운 타임스탬프 — key=`userId:strategyId:code:rule` → 마지막 fanout epoch ms (hotfix #5 보너스). */
+    private val blockedAlarmCooldownAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private companion object {
         val OPEN_STATUSES =
             setOf(OrderStatus.REQUESTED, OrderStatus.ACK, OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_RECONCILE)
+
+        /** flat 반복 차단 알람 쿨다운 대상 룰 — NotificationDispatcher RISK_REPEAT_COOLDOWN_RULES 정합. */
+        val REPEAT_BLOCK_COOLDOWN_RULES = setOf(RiskRule.SELL_WITHOUT_POSITION, RiskRule.POSITION_LIMIT)
+
+        /** 동일 (user·strategy·code·rule) STOMP 알람 1회 허용 간격(매분 플러딩 완화). */
+        val BLOCKED_ALARM_COOLDOWN = kotlin.time.Duration.parse("5m")
     }
 }

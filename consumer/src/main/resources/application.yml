@@ -115,6 +115,12 @@ magicjar:
     #   false → 현행 terminal skip(체결 누락 risk). 자본 audit 무결성(진실원 완전성 — 대안 B 전제).
     cancelled-fill-reconcile:
       enabled: ${MAGICJAR_ORDER_CANCELLED_FILL_RECONCILE_ENABLED:true}
+    # canary D2 hotfix #1 — 만료 day-order 동기화 워커(ExpiredDayOrderSyncWorker).
+    #   KIS 당일 LIMIT 주문(익절 SELL 등)이 장 마감으로 만료돼도 DB status=ACK 잔존 → 다음날 매도 시그널이
+    #   "이미 정합 auto-tp open" 으로 오판해 청산 영구 skip(오늘 09:01~09:04 incident). 전일 이전 미종결(ACK/REQUESTED)
+    #   day-order 를 KIS 일별체결 대조 후 만료(CANCELLED) 동기화한다. 30분 cron, 전일 미종결 0건이면 즉시 종료.
+    day-order-expiry:
+      enabled: ${MAGICJAR_ORDER_DAY_ORDER_EXPIRY_ENABLED:true}
   # 분할매수(scale-in) / 분할익절 "리플레이 먼저" 게이트 (spec §8-1 · ADR 0111 §2-7).
   #   default false — toggle OFF면 RealtimeSignalGenerator가 scaleIn/partialExits 설정 전략도 현행 단일
   #   진입 + 전량 익절 경로로 평가(ScaleInExitCalculator 미사용). qa 2라운드 GREEN(PR #750·#753)으로 2026-06-05 default true 영구화.
