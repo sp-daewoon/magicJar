@@ -3,10 +3,10 @@ id: T-20260612-1354-cancel-odno-mapping
 agent: backend-core
 model: opus
 branch: hotfix/cancel-odno-mapping
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T13:54:31.721+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T14:00:28.606+09:00
+pr: #930
 parentPhase: ?
 ---
 
