@@ -73,6 +73,14 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/risk-events', label: '위반 이력' },
     ],
   },
+  {
+    // 운영 그룹 신설 — 최고 관리자 장애 처리용 가시화 화면 모음
+    label: '운영',
+    items: [
+      { to: '/admin/realtime', label: '실시간 상태' },
+      { to: '/system', label: '시스템 이벤트' },
+    ],
+  },
 ]
 
 function isActivePath(pathname: string, item: NavItem): boolean {

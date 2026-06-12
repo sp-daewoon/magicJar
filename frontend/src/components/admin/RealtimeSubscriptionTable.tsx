@@ -1,0 +1,106 @@
+/**
+ * RealtimeSubscriptionTable — 실시간 구독 테이블 (③ 섹션)
+ *
+ * 현재 KIS WS 가 구독 중인 모든 항목 표시:
+ *  - trId (거래 ID) · 종목(코드+명) · owner(색 배지) · since(구독 시작)
+ *
+ * owner 별 색 배지 (CLAUDE.md 방향성 가드 정합 — owner 별 TTL·우선순위 분리):
+ *  - STRATEGY: 보라  — 전략 후보/ACTIVE 매매 경로
+ *  - DETAIL:   파랑  — 종목 상세 진입
+ *  - WATCHLIST: 청록 — 사용자 고정 관심목록
+ *  - SCREENER: amber — 스크리너
+ *  - (기타):    회색
+ *
+ * owner 식별자 대소문자 무관 매칭 (backend 표기 흔들림 흡수).
+ */
+import type { RealtimeSubscription } from '../../api/adminRealtime'
+
+interface Props {
+  subscriptions: RealtimeSubscription[]
+}
+
+/** owner 색 배지 매핑 — key 는 대문자 정규화 */
+const OWNER_BADGE: Record<string, string> = {
+  STRATEGY: 'bg-violet-950 text-violet-300 border-violet-800',
+  DETAIL: 'bg-blue-950 text-blue-300 border-blue-800',
+  WATCHLIST: 'bg-teal-950 text-teal-300 border-teal-800',
+  SCREENER: 'bg-amber-950 text-amber-300 border-amber-800',
+}
+
+const OWNER_BADGE_FALLBACK = 'bg-gray-800 text-gray-300 border-gray-700'
+
+function OwnerBadge({ owner }: { owner: string }) {
+  const cls = OWNER_BADGE[owner.toUpperCase()] ?? OWNER_BADGE_FALLBACK
+  return (
+    <span
+      className={['inline-flex rounded border px-1.5 py-0.5 text-[11px] font-medium', cls].join(' ')}
+    >
+      {owner}
+    </span>
+  )
+}
+
+export function RealtimeSubscriptionTable({ subscriptions }: Props) {
+  const count = subscriptions.length
+
+  return (
+    <section
+      aria-label="실시간 구독 목록"
+      className="rounded-xl border border-gray-800 bg-gray-900/40 p-4"
+    >
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-200">구독 종목</h2>
+        <span className="text-xs text-gray-400">
+          총 <span className="font-semibold text-white">{count.toLocaleString('ko-KR')}</span>건
+        </span>
+      </div>
+
+      {count === 0 ? (
+        <p className="rounded-lg border border-gray-800 bg-gray-950/40 p-8 text-center text-sm text-gray-500">
+          구독 중인 종목이 없습니다.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-gray-800">
+          <table className="w-full border-collapse text-sm">
+            <thead className="bg-gray-900 text-xs uppercase tracking-wide text-gray-400">
+              <tr>
+                <th className="border-b border-gray-800 p-3 text-left font-medium">trId</th>
+                <th className="border-b border-gray-800 p-3 text-left font-medium">종목</th>
+                <th className="border-b border-gray-800 p-3 text-left font-medium">Owner</th>
+                <th className="border-b border-gray-800 p-3 text-left font-medium">구독 시작</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subscriptions.map((sub) => (
+                <tr
+                  key={`${sub.trId}:${sub.code}`}
+                  className="border-b border-gray-800 transition-colors hover:bg-gray-900/60"
+                >
+                  <td className="p-3 font-mono text-xs text-gray-300">{sub.trId}</td>
+                  <td className="p-3">
+                    <span className="text-sm text-gray-100">{sub.codeName}</span>
+                    <span className="ml-2 font-mono text-xs text-gray-500">{sub.code}</span>
+                  </td>
+                  <td className="p-3">
+                    {sub.owners.length === 0 ? (
+                      <span className="text-xs italic text-gray-600">(owner 없음)</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {sub.owners.map((owner) => (
+                          <OwnerBadge key={owner} owner={owner} />
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-3 text-xs text-gray-400">
+                    {new Date(sub.since).toLocaleString('ko-KR')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}

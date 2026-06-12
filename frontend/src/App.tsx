@@ -60,6 +60,7 @@ import { NewOrderPage } from './pages/orders/NewOrderPage'
 import { TradingJournalPage } from './pages/TradingJournalPage'
 import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
 import { SystemEventPage } from './pages/SystemEvent/SystemEventPage'
+import { RealtimeStatusPage } from './pages/Admin/RealtimeStatusPage'
 import { MarketCalendarPage } from './features/market/pages/MarketCalendarPage'
 import { MarketTrendPage } from './features/market/pages/MarketTrendPage'
 import { useStompReconnect } from './api/hooks/useStompReconnect'
@@ -166,6 +167,8 @@ export function App() {
           <Route path="/performance" element={<PerformanceDashboardPage />} />
           {/* P2 Task 7: 시스템 이벤트 운영 대시보드 — ADR 0084 P0 system_event_log */}
           <Route path="/system" element={<SystemEventPage />} />
+          {/* 실시간 구독 상태 관리자 화면 — 최고 관리자 장애 처리용 (GET /api/admin/realtime-status) */}
+          <Route path="/admin/realtime" element={<RealtimeStatusPage />} />
           {/* W4 T-MARKET R2: 시장 추세 분석 — ADR 0100·0101 */}
           <Route path="/market/trend" element={<MarketTrendPage />} />
           <Route path="/market/calendar" element={<MarketCalendarPage />} />
