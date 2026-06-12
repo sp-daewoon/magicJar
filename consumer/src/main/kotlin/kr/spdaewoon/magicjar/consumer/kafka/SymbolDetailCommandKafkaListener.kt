@@ -1,7 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import kr.spdaewoon.magicjar.consumer.ingestion.OrderbookSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeDemandOwner
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseCache
@@ -16,13 +15,18 @@ import org.springframework.stereotype.Component
  * symbol.detail.command.v1 Kafka consumer — 종목 상세 실시간 slot 라이프사이클 (ADR 0048 §2-1).
  *
  * payload: {"action": "ENTER"|"EXIT", "code": "005930", "userId": "...", "ts": "..."}
- * - ENTER → RealtimeSubscriptionRouter DETAIL + OrderbookSubscriptionRouter
- * - EXIT  → RealtimeSubscriptionRouter DETAIL release + OrderbookSubscriptionRouter release
+ * - ENTER → RealtimeSubscriptionRouter DETAIL(현재가) + universe 기록 + 분봉 gap-fill
+ * - EXIT  → RealtimeSubscriptionRouter DETAIL(현재가) release
+ *
+ * ## 호가(H0STASP0) DETAIL 경로 제거 (2026-06-12 — anchor `detail-orderbook-removal`)
+ * 종목 상세 진입 시 호가창을 구독하던 경로([OrderbookSubscriptionRouter.onSymbolDetailEntered/Exited])는
+ * 최고 관리자 결재로 제거됐다. 호가는 전략 ACTIVE 매매 경로(STRATEGY owner)에서만 구독된다
+ * (ActiveStrategyDemandRegistrar). **현재가(H0STCNT0) DETAIL 구독은 불변** — 본 listener의 핵심 책임이다.
  *
  * groupId: magicjar-consumer-symbol-detail
  * manual ack (MANUAL_IMMEDIATE)
  *
- * KIS-first 의무 — 현재가·호가 slot 실제 subscribe/unsubscribe는 KisWebSocketBridge 통과.
+ * KIS-first 의무 — 현재가 slot 실제 subscribe/unsubscribe는 KisWebSocketBridge 통과.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -30,7 +34,6 @@ import org.springframework.stereotype.Component
 class SymbolDetailCommandKafkaListener(
     private val objectMapper: ObjectMapper,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
-    private val orderbookSubscriptionRouter: OrderbookSubscriptionRouter,
     private val universeCache: ManagedCandleUniverseCache,
     private val minuteGapFillService: SymbolDetailMinuteGapFillService,
 ) {
@@ -70,12 +73,10 @@ class SymbolDetailCommandKafkaListener(
                         ownerId = ownerId,
                         code = code,
                     )
-                    orderbookSubscriptionRouter.onSymbolDetailEntered(code)
                     universeCache.recordDetail(code)
                     minuteGapFillService.submitIfNeeded(code)
                 }
                 "EXIT" -> {
-                    orderbookSubscriptionRouter.onSymbolDetailExited(code)
                     realtimeSubscriptionRouter.release(
                         owner = RealtimeDemandOwner.DETAIL,
                         ownerId = ownerId,
