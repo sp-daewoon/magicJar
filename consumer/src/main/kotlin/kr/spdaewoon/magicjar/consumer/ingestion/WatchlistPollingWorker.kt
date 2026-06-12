@@ -14,13 +14,21 @@ import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Watchlist polling worker (ADR 0048 §D §3-2 정합).
- * - eviction 후 WS 슬롯 부족 종목을 5초 주기 KIS REST polling으로 시세 수집
- * - KIS Rate Limit: 풀 30 × 5s = 6 req/s ≤ 10 한도 (1차 MVP — Thread.sleep(100ms) 마진)
- * - running=false 이면 스케줄 루프 skip (graceful stop)
+ * Watchlist polling worker (ADR 0048 §D §3-2 · ADR 0124 결정 2 정합).
  *
- * PR-9b KisRestPriceAdapter 미구현 시: KisRestPort.fetchCandles 1건 호출로 임시 대체.
- * market-data PR-9b 머지 후 fetchPrice로 교체 예정.
+ * ## ADR 0124 — watchlist 전용 5초 REST polling
+ * watchlist 종목은 KIS WS 구독 0(ADR 0124 결정 2)이므로 본 worker가 watchlist 시세의 유일한 공급원이다.
+ * pool에는 watchlist 종목 전체가 들어온다(부팅 reconcile·ADDED 시 add, REMOVED 시 remove).
+ *
+ * ## KIS Rate Limit 가드 (docs/architecture/external-api-policy.md — 초당 10 TPS, INGESTION 버킷)
+ * - 각 fetch 는 [KisRestCandleAdapter] 내부에서 `KisRateLimiterPort.acquire(INGESTION)` 를 거친다 →
+ *   limiter 가 초당 10건 절대 한도를 강제(우회 0). pool 이 커도 한도는 limiter 가 막는다.
+ * - **주기 자동 완화**: `@Scheduled(fixedDelay)` — 이전 tick 완료 후 5초 대기. pool 이 커서 한 tick 처리가
+ *   5초를 넘겨도 다음 tick 이 겹치지 않고 자연히 밀린다(스케줄 폭주 방지). 종목당 100ms sleep + REST 지연
+ *   누적으로 cadence 가 늘어나면 실효 polling 주기가 자동 완화된다(현 watchlist ~14종목은 5초 내 완료).
+ * - pool 이 [POOL_WARN_THRESHOLD] 초과 시 1회 WARN — 운영자가 watchlist 비대화를 인지하도록.
+ *
+ * - running=false 이면 스케줄 루프 skip (graceful stop)
  *
  * hotfix: tick 시 Redis quote cache 갱신 외 DB candle upsert 추가 (ON CONFLICT DO NOTHING — 멱등성).
  * KIS WS 끊김 시 REST fallback 경로도 candle 영속을 보장.
@@ -65,13 +73,23 @@ class WatchlistPollingWorker(
     fun poolCodes(): Set<String> = pool.toSet()
 
     /**
-     * 5초 주기 polling (ADR 0048 §3-2 — 5초 LOCK).
+     * 5초 주기 polling (ADR 0048 §3-2 — 5초 LOCK + ADR 0124 fixedDelay 자동 완화).
+     *
+     * fixedDelay — 이전 tick 완료 후 5초 대기. pool 비대화 시 한 tick 이 5초를 넘겨도 다음 tick 이
+     * 겹치지 않고 자연히 밀린다(KIS REST burst·스케줄 폭주 방지). limiter(INGESTION)가 초당 10 한도를 강제.
      * running=false 이면 skip.
      */
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedDelay = 5000)
     fun tick() {
         if (!running || pool.isEmpty()) return
         val codes = pool.toSet()
+        if (codes.size > POOL_WARN_THRESHOLD) {
+            log.warn(
+                "watchlist polling pool 비대화: size={} (>{}). 5초 polling 실효 주기 자동 완화 + KIS INGESTION 버킷 경합 가능 — watchlist 정리 권장.",
+                codes.size,
+                POOL_WARN_THRESHOLD,
+            )
+        }
         log.debug("polling tick: codes={}건", codes.size)
         for (code in codes) {
             try {
@@ -158,5 +176,12 @@ class WatchlistPollingWorker(
 
     private companion object {
         private val KST: ZoneId = ZoneId.of("Asia/Seoul")
+
+        /**
+         * polling pool 비대화 WARN 임계 (ADR 0124).
+         * 종목당 100ms sleep + REST 지연 누적으로 5초 주기 내 안전 처리 가능 규모를 넘어서면 WARN.
+         * 30 = 과거 WS PRICE_TICK_MAX 동등 규모(watchlist는 통상 ~14, 이 임계 초과는 비정상).
+         */
+        private const val POOL_WARN_THRESHOLD = 30
     }
 }

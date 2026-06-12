@@ -2,8 +2,6 @@ package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistRepositoryAdapter
-import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
-import kr.spdaewoon.magicjar.domain.market.port.SubscriptionPolicy
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -11,142 +9,86 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * 구독 라우터 — KIS WS vs polling 분배 의사결정 (ADR 0048 §2-2·§3-3 정합).
+ * Watchlist 시세 공급 라우터 — KIS WS 구독 폐지, 5초 REST polling 전용 (ADR 0124 결정 2).
  *
- * - slot 예산: H0STCNT0 30개 (SubscriptionPolicy.PRICE_TICK_MAX)
- * - priority 낮은 종목 eviction (priority ASC 정렬 — 낮은 값 = 높은 우선순위)
- * - SymbolDetail·Strategy 수요는 RealtimeSubscriptionRouter가 별도 owner로 보유
+ * ## 2026-06-13 재편 (ADR 0124)
+ * 과거(ADR 0048): watchlist 종목을 KIS WS slot에 선행 구독하고 slot 부족 시 priority eviction →
+ * polling 강등하는 WS/polling 혼합 분배기였다.
+ *
+ * 현재: **watchlist 종목은 처음부터 WS 구독 0**. 등록/부팅 시 바로 [WatchlistPollingWorker] pool에 넣고,
+ * 삭제 시 pool에서 제거한다. sourceTracker는 항상 "polling"으로 기록한다(frontend 가격 배지는 시간 기반 판정이라 호환).
+ *
+ * watchlist WS slot 경합·eviction·promotion 개념 자체가 사라졌다(KIS WS slot 예산은 이제
+ * STRATEGY/HOLDING/PENDING_BUY/DETAIL owner demand만 소비 — [RealtimeSubscriptionRouter]가 독립 관리).
+ *
+ * ## STRATEGY/HOLDING/DETAIL 공존 (불변)
+ * 같은 종목이 STRATEGY/HOLDING/DETAIL demand로 WS 구독되는 것은 watchlist 등록 여부와 무관하게 그대로 동작한다.
+ * 그 경우 Redis quote는 WS tick이 갱신하므로 watchlist 화면이 더 신선한 값을 읽는다(polling과 공존 무해).
+ *
  * - thread safety: ReentrantLock (Kafka listener concurrency=1 + 부팅 reconcile 동시 호출 대응)
- * - stateless decision: 매번 KisWsPort.subscribedCodes() + WatchlistRepository 재계산
  */
 @Component
 class SubscriptionRouter(
-    private val kisWsPort: KisWsPort,
     private val pollingWorker: WatchlistPollingWorker,
     private val watchlistRepository: ConsumerWatchlistRepositoryAdapter,
     private val sourceTracker: RedisSourceTrackerAdapter,
-    private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
 ) {
     private val log = LoggerFactory.getLogger(SubscriptionRouter::class.java)
     private val lock = ReentrantLock()
 
     /**
-     * 종목 추가 시 slot 여유 검사 + 분배 (ADR 0048 §2-2 §2-6).
+     * watchlist 종목 추가 — polling pool 등록 + source "polling" 기록 (ADR 0124 결정 2).
+     * WS 구독 0 — slot 경합·eviction 없음.
      */
     fun add(
         userId: String,
         code: String,
-        priority: Int,
     ) = lock.withLock {
-        val subscribed = kisWsPort.subscribedCodes()
-        val slotsAvailable = SubscriptionPolicy.priceTickSlotsAvailable(subscribed.size)
-
-        if (code in subscribed) {
-            sourceTracker.set(userId, code, "live")
-            log.info("WS 이미 구독 중 — watchlist source live 동기화: code={}", code)
-        } else if (slotsAvailable > 0) {
-            // slot 여유 → WS 구독
-            kisWsPort.subscribe(listOf(code))
-            sourceTracker.set(userId, code, "live")
-            log.info("WS 구독 추가: code={} 남은 slot={}", code, slotsAvailable - 1)
-        } else {
-            // slot 가득 → priority 비교 후 eviction 또는 polling
-            val evictionCandidate = findEvictionCandidate(subscribed, priority)
-            if (evictionCandidate != null) {
-                // eviction: 기존 low-priority 종목 unsubscribe → polling 이동, 새 종목 WS 등록
-                log.info(
-                    "WS 슬롯 eviction: victim={} priority_victim=? → new={} priority_new={}",
-                    evictionCandidate,
-                    code,
-                    priority,
-                )
-                kisWsPort.unsubscribe(listOf(evictionCandidate))
-                pollingWorker.add(evictionCandidate)
-                // eviction 종목 userId 추적 (단일 테넌트 단순화)
-                val victimUserId = watchlistRepository.findAll().find { it.code == evictionCandidate }?.userId
-                if (victimUserId != null) sourceTracker.set(victimUserId, evictionCandidate, "polling")
-
-                kisWsPort.subscribe(listOf(code))
-                sourceTracker.set(userId, code, "live")
-            } else {
-                // 이 종목이 가장 낮은 priority → polling
-                pollingWorker.add(code)
-                sourceTracker.set(userId, code, "polling")
-                log.info("polling 등록 (slot 가득 + priority 낮음): code={}", code)
-            }
-        }
+        pollingWorker.add(code)
+        sourceTracker.set(userId, code, "polling")
+        log.info("watchlist polling 등록: code={} poolSize={}", code, pollingWorker.poolSize())
     }
 
     /**
-     * 종목 제거 시 unsubscribe + polling 제거 + promotion 재계산 (ADR 0048 §4-3).
+     * watchlist 종목 제거 — polling pool 제거 + source 정리 (ADR 0124 결정 2).
+     *
+     * 같은 종목이 STRATEGY/HOLDING/DETAIL demand로 WS 구독 중이면 그 구독은 [RealtimeSubscriptionRouter]가
+     * 독립 관리하므로 여기서 건드리지 않는다(watchlist 제거가 매매·상세 경로 구독을 끊지 않는다).
      */
     fun remove(
         userId: String,
         code: String,
     ) = lock.withLock {
-        val subscribed = kisWsPort.subscribedCodes()
-        if (code in subscribed) {
-            if (realtimeSubscriptionRouter.isExternallyDemanded(code)) {
-                log.info("watchlist 제거 — DETAIL/STRATEGY 수요로 WS 유지: code={}", code)
-            } else {
-                kisWsPort.unsubscribe(listOf(code))
-                log.info("WS 구독 제거: code={}", code)
-                // slot 회수 → polling 종목 중 가장 높은 priority 1건 promotion
-                promoteFromPolling(userId)
-            }
-        } else {
-            pollingWorker.remove(code)
-            log.info("polling 제거: code={}", code)
-        }
+        pollingWorker.remove(code)
         sourceTracker.remove(userId, code)
+        log.info("watchlist polling 제거: code={} poolSize={}", code, pollingWorker.poolSize())
     }
 
     /**
-     * 부팅 reconcile or 세션 변경 시 priority 상위 N개 일괄 결정.
+     * 부팅 reconcile or 세션 변경 시 watchlist 전체를 polling pool에 재등록 (ADR 0124 결정 2).
+     *
+     * WS 구독 0 — watchlist 전 종목을 polling pool에 멱등 등록한다.
      */
     fun recompute(userId: String) =
         lock.withLock {
             val watchlist = watchlistRepository.findByUserIdOrderByPriority(userId)
             if (watchlist.isEmpty()) return@withLock
 
-            val codes = watchlist.map { it.code }
-            val subscribed = kisWsPort.subscribedCodes().toMutableSet()
-            val externalDemandCodes = realtimeSubscriptionRouter.activeCodes()
-
-            // 현재 구독 중이지만 watchlist에 없는 코드 제거
-            val toUnsubscribe = subscribed.filter { it !in codes && it !in externalDemandCodes }
-            if (toUnsubscribe.isNotEmpty()) {
-                kisWsPort.unsubscribe(toUnsubscribe)
-                toUnsubscribe.forEach { pollingWorker.remove(it) }
-            }
-
-            // watchlist priority 상위 N개 → WS, 나머지 → polling
-            val externalOnlyCount = externalDemandCodes.count { it !in codes }
-            val wsCapacity = (SubscriptionPolicy.PRICE_TICK_MAX - externalOnlyCount).coerceAtLeast(0)
-            val toSubscribeWs = codes.take(wsCapacity)
-            val toPolling = codes.drop(wsCapacity)
-
-            val newSubscriptions = toSubscribeWs.filter { it !in kisWsPort.subscribedCodes() }
-            if (newSubscriptions.isNotEmpty()) {
-                kisWsPort.subscribe(newSubscriptions)
-                newSubscriptions.forEach { sourceTracker.set(userId, it, "live") }
-            }
-            toPolling.forEach { code ->
-                pollingWorker.add(code)
-                sourceTracker.set(userId, code, "polling")
+            watchlist.forEach { entry ->
+                pollingWorker.add(entry.code)
+                sourceTracker.set(userId, entry.code, "polling")
             }
             log.info(
-                "recompute 완료: userId={} ws={}건 polling={}건",
+                "recompute 완료(polling 전용): userId={} polling={}건",
                 maskUserId(userId),
-                toSubscribeWs.size,
-                toPolling.size,
+                watchlist.size,
             )
         }
 
     /**
-     * 세션 변경 처리 (ADR 0048 §2-5).
-     * Closed 진입 → 모두 unsubscribe + polling stop.
-     * Regular 복귀 → recompute.
+     * 세션 변경 처리 (ADR 0124 결정 2 — polling 전용).
+     * Closed 진입 → polling stop + source idle.
+     * Regular 복귀 → recompute(polling pool 재등록) + polling start.
      */
     fun onSessionChanged(
         prev: MarketSession,
@@ -154,61 +96,24 @@ class SubscriptionRouter(
     ) = lock.withLock {
         when (current) {
             is MarketSession.Closed -> {
-                log.info("장 마감 — WS 전체 구독 해제")
-                val allCodes = kisWsPort.subscribedCodes().toList()
-                if (allCodes.isNotEmpty()) kisWsPort.unsubscribe(allCodes)
+                log.info("장 마감 — watchlist polling 중단")
                 pollingWorker.stop()
-                // 모든 source idle 처리
                 watchlistRepository.findAll().forEach { entry ->
                     sourceTracker.set(entry.userId, entry.code, "idle")
                 }
             }
             is MarketSession.Regular -> {
                 if (prev is MarketSession.Closed) {
-                    log.info("장 개시 — recompute 전체 watchlist")
+                    log.info("장 개시 — watchlist polling 재개")
                     val allUsers = watchlistRepository.findAll().map { it.userId }.distinct()
                     allUsers.forEach { recompute(it) }
                     pollingWorker.start()
                 }
             }
             else -> {
-                // PreMarket·PostMarket: 1차 단순화 — Regular와 동일 처리 (spec §3-1)
+                // PreMarket·PostMarket: 1차 단순화 — Regular와 동일 처리.
             }
         }
-    }
-
-    // ── private helpers ─────────────────────────────────────────────────────
-
-    /**
-     * WS 구독 중인 종목 중 새 종목보다 priority 낮은(숫자 큰) 후보 탐색.
-     * priority ASC = 낮은 숫자가 더 높은 우선순위.
-     */
-    private fun findEvictionCandidate(
-        subscribed: Set<String>,
-        newPriority: Int,
-    ): String? {
-        val allWatchlist = watchlistRepository.findAll()
-        val subscribedEntries =
-            allWatchlist
-                .filter { it.code in subscribed && !realtimeSubscriptionRouter.isExternallyDemanded(it.code) }
-                .sortedByDescending { it.priority } // priority 높은(숫자 큰) 것이 eviction 후보
-        val candidate = subscribedEntries.firstOrNull { it.priority > newPriority }
-        return candidate?.code
-    }
-
-    /**
-     * slot 회수 시 polling 중인 종목 중 가장 높은 priority 1건 WS promotion.
-     */
-    private fun promoteFromPolling(userId: String) {
-        val pollingCodes = pollingWorker.poolCodes()
-        if (pollingCodes.isEmpty()) return
-        val watchlist = watchlistRepository.findByUserIdOrderByPriority(userId)
-        val candidate = watchlist.firstOrNull { it.code in pollingCodes } ?: return
-        if (kisWsPort.subscribedCodes().size >= SubscriptionPolicy.PRICE_TICK_MAX) return
-        pollingWorker.remove(candidate.code)
-        kisWsPort.subscribe(listOf(candidate.code))
-        sourceTracker.set(userId, candidate.code, "live")
-        log.info("polling → WS promotion: code={}", candidate.code)
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

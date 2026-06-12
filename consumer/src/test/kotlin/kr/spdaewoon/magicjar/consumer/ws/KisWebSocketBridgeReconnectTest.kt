@@ -155,8 +155,9 @@ class KisWebSocketBridgeReconnectTest {
     }
 
     /**
-     * subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 등록 검증.
+     * subscribe(codes) 시 H0STCNT0 + H0NXCNT0 둘 다 구독 등록 검증 (비상 롤백 경로 — integratedTickEnabled=false).
      *
+     * ADR 0124: 통합 채널이 default ON이지만 비상 롤백 시 기존 이중 발사(H0STCNT0+H0NXCNT0) 경로가 보존됨을 검증한다.
      * NXT 장외 sync 결함 hotfix (ADR 0063 정합 — 08:00~20:00 KST cover).
      * KIS-first 출처:
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
@@ -165,17 +166,18 @@ class KisWebSocketBridgeReconnectTest {
      * 검증: subscribe 후 session.subscribedCodes + nxtSubscribedCodes 둘 다 code 포함.
      */
     @Test
-    fun `subscribe codes 시 H0STCNT0(session) + H0NXCNT0(nxtSubscribedCodes) 둘 다 등록`() {
-        // given: sendSink 없는 상태 (연결 0) — subscribe는 nxtSubscribedCodes에 add됨
+    fun `통합 flag OFF(롤백) subscribe 시 H0STCNT0(session) + H0NXCNT0(nxtSubscribedCodes) 둘 다 등록`() {
+        // given: 비상 롤백 bridge (integratedTickEnabled=false) — sendSink 없는 상태 (연결 0)
+        val dualBridge = newBridge("REAL", integratedTickEnabled = false)
         // when
-        bridge.subscribe(listOf("005930", "000660"))
+        dualBridge.subscribe(listOf("005930", "000660"))
 
         // then: H0STCNT0 구독 — session.subscribedCodes 확인
-        val session = getSession(bridge)
+        val session = getSession(dualBridge)
         assertThat(session.subscribedCodes).containsExactlyInAnyOrder("005930", "000660")
 
         // then: H0NXCNT0 구독 — nxtSubscribedCodes 확인 (reflection)
-        val nxtCodes = getNxtSubscribedCodes(bridge)
+        val nxtCodes = getNxtSubscribedCodes(dualBridge)
         assertThat(nxtCodes).containsExactlyInAnyOrder("005930", "000660")
     }
 

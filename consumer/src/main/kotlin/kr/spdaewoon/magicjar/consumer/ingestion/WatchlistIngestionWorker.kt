@@ -14,11 +14,13 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
 /**
- * Watchlist Ingestion Worker — facade (ADR 0028 §2-1 정합).
+ * Watchlist Ingestion Worker — facade (ADR 0028 §2-1 · ADR 0124 결정 2 정합).
  *
  * 역할:
- * - @PostConstruct: 부팅 reconcile (watchlist 전체 조회 → SubscriptionRouter.recompute)
- * - @Scheduled 1분 cron: MarketSession 변경 감지 → onSessionChanged 호출
+ * - @PostConstruct: 부팅 reconcile (watchlist 전체 조회 → SubscriptionRouter.recompute = polling pool 등록).
+ *   ★ ADR 0124: watchlist는 WS 구독 0(5초 REST polling 전용). KIS WS connect는 owner demand
+ *   (STRATEGY/HOLDING/PENDING_BUY/DETAIL) 재구독 핸드셰이크용으로만 트리거한다.
+ * - @Scheduled 1분 cron: MarketSession 변경 감지 → onSessionChanged 호출 (polling start/stop)
  * - @PreDestroy: graceful shutdown (KIS WS unsubscribe 전체 + polling stop — ADR 0045)
  */
 @Component
@@ -37,28 +39,20 @@ class WatchlistIngestionWorker(
     private var lastSession: MarketSession = MarketSession.Closed(reason = "init")
 
     /**
-     * 부팅 reconcile — watchlist 전체 조회 후 KIS WS 연결 + priority 분배 (ADR 0028 §4-5).
+     * 부팅 reconcile — watchlist polling pool 등록 + KIS WS 연결 (ADR 0028 §4-5 · ADR 0124 결정 2).
      *
-     * 순서 (2026-06-04 watchlist 1m stale race hotfix — 점검 사이클 #3):
+     * 순서:
      *   1. watchlist 조회 → 사용자 추출
-     *   2. SubscriptionRouter.recompute() — 종목별 subscribe() 호출 → session.subscribedCodes 등록
-     *      ★ connect()보다 선행 — onConnected 재구독이 전체 종목 set을 스냅샷하도록 보장.
-     *   3. kisWsPort.connect() — WS 연결 시작 (approval_key 발급 + 핸드셰이크)
-     *      handshake 완료 시 onConnected가 session.subscribedCodes 전체를 단일 권위로 재구독.
-     *   4. 세션 확인 → polling worker 상태 결정
+     *   2. SubscriptionRouter.recompute() — watchlist 전 종목을 polling pool에 등록(WS 구독 0 — ADR 0124).
+     *   3. kisWsPort.connect() — WS 연결 시작 (approval_key 발급 + 핸드셰이크).
+     *      owner demand(STRATEGY/HOLDING/PENDING_BUY/DETAIL)는 각 registrar가 부팅 후 보강하며,
+     *      handshake 완료 시 onConnected가 session.subscribedCodes(owner demand 구독)를 단일 권위로 재구독한다.
+     *   4. 세션 확인 → polling worker 상태 결정.
      *
-     * ★ race fix 배경 (운영 evidence 2026-06-04 16:21 부팅):
-     *   기존 순서(connect → recompute)는 connect()가 비동기(scheduleConnect)이므로
-     *   doConnect handshake 스레드와 recompute(main) 스레드가 race했다.
-     *   onConnected 재구독이 recompute보다 먼저 진입하면 `existingCodes` 스냅샷에
-     *   일부 종목(예: 005930 1건)만 잡혀 "재구독 완료: 종목 1건" → 나머지 watchlist 종목은
-     *   재구독에서 누락 + recompute의 늦은 subscribe()는 sendSink null/구독 전 윈도우에 emit되어 폐기 →
-     *   해당 종목 tick 0건 → 1m candle 미적재 → 매 부팅 stale 감지 + 백필 폭주.
-     *   recompute를 connect보다 먼저 호출하면 handshake 진입 전에 subscribedCodes가 전부 등록되어
-     *   onConnected 재구독이 항상 전체 종목을 발사한다. (subscribe()의 emit 자체는 미연결 시 폐기되어도
-     *   onConnected 재구독이 단일 권위이므로 무해 — KisWebSocketBridge.subscribe connected 가드 정합.)
+     * ★ ADR 0124 결정 2: watchlist는 더 이상 WS slot을 점유하지 않으므로 과거 watchlist 1m stale race
+     *   (connect↔recompute 순서)는 소멸했다. WS 재구독 권위는 owner demand 구독 set이며, connect는 그 owner
+     *   demand 핸드셰이크를 위해 선행 트리거한다.
      *
-     * ADR 0028 §2-1: WatchlistIngestionWorker가 KIS WS 연결·구독의 단일 책임자.
      * ADR 0048 §2-4: connect 실패 시 Bridge 내부에서 지수 백오프 재시도.
      */
     @PostConstruct
@@ -88,12 +82,12 @@ class WatchlistIngestionWorker(
                 return
             }
 
-            // recompute 선행 — connect() handshake 진입 전에 session.subscribedCodes 전체 등록.
-            // onConnected 재구독이 전체 종목 set을 스냅샷하도록 보장 (race fix — 위 KDoc 참조).
+            // watchlist 전 종목을 polling pool에 등록(WS 구독 0 — ADR 0124 결정 2).
             users.forEach { userId ->
                 subscriptionRouter.recompute(userId)
             }
-            // KIS WS 연결 시작 — onConnected가 등록된 subscribedCodes 전체를 단일 권위로 재구독.
+            // KIS WS 연결 시작 — owner demand(전략·보유 등) 재구독 핸드셰이크 트리거.
+            // onConnected가 owner demand 구독 set(session.subscribedCodes)을 단일 권위로 재구독한다.
             kisWsPort.connect()
             log.info("KIS WS connect() 호출 완료 — 핸드셰이크 진행 중 (등록 종목 onConnected 재구독 위임)")
             // 현재 세션 확인 후 polling worker 상태 결정

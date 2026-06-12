@@ -13,8 +13,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.kafka.support.Acknowledgment
 
 /**
- * WatchlistChangedKafkaListener smoke test (ADR 0048 §12-1-1 정합).
- * - 테스트 1: ADDED 이벤트 → SubscriptionRouter.add 호출 (cold-start 백필 폐지 — ADR 0119)
+ * WatchlistChangedKafkaListener smoke test (ADR 0048 §12-1-1 · ADR 0124 결정 2 정합).
+ * - 테스트 1: ADDED 이벤트 → SubscriptionRouter.add(polling pool 등록) 호출 (cold-start 백필 폐지 — ADR 0119)
  * - 테스트 2: REMOVED 이벤트 → SubscriptionRouter.remove + Redis evict 호출
  */
 class WatchlistChangedKafkaListenerTest {
@@ -45,8 +45,8 @@ class WatchlistChangedKafkaListenerTest {
 
         listener.onMessage(record, ack)
 
-        // ADR 0119 — proactive cold-start 백필 폐지: WS/polling 분배만 수행, 과거 1m/일봉 KIS 백필 0.
-        verify { subscriptionRouter.add("user001", "005930", 100) }
+        // ADR 0124 — watchlist polling pool 등록만 수행(WS 구독 0). 과거 1m/일봉 KIS 백필 0(ADR 0119).
+        verify { subscriptionRouter.add("user001", "005930") }
         verify { ack.acknowledge() }
     }
 
