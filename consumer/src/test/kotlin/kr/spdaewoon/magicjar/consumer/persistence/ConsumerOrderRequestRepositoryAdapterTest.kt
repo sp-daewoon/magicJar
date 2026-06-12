@@ -7,6 +7,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSource
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
@@ -248,5 +249,23 @@ class ConsumerOrderRequestRepositoryAdapterTest {
         // 2) toDomain — 읽기 경로 복원(rebuild·signal-trace 귀속 판정 입력).
         assertThat(result.orderTrigger).isEqualTo(OrderTrigger.STRATEGY_SIGNAL)
         assertThat(result.triggerRefId).isEqualTo(732L)
+    }
+
+    @Test
+    fun `(6) countRealOrdersBetween - REAL·EXTERNAL 제외 인자로 JPA 위임 + 결과 그대로 반환`() {
+        // 2026-06-12 hotfix — canary 일일 cap 카운트. adapter 는 mode=REAL + excludedSource=EXTERNAL 을
+        // 고정 인자로 JPA 에 위임한다(side=BUY·status<>REJECTED 필터는 JPA @Query 리터럴 책임).
+        val from = Instant.parse("2026-06-11T15:00:00Z")
+        val to = Instant.parse("2026-06-12T15:00:00Z")
+        every {
+            jpa.countRealOrdersBetween(TradingMode.REAL, OrderSource.EXTERNAL, from, to)
+        } returns 4L
+
+        val count = adapter.countRealOrdersBetween(from, to)
+
+        assertThat(count).isEqualTo(4L)
+        verify(exactly = 1) {
+            jpa.countRealOrdersBetween(TradingMode.REAL, OrderSource.EXTERNAL, from, to)
+        }
     }
 }

@@ -893,18 +893,32 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
-    fun `(canary-3) 일일 REAL 횟수 도달 — CANARY_DAILY_ORDER_CAP reject`() {
-        every { orderRepo.countRealOrdersBetween(any(), any()) } returns 3L
-        val gate = canaryListener(perDay = 3)
-        val deny = gate.evaluateCanaryHardCap(canaryIntent(), TradingMode.REAL)
+    fun `(canary-3) 일일 BUY 횟수 도달 — CANARY_DAILY_ORDER_CAP reject`() {
+        // countRealOrdersBetween 은 side=BUY · status<>REJECTED 만 집계(2026-06-12 hotfix).
+        // 게이트는 그 count >= cap 이면 차단. BUY 5건 도달 시 6번째 BUY 차단을 표현(count=5, cap=5).
+        every { orderRepo.countRealOrdersBetween(any(), any()) } returns 5L
+        val gate = canaryListener(perDay = 5)
+        val deny = gate.evaluateCanaryHardCap(canaryIntent(side = OrderSide.BUY), TradingMode.REAL)
         assertThat(deny).startsWith("CANARY_DAILY_ORDER_CAP")
     }
 
     @Test
-    fun `(canary-3b) 일일 REAL 횟수 미달 — 통과`() {
-        every { orderRepo.countRealOrdersBetween(any(), any()) } returns 2L
-        val gate = canaryListener(perDay = 3)
-        val deny = gate.evaluateCanaryHardCap(canaryIntent(), TradingMode.REAL)
+    fun `(canary-3b) 일일 BUY 횟수 미달 — 통과`() {
+        every { orderRepo.countRealOrdersBetween(any(), any()) } returns 4L
+        val gate = canaryListener(perDay = 5)
+        val deny = gate.evaluateCanaryHardCap(canaryIntent(side = OrderSide.BUY), TradingMode.REAL)
+        assertThat(deny).isNull()
+    }
+
+    @Test
+    fun `(canary-3c) SELL 청산은 BUY count 가 cap 도달이어도 통과 — 자본 보호 역전 차단`() {
+        // 2026-06-12 라이브 incident hotfix · 최고 관리자 결재: "왕복 1회 = 1카운트, 매도는 cap 무관".
+        // BUY 가 cap 도달(count=5>=5)이어도, SELL(익절·손절·DSL 청산)은 BUY-only count 집계에 잡히지 않으므로
+        // count 가 cap 미만이고 통과해야 보유 포지션 청산이 가능하다.
+        // (게이트 시점에서 SELL intent 의 daily count 는 BUY 만 센 값 — 여기선 4 로 cap 미달을 표현.)
+        every { orderRepo.countRealOrdersBetween(any(), any()) } returns 4L
+        val gate = canaryListener(perDay = 5)
+        val deny = gate.evaluateCanaryHardCap(canaryIntent(side = OrderSide.SELL), TradingMode.REAL)
         assertThat(deny).isNull()
     }
 
@@ -971,6 +985,7 @@ class OrderRouterKafkaListenerTest {
         priceType: OrderPriceType = OrderPriceType.MARKET,
         priceAtSignal: String? = "78000",
         limitPrice: String? = null,
+        side: OrderSide = OrderSide.BUY,
     ): OrderIntent =
         OrderIntent(
             id = 42L,
@@ -978,7 +993,7 @@ class OrderRouterKafkaListenerTest {
             signalId = 42L,
             strategyId = 100L,
             code = "005930",
-            side = OrderSide.BUY,
+            side = side,
             priceType = priceType,
             quantity = quantity,
             limitPrice = limitPrice?.let { BigDecimal(it) },

@@ -122,9 +122,10 @@ class ConsumerOrderRequestRepositoryAdapter(
     }
 
     /**
-     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (consumer 자본 path caller).
+     * ADR 0109 GAP-3 — canary 일일 BUY 주문 횟수 전역 cap 카운트 (consumer 자본 path caller).
      *
-     * order_request 단일 권위 count (Redis 미사용 — drift 회피, ADR 0109 §2-4).
+     * side=BUY · status<>REJECTED 만 집계 (2026-06-12 자본 보호 역전 hotfix — 왕복 1회 = 1카운트,
+     * SELL 청산은 cap 무관). order_request 단일 권위 count (Redis 미사용 — drift 회피, ADR 0109 §2-4).
      */
     @Transactional(readOnly = true)
     override fun countRealOrdersBetween(

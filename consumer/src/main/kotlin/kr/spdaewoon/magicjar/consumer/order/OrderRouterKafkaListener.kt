@@ -702,8 +702,10 @@ class OrderRouterKafkaListener(
      * 2. `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW` — 주문 1건 notional(qty × price) 절대 상한 → `CANARY_NOTIONAL_CAP`
      *    - price source: LIMIT은 `limitPrice`, MARKET은 `priceAtSignal` (ADR 0109 §2-5).
      *    - 둘 다 null/0 이하면 notional 산정 불가 → fail-closed로 차단(`CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE`).
-     * 3. `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` — 당일(KST) REAL 주문 횟수 전역 상한 → `CANARY_DAILY_ORDER_CAP`
-     *    - order_request `mode=REAL` 당일 count(DB 단일 권위, ADR 0109 §2-4) ≥ cap 이면 차단.
+     * 3. `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` — 당일(KST) BUY 주문 횟수 전역 상한 → `CANARY_DAILY_ORDER_CAP`
+     *    - order_request `mode=REAL` · `side=BUY` · `status<>REJECTED` 당일 count(DB 단일 권위, ADR 0109 §2-4)
+     *      ≥ cap 이면 차단. SELL(익절·손절·DSL 청산)은 cap 무관 — 매수 cap 도달 후 청산이 거부되는
+     *      자본 보호 역전 차단(2026-06-12 라이브 incident · 최고 관리자 결재: "왕복 1회 = 1카운트").
      *
      * @return 차단 시 reject reason 문자열, 통과(또는 비활성) 시 null.
      */

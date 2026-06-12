@@ -85,10 +85,17 @@ interface OrderRequestRepository {
     /**
      * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 용 카운트.
      *
-     * `requestedAt`이 `[fromInclusive, toExclusive)` 범위이며 `mode = REAL`인 order_request 건수.
+     * `requestedAt`이 `[fromInclusive, toExclusive)` 범위이며 `mode = REAL`인 order_request 중
+     * **side = BUY** 이고 **status <> REJECTED** 인 건수.
      * 당일 KST 경계를 caller가 UTC Instant 범위로 변환해 전달한다(단일 권위 = order_request DB · Redis 미사용,
-     * ADR 0109 §2-4 drift 회피). REJECTED·PENDING·ACK·FILLED 등 모든 status 포함 —
-     * "REAL 주문 시도 횟수" 자체를 세는 안전선이므로 reject도 카운트한다.
+     * ADR 0109 §2-4 drift 회피).
+     *
+     * ### BUY-only + REJECTED 제외 (2026-06-12 자본 보호 역전 hotfix · 최고 관리자 결재)
+     * 최고 관리자 2026-06-12 직접 결재: "하루 주문 제한을 매수만 포함해야지 매도까지 세려고 만든 건 아니야.
+     * 5개 제한이면 1개 종목을 사고팔면 1번 카운팅." → 왕복 1회 = 1카운트 의미로 매수(BUY)만 집계한다.
+     * SELL(익절·손절·DSL 청산)은 cap 무관 — 매수 cap 도달 후 청산 주문이 거부되면 보유 포지션이 무보호가 되는
+     * 자본 보호 역전(2026-06-12 라이브 incident)을 차단. REJECTED 제외 — 게이트 거부 BUY 도 row 로 남으므로
+     * "체결 경로에 실제 들어간 BUY" 만 세야 거부 주문이 cap 슬롯을 잠식하지 않는다.
      *
      * 단, source=EXTERNAL(외부 HTS·MTS 직접 주문 흡수) row 는 제외한다 — 우리 자동매매 예산이 아님
      * (2026-06-05 자본 path fix). 구현 어댑터가 @Query 에 `source <> 'EXTERNAL'` 조건을 포함한다.
