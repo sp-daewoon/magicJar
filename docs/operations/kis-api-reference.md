@@ -94,6 +94,8 @@
 | `RealKisRestAdapter.fetchCandles` (D1) | `inquire-daily-itemchartprice` | `FHKST03010100` | 일봉/주봉/월봉/년봉 |
 | `RealKisRestAdapter.fetchQuote` | `inquire-price` | `FHKST01010100` | 현재가·시가·고가·저가·거래량 |
 | `KisRestAskingPriceAdapter` | `inquire-asking-price-exp-ccn` | `FHKST01010200` | entry quote REST fallback |
+| `KisMarketMicrostructureAdapter.fetchInvestorFlow` | `inquire-investor` | `FHKST01010900` | 외국인/기관/개인 수급 read-only |
+| `KisMarketMicrostructureAdapter.fetchRecentExecutions` | `inquire-ccnl` | `FHKST01010300` | 최근 체결 list read-only |
 | `KisRestCandleAdapter` | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 분봉 |
 | `KisRestCandleAdapter` | `inquire-time-dailychartprice` | `FHKST03010230` | 과거 1m range |
 | `KisMultiPriceAdapter` | `intstock-multprice` | `FHKST11300006` | 최대 30종목 멀티시세 |
