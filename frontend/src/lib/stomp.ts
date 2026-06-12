@@ -11,7 +11,7 @@
  * ADR 0029 §2-5 STOMP topic 매트릭스:
  *   /topic/market.tick.{code}
  *   /topic/market.candle.minute.{code}
- *   /topic/market.orderbook.{code}
+ *   (/topic/market.orderbook.{code} — 종목상세 호가창 폐지로 frontend 구독 제거)
  */
 import { Client } from '@stomp/stompjs'
 import { useEffect, useRef } from 'react'
