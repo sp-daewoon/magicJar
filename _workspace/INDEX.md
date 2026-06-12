@@ -28,7 +28,7 @@
 
 → **`_workspace/arch/adr/`** ([인덱스](arch/adr/README.md))
 
-52건 sequential, append-only. 각 결정 이유·대안·트레이드오프.
+120건 (파일 0001~0124, 0058·0059·0060·0065 의도적 갭), append-only. 각 결정 이유·대안·트레이드오프. Accepted ~95 / Proposed ~17 / Superseded·폐기 4(역사 보존 §15). README §0 빠른 lookup(최근 10건 + 주제별 jump)이 첫 진입점.
 
 ### "지금 진행 중인 의제" (TODO)
 
