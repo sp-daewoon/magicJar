@@ -116,9 +116,10 @@ class OrderRequestRepositoryAdapter(
     }
 
     /**
-     * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (port 정합 — api 모듈 공통 구현).
+     * ADR 0109 GAP-3 — canary 일일 BUY 주문 횟수 전역 cap 카운트 (port 정합 — api 모듈 공통 구현).
      *
      * 자본 path 게이트 caller는 consumer 모듈이나, port 구현 의무로 api 어댑터도 동일 동작 보장.
+     * side=BUY · status<>REJECTED 만 집계 (2026-06-12 자본 보호 역전 hotfix — 왕복 1회 = 1카운트).
      * order_request 단일 권위 count (Redis 미사용 — drift 회피, ADR 0109 §2-4).
      */
     @Transactional(readOnly = true)

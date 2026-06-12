@@ -107,16 +107,25 @@ interface OrderRequestJpaRepository :
     /**
      * ADR 0109 GAP-3 — canary 일일 REAL 주문 횟수 전역 cap 카운트 (consumer/api 모듈 공통 port 구현).
      *
-     * `mode = :mode` AND `source <> :excludedSource` AND `requestedAt ∈ [from, to)` 건수.
+     * `mode = :mode` AND `source <> :excludedSource` AND `side = BUY` AND `status <> REJECTED`
+     * AND `requestedAt ∈ [from, to)` 건수.
      * caller(adapter)가 REAL + EXTERNAL 제외 + KST 당일 UTC 경계 전달.
      *
      * ### EXTERNAL 제외 (2026-06-05 자본 path fix)
      * 외부(HTS·MTS) 직접 주문을 흡수한 EXTERNAL row 는 우리 자동매매 예산이 아니므로 canary cap 카운트에서 제외.
+     *
+     * ### BUY-only + REJECTED 제외 (2026-06-12 자본 보호 역전 hotfix · 최고 관리자 결재)
+     * 최고 관리자 2026-06-12 직접 결재: "하루 주문 제한을 매수만 포함해야지 매도까지 세려고 만든 건 아니야.
+     * 5개 제한이면 1개 종목을 사고팔면 1번 카운팅." → 왕복 1회 = 1카운트 의미로 `side = BUY` 만 집계.
+     * SELL(익절·손절·DSL 청산)은 cap 무관 통과 — 매수 cap 도달 후 청산이 거부되는 자본 보호 역전 차단.
+     * REJECTED 제외: 게이트 거부 BUY 도 status=REJECTED row 로 INSERT 되므로 "체결 경로에 실제 들어간 BUY" 만 센다.
      * 헌법 §6 — interface body 0건, @Query 만 사용.
      */
     @Query(
         "SELECT COUNT(e) FROM OrderRequestJpaEntity e " +
             "WHERE e.mode = :mode AND e.source <> :excludedSource " +
+            "AND e.side = kr.spdaewoon.magicjar.domain.order.execution.OrderSide.BUY " +
+            "AND e.status <> kr.spdaewoon.magicjar.domain.order.execution.OrderStatus.REJECTED " +
             "AND e.requestedAt >= :fromInclusive AND e.requestedAt < :toExclusive",
     )
     fun countRealOrdersBetween(
