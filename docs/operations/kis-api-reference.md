@@ -1,7 +1,9 @@
 # KIS OpenAPI 참조 — magicJar에서 사용하는 endpoint 정리
 
-> 한국투자증권 OpenAPI(KIS) endpoint·TR_ID·모의투자 지원 여부 정리. 사용자 가이드(2026-05-04) + MCP 검증.
-> **데이터 소스**: 사용자 직접 안내 + `mcp__kis-code-assistant__search_domestic_stock_api` MCP 검증.
+> 한국투자증권 OpenAPI(KIS) endpoint·TR_ID·모의투자 지원 여부 정리. 사용자 가이드(2026-05-04) + KIS 공식 GitHub raw 예제 + MCP 검증.
+> **데이터 소스**: 사용자 직접 안내 + `mcp__kis-code-assistant__search_domestic_stock_api` MCP 검증 + `koreainvestment/open-trading-api/examples_llm/domestic_stock`.
+
+상세 채용 우선순위와 MCP 변경 시각화는 [`kis-api-mcp-adoption-plan.md`](kis-api-mcp-adoption-plan.md)를 기준으로 한다.
 
 ## 1. 운영 정책 (사용자 결정)
 
@@ -9,6 +11,37 @@
 - **주문(매매) = 모의/실전 분리** — `trading_mode` (MOCK_KIS|REAL_KIS) 따라 키와 baseUrl 분기
 - **IP 화이트리스트 등록 X** — token 발급(`/oauth2/tokenP`)만으로 인증
 - 모의투자(VTS) 일부 endpoint **미지원** — 표 우측 컬럼 확인
+
+## 1-1. 현재 사용 중인 endpoint 최상위 인덱스
+
+| 우선 | 영역 | KIS API / TR_ID | magicJar 사용처 |
+|---|---|---|---|
+| A0 | 주문 | `order-cash` `TTTC0012U`/`VTTC0012U`/`TTTC0011U`/`VTTC0011U` | `KisOrderHttpAdapter.submit` |
+| A0 | 취소 | `order-rvsecncl` `TTTC0013U`/`VTTC0013U` | `KisOrderHttpAdapter.cancel` |
+| A0 | 체결 | `inquire-daily-ccld` `TTTC0081R`/`VTTC0081R` | `KisOrderInquireCcldHttpAdapter`, execution backfill |
+| A0 | 잔고 | `inquire-balance` `TTTC8434R`/`VTTC8434R` | `KisBalanceAdapter`, `KisReconcileBalanceAdapter` |
+| A0 | 현재가 | `inquire-price` `FHKST01010100` | 현재가, today candle seed, metrics |
+| A0 | 호가 REST | `inquire-asking-price-exp-ccn` `FHKST01010200` | 진입 호가 fallback |
+| A0 | 캔들 | `inquire-daily-itemchartprice` `FHKST03010100` | 일/주/월/년봉 |
+| A0 | 분봉 | `inquire-time-itemchartprice` `FHKST03010200`, `inquire-time-dailychartprice` `FHKST03010230` | 당일/과거 1m backfill |
+| A0 | 멀티시세 | `intstock-multprice` `FHKST11300006` | nightly snapshot, NXT 검증 |
+| A0 | 휴장일 | `chk-holiday` `CTCA0903R` | 캘린더/수집 gate |
+| A0 | 예탁원 | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | corp action batch |
+| A0 | WS | `H0STCNT0`, `H0NXCNT0`, `H0STASP0`, `H0STOUP0`, `H0STCNI0`, `H0STCNI9` | tick/orderbook/execution notice |
+
+## 1-2. 다음 채용 후보 우선순위
+
+| 순위 | API | TR_ID | 사용 목적 | 현재 결정 |
+|---|---|---|---|---|
+| P0 | `inquire-psbl-order` | `TTTC8908R`/`VTTC8908R` | BUY 주문 전 KIS 가능수량/가능금액 확인 | 채용 |
+| P0 | `inquire-psbl-sell` | `TTTC8408R` | SELL 주문 전 KIS 매도가능수량 확인 | 채용 |
+| P1 | `inquire-investor` | `FHKST01010900` | 외국인/기관 수급 | 채용 |
+| P1 | `inquire-ccnl` | `FHKST01010300` | 최근 체결 REST 보강 | 채용 |
+| P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | 채용 |
+| P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | flag OFF로 도입 |
+| P2 | `asking_price_total` | `H0UNASP0` 후보 | 통합 호가 WS, slot 절감 | raw 재확인 후 |
+| P2 | finance ratios | `FHKST66430300` 등 | screener fundamental | 후순위 |
+| P2 | estimate/opinion | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI/상세 보조 | 후순위 |
 
 ## 2. 종목정보 API ([국내주식] 종목정보)
 
@@ -39,13 +72,13 @@
 | 2 | 주식현재가 시세2 | `FHPST01010000` | `/uapi/domestic-stock/v1/quotations/inquire-price-2` | ❌ | |
 | 3 | 주식현재가 체결 | `FHKST01010300` | `/uapi/domestic-stock/v1/quotations/inquire-ccnl` | ✅ | (장차 — 실시간 체결 list) |
 | 4 | 주식현재가 일자별 | `FHKST01010400` | `/uapi/domestic-stock/v1/quotations/inquire-daily-price` | ✅ | (D1 대체 가능) |
-| 5 | 주식현재가 호가/예상체결 | `FHKST01010200` | `/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn` | ✅ | (장차 — 호가창 표시) |
-| 6 | 주식현재가 투자자 | `FHKST01010900` | `/uapi/domestic-stock/v1/quotations/inquire-investor` | ✅ | (장차 — 외국인·기관 동향) |
+| 5 | **주식현재가 호가/예상체결** | **`FHKST01010200`** | **`/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn`** | ✅ | ✅ **사용 중** — entry quote REST fallback |
+| 6 | **주식현재가 투자자** | **`FHKST01010900`** | **`/uapi/domestic-stock/v1/quotations/inquire-investor`** | ✅ | 🟢 **채용 P1** — 외국인·기관 동향 |
 | 7 | 주식현재가 회원사 | `FHKST01010600` | `/uapi/domestic-stock/v1/quotations/inquire-member` | ✅ | (장차 — 매수/매도 회원사) |
 | 8 | **국내주식 기간별 시세 (일/주/월/년)** | **`FHKST03010100`** | **`/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`** | ✅ | ✅ **사용 중** — `RealKisRestAdapter.fetchCandles` (D1) |
 | 9 | 주식 당일 분봉 조회 | `FHKST03010200` | `/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice` | ✅ | ⚠️ **당일 분봉 전용** (과거 backfill 불가) — Yahoo Finance 사용 (ADR 0019) |
-| 10 | **주식 일별 분봉 조회 (과거)** | **`FHKST03010230`** | **`/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice`** | ❌ 미지원 | 🟡 **검토 대상** — 모의 미지원이라 Yahoo Finance 사용. 실전 키 사용 시 Yahoo 대체 가능? |
-| 11 | 당일 시간대별 체결 | `FHPST01060000` | `/uapi/domestic-stock/v1/quotations/inquire-time-itemconclusion` | ✅ | |
+| 10 | **주식 일별 분봉 조회 (과거)** | **`FHKST03010230`** | **`/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice`** | ❌ 미지원 | ✅ **사용 중** — 과거 1m backfill |
+| 11 | **주식현재가 체결** | **`FHKST01010300`** | **`/uapi/domestic-stock/v1/quotations/inquire-ccnl`** | ✅ | 🟢 **채용 P1** — 최근 체결 REST 보강 |
 | 12~13 | 시간외 일자별·시간별 체결 | `FHPST02320000`·`FHPST02310000` | `inquire-daily-overtimeprice`·`inquire-time-overtimeconclusion` | ✅ | |
 | 14~16 | 시간외 현재가·호가·예상체결 | `FHPST02300000` 등 | `inquire-overtime-*` | ❌ | |
 | 17 | **ETF/ETN 현재가** | `FHPST02400000` | `/uapi/etfetn/v1/quotations/inquire-price` | ❌ | (장차 — ETF 시세 분리) |
@@ -60,7 +93,15 @@
 | `KisMarketIndexAdapter.fetchMarketIndex` | `inquire-index-price` | `FHPUP02100000` | KOSPI/KOSDAQ 지수 |
 | `RealKisRestAdapter.fetchCandles` (D1) | `inquire-daily-itemchartprice` | `FHKST03010100` | 일봉/주봉/월봉/년봉 |
 | `RealKisRestAdapter.fetchQuote` | `inquire-price` | `FHKST01010100` | 현재가·시가·고가·저가·거래량 |
-| `MinuteCandleBackfillJob` (deprecate 후보) | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 분봉만 — Yahoo Finance 대체 (ADR 0019) |
+| `KisRestAskingPriceAdapter` | `inquire-asking-price-exp-ccn` | `FHKST01010200` | entry quote REST fallback |
+| `KisRestCandleAdapter` | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 분봉 |
+| `KisRestCandleAdapter` | `inquire-time-dailychartprice` | `FHKST03010230` | 과거 1m range |
+| `KisMultiPriceAdapter` | `intstock-multprice` | `FHKST11300006` | 최대 30종목 멀티시세 |
+| `KisOrderHttpAdapter.submit` | `order-cash` | `TTTC0012U`/`VTTC0012U`/`TTTC0011U`/`VTTC0011U` | 현금 매수/매도 |
+| `KisOrderHttpAdapter.cancel` | `order-rvsecncl` | `TTTC0013U`/`VTTC0013U` | 주문 취소 |
+| `KisOrderInquireCcldHttpAdapter` | `inquire-daily-ccld` | `TTTC0081R`/`VTTC0081R` | 체결 backfill |
+| `KisBalanceAdapter`, `KisReconcileBalanceAdapter` | `inquire-balance` | `TTTC8434R`/`VTTC8434R` | 잔고/position 권위 |
+| `KisKsdInfoAdapter` | `ksdinfo/*` | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | 배당/증자/분할/감자 등 |
 
 ## 5. 후속 검토 endpoint (다음 사이클 후보)
 
@@ -69,19 +110,32 @@
 - Yahoo Finance(1m 7일 한계) 대체 중. KIS 실전이 더 긴 기간 가능하면 전환 검토
 - 단점: KIS rate limit 있음 (Yahoo는 무제한)
 
-### B. 호가창·체결 list — `inquire-asking-price-exp-ccn` + `inquire-ccnl`
-- 종목 상세 화면 호가창·실시간 체결 list 표시 시
-- WebSocket이 더 적합 (실시간 stream) — 다만 REST polling도 옵션
+### B. 주문 가능수량 — `inquire-psbl-order` + `inquire-psbl-sell`
+- BUY: `/uapi/domestic-stock/v1/trading/inquire-psbl-order`, `TTTC8908R`/`VTTC8908R`.
+- SELL: `/uapi/domestic-stock/v1/trading/inquire-psbl-sell`, `TTTC8408R`.
+- 본주문 전 KIS 기준 가능수량을 읽어 reject 원인을 주문 전에 관측한다. 차단은 feature flag로만 활성화한다.
 
-### C. 외국인·기관 동향 — `inquire-investor`
+### C. 호가창·체결 list — `inquire-asking-price-exp-ccn` + `inquire-ccnl`
+- `inquire-asking-price-exp-ccn`은 이미 entry quote fallback으로 사용 중.
+- `inquire-ccnl`은 최근 체결 list 표시와 WS stale 보강에 사용한다.
+
+### D. 외국인·기관 동향 — `inquire-investor`
 - 종목 상세 메타에 외국인·기관 매수·매도 추세 표시
 - `InstrumentDetail.foreignRatio`·`institutionRatio` 정확화
 
-### D. 종목 추정 실적 — `HHKST668300C0`
+### E. 계좌 실현손익 — `inquire-balance-rlz-pl`
+- `/uapi/domestic-stock/v1/trading/inquire-balance-rlz-pl`, `TTTC8494R`.
+- 내부 journal/performance 손익과 KIS 계좌 손익 diff를 산출한다. 1차는 read-only.
+
+### F. 통합 체결가 WS — `H0UNCNT0`
+- 공식 예제 `ccnl_total` 기준 통합 실시간체결가.
+- ADR 0123 R3 후보. 기본 OFF로 도입하고, 운영 검증 후 KRX+NXT 이중 채널 대체 여부를 결정한다.
+
+### G. 종목 추정 실적 — `HHKST668300C0`
 - 애널리스트 컨센서스 (매출·영업이익 추정)
 - 실제 재무(DART) 대비 갭 표시
 
-### E. 종목 투자의견 — `FHKST663300C0`·`FHKST663400C0`
+### H. 종목 투자의견 — `FHKST663300C0`·`FHKST663400C0`
 - 애널리스트 의견·증권사별 의견 표시
 - 종목 상세 페이지 사이드 패널 후보
 
@@ -118,6 +172,7 @@ mcp__kis-code-assistant__search_domestic_stock_api(query="...")
 
 | 날짜 | 변경 | PR |
 |---|---|---|
+| 2026-06-12 | v3.13.1 KIS API/MCP 채용 우선순위 갱신 — 현재 사용 중 API 최상단 인덱스 + P0/P1 후보 TR 확정 | TBD |
 | 2026-05-04 | 본 reference docs 신설 + 사용 endpoint 표·후속 검토 list | TBD |
 | 2026-05-04 | `inquire-price` (FHKST01010100) 통합 — PER·PBR·EPS·BPS·시총·업종 한글명 | #128 |
 | 2026-05-04 | `search-stock-info` endpoint 정정 (`inquire-stock-info` 잘못된 사용) | #126 |
