@@ -2,6 +2,44 @@
 
 아키텍처 결정 기록(Architecture Decision Record) 목차 — **본 README는 인덱스 전용**, 결정 본문·트레이드오프·sub-agent 매트릭스·spec 인용은 각 ADR 파일에서 읽는다. 변경 이력은 §14 참조.
 
+> **파일명 = 본문 헤더 번호 1:1** · 총 **120건**(파일 존재 0001~0124 중 0058·0059·0060·0065 의도적 갭 — §12 예약) · **Accepted ~95 / Proposed ~17 / Superseded·폐기 4**(역사 보존은 §15). README 행 status와 각 파일 헤더 status는 **불일치 0 정합**(2026-06-13 일괄 점검).
+
+## §0. 빠른 lookup
+
+### 최근 10건 (역순)
+
+| 번호 | 제목 | 상태 |
+|------|------|------|
+| **0124** | KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬 | **Accepted** |
+| 0123 | KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 (ADR 0048 amend) | Proposed (→0124 R3 채택) |
+| 0122 | 발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로 | Accepted |
+| 0121 | 백테스트 사이징 정합 + G3 포트폴리오 MDD 재정의 | Proposed |
+| 0120 | 1wk/1mo/1y를 1d 합산으로 전환 — 기준봉/파생봉 통일 모델 | Accepted |
+| 0119 | 1분봉 proactive cold-start 백필 폐지 — on-demand 전환 | Accepted |
+| 0118 | 전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot | Accepted |
+| 0117 | 단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수 | Proposed |
+| 0116 | KIS Rate Limit Phase 2 — priority별 별도 버킷 3-tier | Accepted |
+| 0115 | 포지션 단일 권위 + 드리프트 자동보정 + 청산 사슬 안전화 | Accepted |
+
+### 주제별 jump
+
+| 영역 | 섹션 | 핵심 ADR |
+|------|------|---------|
+| 비전 | §1 | 0001 |
+| 기술 스택·모듈 구조 | §2 | 0002·0004·0005·0083·0088·0092 |
+| 프론트엔드 | §3 | 0009·0055 |
+| 도메인·멀티테넌트·매매 | §4 | 0010·0011·0012 |
+| 시장 데이터·외부 API | §5 | 0013·0017·0057·0063·0091·0104·0105·0118·0120 |
+| 전략·신호·리스크 | §6 | 0023·0024·0066·0067·0106·0110·0111·0114·0115·0117·0122 |
+| KIS WS 구독·슬롯 | §5 | **0048·0123·0124** (수요·슬롯·채널) |
+| 시각화·AI·MCP | §7 | 0025·0026·0027·0100·0112 |
+| Watchlist·차트 데이터 흐름 | §8 | 0028·0029·0093·0113 |
+| 메타·운영·하네스 | §9 | 0030·0031·0036·0080·0094·0095·0096·0102·0108·0109 |
+| KIS rate limit·UI 흐름 | §10 | 0037·0040·0116 |
+| 자동매매 fitness 갭 | §10-1·§10-2 | 0041·0042·0043·0046·0097·0098 |
+| 메타·CI/CD·DSL 안전성 | §10-3·§10-4 | 0047·0049·0051·0099 |
+| **역사 보존 (Superseded·폐기)** | **§15** | 0035→0080·0049 폐기·0073→0075·0085→0094 |
+
 ## §1. 비전 (1건)
 
 | 번호 | 제목 |
@@ -40,7 +78,7 @@
 | 0012 | 매매일지 아키텍처 |
 | 0089 | **userId 타입 정합 — backend·frontend cross-cutting string ↔ number 영구 차단 (옵션 A backend·frontend 모두 number 통일) — Proposed (2026-05-19, Phase 1 backend-core + frontend 합작 PR 후 Accepted 격상 예정)** |
 
-## §5. 시장 데이터·외부 API (22건 — 2026-06-11 amend +1)
+## §5. 시장 데이터·외부 API (23건 — 2026-06-13 amend +1)
 
 | 번호 | 제목 |
 |------|------|
@@ -52,12 +90,13 @@
 | 0018 | Corp Action raw + adjusted |
 | 0019 | 캔들 저장 정책 (Watchlist 기반) — Accepted (v3.2.3 §2 매트릭스 NXT/합산 5종 재통합) |
 | 0048 | KIS WebSocket 41건 구독 한도 + 우선순위 정책 (slot 1+30+10·priority eviction·polling fallback) — **2026-06-11 ADR 0123으로 amend (41→40 정정·owner 모델 + 단일 ledger 재정의·OPSP0008 graceful path)** |
-| **0123** | **KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 — Proposed (2026-06-11 최고 관리자 결재, 구현 후속 디스패치) · ADR 0048 amend(KIS-first raw `kis_auth.py` enforce **40건** → 41 정정·채널=(code,trId) 단위 회계) · 2026-06-11 장중 후성(093370) 분봉 35/92 결손 incident(OPSP0008 MAX SUBSCRIBE OVER 35건) root cause = 체결가·호가 두 독립 라우터 부분 한도 각각 관리 + NXT(H0NXCNT0) 이중 발사 미회계 + 거부 응답 미감지 → 총 점유 40 초과 인지 0 · **단일 회계기 `WsSlotBudgetLedger`**(채널 단위 추적·발사 직전 available 검사·OPSP0008 선제 예방) + **owner priority eviction**(HOLDING 0 최상위 > PENDING_BUY 5 > DETAIL 10 > WATCHLIST 20 신규 > STRATEGY 40 상한15 · HOLDING/PENDING_BUY evict 금지 ADR 0114 LOCK 계승 · DETAIL>HOLDING 디스패치 제안 뒤집음=자본 직결 우선) + **채널 다이어트**(NXT owner별 선택화: DETAIL·HOLDING·PENDING_BUY만 NXT·WATCHLIST/STRATEGY KRX 단독 + **H0UNCNT0 통합 체결가** 검토 R3 — KRX+NXT 단일 cover로 slot 절반·ADR 0091 UN 빈응답 risk 실측 게이트 default false) + **거부 graceful path**(OPSP0008→ledger 보정+대기열+`SymbolDetailMinuteGapFillService` 분봉 REST 보완+polling fallback+Slack 헌법 §11-2 silent 금지) · 관측 Prometheus 5종 · R1(회계+OPSP0008 감지+관측 market-data·backend-core)/R2(eviction market-data)/R3(다이어트 market-data·strategy-engine NXT 협의)/R4(시나리오 qa) · Flyway/Kafka/STOMP/REST 신규 0·ENV 6(`MAGICJAR_KIS_WS_*` 확장)·각 R ENV toggle 롤백·장중 배포 금지 · spec `2026-06-11-kis-ws-slot-budget.md` SoT · 자본 결정권 0(시세 인입 layer)** |
+| **0123** | **KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 — Proposed (2026-06-11 최고 관리자 결재, 구현 후속 디스패치) · ADR 0048 amend(KIS-first raw `kis_auth.py` enforce **40건** → 41 정정·채널=(code,trId) 단위 회계) · 2026-06-11 장중 후성(093370) 분봉 35/92 결손 incident(OPSP0008 MAX SUBSCRIBE OVER 35건) root cause = 체결가·호가 두 독립 라우터 부분 한도 각각 관리 + NXT(H0NXCNT0) 이중 발사 미회계 + 거부 응답 미감지 → 총 점유 40 초과 인지 0 · **단일 회계기 `WsSlotBudgetLedger`**(채널 단위 추적·발사 직전 available 검사·OPSP0008 선제 예방) + **owner priority eviction**(HOLDING 0 최상위 > PENDING_BUY 5 > DETAIL 10 > WATCHLIST 20 신규 > STRATEGY 40 상한15 · HOLDING/PENDING_BUY evict 금지 ADR 0114 LOCK 계승 · DETAIL>HOLDING 디스패치 제안 뒤집음=자본 직결 우선) + **채널 다이어트**(NXT owner별 선택화: DETAIL·HOLDING·PENDING_BUY만 NXT·WATCHLIST/STRATEGY KRX 단독 + **H0UNCNT0 통합 체결가** 검토 R3 — KRX+NXT 단일 cover로 slot 절반·ADR 0091 UN 빈응답 risk 실측 게이트 default false) + **거부 graceful path**(OPSP0008→ledger 보정+대기열+`SymbolDetailMinuteGapFillService` 분봉 REST 보완+polling fallback+Slack 헌법 §11-2 silent 금지) · 관측 Prometheus 5종 · R1(회계+OPSP0008 감지+관측 market-data·backend-core)/R2(eviction market-data)/R3(다이어트 market-data·strategy-engine NXT 협의)/R4(시나리오 qa) · Flyway/Kafka/STOMP/REST 신규 0·ENV 6(`MAGICJAR_KIS_WS_*` 확장)·각 R ENV toggle 롤백·장중 배포 금지 · spec `2026-06-11-kis-ws-slot-budget.md` SoT · 자본 결정권 0(시세 인입 layer) · **2026-06-13 ADR 0124로 amend** (R3 H0UNCNT0 채택 확정 + owner priority 재정렬 STRATEGY>DETAIL + watchlist owner 폐지)** |
+| **0124** | **KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬 — Accepted (2026-06-13 새벽 최고 관리자 직접 결재, 결정 3건 LOCK · 구현 market-data 병렬) · ADR 0123 amend(§2-2 owner priority 재정렬 + §2-3 R3 H0UNCNT0 채택 확정 + watchlist owner WS→polling 강등) · **결정 A** 체결가=H0UNCNT0 단일 채널 기본(KIS-first raw `ccnl_total/ccnl_total.py` "국내주식 실시간체결가 (통합)" + `NEW_MKOP_CLS_CODE` 세션 구분 · 종목당 2채널→1채널 · 2026-06-13 00:55 라이브 실측 31/40→16/40 · `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED` default **true 반전 + deprecated**(0123 §2-3 실측 게이트 충족 사실상 폐기) · 장중 실증 09:00 정규장까지 비상 롤백용 잔존 후 이중 발사 코드 제거 예고 · 빈 tick fallback 가드 유지 ADR 0091 정합) · **결정 B** watchlist WS 구독 폐지→5초 REST polling 전용 강등(자동매매 전 경로 STRATEGY·HOLDING·PENDING_BUY·DETAIL이 WS 수요 독립 cover·watchlist는 수동 관찰 보드·WS 40 slot 매매 전용 보존·watchlist 기능 유지 시세 공급만 WS→polling·eviction 단순화 watchlist victim 제거) · **결정 C** owner priority 재정렬 HOLDING(0)>PENDING_BUY(5)>**STRATEGY(10)>DETAIL(20)**(기존 DETAIL10>STRATEGY40 역전=매매 경로>관찰 경로 최고 관리자 명시·HOLDING 최우선=청산 tick 자본 risk·HOLDING/PENDING_BUY evict 금지 ADR 0114 LOCK 계승·STRATEGY 상한 MAX_CODES 15 계승) · Flyway/Kafka/STOMP/REST 신규 0·ENV default 반전만(신규 0)·코드 0 touch(md only) · 자본 결정권 0(시세 인입 layer·주문 발사 X)** |
 | 0057 | KIS OpenAPI 단일 데이터 출처 (Yahoo Finance·네이버 등 보조 출처 폐기) — 5m~1h은 1m 합산 가공 |
 | 0062 | 5m·15m·30m·90m·1h 합산 가공 — Accepted (백엔드 precomputed + 과거 30 거래일 + 5종 활성화) |
 | 0063 | NXT/통합거래 매트릭스 cover (분봉·일봉 시장 분류 코드) — Accepted (UN 통합 + 08:00~20:00 + threshold 700, ADR 0091로 market-level 분기 보강) |
 | 0064 | Redis boundary fanout + STOMP 실시간 합산 갱신 — Proposed |
-| 0073 | T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석 — **Superseded by ADR 0075** |
+| ~~0073~~ | T-NEWS feasibility 분석 — **Superseded by 0075** (현행 권위 = 0075 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
 | 0075 | T-NEWS 트랙 진입 spec/plan — Accepted (DART + Naver Open API + Flyway V32·V33 + Kafka 2 토픽 + Redis dedup/rate limit) |
 | 0076 | KIS WS NXT/시간외 시세 sync 표준 정합 — Proposed (v3.6.9 Phase 1·2·3 채택 완료) |
 | 0077 | **OPSP8996 ERROR 재발 deep dive (v3.6.11 hotfix) — 자격증명 미등록 시나리오 + MOCK type 시세 connect 정합 결함 + retry counter logic 결함 — Proposed (2026-05-17)** |
@@ -89,7 +128,7 @@
 | **0121** | **백테스트 사이징 정합(실전 RiskConfig) + G3 게이트 재정의(실전 사이징 기준 포트폴리오 MDD) — Proposed (2026-06-10, V77 재검증 #865 측정-게이트 불일치 evidence · 최고 관리자 direction-guard 결재) · 현 백테스트 `SizingPolicy.AllCapital`(1포지션=자본100%·universe 단일 cash풀 순차concat)이 만드는 MDD는 "몰빵 누적 낙폭"(단타 6프리셋 OOS 21~42%)인데 게이트 G3(MDD≤8%)는 분산 포트폴리오 기준 → 단타 0승격 영구 강제(측정모델↔게이트 정합 문제) · **본선 A**: `SizingPolicy.FixedFractional(positionPercent·maxConcurrent·maxPositionAmount)` 활성화(기존 sealed class 확장 add-only·기존 fraction 호출처 0건) — 실전 RiskConfig(maxPositionPercent10·maxConcurrentPositions5·maxPositionAmount100만) 정합 · BacktestRequest `sizingPolicy` 기존 필드 활용(평면 add 0·AllCapital default 유지·회귀0)·overfit/sensitivity `copy` 자동전파 · **1차 보수 LOCK**: 진짜 멀티종목 동시 시뮬(엔진코어 재작성) 거부 → "1슬롯=자본10% 고정(initialCapital base)순차"로 MDD 포트폴리오 환산·maxConcurrent는 메타 echo만(동시보유 시뮬 post-1차) · **보조 B**: G3 재정의 = FixedFractional(10%/5) 적용 MDD ≤ **12%**(AllCapital MDD G3 사용 금지) — 임계 12%는 실측35%×환산0.25~0.4≈9~14% + 분산5×10%=노출50% 근거(8%유지=정합후도 미달risk·15~20%=skepticism위반 거부·V78실측이 권위) · **V78 재검증**: V77 6종(H1·H2·H6·V75-1/2/3) 사이징만 교체 동일환경 재판정 — 신G3 통과시 H1 active유지확정/미달시 V77보류 비활성집행(정직LOCK) · 세션함수 DSL(VWAP·ORB·tod_RVOL)은 별도 spec 위임(R-later) · Flyway/REST/ENV/Kafka/STOMP **신규 0**(코드계약only·V77미점유) · 구현=strategy-engine Wave2·V78=Wave3 · md only · 자본 결정권 0** |
 | **0120** | **1wk/1mo/1y를 1d 합산으로 전환 — 기준봉/파생봉 통일 모델 — Accepted (2026-06-10, 사용자 결재 A안 + Phase 1 백엔드 구현 완료) · 2026-06-09 MIGRATE wipe가 일봉 패밀리 4종 삭제했으나 R-BF가 1d만 재적재 → 1wk·1mo·1y 15종목만 남은 **년봉 회귀** 근본 fix · 1wk/1mo/1y를 KIS 직접 fetch(FHKST03010100 W/M/Y) 아니라 **이미 보유한 1d(전종목 10년)에서 합산 생성**(KIS 콜 0·대안 B 전종목 W/M/Y 재fetch ~95k콜 기각) · **통일 모델**: 기준봉 KIS raw fetch=1m+1d 둘뿐 / 파생 합산=3m~12h←1m([CandleAggregator]) · 1wk·1mo·1y←1d(신규 [DailyRollupAggregator]) · **ts·OHLCV KIS 실측 정합(자체 추론 0·005930 reverse-engineering)**: 주봉 ts=그 주 첫 거래일(월·휴장 시 화)·월/연봉 ts=마지막 거래일(KIS 비대칭) · open=첫날·close=마지막날·high/low=max/min·vol=sum · **회귀 비교 PASS**: 005930 2026-05 월봉 OHLCV 1d 18봉 롤업과 완전 일치(open228000·close317000·high323000·low224000·vol622,815,748) · 거래량 채널 차이(레거시 KIS W=UN/통합 67.9M vs 현 J 1d sum 69.0M) → **롤업이 J 1d와 항상 일치하여 정합 우위**(ADR 0118 amend §9-B J 단일) · **실시간 보존 회귀 0**(닫힌 봉=롤업·진행봉=CandleQueryService.mergeQuoteLastCurrentCandle quote:last 병합·isSameQuotePeriod 매칭 ts 관례 KIS 정합으로 무변경) · Phase 1: DailyRollupAggregator(domain 순수함수 12 test)·DailyFamilyRollupRunner·MarketDailyRollupService+`POST /admin/market-daily-rollup/run`(전종목 1회 복구·멱등)·R2 야간(`MarketDailyNightlySnapshotService`) today 1d snapshot 직후 1wk/1mo/1y 재롤업 add-only · KIS W/M/Y fetch 경로 잔존(Phase 2 recollect용·폐지 아님) · Phase 2 재수집 UI(1m+파생체크박스·1d+1wk/1mo/1y체크박스·진입 count localStorage) spec deferred · Flyway/Kafka/STOMP/ENV 0 · `:consumer:check` GREEN · 자본 결정권 0)** |
 | **0119** | **1분봉 proactive cold-start 백필 폐지 — on-demand 전환 — Accepted (2026-06-09, 사용자 결재 + 구현 완료) · 전종목 일봉 마이그레이션(ADR 0118 R-BF) 중 일봉 wipe가 managed 전체에 1m cold-start storm(126 거래일×~630콜/종목) 유발 incident · `ColdStartExecutor`(126일 1m + 1d·1wk·1mo·1y 5종) 전면 은퇴 + 호출처 3곳 제거(`CandleBootstrapRunner` cold-start 분기[aggregate-only 경로 유지·KIS 0]·`WatchlistChangedKafkaListener`[`SubscriptionRouter.add` 유지]·`LastCandleAtMonitor` 1m stale[일봉 ONE_DAY stale+`CandleBackfillWorker`+Slack 유지·한국석유 회귀가드]) · **1m 유입 지도 Ⓐ실시간 WS(`TickToMinuteAggregator` 구독 ~30종목)+Ⓒon-demand(`SymbolDetailMinuteGapFill` bounded·`CandleBackfillWorker` admin 수동) 보존, Ⓑ내부 자동백필 폐지** · 일봉/주봉/월/년봉=R-BF/R2(ADR 0118) · `KisRestCandleAdapter` 1m 126일 lookback은 Ⓒ admin이 공유→보존(제거 시 on-demand 깨짐) · deferred(사용자 주도): 종목상세 fetch narrow화·전략 리서치 fetch·전략 라이브 워밍업 · Flyway/Kafka/Redis/STOMP/ENV 0 · `:consumer:check` GREEN · 자본 결정권 0)** |
-| **0118** | **전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정 — Proposed (2026-06-09 작성·결재 완료, 구현 전 status 유지) · "전종목 일봉 + 야간 갱신" 사용자 깊이 논의 결과 확정 · 신규 코드 최소·기존 자산 재사용 · `instrument` 테이블(KIS 73필드 마스터) → MARKET_DAILY universe(~3,000 보통주·**ETF·ETN 제외**·1d 단독·WS 구독 0)를 active managed universe(~25)와 물리 분리 · KIS `intstock-multprice`(FHKST11300006, 30종목/콜 → 100콜) 야간 23:00 snapshot으로 그날 1d 적재 + today WS집계를 공식값으로 `upsertAll`(ON CONFLICT DO UPDATE) 교정(과거봉 immutable DO NOTHING 유지) · KIS-first raw 검증(inter2_oprc/hgpr/lwpr/prpr·acml_vol·acml_tr_pbmn·max30) · 최초 backfill=per-symbol FHKST03010100 1회성 · **이력 깊이 10년 재산정(~2,450 거래일·~75,000콜·실효 8~12h → R-BF 멱등 분산 캠페인 신설: 체크포인트 skip·밤당 콜예산 cap·listed_at clamp false gap 0·여러 밤/주말) · storage ~7.3M row·Postgres 단일테이블 파티셔닝 불필요** · 야간 snapshot은 10년 무관·항상 100콜/일 불변(둘 분리) · gap 복구 1d=MARKET_DAILY catch-up·1m=active 분리(CandleGapDetector·CandleBackfillWorker 100% 재사용) · candle-data-policy "공식 일봉 마감값 > WS 집계" 명문화 · BG 버킷(ADR 0116) 소비·USER/INGESTION 침범 0 · STRATEGY/DETAIL owner 분리+watchlist 자동삽입 금지 LOCK · 신규클래스 ~4·Flyway 0~1·Kafka/STOMP/REST 0 · R0설계/R1어댑터+universe+NXT실측/R2스케줄러+upsert/R-BF 10년backfill캠페인/R3 gap확장+테스트 · **결재 완료(2026-06-09): ① universe=보통주 ETF·ETN 제외 ② 이력 깊이=10년(architect 권고 1년→사용자 상향) ③ today 종가=NXT 통합 권위(멀티시세 NXT 반환 R2 실측·정규장만 시 DailyCloseFinalizer 폴백)** · R1 완료 시 Accepted 예정 · 자본 결정권 0)** |
+| **0118** | **전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정 — Accepted (2026-06-09 — R1·R2 구현 완료, 파일 헤더 정합) · "전종목 일봉 + 야간 갱신" 사용자 깊이 논의 결과 확정 · 신규 코드 최소·기존 자산 재사용 · `instrument` 테이블(KIS 73필드 마스터) → MARKET_DAILY universe(~3,000 보통주·**ETF·ETN 제외**·1d 단독·WS 구독 0)를 active managed universe(~25)와 물리 분리 · KIS `intstock-multprice`(FHKST11300006, 30종목/콜 → 100콜) 야간 23:00 snapshot으로 그날 1d 적재 + today WS집계를 공식값으로 `upsertAll`(ON CONFLICT DO UPDATE) 교정(과거봉 immutable DO NOTHING 유지) · KIS-first raw 검증(inter2_oprc/hgpr/lwpr/prpr·acml_vol·acml_tr_pbmn·max30) · 최초 backfill=per-symbol FHKST03010100 1회성 · **이력 깊이 10년 재산정(~2,450 거래일·~75,000콜·실효 8~12h → R-BF 멱등 분산 캠페인 신설: 체크포인트 skip·밤당 콜예산 cap·listed_at clamp false gap 0·여러 밤/주말) · storage ~7.3M row·Postgres 단일테이블 파티셔닝 불필요** · 야간 snapshot은 10년 무관·항상 100콜/일 불변(둘 분리) · gap 복구 1d=MARKET_DAILY catch-up·1m=active 분리(CandleGapDetector·CandleBackfillWorker 100% 재사용) · candle-data-policy "공식 일봉 마감값 > WS 집계" 명문화 · BG 버킷(ADR 0116) 소비·USER/INGESTION 침범 0 · STRATEGY/DETAIL owner 분리+watchlist 자동삽입 금지 LOCK · 신규클래스 ~4·Flyway 0~1·Kafka/STOMP/REST 0 · R0설계/R1어댑터+universe+NXT실측/R2스케줄러+upsert/R-BF 10년backfill캠페인/R3 gap확장+테스트 · **결재 완료(2026-06-09): ① universe=보통주 ETF·ETN 제외 ② 이력 깊이=10년(architect 권고 1년→사용자 상향) ③ today 종가=NXT 통합 권위(멀티시세 NXT 반환 R2 실측·정규장만 시 DailyCloseFinalizer 폴백)** · R1·R2 구현 완료로 Accepted · 자본 결정권 0)** |
 | **0117** | **단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수 — Proposed (2026-06-09, "돈 버는 전략 먼저" 피벗 후속 · 전략 미작성 시 시스템 빌트인 룰로 단타 후보 TOP N 제시 · ScreenerEngine strategyId-필수 전제와 책임분리(ADR 0071) · KIS H0STCNT0[18]CTTR/[14]ACML_TR_PBMN 흡수→TickEvent 2필드 add-only + DSL `trade_intensity` add-only + POST /api/screener/daytrade-discover(LLM 0·ai-discovery와 분리) + 빌트인 단타 setup 프리셋(BuiltinResearchCandidates add·신규 테이블 0) + STRATEGY owner 재사용·watchlist 비삽입 + 백테스트 IS/OOS·민감도 add-only(ADR 0056 코어 불변)·체결강도 백테스트 재현 불가 LOCK + 자본 결정권 0 · Flyway/Kafka/STOMP 0)** |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
@@ -123,14 +162,14 @@
 | 0032 | Husky v9 git hooks (pre-commit author whitelist + pre-push) |
 | 0033 | 단일 worktree + 순차 작업 정책 |
 | 0034 | 머지 흐름 단순화 (`agent/* → main`) |
-| 0035 | ~~에이전트별 모델 차등 + 에스컬레이션~~ — **Superseded by 0080 (2026-05-18)** |
+| ~~0035~~ | 에이전트별 모델 차등 + 에스컬레이션 — **Superseded by 0080** (현행 권위 = 0080 전체 opus 통일 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
 | 0036 | Orchestrator Meta Rules (git-author + task-file-system + architect-as-orchestrator) |
 | 0078 | 내부 자산 추출 전략 — Proposed (재사용 가능한 프로젝트 부트스트랩 템플릿 + Plugin Independence 제약) |
 | 0079 | **마스터 시각화 HTML 표준화 (`scripts/master-index.mjs` + `/master-index` slash + release.sh 통합) — Accepted (2026-05-17)** |
 | 0080 | **전체 에이전트 Opus 4.7 통일 (ADR 0035 supersede) — Accepted (2026-05-18) — Amended by ADR 0094 (2026-05-21): 8 → 7 actor (chart-curator 해고) + qa Visual 격상. opus 4.7 LOCK 유지** |
 | 0081 | **계좌 잔고·예수금 사용자 노출 endpoint + UI (T-ACCT 신규 트랙) — Accepted (2026-05-19 격상 · Phase 1·2·3·4 머지 evidence · v3.6.17 release 포함)** |
 | 0082 | **사용자 수동 주문 발행 트랙 (T-MAN — 가상계좌 통합테스트 dogfooding + 사용자 최고 관리자 통제) — Proposed (2026-05-18 · spec 발행 단계)** |
-| 0085 | ~~chart-curator 신규 에이전트 영입 (8번째 sub-agent) — TradingView LWC v4 차트 + 캔들 데이터 SLA·정합성 단일 owner~~ — **Superseded by ADR 0094 (2026-05-21)**: chart-curator 해고 + 책임 이관 (LWC v4 → frontend / 캔들 SLA → market-data). 페르소나 "안정빌드"는 frontend·market-data 보수 lens로 흡수 보존. spec: `_workspace/specs/2026-05-21-chart-curator-handover.md` |
+| ~~0085~~ | chart-curator 신규 에이전트 영입 (8번째 sub-agent) — **Superseded by 0094** (현행 권위 = 0094 chart-curator 해고·책임 이관 · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기)) |
 | 0086 | **T-CC Phase 2 — 자동 backfill 워커 + 갭 검출 + 데이터 햇징 룰 매트릭스 10건 (신입 chart-curator 보호) — Accepted (2026-05-19 격상 · Phase 2-A 햇징 룰 10건 모두 구현 + 27 단위 테스트 ALL GREEN · v3.6.17 release 포함)** |
 | 0087 | **Sub-agent 페르소나 매트릭스 — 보수적 chart-curator ↔ 진보적 backend-core 짝 시스템 — Accepted (2026-05-21 ADR 0094 amend 동반 격상) — Amended by ADR 0094: 7 actor 페르소나 매트릭스 (chart-curator 보수 흡수 → frontend·market-data + qa Visual "품질 헌터" 신규 + ai-engineer 균형 추가)** |
 | 0094 | **운영 단계 transition — 개발 단계 종착 + 운영·점진 고도화 단계 진입 (sub-agent 8 → 7 reshuffle: 해고 chart-curator·격상 qa Visual "품질 헌터"·유지 ai-engineer·거절 sre · backend-core P0 OPS 6건 인수 · 운영 헌법 §9 신설 SLO/SLA·on-call·DR·운영 ADR 양식 · spec 2건 동반 발행) — Accepted (2026-05-21 사용자 위임 결재 · orchestrator 자율 결정 매트릭스 반영 · ADR 0080·0087 amend + ADR 0085 supersede)** |
@@ -146,7 +185,7 @@
 | 번호 | 제목 |
 |------|------|
 | 0037 | KIS API Rate Limit 강제 (초당 10건 + 토큰 버킷) — **§2-1 단일 bucket LOCK·§2-3 share 분할은 ADR 0116으로 supersede (2026-06-08)** |
-| **0116** | **KIS Rate Limit Phase 2 — priority별 별도 버킷(3-tier USER 4/SHARED 3/BG 3 합 10) + KIS 실제 한도 정합(refillIntervally burst 억제) — Proposed (2026-06-08, 별도 브랜치 전용·canary 전 급반영 금지 · commit 2837b2cf 2-bucket reserve orphan 정식화 + 잘못된 `ADR 0112 의제` 참조 17파일 정정 + ADR 0037 단일 bucket supersede + 역방향 fallback(상위 priority가 더 많은 버킷 접근) + MarketIndexScheduler inter-call jitter 분산 + priority별 버킷 사용률/timeout/last_bucket metric · Redis 3 key + ENV 4 add-only · Flyway/Kafka/STOMP/REST 0 · R1 버킷분리+orphan정정/R2 refill검증+스케줄러분산/R3 부하검증)** |
+| **0116** | **KIS Rate Limit Phase 2 — priority별 별도 버킷(3-tier USER 4/SHARED 3/BG 3 합 10) + KIS 실제 한도 정합(refillIntervally burst 억제) — Accepted (2026-06-08 설계 → 사용자 인지 배포 → v3.12.1 코드 반영 완료) · commit 2837b2cf 2-bucket reserve orphan 정식화 + 잘못된 `ADR 0112 의제` 참조 17파일 정정 + ADR 0037 단일 bucket supersede + 역방향 fallback(상위 priority가 더 많은 버킷 접근) + MarketIndexScheduler inter-call jitter 분산 + priority별 버킷 사용률/timeout/last_bucket metric · R1 버킷분리+orphan정정(PR #824)/R2 refill정합+스케줄러분산+priority 버킷 관측(PR #825)/tr_id별 호출 통계 metric+Grafana(PR #827)/SLO S-4 버킷별 소진율 패널 · Redis 3 key + ENV 4 add-only · Flyway/Kafka/STOMP/REST 0 · `별도 브랜치 전용·급반영 금지` 표기는 배포 완료로 sunset** |
 | 0038 | KIS OAuth 24h 토큰 + Redis 분산락 공통 모듈 |
 | 0039 | 종목 마스터 갱신 Cron (KIS 갱신 시각 +5분) |
 | 0040 | 관심종목 우선 UI 흐름 (Strategy Builder → 발굴 → Watchlist → 상세) |
@@ -189,7 +228,7 @@
 
 | 번호 | 제목 | 영향 Wave |
 |------|------|------|
-| 0049 | GitHub Actions = release 트리거 한정 (일상 검증은 pre-push hook 단독) | 횡단 |
+| ~~0049~~ | GitHub Actions = release 트리거 한정 — **Superseded (폐기)** GHA 결제 폐기(`feedback_no_github_actions.md`) · 본문 분리 → [§15](#§15-역사-보존-superseded--폐기) | 횡단 |
 | 0050 | CHANGELOG 슬롯 채번룰 (architect 사전 발행 + sub-agent in-place edit) | 횡단 (병렬 디스패치 사이클) |
 | 0051 | Spring Data Repository default fun 함정 (회피 패턴) | 횡단 (backend-core·market-data 핵심 risk) |
 | 0052 | Baseline Documentation Cycle (skill + slash + 스크립트 4종) | 횡단 (release 사이클·문서화) |
@@ -199,8 +238,8 @@
 ## §11. 운영 규약
 
 - **새 ADR 발행 시** — 본 README + `master-architecture.md` §10 + `tracks-roadmap.md` §3 동시 갱신.
-- **Superseded 처리 시** — 본문 상단 헤더 + 본 README 행 supersede 표기. `_archive/` 이동은 v3.3.0 cycle에 일괄.
-- **신규 진입 시 후속 ADR 번호** — **0110부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)·0106(RiskPlan 필수화)·0107(Scenario Replay Sandbox)·0108(assessment 문서 구조)·0109(REAL canary hard cap ENV)·0110(전략별 포지션 귀속)·0111(RiskPlan scale-in / exit)·0112(AI 종목발굴 Claude CLI bridge)·0113(캔들 retention 계층화 케이스)·0114(주문 집행 정책 marketable limit + 청산 보장 — 별도 브랜치 Proposed)·0115(포지션 단일 권위 + 드리프트 자동보정 — Proposed)·0116(KIS Rate Limit Phase 2 priority별 별도 버킷 — 별도 브랜치 Proposed)·0117(단타 발굴 레이어 + 체결강도 KIS raw 흡수 — Proposed)·0118(전종목 일봉 universe + 야간 멀티시세 snapshot)·0119(1분봉 proactive cold-start 백필 폐지 — on-demand 전환 — Accepted)·0120(1wk/1mo/1y 1d 합산 전환 — 기준봉/파생봉 통일 모델 — Accepted)·0121(백테스트 사이징 정합 + G3 포트폴리오 MDD 재정의 — Proposed)·0122(발굴→MOCK 페이퍼 트레이딩 dispatch 경로 — Accepted)·0123(KIS WS 슬롯 회계 + owner eviction + 채널 다이어트 — ADR 0048 amend — Proposed)** 점유 완료. 후속은 0124부터, 예약 슬롯은 §12 참조.
+- **Superseded 처리 시** — ① 파일 헤더 status `Superseded by NNNN` + ② 본문 섹션 표 행을 `~~NNNN~~ ... → §15` 1줄로 축약 + ③ **§15 역사 보존 표에 supersede 관계 등재**. 파일 삭제 금지(역사 evidence). `_archive/` 물리 이동은 폐기(파일 위치 유지 + §15 논리 분리로 대체).
+- **신규 진입 시 후속 ADR 번호** — **0110부터 sequential**. 0082(T-MAN)·0083(indicator-impl)·0084(주문 path 안정성)·0085(chart-curator 영입)·0086(T-CC Phase 2 데이터 햇징 룰)·0087(sub-agent 페르소나 매트릭스)·0088(persistence-shared 모듈)·0089(userId 타입 정합)·0090(instrument_status_history)·0091(NXT resolver)·0092(strategy-engine 모듈)·0093(차트 캔들 히스토리 limit + lazy backfill)·0094(운영 단계 transition + qa Visual 격상)·0095(P0-OPS-3 SLO/SLA + alert routing)·0096(P0-OPS-4 DR/backup 절차)·0097(ExecutionPositionUpdatePort)·0098(KillSwitchQueryPort + Strategy 활성화 게이트)·0099(Reactor `.block()` non-blocking 계약)·**0100(T-MARKET 트랙)·0101(TrendPreference + user_preference)·0102(spec audit 5단계 절차)·0103(JpaScanConfiguration 패키지 누락 차단)·0104(시장 캘린더 이벤트 + 휴장일 게이트)·0105(캔들 Reconciliation + 장기 1m retention)·0106(RiskPlan 필수화)·0107(Scenario Replay Sandbox)·0108(assessment 문서 구조)·0109(REAL canary hard cap ENV)·0110(전략별 포지션 귀속)·0111(RiskPlan scale-in / exit)·0112(AI 종목발굴 Claude CLI bridge)·0113(캔들 retention 계층화 케이스)·0114(주문 집행 정책 marketable limit + 청산 보장 — 별도 브랜치 Proposed)·0115(포지션 단일 권위 + 드리프트 자동보정 — Proposed)·0116(KIS Rate Limit Phase 2 priority별 별도 버킷 — 별도 브랜치 Proposed)·0117(단타 발굴 레이어 + 체결강도 KIS raw 흡수 — Proposed)·0118(전종목 일봉 universe + 야간 멀티시세 snapshot)·0119(1분봉 proactive cold-start 백필 폐지 — on-demand 전환 — Accepted)·0120(1wk/1mo/1y 1d 합산 전환 — 기준봉/파생봉 통일 모델 — Accepted)·0121(백테스트 사이징 정합 + G3 포트폴리오 MDD 재정의 — Proposed)·0122(발굴→MOCK 페이퍼 트레이딩 dispatch 경로 — Accepted)·0123(KIS WS 슬롯 회계 + owner eviction + 채널 다이어트 — ADR 0048 amend — Proposed)·0124(KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 재정렬 — ADR 0123 amend — Accepted)** 점유 완료. 후속은 0125부터, 예약 슬롯은 §12 참조.
 - **변경 이력 기록 의무** — 의미 있는 ADR 발행·재발행·supersede·예약 해제 시 §14에 한 줄 추가.
 
 ## §12. 예약 슬롯 (Reserved)
@@ -217,7 +256,7 @@
 
 ## §13. 후속 예정 (Proposed)
 
-현재 Proposed 상태로 사용자 결정·후속 dispatch 대기 중인 ADR. Accepted/Superseded 전환 시 §14 변경 이력에 기록 + 본 표에서 제거.
+현재 Proposed 상태로 사용자 결정·후속 dispatch 대기 중인 ADR. Accepted/Superseded 전환 시 §14 변경 이력에 기록 + 본 표에서 제거. (2026-06-13 정합: 0088·0087은 파일 헤더 Accepted 확정 → 본 표에서 제거, 0064·0076·0077·0078·0082·0089·0090·0093 + 0084 P1·P2 잔류만 Proposed)
 
 | 번호 | 제목 | 대기 사유 |
 |------|------|---------|
@@ -227,16 +266,15 @@
 | 0078 | 내부 자산 추출 전략 | 사용자 명시적 호출 단일 조건 시 시동 — Phase 1~3 분리, Plugin Independence 제약 LOCK |
 | 0082 | T-MAN 사용자 수동 주문 발행 트랙 | `POST /api/orders/manual` + `/orders/new` 페이지 + OrderPreviewModal 이중 confirm + 60s cooldown + 3중 게이트 동일 적용 + ADR 0068 `OrderRouterKafkaListener` 12 step 재사용(자본 path 단일 LOCK) + T-RISK Guard chain 우회(KillSwitch만 재검증) + sentinel signalId=0L · source="MANUAL". v3.6.15 patch cut 후보 — Phase 1(backend-core api/controller) + Phase 2(frontend) 병렬 dispatch 가능 → 머지 후 Accepted 격상 |
 | 0084 (P1·P2 잔류) | 주문 path 안정성 P1·P2 후속 트랙 | **P0 4건은 2026-05-19 Accepted 격상 마감 (v3.6.16 cut · §14 변경 이력)**. 잔류 P1(outbox·STOMP 영속·MDC) v3.6.17 + P2(정정·MarketSession) v3.6.18 또는 W4 묶음. Flyway V37·V38 + Kafka 1 추가 토픽(order.modify.intent.v1 옵션). sub-agent 6~10 PR. 사용자 결재 의제 잔류. |
-| 0088 | persistence-shared 모듈 (Outbox wiring 결함 fix) | **Accepted (2026-05-22 — 격상)** — qa cross-validation evidence + backend-core 자가 진단 PR #524·#523 운영 흐름 작동률 0% root cause 해소. consumer ObjectProvider<OrderEventOutboxRepository>·<NotificationOutboxRepository> always empty 결함 — 어댑터 api 단독 발행 + consumer→api 의존 0 ADR 0004 LOCK 정합. 옵션 B 채택 — persistence-shared 라이브러리 모듈 신설(ADR 0054·0083 패턴 1:1 — root 직속 Kotlin + Spring Context + JPA Boot main 0, 컨테이너 0). 9 파일 git mv + 패키지 rename + Gradle 4 파일. Flyway 권위 api 단독 유지 LOCK. **Phase 1 머지 완료** (`persistence-shared/` 모듈 root 직속 존재 + 9 어댑터 + Gradle 4 파일) + 검증 GREEN(`WARN drain worker skip` 0건 + `WARN retry worker skip` 0건 + 컨테이너 8시간+ 운영 안정) + 자본 흐름 작동률 0% → 100% 회복. |
 | 0089 | userId 타입 정합 (backend·frontend cross-cutting) | **Proposed (2026-05-19)** — frontend PR #549 P2-F1 evidence + cross-cutting drift 5+ 영역 (account/order/watchlist=string · journal/performance/screener=number · useOnboardingStore.registeredUserId=number\|null). 옵션 A 채택 — backend·frontend 모두 `number`(Long → JS number) 통일. DB BIGINT → JS number 자연 정합 + MAX_SAFE_INTEGER 안전권 + MCP future spec(ADR 0027) int64 baseline. Phase 1 backend-core DTO 1:1 정합 검증 + Phase 2 frontend 5+ 파일 type 정정 (~50~80 LOC type only logic 0 변경). |
 | 0090 | `instrument_status_history` 테이블 (chart-curator §12 4축 axis 2·3 정밀도) | **Proposed (2026-05-19)** — chart-curator PR #554 P2-1·P2-2 evidence + 한국석유 dogfooding cycle cross-ref 잠재 false positive risk. Flyway V42(또는 next 시퀀스) `instrument_status_history(instrument_code, status, effective_from, effective_until, reason, recorded_at)` + 인덱스 2(`(code, from DESC)` + 활성 partial). 운영 path market-data Phase 1 (`InstrumentMasterRefreshJob` cron 보강 + history INSERT/UPDATE + audit_trail `INSTRUMENT_STATUS_CHANGED`) + chart-curator Phase 2 (`CandleGapDetectorAdapter.passesActiveGapAxes()` history lens 통합). KIS endpoint 신규 호출 0 LOCK + AI 호출 0 + mock 합성 0. |
-| 0087 | Sub-agent 페르소나 매트릭스 (chart-curator 보수 ↔ backend-core 진보) | **Proposed (2026-05-19)** — 사용자 명시 옵션 A 채택. backend-core 진보적 페르소나(15년차 리팩토링맨) 부여 + chart-curator 보수적 페르소나(ADR 0085 amend)와 짝 매트릭스 LOCK. Phase 1 backend-core 운영 evidence 누적(💡/🔄/✨ 출력 형식 + Kotlin 함수형 스타일 + cross-review 1회 이상 dogfooding) 후 Accepted 격상 예정. 다른 6 sub-agent 페르소나 부여 보류(사용자 결정 의제). |
 | 0093 | 차트 캔들 히스토리 limit 정책 + Lazy Backfill + 사용자 입력 봉수 | **Proposed (2026-05-20)** — 사용자 dogfooding 결함(차트 600봉 cap, 일반 증권앱 미달) + 코덱스 협업 답변 정합 4 의제. 대안 B(lazy backfill + 사용자 입력 + timeframe 매트릭스) 채택. timeframe별 default/max 매트릭스 LOCK(1d=300/5000 · 1m=600/4800 · 1y=50/600 등) + LWC `subscribeVisibleLogicalRangeChange` 가드 LOCK(backlog §30 fix 정합) + `GET /candles` endpoint `limit` cap 500→5000 확장 + `MAX_PAGES` property 외부화 + 봉수 input UI(select+직접입력) + ADR 0037 baseline LOCK으로 cover(추가 backoff 0) + ADR 0085·0086 정합(chart-curator 1차 lens 의무). Phase 분리 dispatch: (1) architect ADR(본) → (2) chart-curator spec(`_workspace/specs/2026-05-20-chart-candle-history-limit-spec.md`) → (3) backend-core property+cap → (4) frontend UI → (5) chart-curator LWC 가드+dogfooding. 운영 코드 0 touch(본 ADR PR). |
 
 ## §14. 변경 이력
 
 본 README 자체 + ADR 발행/supersede 시계열. minor cut 단위로 누적.
 
+| 2026-06-13 | **ADR 0124 신설 + README 인덱스 대청소 (Accepted, 최고 관리자 직접 결재 3건 LOCK)** | 입력=orchestrator dispatch "KIS WS 구독 수요 재편 + ADR 인덱스 대청소". **ADR 0124**: ADR 0123 amend(R3 H0UNCNT0 채택 확정 + owner priority 재정렬 + watchlist owner 폐지). 결정 A H0UNCNT0 단일 채널 기본(KIS-first raw `ccnl_total/ccnl_total.py`+`NEW_MKOP_CLS_CODE`·라이브 31→16 실측·`INTEGRATED_TICK_ENABLED` default true 반전+deprecated·이중 발사 코드 제거 예고) / B watchlist WS 폐지→5초 polling 강등(WS 40 slot 매매 전용 보존·watchlist owner 폐지) / C owner priority HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20)(STRATEGY>DETAIL 역전=매매 경로>관찰 경로). **README 대청소**: §0 빠른 lookup 신설(최근 10건 표 + 주제별 jump) · status drift 정정 2건(0116 Proposed→Accepted v3.12.1 반영·0118 Proposed→Accepted R1·R2 완료 — 파일 헤더 정합) · §15 역사 보존 § 신설(Superseded 4건 본문 섹션→역사 § 이동: 0035→0080·0049 폐기·0073→0075·0085→0094) · 제거 후보 candidates 목록(0020 v2 Proposed 방치·0014 KIS-only 후 재검토 — 판단 갈려 status 정정 보류). 구현=market-data 병렬(`agent/market-data/...`). 코드 0 touch(md only). 자본 영향 0(시세 인입 layer) + KIS 실주문 0 + AI 호출 0 + mock 합성 0. (architect, 사용자 직접 결재) |
 | 2026-06-12 | **ADR 0109 §7 amend — REAL canary hard cap 의미 정합(매수만 카운트·SELL cap 면제·매도 MARKET fallback, 사용자 직접 결재)** | 입력=2026-06-12 REAL canary 라이브 incident — cap 3종이 방향(매수/매도) 무구분이라 "손실을 작게 캡한다"는 §1 본질이 청산 봉쇄로 역전(11:32 익절 LIMIT `CANARY_DAILY_ORDER_CAP:5>=5`·13:11 DSL 청산 `6>=5`·13:31 수동 SELL `CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE`). **최고 관리자 직접 결재 3건**: ① `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY` 카운트 = **당일 매수(BUY)만·왕복 1회=1카운트**("사고팔면 1번 카운팅"), REJECTED 미카운트(게이트 거부 BUY 슬롯 잠식 차단) — 구현 PR #927(backend-core, `countRealOrdersBetween` `@Query`에 `side=BUY`+`status<>REJECTED` add-only). ② QTY·NOTIONAL cap **SELL 전면 면제** — magicJar 숏(공매도) 부재로 매도는 보유량(ADR 0110 lot ledger)이 자연 상한("매도는 신호 나오면 팔면 끝") — 구현 hotfix F8. ③ 매도 가격 산정 실패 시 **MARKET fallback** — 청산은 체결 확실성이 본질(ADR 0114 §1-2 StopLoss=MARKET·§3-2 청산 항상 보장), 진입(BUY) MARKET fallback 금지(0114 §3-1-5 슬리피지 캡 자기 부정 회피)와 **방향 구분 명문화**("BUY=가격 보호 우선 / SELL=체결 보장 우선") — 구현 hotfix F8. ENV 이름(`MAX_ORDERS_PER_DAY`)이 의미("매수 횟수")와 어긋나나 **리네이밍은 라이브 호환 보류** — 의미 권위=본 amend(§7-2). 변경 매트릭스 3 파일: (1) `_workspace/arch/adr/0109-*.md` §7 amend 신설 + 헤더 상태 행 + §5 트레이드오프 3 row + §6 변경 이력 row (2) 본 README 0109 row amend 표기 + §14 본 row (3) `docs/architecture/master-architecture.md` §10 0109 row + §13 변경 이력 row + (4) `CHANGELOG.md` row. 운영 코드 0 touch(md only — 구현은 PR #927 + hotfix F8 별 PR). 자본 영향 0(문서) + KIS 호출 0 + AI 호출 0 + mock 합성 0. (architect, 사용자 직접 결재 정합) |
 
 | 2026-06-11 | **ADR 0123 신설 — KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 (Proposed, 최고 관리자 결재·구현 후속 디스패치)** | 입력=orchestrator dispatch "KIS WS 구독 슬롯 고갈 근본 수정" + 2026-06-11 장중 후성(093370) 분봉 35/92 결손 incident(OPSP0008 MAX SUBSCRIBE OVER 35건·005930 호가 거부). **ADR 0048 amend** — KIS-first raw fetch(`examples_user/kis_auth.py` `Subscription's max is 40` enforce)로 한도 **41→40 정정** + slot 산식을 owner 모델 + 단일 ledger로 재정의 + OPSP0008 graceful path 신설. root cause: 체결가·호가 두 독립 라우터 부분 한도 각각 관리 + NXT(H0NXCNT0) 이중 발사 미회계(실제 2배) + OPSP0008 거부 응답 미감지 → 총 점유 40 초과 인지 0. **결정**: ①단일 회계기 `WsSlotBudgetLedger`(채널=(code,trId) 단위·발사 직전 available 검사·OPSP0008 선제 예방) ②owner priority eviction(HOLDING 0 최상위 > PENDING_BUY 5 > DETAIL 10 > WATCHLIST 20 신규 > STRATEGY 40 상한15·HOLDING/PENDING_BUY evict 금지 ADR 0114 LOCK 계승·디스패치 input의 DETAIL>HOLDING 제안 뒤집음=보유 자본 직결 우선) ③채널 다이어트(NXT owner별 선택화·H0UNCNT0 통합 체결가 R3 검토 — KRX+NXT 단일 cover slot 절반·ADR 0091 UN 빈응답 risk 실측 게이트) ④거부 graceful(ledger 보정+gap-fill 분봉 REST 보완+polling+Slack·헌법 §11-2 silent 금지). 관측 Prometheus 5종. R1(회계+OPSP0008+관측 market-data·backend-core)/R2(eviction market-data)/R3(다이어트 market-data·strategy-engine NXT 협의)/R4(시나리오 qa). 자원 audit(ADR 0102): Flyway V82 최신·Kafka/STOMP/REST 신규 0·ENV 6(`MAGICJAR_KIS_WS_*` 확장)·Prometheus metric 5(`magicjar_kis_ws_*`)·각 R ENV toggle 롤백·장중 배포 금지. spec `2026-06-11-kis-ws-slot-budget.md` SoT. 코드 0 touch(md only). 자본 영향 0(시세 인입 layer·주문 발사 X) + KIS 실주문 0 + AI 호출 0 + mock 합성 0. (architect, opus 4.8) |
@@ -308,3 +346,21 @@
 | 2026-05-11 | — | ADR 0062·0063 Accepted — 5m·15m·30m·90m·1h 합산 가공 + NXT/통합거래 매트릭스 cover. ADR 0057 KIS-only 채택 |
 | 2026-05-10 | — | ADR 0054 추가 — pattern-engine 모듈 분리, ADR 0004 4→5 모듈 갱신 |
 | 2026-05-07 | v3.0.1 | ADR 0001~0053 baseline. ADR 0041~0046 fitness 갭 6건 발굴. README 인덱스 체계 확립 |
+
+## §15. 역사 보존 (Superseded · 폐기)
+
+현행 권위가 아닌 ADR. 본문 섹션 표에서 분리하여 여기에 supersede 관계와 함께 보존한다. **파일은 삭제하지 않는다**(역사 evidence). 파일 헤더 status도 본 표와 정합.
+
+| 번호 | 제목 | 상태 | 대체·사유 |
+|------|------|------|----------|
+| 0035 | 에이전트별 모델 차등 + 에스컬레이션 | **Superseded** | **→ 0080** (2026-05-18, 전체 opus 통일). 차등 모델 폐기 |
+| 0049 | GitHub Actions = release 트리거 한정 | **Superseded (폐기)** | 2026-05-12 GHA 결제 폐기 사용자 결정(`feedback_no_github_actions.md`). 일상 검증은 pre-push hook 단독 — 본 ADR의 "release 트리거" 부분도 실효(release tag/branch 유지하되 자동 trigger 0). 잔존 인지: §10-4 표에서 본 §로 이동 |
+| 0073 | T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석 | **Superseded** | **→ 0075** (feasibility 분석 → 트랙 진입 spec/plan으로 승격). 0075가 현행 권위 |
+| 0085 | chart-curator 신규 에이전트 영입 (8번째 sub-agent) | **Superseded** | **→ 0094** (2026-05-21, chart-curator 해고 + 책임 이관: LWC v4 → frontend / 캔들 SLA → market-data). 페르소나 "안정빌드"는 ADR 0087 보수 lens로 흡수 보존. spec `_workspace/specs/2026-05-21-chart-curator-handover.md` |
+
+> **참고**: ADR 0037(§10 잔존)은 §2-1 단일 bucket이 ADR 0116으로 supersede됐으나 **부분 supersede**(rate limit baseline 골격은 0116이 계승·확장)이므로 §10 현행 표에 잔존 + supersede 표기만. 완전 폐기 아님.
+>
+> **제거 후보 candidates (판단 갈림 — status 정정 보류, 사용자 확인 대기)**:
+> - **0020** (KIS Strategy Builder 흡수 v2) — status `Proposed (v2)` 장기 방치. 실 구현은 ADR 0022(DSL)·0055(Strategy Builder UI)로 흡수됐으나 명시적 supersede 관계 미선언. Accepted 격상 또는 0022·0055 supersedes 표기 중 택1 필요 — **사용자 확인 대기**.
+> - **0014** (시세 데이터 Fallback 3-tier: live→cache→last-day-close) — KIS-only 정책(`feedback_kis_first_policy`) 이후 Yahoo tier는 폐기됐으나 3-tier 골격(KIS live→Redis cache→전일 종가)은 단일 출처 내에서도 유효. v1/v2 잔재 의심 lens 대상이나 **현행 fallback 정책으로 여전히 유효 가능성** — 폐기 단정 보류, 사용자 확인 대기.
+> - **0019** (캔들 저장 Watchlist + Yahoo) — Yahoo 부분 보류 명시됐으나 사용자 직접 지시 "ADR 폐기 금지·backlog 유지" — Accepted 유지가 사용자 의지 정합. candidates 아님(기록만).
