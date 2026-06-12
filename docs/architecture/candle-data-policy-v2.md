@@ -43,7 +43,7 @@
 
 | Interval | Source (KIS tr_id) | Cache | DB 영속 | 시각 cover | TTL/만료 |
 |---|---|---|---|---|---|
-| **틱** | KIS WS `H0STCNT0` + `H0NXCNT0` + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
+| **틱** | KIS WS `H0UNCNT0`(KRX+NXT 통합 단일 채널·`NEW_MKOP_CLS_CODE` 세션 구분 — ADR 0124) + 시간외 `H0STOUP0` | Redis `quote:last:{code}` + Kafka/STOMP | X | NXT 통합 08:00~20:00 KST + 시간외 단일가 | quote TTL 7d |
 | **1m (1분봉) — 당일** | KIS WS tick → Redis current, closing 시 DB INSERT. REST `FHKST03010200`은 backfill/검증 | Redis `candle:current:{code}:1m` | DB INSERT (분 단위 closing) | NXT 통합 08:00~20:00 KST (720 bar/일) | Redis: 2m |
 | **1m (1분봉) — 장기 backfill/reconciliation** | KIS REST `FHKST03010230` (NXT 후보=`UN`→`J`, 그 외=`J` — ADR 0091) | Redis (당일 current) | **DB 영속 (기본 6개월, 최대 1년; `magicjar.candle.one-minute.*`)** | NXT 통합 08:00~20:00 KST | — |
 | **3m·5m·15m·30m·90m·1h·4h·12h** | **백엔드 precomputed 합산** + 장중 KIS WS tick current candle | Redis `candle:current:{code}:{interval}` | **DB 영속 (1m retention 기준 재생성)** | NXT 통합 08:00~20:00 KST boundary 정렬 | Redis: 24h |

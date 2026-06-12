@@ -1,10 +1,11 @@
 # ADR 0020: KIS Strategy Builder 흡수 (v2 — 명세 port + AI hook 제거)
 
-- 상태: Proposed (v2 — 1차안 `docs/architecture/adr-0036-*.md` 폐기 후 정식 ADR 디렉토리로 이전)
-- 작성일: 2026-05-03
-- 결정자: architect (opus 4.7 1M) — 사용자 검토 후 정식 발행
+- 상태: **Accepted (2026-06-13 격상 — 최고 관리자 결재. 구현은 ADR 0022·0055 등으로 흡수 완료: 80지표 카탈로그·indicator-impl 모듈·DSL parser·Strategy Builder 화면)**
+- 작성일: 2026-05-03 (v2 발행) · 2026-06-13 (Accepted 격상)
+- 결정자: architect (opus 4.7 1M v2 발행 · opus 4.8 1M 격상) — 사용자 검토 후 정식 발행
 - master §위치: `docs/architecture/master-architecture.md` v2 §1·§2.B.5·§2.B.6·§2.B.7·§2.B.8·§4·§7·§10
 - 선행 폐기: 1차안 `docs/architecture/adr-0036-kis-strategy-builder-integration.md` (239줄)
+- 구현 흡수: 80지표 카탈로그·`indicator-impl` 모듈(ADR 0083)·DSL parser·`strategy-engine` 모듈(ADR 0092)·Strategy Builder 화면. 본 ADR이 결정한 대안 D(명세·로직 port + GUI 블록 빌더 + IndicatorSource 추상화 + AI hook 제거)가 T-IND·T-PAT·T-DSL·T-SB 트랙으로 구현 완료됐다.
 
 본 ADR은 **사용자 명시 요구한 KIS Strategy Builder 통합** 결정의 v2 정식 발행안이다. 1차안의 "AI Decision hook" 가정·"YAML editor 우선" 가정·"30개 지표 1차" 가정 모두 폐기 후 v2 비전 위에서 재작성.
 
@@ -283,3 +284,4 @@ KIS open-trading-api는 MIT 라이선스. magicJar 흡수 시:
 |---|---|
 | 2026-05-03 (v1) | 초안 — `docs/architecture/adr-0036-*.md` 폐기 대상 |
 | 2026-05-03 (v2) | **풀 재작성** — AI hook 제거 + 80개 일괄 + GUI 1차 + Source 추상화 + TradingView 폐기 명시. 정식 ADR 디렉토리(`_workspace/arch/adr/`)로 이전 (architect, opus 4.7 1M) |
+| 2026-06-13 | **Proposed (v2) → Accepted 격상** (최고 관리자 결재). §6 사용자 결정 4건 확정 + 구현이 ADR 0022·0055·0083(indicator-impl)·0092(strategy-engine)·T-IND·T-PAT·T-DSL·T-SB로 흡수 완료(80지표 카탈로그·DSL parser·Strategy Builder 화면). README 인덱스 status 동기화. (architect, opus 4.8 1M) |

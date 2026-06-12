@@ -5,6 +5,8 @@
 > **타입**: arch 신규 (ADR 0076 + spec 본 문서)
 > **작업 author**: bot+architect@magicjar.local
 > **사용자 결정 위임**: 7 의제 풀세트 — architect 권장 = A-1 + B-2 + C-1 + D-1 + E-1 + F-1 + G-1
+>
+> **현행 정합 note (2026-06-13)**: 본 분석 spec 본문의 H0STCNT0(KRX)+H0NXCNT0(NXT) 분리 이중 구독 서술은 당시 결함 진단·표준 분석 evidence로 **역사 보존**한다. 체결가 채널은 **2026-06-13 ADR 0124로 H0UNCNT0 단일 채널(종목당 1채널)로 전환** + 이중 발사 경로·flag 완전 제거됐다.
 
 ---
 

@@ -142,9 +142,8 @@
 - 내부 journal/performance 손익과 KIS 계좌 손익 diff를 산출한다. 1차는 read-only.
 
 ### F. 통합 체결가 WS — `H0UNCNT0`
-- 공식 예제 `ccnl_total` 기준 통합 실시간체결가.
-- `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`일 때만 `KisWebSocketBridge`가 `H0STCNT0`+`H0NXCNT0` 대신 `H0UNCNT0`를 구독한다.
-- 기본 ON. `H0STCNT0`+`H0NXCNT0` 이중 체결가 구독은 비상 롤백 경로로만 남긴다.
+- 공식 예제 `ccnl_total` 기준 통합 실시간체결가. KRX+NXT 체결을 단일 구독으로 통합 수신하며 스트림 내 `NEW_MKOP_CLS_CODE`(신 장운영 구분 코드)로 세션을 구분한다.
+- `KisWebSocketBridge`는 종목당 체결가를 `H0UNCNT0` 단일 채널로만 구독한다 (종목당 1채널 — ADR 0124). 옛 분리 채널 이중 구독 경로와 토글 flag는 2026-06-13 완전 제거됐다(롤백은 CHANGELOG v3.13.2 코드 참조).
 
 ### G. 종목 추정 실적 — `HHKST668300C0`
 - 애널리스트 컨센서스 (매출·영업이익 추정)

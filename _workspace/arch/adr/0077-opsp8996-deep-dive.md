@@ -10,6 +10,8 @@
 
 > **§12 reserved 슬롯 발동 사유**: ADR README §12 표 "0077 Reserved — ADR 0076에 분석 내용 흡수됨, 후속 OPSP8996 deep dive 필요 시 재사용" → 본 ADR이 정확히 그 시나리오 진입. README 갱신 의무 동반 (본 PR 동봉).
 
+> **현행 정합 note (2026-06-13)**: 본 ADR 본문의 "16종목 × H0STCNT0+H0NXCNT0 = 32건" 등 분리 이중 구독 계산은 당시 결함 진단 evidence로 **역사 보존**한다. 체결가 채널은 **2026-06-13 ADR 0124로 H0UNCNT0 단일 채널로 전환**(종목당 1채널)됐다.
+
 ---
 
 ## 1. 컨텍스트 — v3.6.10 cut 직후 evidence

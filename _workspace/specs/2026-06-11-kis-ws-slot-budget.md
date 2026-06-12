@@ -3,9 +3,11 @@
 - 작성: architect (opus 4.8, 1M)
 - 작성일: 2026-06-11 (장중 — 구현은 장마감 후 디스패치)
 - 상태: **결재 완료 (최고 관리자) — 구현 후속 디스패치**
-- 권위 ADR: **ADR 0123 (Proposed)** — 본 spec이 ADR 0123의 구현 분해
+- 권위 ADR: **ADR 0123 (Proposed)** → **ADR 0124 (Accepted, 2026-06-13)로 R3 채택 확정** — 본 spec이 ADR 0123의 구현 분해
 - amend 관계: **ADR 0048 amend** (41건 → 40건 정정 + slot 산식 owner 모델 재정의 + OPSP0008 graceful path 신설), **ADR 0063 정합** (NXT WS 통합 H0UNCNT0 검토), **candle-data-policy-v2 §6 정합**
 - 진입 트랙: 운영 고도화 (T-MARKET 정합 — 실시간 인입 회계 layer)
+
+> **현행 정합 note (2026-06-13)**: 본 spec 본문의 "종목당 H0STCNT0+H0NXCNT0 이중 발사" 서술은 당시(2026-06-11) 결함 진단·R3 검토 의제 evidence로 **역사 보존**한다. R3 채널 다이어트는 **ADR 0124로 H0UNCNT0 단일 채널 채택 확정**(종목당 1채널·라이브 31→16 실측·이중 발사 경로·flag 완전 제거 2026-06-13). owner priority도 ADR 0124에서 STRATEGY(10)>DETAIL(20) 재정렬 + watchlist owner 폐지(WS→polling)로 확정됐다. 본 spec의 slot 산식(이중 채널 전제)·owner priority 일부는 ADR 0124가 권위다.
 
 ---
 

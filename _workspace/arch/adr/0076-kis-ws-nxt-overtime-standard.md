@@ -7,6 +7,8 @@
 
 > 본 ADR은 **plan/analysis 단계 (Proposed)** — 직전 4 hotfix 누적이 surface patch만 처리한 root cause를 KIS open-trading-api 표준 패턴(raw fetch 인용)과 정합 검증하여 의제 7건을 사용자에게 제시. 코드 변경 0 LOCK (분석 사이클). 결정 채택 후 sub-agent 디스패치는 별도 사이클로 분리(Phase 매트릭스 §7 정밀 명세).
 
+> **현행 정합 note (2026-06-13)**: 본 ADR 본문의 H0STCNT0(KRX)+H0NXCNT0(NXT) 분리 이중 구독 서술은 당시 결함 진단·표준 분석 evidence로 **역사 보존**한다. 체결가 채널은 **2026-06-13 ADR 0124로 H0UNCNT0 단일 채널(KRX+NXT 통합·`NEW_MKOP_CLS_CODE` 세션 구분)로 전환**됐으며, 종목당 1채널·이중 발사 경로·flag는 완전 제거됐다. 시간외 단일가(H0STOUP0)·NXT 운영 시간 매트릭스 분석은 그대로 유효.
+
 > **사용자 통찰 인용 (2026-05-15)**: "복잡하고 어떻게 처리할지 정리를 못하고 있어. 일반적으로 거래소에서 하고있는 정책을 따라가. 거기선 잘되는게 우린 왜 안되겠니?" — 본 ADR의 출발점.
 
 ## 1. 컨텍스트 — 결함 매트릭스 (누적 hotfix 후 잔존)

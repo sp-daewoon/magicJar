@@ -62,7 +62,7 @@
 ### T-W2 — Watchlist Ingestion Worker (W1 ★ — 본 PR-9에서 진입)
 
 - **마스터 §위치**: §A.2 · §3-1 [3]
-- **목표**: T-W1에서 사용자가 등록한 Watchlist 종목들을 magicJar consumer가 자동 시세 수집하되, watchlist를 실시간 수요의 유일한 단위로 보지 않는다. KIS WebSocket(`H0STCNT0`/`H0NXCNT0` 체결가) 실시간 tick + 끊김 시 KIS REST(`FHKST01010100` `inquire-price`) 5초 polling 자동 전환. SymbolDetail은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 watchlist 자동 등록 없이 KIS WS 수요를 낸다. 41 stream slot 한도(ADR 0048) 차면 owner priority/TTL 기준으로 watchlist polling demotion 또는 queued 처리. `watchlist.changed.v1`·`symbol.detail.command.v1`·`market.realtime.demand.v1` Kafka 즉시 반응.
+- **목표**: T-W1에서 사용자가 등록한 Watchlist 종목들을 magicJar consumer가 자동 시세 수집하되, watchlist를 실시간 수요의 유일한 단위로 보지 않는다. KIS WebSocket(`H0UNCNT0` KRX+NXT 통합 체결가 단일 채널 — ADR 0124) 실시간 tick + 끊김 시 KIS REST(`FHKST01010100` `inquire-price`) 5초 polling 자동 전환. SymbolDetail은 `DETAIL`, Screener/Strategy 후보는 `STRATEGY` owner로 watchlist 자동 등록 없이 KIS WS 수요를 낸다. 41 stream slot 한도(ADR 0048) 차면 owner priority/TTL 기준으로 watchlist polling demotion 또는 queued 처리. `watchlist.changed.v1`·`symbol.detail.command.v1`·`market.realtime.demand.v1` Kafka 즉시 반응.
 - **선행/후행**: T-W1·T-ONBOARD / T-S1·T-MS1·W3 모든 트랙의 시세 인입 전제
 - **오프라인 동작**: 필수 (정적 MarketSessionResolver stub 1차 + WS 끊김 시 polling fallback + Yahoo cold-start 실패 시 graceful)
 - **KIS 흡수**: KIS open-trading-api repo `examples_llm/domestic-stock/.../websocket_*.py`(WS 메시지 + PIPE 구분자) + `inquire_price.py`·`inquire_daily_itemchartprice.py`(REST 어댑터) 출처 의무 — `feedback_kis_first_policy.md` 정합

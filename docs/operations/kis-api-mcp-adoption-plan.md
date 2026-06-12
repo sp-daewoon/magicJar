@@ -245,23 +245,18 @@ flowchart TD
 |---|---|---|
 | KIS 잔고와 내부 position 수량/평단을 reconcile한다. | KIS 실현손익을 추가로 읽어 내부 저널 손익과 대조한다. | 수량 정합 다음 단계의 돈 정합이며, REAL read-only로 시작한다. |
 
-### 4-4. `H0UNCNT0` 통합 체결가
+### 4-4. `H0UNCNT0` 통합 체결가 (채택 완료 — ADR 0124)
 
 ```mermaid
 flowchart TD
-    Now["현재"] --> KRX["H0STCNT0 KRX"]
-    Now --> NXT["H0NXCNT0 NXT"]
-    KRX --> Slot2["종목당 2 slot"]
-    NXT --> Slot2
-
-    Next["변경 후보"] --> UN["H0UNCNT0 통합"]
+    Sub["종목 체결가 구독"] --> UN["H0UNCNT0 통합<br/>KRX+NXT 단일 채널"]
     UN --> Slot1["종목당 1 slot"]
-    UN -. "검증 실패" .-> Fallback["기존 KRX+NXT 복귀"]
+    UN --> Sess["NEW_MKOP_CLS_CODE<br/>세션 구분"]
 ```
 
-| 현재 | 변경 | 코멘트 |
+| 항목 | 현행 | 코멘트 |
 |---|---|---|
-| 정규+NXT 체결가를 `H0STCNT0` + `H0NXCNT0` 두 채널로 구독하던 구조. | 기본값 `MAGICJAR_KIS_WS_INTEGRATED_TICK_ENABLED=true`로 `H0UNCNT0` 한 채널을 구독한다. | 이중 체결가 구독은 비상 롤백 경로로만 유지한다. |
+| 정규+NXT 체결가 구독. | `H0UNCNT0` 단일 채널로 KRX+NXT 체결을 통합 수신한다(종목당 1 slot·`NEW_MKOP_CLS_CODE` 세션 구분). | ADR 0124 채택 완료. 옛 분리 채널 이중 구독 경로·토글 flag는 2026-06-13 완전 제거(롤백은 CHANGELOG v3.13.2 코드 참조). |
 
 ## 5. 구현 순서
 
