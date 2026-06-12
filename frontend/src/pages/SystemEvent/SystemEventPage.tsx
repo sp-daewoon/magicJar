@@ -36,6 +36,8 @@ import {
   type SystemEvent,
   type SystemEventSeverity,
 } from '../../api/system-event'
+import { DetailCell } from '../../components/ui/DetailCell'
+import { SystemEventDetailModal } from './SystemEventDetailModal'
 
 /** 페이지 크기 — spec §13 LOCK */
 const PAGE_SIZE = 20
@@ -55,6 +57,7 @@ const SEVERITY_BADGE_CLASS: Record<SystemEventSeverity, string> = {
 export function SystemEventPage() {
   const [page, setPage] = useState(0)
   const [unreadOnly, setUnreadOnly] = useState(false)
+  const [detailEvent, setDetailEvent] = useState<SystemEvent | null>(null)
   const queryClient = useQueryClient()
 
   const { data, isLoading, isError, error } = useSystemEventList({
@@ -169,11 +172,11 @@ export function SystemEventPage() {
                     <td className="p-3 font-mono text-xs text-gray-500" title={event.correlationId ?? ''}>
                       {event.correlationId ? event.correlationId.slice(0, 8) : '-'}
                     </td>
-                    <td
-                      className="max-w-xs truncate p-3 font-mono text-xs text-gray-500"
-                      title={event.detailJson}
-                    >
-                      {event.detailJson}
+                    <td className="max-w-xs p-3">
+                      <DetailCell
+                        detail={event.detailJson}
+                        onActivate={() => setDetailEvent(event)}
+                      />
                     </td>
                     <td className="p-3">
                       {isResolved ? (
@@ -219,6 +222,14 @@ export function SystemEventPage() {
           다음 →
         </button>
       </div>
+
+      {/* Detail 클릭 상세 모달 */}
+      {detailEvent !== null && (
+        <SystemEventDetailModal
+          event={detailEvent}
+          onClose={() => setDetailEvent(null)}
+        />
+      )}
     </div>
   )
 }
