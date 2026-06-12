@@ -41,6 +41,8 @@ class RealtimeSubscriptionRouter(
         val priority: Int,
         var expiresAtMs: Long,
         var lastAccessMs: Long,
+        // 관리자 스냅샷용 — 해당 owner demand 최초 등록 시각(epoch ms). TTL refresh로 갱신되지 않는다(since 표시 안정).
+        val subscribedSinceMs: Long = System.currentTimeMillis(),
     )
 
     private val demandsByCode: MutableMap<String, MutableMap<OwnerKey, Demand>> = linkedMapOf()
@@ -99,11 +101,14 @@ class RealtimeSubscriptionRouter(
                 val ownerKey = OwnerKey(owner, ownerId.ifBlank { owner.name })
                 val ttlMs = (ttlSeconds?.coerceAtLeast(1L)?.times(1000L)) ?: owner.defaultTtlMs()
                 val owners = demandsByCode.getOrPut(code) { linkedMapOf() }
+                // 재요청(TTL refresh) 시 since는 최초 등록 시각을 보존 — 관리자 스냅샷 since 흔들림 방지.
+                val existingSince = owners[ownerKey]?.subscribedSinceMs ?: now
                 owners[ownerKey] =
                     Demand(
                         priority = priority,
                         expiresAtMs = now + ttlMs,
                         lastAccessMs = now,
+                        subscribedSinceMs = existingSince,
                     )
 
                 val subscribed = ensureSubscribedLocked(code, priority)
@@ -186,6 +191,25 @@ class RealtimeSubscriptionRouter(
         lock.withLock {
             cleanupExpiredLocked(System.currentTimeMillis())
             demandsByCode.keys.toSet()
+        }
+
+    /**
+     * 관리자 실시간 상태 스냅샷용 — code별 owner 목록 + 최초 구독 시각(epoch ms) read-only 투영.
+     *
+     * 구독 로직 변경 0 — 현재 demand 맵 read만 수행한다(만료 정리 후 살아있는 demand만).
+     * owner 문자열 = `<owner>:<ownerId>` (예: `strategy:86`·`DETAIL:detail`·`HOLDING:74683223`).
+     * since = 해당 code demand 중 가장 오래된 subscribedSinceMs (최초 구독 시각 의미).
+     */
+    fun snapshotDemands(): List<RealtimeDemandSnapshot> =
+        lock.withLock {
+            cleanupExpiredLocked(System.currentTimeMillis())
+            demandsByCode.map { (code, owners) ->
+                RealtimeDemandSnapshot(
+                    code = code,
+                    owners = owners.keys.map { "${it.owner.name.lowercase()}:${it.ownerId}" }.sorted(),
+                    sinceMs = owners.values.minOfOrNull { it.subscribedSinceMs },
+                )
+            }
         }
 
     fun priorityOf(code: String): Int? =
@@ -315,6 +339,19 @@ class RealtimeSubscriptionRouter(
             RealtimeDemandOwner.PENDING_BUY -> pendingBuyTtlMs
         }
 }
+
+/**
+ * 관리자 실시간 상태 스냅샷용 체결가(H0STCNT0) demand 투영 (read-only).
+ *
+ * @param code 종목코드.
+ * @param owners owner 식별자 목록(`<owner>:<ownerId>`, 정렬).
+ * @param sinceMs 최초 구독 시각(epoch ms) — 없으면 null.
+ */
+data class RealtimeDemandSnapshot(
+    val code: String,
+    val owners: List<String>,
+    val sinceMs: Long?,
+)
 
 enum class RealtimeDemandOwner(
     val defaultPriority: Int,

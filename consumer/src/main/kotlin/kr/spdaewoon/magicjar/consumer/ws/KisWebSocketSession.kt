@@ -27,6 +27,15 @@ class KisWebSocketSession {
     @Volatile
     var shuttingDown: Boolean = false
 
+    /**
+     * 현재 살아있는 세션 식별자(관리자 스냅샷 sessionCid용) — onConnected 시 새 UUID, 끊김 시 null.
+     * 진단 표시 전용이며 구독·재연결 로직과 무관(read-only status).
+     */
+    val sessionCid: AtomicReference<String?> = AtomicReference(null)
+
+    /** 마지막 연결 수립 시각(epoch ms) — 관리자 스냅샷 lastConnectedAt용. 미연결 이력 시 null. */
+    val lastConnectedAtMs: AtomicReference<Long?> = AtomicReference(null)
+
     fun onMessageReceived(instant: Instant) {
         lastMessageAt.set(instant)
     }
@@ -34,6 +43,12 @@ class KisWebSocketSession {
     fun onConnected() {
         connected = true
         reconnectCount.set(0)
+        sessionCid.set(
+            java.util.UUID
+                .randomUUID()
+                .toString(),
+        )
+        lastConnectedAtMs.set(System.currentTimeMillis())
         lastMessageAt.set(
             kotlinx.datetime.Clock.System
                 .now(),
@@ -42,6 +57,7 @@ class KisWebSocketSession {
 
     fun onDisconnected() {
         connected = false
+        sessionCid.set(null)
     }
 
     fun incrementReconnect(): Int = reconnectCount.incrementAndGet()
@@ -51,5 +67,6 @@ class KisWebSocketSession {
         connected = false
         reconnectCount.set(0)
         lastMessageAt.set(null)
+        sessionCid.set(null)
     }
 }

@@ -251,6 +251,15 @@ class KisWebSocketBridge(
      */
     private val executionNoticeReceivedCount = AtomicLong(0L)
 
+    /**
+     * 24h 롤링 재연결 시각(epoch ms) 윈도우 — 관리자 스냅샷 `reconnects24h`용 (read-only 진단).
+     *
+     * onConnected의 재연결 분기(attemptCount > 0)에서 1건 기록. 스냅샷 조회 시 24h 초과분 prune.
+     * 구독/재연결 로직과 무관 — 표시 전용 카운트만 누적한다.
+     * 동시성: ConcurrentLinkedDeque — onConnected(Reactor thread) write + 스냅샷 publisher(Scheduled thread) read.
+     */
+    private val reconnectTimestampsMs = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
 
@@ -504,6 +513,41 @@ class KisWebSocketBridge(
     override fun subscribedCodes(): Set<String> = session.subscribedCodes.toSet()
 
     /**
+     * 관리자 실시간 상태 스냅샷용 — WS 세션·체결통보 read-only 진단 투영 (구독/재연결 로직 변경 0).
+     *
+     * - connected      : 현재 세션 살아있음(session.connected).
+     * - sessionCid     : 살아있는 세션 UUID(onConnected 시 발급, 끊김 시 null).
+     * - reconnects24h  : 최근 24h 재연결 횟수(reconnectTimestampsMs prune 후 count).
+     * - lastConnectedAtMs: 마지막 연결 수립 시각(epoch ms).
+     * - executionNotice: 체결통보(H0STCNI0/9) 자동 구독 상태 — subscribe 조건(연결 + userId 존재) 투영.
+     *     subscribed = session.connected && defaultUserId.isNotBlank() (subscribeExecutionNoticeIfPossible 조건 정합).
+     *     mode·userIdMasked는 표시 전용(maskUserId 재사용).
+     *
+     * publisher(Scheduled thread)에서만 호출 — 모든 read는 thread-safe 자료구조(AtomicReference·Deque) 기반.
+     */
+    fun wsStatusSnapshot(): WsStatusSnapshot {
+        val now = System.currentTimeMillis()
+        val cutoff = now - TimeUnit.HOURS.toMillis(24)
+        // 24h 초과분 prune (read 시점 lazy housekeeping — peekFirst null 또는 cutoff 이상까지).
+        while (true) {
+            val head = reconnectTimestampsMs.peekFirst() ?: break
+            if (head < cutoff) reconnectTimestampsMs.pollFirst() else break
+        }
+        val trId = executionNoticeTrId()
+        val executionSubscribed = session.connected && defaultUserId.isNotBlank()
+        return WsStatusSnapshot(
+            connected = session.connected,
+            sessionCid = session.sessionCid.get(),
+            reconnects24h = reconnectTimestampsMs.size,
+            lastConnectedAtMs = session.lastConnectedAtMs.get(),
+            executionSubscribed = executionSubscribed,
+            executionMode = magicjarMode,
+            executionTrId = trId,
+            executionUserIdMasked = if (defaultUserId.isBlank()) null else maskUserId(defaultUserId),
+        )
+    }
+
+    /**
      * KIS WS 호가 구독 (H0STASP0) — ADR 0048 §2-1 LRU 10 slot.
      * KIS-first 출처: open-trading-api asking_price_krx.py subscribe tr_type="1"
      */
@@ -751,6 +795,8 @@ class KisWebSocketBridge(
                     val attemptCount = connectCount.getAndIncrement()
                     val recoveredCid = currentDisconnectCorrelationId.getAndSet(null)
                     if (attemptCount > 0) {
+                        // 관리자 스냅샷 reconnects24h — 재연결 1건 기록 (read-only 진단, 구독 로직 무관).
+                        reconnectTimestampsMs.addLast(System.currentTimeMillis())
                         // 재연결 경로 — RECONNECTED emit (recovered or fresh UUID)
                         val reconnectCid = recoveredCid ?: UUID.randomUUID().toString()
                         emitWsEvent(
@@ -2329,3 +2375,26 @@ class KisWebSocketBridge(
         }
     }
 }
+
+/**
+ * 관리자 실시간 상태 스냅샷용 WS 세션·체결통보 투영 (read-only 진단).
+ *
+ * @param connected 현재 세션 연결 여부.
+ * @param sessionCid 살아있는 세션 UUID(끊김 시 null).
+ * @param reconnects24h 최근 24h 재연결 횟수.
+ * @param lastConnectedAtMs 마지막 연결 수립 시각(epoch ms, 미연결 이력 시 null).
+ * @param executionSubscribed 체결통보(H0STCNI0/9) 자동 구독 활성 여부.
+ * @param executionMode 운영 모드(REAL/MOCK — tr_id 분기 source).
+ * @param executionTrId 현재 체결통보 tr_id(REAL=H0STCNI0 / MOCK=H0STCNI9).
+ * @param executionUserIdMasked 체결통보 구독 HTS 사용자 ID(마스킹, 미설정 시 null).
+ */
+data class WsStatusSnapshot(
+    val connected: Boolean,
+    val sessionCid: String?,
+    val reconnects24h: Int,
+    val lastConnectedAtMs: Long?,
+    val executionSubscribed: Boolean,
+    val executionMode: String,
+    val executionTrId: String,
+    val executionUserIdMasked: String?,
+)

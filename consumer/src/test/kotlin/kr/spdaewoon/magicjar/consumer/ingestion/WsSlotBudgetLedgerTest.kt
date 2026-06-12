@@ -79,6 +79,28 @@ class WsSlotBudgetLedgerTest {
     }
 
     @Test
+    fun `snapshot — tr_id별 점유 카운트 + 한도 (관리자 실시간 상태)`() {
+        val l = ledger(maxSlots = 40)
+        l.register("H0STCNT0", "005930")
+        l.register("H0STCNT0", "000660")
+        l.register("H0STASP0", "005930")
+        val snap = l.snapshot()
+        assertThat(snap.used).isEqualTo(3)
+        assertThat(snap.max).isEqualTo(40)
+        assertThat(snap.byTrId["H0STCNT0"]).isEqualTo(2)
+        assertThat(snap.byTrId["H0STASP0"]).isEqualTo(1)
+    }
+
+    @Test
+    fun `snapshot — ledger 비활성 시 used 0`() {
+        val l = ledger(enabled = false)
+        l.register("H0STCNT0", "005930")
+        val snap = l.snapshot()
+        assertThat(snap.used).isEqualTo(0)
+        assertThat(snap.byTrId).isEmpty()
+    }
+
+    @Test
     fun `release — 점유 취소 후 available 회복`() {
         val l = ledger(maxSlots = 40)
         l.register("H0STCNT0", "005930")
