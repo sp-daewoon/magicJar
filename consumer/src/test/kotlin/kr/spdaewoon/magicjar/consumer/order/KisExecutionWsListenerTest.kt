@@ -375,6 +375,93 @@ class KisExecutionWsListenerTest {
     }
 
     @Test
+    fun `(F7-1) 취소 신규 ODNO 통보(CNTG_YN=1 ACPT_YN=3) — OODER_NO 원주문 회복 → 유령 PREINSERT 0 + 원주문 CANCELLED`() {
+        // 2026-06-12 라이브 incident 재현: KIS가 취소(TTTC0013U)를 신규 ODNO(0021272300)로 채번.
+        // 그 취소 통보가 WS로 돌아오면 ODER_NO=취소신규번호(DB 부재), OODER_NO=원주문번호(우리 발행).
+        val cancelOdno = "0021272300"
+        val originalOdno = "0020763600"
+        val original = stubRequest(quantity = 1).copy(id = 290L, kisOrderNo = originalOdno, side = OrderSide.SELL)
+
+        // 취소 신규 ODNO 는 우리 DB 에 없음 (retry 모두 miss)
+        every { orderRepo.findByKisOrderNo(cancelOdno) } returns null
+        // OODER_NO(원주문번호)로는 원주문 hit
+        every { orderRepo.findByKisOrderNo(originalOdno) } returns original
+        every { orderRepo.markCompleted(290L, any(), OrderStatus.CANCELLED) } returns
+            original.copy(status = OrderStatus.CANCELLED)
+
+        val msg =
+            stubExecMessage(
+                odno = cancelOdno,
+                cntgYn = "1",
+                acptYn = "3",
+                originalOdno = originalOdno,
+            )
+        listener.processMessage(msg)
+
+        // 핵심: pre-insert(유령 EXTERNAL 행) 0건 — 외부 흡수 차단
+        verify(exactly = 0) { orderRepo.save(any()) }
+        verify(exactly = 0) { externalOrderAccountResolver.resolve(any(), any()) }
+        // 원주문이 CANCELLED 로 정상 종결 + 취소 Kafka publish
+        verify(exactly = 1) { orderRepo.markCompleted(290L, any(), OrderStatus.CANCELLED) }
+        verify(exactly = 1) { cancelledProducer.publish(any()) }
+
+        // CANCEL_ACK audit 기록 (원주문 orderId 기준)
+        val auditList = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(auditList)) }
+        assertThat(auditList.any { it.eventType == OrderAuditEventType.KIS_CANCEL_ACK && it.orderId == 290L }).isTrue
+    }
+
+    @Test
+    fun `(F7-2) 진짜 외부 주문 통보 — odno·OODER_NO 모두 DB 부재 → 기존 EXTERNAL 흡수 유지 (회귀 0)`() {
+        // 한투앱 수동 신규 매수 통보: ODER_NO 도 OODER_NO 도 우리 DB 에 없음 → 기존 pre-insert 흡수 경로 보존.
+        every { orderRepo.findByKisOrderNo("EXT_NEW") } returns null
+        every { orderRepo.findByKisOrderNo("EXT_OO") } returns null
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:EXT_NEW") } returns null
+
+        val sentinelRow = stubRequest(quantity = 5).copy(id = 555L, kisOrderNo = "EXT_NEW", source = OrderSource.EXTERNAL)
+        every { orderRepo.save(any()) } returns sentinelRow
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 21L) }
+        every { execRepo.sumExecutedQuantityByOrder(555L) } returns 5
+        every { orderRepo.markCompleted(555L, any(), OrderStatus.FILLED) } returns
+            sentinelRow.copy(status = OrderStatus.FILLED)
+
+        // 체결 통보(CNTG_YN=2) — fallback 미적용 path 도 함께 검증 (외부 신규 체결 흡수)
+        val msg = stubExecMessage(odno = "EXT_NEW", cntgYn = "2", cntgQty = 5, originalOdno = "EXT_OO")
+        listener.processMessage(msg)
+
+        // 기존 외부 흡수 유지 — pre-insert stub INSERT 발생
+        verify(exactly = 1) { orderRepo.save(any()) }
+        verify(exactly = 1) { externalOrderAccountResolver.resolve(any(), any()) }
+        verify(exactly = 1) { execRepo.save(any()) }
+        verify(exactly = 1) { orderRepo.markCompleted(555L, any(), OrderStatus.FILLED) }
+    }
+
+    @Test
+    fun `(F7-3) 체결 통보(CNTG_YN=2)는 OODER_NO fallback 미적용 — 원주문 오귀속 차단`() {
+        // 체결 통보는 본인 ODNO 기준이어야 한다. odno miss 시 OODER_NO 로 원주문을 끌어오면 체결을 엉뚱한
+        // 원주문에 귀속하는 회귀가 생긴다. cntgYn=2 에서는 fallback 을 타지 않고 pre-insert 로 가야 한다.
+        every { orderRepo.findByKisOrderNo("FILL_NEW") } returns null
+        every { orderRepo.findByIdempotencyKey("WS_PREINSERT:FILL_NEW") } returns null
+
+        val sentinelRow = stubRequest(quantity = 3).copy(id = 666L, kisOrderNo = "FILL_NEW", source = OrderSource.EXTERNAL)
+        every { orderRepo.save(any()) } returns sentinelRow
+        every { execRepo.existsByEventId(any()) } returns false
+        every { execRepo.save(any()) } answers { firstArg<OrderExecution>().copy(id = 31L) }
+        every { execRepo.sumExecutedQuantityByOrder(666L) } returns 3
+        every { orderRepo.markCompleted(666L, any(), OrderStatus.FILLED) } returns
+            sentinelRow.copy(status = OrderStatus.FILLED)
+
+        val msg = stubExecMessage(odno = "FILL_NEW", cntgYn = "2", cntgQty = 3, originalOdno = "SOME_ORIG")
+        listener.processMessage(msg)
+
+        // cntgYn=2 → originalOdno("SOME_ORIG") 로 findByKisOrderNo 조회하지 않음 (fallback 미적용)
+        verify(exactly = 0) { orderRepo.findByKisOrderNo("SOME_ORIG") }
+        // pre-insert 흡수 path 로 진입
+        verify(exactly = 1) { orderRepo.save(any()) }
+    }
+
+    @Test
     fun `parser — 26 컬럼 caret 메시지 파싱 정합`() {
         // raw 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446
         val body =
@@ -459,11 +546,12 @@ class KisExecutionWsListenerTest {
         cntgQty: Int = 0,
         rfusYn: String = "N",
         acptYn: String = "2",
+        originalOdno: String = "",
     ) = KisExecutionMessage(
         custId = "USERHTSID",
         acntNo = "50000000",
         odno = odno,
-        originalOdno = "",
+        originalOdno = originalOdno,
         sellBuyCls = "02",
         rctfCls = "0",
         odKind = "00",
