@@ -94,8 +94,8 @@ const server = setupServer(
 
   http.get('/api/watchlists', () => HttpResponse.json([])),
 
-  http.post('/api/symbols/005930/orderbook/subscribe', () =>
-    HttpResponse.json({ subscribed: true, slot: 'live' }),
+  http.post('/api/symbols/005930/realtime/subscribe', () =>
+    HttpResponse.json({ subscribed: true, priceSlot: 'live' }),
   ),
 
   http.get('/api/instruments/005930', () =>

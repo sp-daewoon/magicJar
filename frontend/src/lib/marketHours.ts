@@ -52,8 +52,8 @@ export function currentKrxSession(now: Date = new Date()): KrxSession {
 /**
  * 주어진 시각이 KRX 정규장(평일 09:00~15:30 KST)인지 판정.
  *
- * 보수 호환: 기존 caller(SymbolOrderbook 등)는 "호가 제공 시간 = 정규장" 의미로 사용 중이므로
- * 시그니처·의미를 유지. 시간외/NXT까지 포함한 거래 시간 전반 판정은
+ * 보수 호환: "정규장 여부" 의미의 단순 판정 헬퍼로 시그니처·의미를 유지.
+ * 시간외/NXT까지 포함한 거래 시간 전반 판정은
  * `isKrxTradingHours` 또는 `currentKrxSession`을 사용.
  */
 export function isKoreanMarketOpen(now: Date = new Date()): boolean {
