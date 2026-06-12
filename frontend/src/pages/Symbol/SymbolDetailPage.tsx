@@ -2,16 +2,18 @@
  * SymbolDetailPage — /symbol/:code 종목 상세 페이지
  *
  * spec §6-1 라우트 LOCK: `/symbol/:code`
- * ADR 0040 §2-4: 현재가·메타·차트 영역
- *   (호가창 영역은 최고 관리자 결재로 제거 — DETAIL 호가 구독 폐지, market-data 병렬)
+ * ADR 0040 §2-4: 현재가·메타·차트·호가 4 영역
  *
  * 구현 사항:
  * 1. useParams → code 추출
  * 2. useSymbol(code) → 메타·현재가 초기 스냅샷
  * 3. STOMP /topic/market.tick.{code} → 현재가 실시간 갱신
  * 4. STOMP /topic/market.candle.minute.{code} → 차트 1m 실시간 append
- * 5. useEffect mount → POST /api/symbols/{code}/realtime/subscribe (현재가 slot 통보)
- * 6. useEffect cleanup → POST /api/symbols/{code}/realtime/unsubscribe + sendBeacon fallback
+ * 5. STOMP /topic/market.orderbook.{code} → 호가 실시간 갱신 (수동매매 보조 — 호가 클릭 → 지정가 시드)
+ * 6. useEffect mount → POST /api/symbols/{code}/realtime/subscribe (현재가+호가 slot 통보)
+ * 7. useEffect cleanup(unmount·종목전환) → POST /api/symbols/{code}/realtime/unsubscribe + sendBeacon fallback
+ *    "표시 중에만" 라이프사이클 — 상세 화면 떠 있는 동안만 호가 구독, 이탈 즉시 해제
+ *    (최고 관리자 결재 2026-06-12 anchor detail-orderbook-ui-restore — 수동매매 시 호가 없이 주문 risk 차단)
  *
  * graceful 처리 (spec §10·§12):
  * - HTTP 503/404 → SymbolError
@@ -19,6 +21,7 @@
  * - 장 마감 → stale 배지 (SymbolPriceCard)
  * - STOMP 끊김·tick 지연 → 30s HTTP polling fallback
  * - instrument 테이블 부재 → code 그대로 표시 (SymbolHeader graceful)
+ * - 호가 slot 가득(queued) → "polling fallback 중" 배지 (SymbolOrderbook)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -37,6 +40,7 @@ import {
   symbolApi,
   type CandleInterval,
   type CandleMinutePayload,
+  type OrderbookPayload,
   type TickPayload,
 } from '../../api/symbol'
 import { CandleHealthBadge } from './CandleHealthBadge'
@@ -54,6 +58,7 @@ import { SymbolChart } from './SymbolChart'
 import { SymbolError } from './SymbolError'
 import { SymbolHeader } from './SymbolHeader'
 import { SymbolMetaCard } from './SymbolMetaCard'
+import { SymbolOrderbook } from './SymbolOrderbook'
 import { SymbolOrderTicket } from './SymbolOrderTicket'
 import { SymbolPriceCard } from './SymbolPriceCard'
 
@@ -85,6 +90,8 @@ export function SymbolDetailPage() {
   // STOMP 실시간 상태
   const [realtimeTick, setRealtimeTick] = useState<TickPayload | null>(null)
   const [realtimeCandle, setRealtimeCandle] = useState<CandleMinutePayload | null>(null)
+  const [orderbook, setOrderbook] = useState<OrderbookPayload | null>(null)
+  const [orderbookSlot, setOrderbookSlot] = useState<'live' | 'queued' | null>(null)
   const [selectedOrderPrice, setSelectedOrderPrice] = useState('')
   const [chartInterval, setChartInterval] = useState<CandleInterval>('1d')
   const [lastTickAt, setLastTickAt] = useState<number | null>(null)
@@ -167,6 +174,8 @@ export function SymbolDetailPage() {
   useEffect(() => {
     setRealtimeTick(null)
     setRealtimeCandle(null)
+    setOrderbook(null)
+    setOrderbookSlot(null)
     setSelectedOrderPrice('')
     setLastTickAt(null)
     candlesRefetchedAfterFirstTickRef.current = false
@@ -175,8 +184,7 @@ export function SymbolDetailPage() {
     setNowMs(resetAt)
   }, [code])
 
-  // STOMP topic 구독 (2개 — tick·candle.minute).
-  // 호가(orderbook) 토픽은 최고 관리자 결재로 제거 (DETAIL 호가 구독 폐지).
+  // STOMP topic 구독 (3개 — tick·candle.minute·orderbook).
   // 상장폐지 종목은 실시간 데이터가 없으므로 구독 자체 차단.
   const stompEnabled = Boolean(code) && !isDelisted
 
@@ -205,8 +213,17 @@ export function SymbolDetailPage() {
     stompEnabled,
   )
 
+  useStompTopic<OrderbookPayload>(
+    `/topic/market.orderbook.${code}`,
+    useCallback((payload) => {
+      if (payload.code && payload.code !== code) return
+      setOrderbook(payload)
+    }, [code]),
+    stompEnabled,
+  )
+
   // ──────────────────────────────────────────────
-  // 종목 상세 실시간 라이프사이클 (현재가, watchlist 독립)
+  // 종목 상세 실시간 라이프사이클 (현재가+호가, watchlist 독립)
   // ──────────────────────────────────────────────
   const subscribeCalledRef = useRef(false)
 
@@ -216,11 +233,15 @@ export function SymbolDetailPage() {
     subscribeCalledRef.current = true
 
     // mount → POST subscribe (200ms 딜레이 — spec §5-2 throttle 정합)
-    // 현재가 slot 통보. 호가 slot은 제거됨 (응답 orderbookSlot 무시).
     const timer = setTimeout(() => {
-      symbolApi.subscribeRealtime(code).catch(() => {
-        // 구독 실패 — graceful (backend 미완 시 무시)
-      })
+      symbolApi
+        .subscribeRealtime(code)
+        .then((res) => {
+          setOrderbookSlot(res.orderbookSlot)
+        })
+        .catch(() => {
+          // 구독 실패 — graceful (backend 미완 시 무시)
+        })
     }, 200)
 
     return () => {
@@ -425,8 +446,16 @@ export function SymbolDetailPage() {
           />
         </div>
 
-        {/* ── 종목 주문 (호가창 제거 — 지정가는 OrderTicket 직접 입력) ── */}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,28rem)]">
+        {/* ── 호가창 + 종목 주문 ── */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <SymbolOrderbook
+            code={code}
+            orderbook={orderbook}
+            orderbookSlot={orderbookSlot}
+            isStompConnected={stompConnected}
+            selectedPrice={selectedOrderPrice}
+            onSelectPrice={(price) => setSelectedOrderPrice(price)}
+          />
           <SymbolOrderTicket
             code={code}
             name={instrument?.name ?? symbol.name ?? code}
