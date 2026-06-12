@@ -73,20 +73,23 @@ class RealtimeStatusSnapshotPublisher(
     }
 
     private fun buildSnapshot(): RealtimeStatusSnapshot {
-        val ws =
-            bridgeProvider.getIfAvailable()?.wsStatusSnapshot()
+        val bridge =
+            bridgeProvider.getIfAvailable()
                 ?: return RealtimeStatusSnapshot(updatedAt = Instant.now().toString())
+        val ws = bridge.wsStatusSnapshot()
 
         val slot = slotLedgerProvider.getIfAvailable()?.snapshot()
         val realtimeDemands = realtimeRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
         val orderbookDemands = orderbookRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
 
-        // tr_id별 구독 투영 — 체결가(H0STCNT0) + 호가(H0STASP0). code별 owner 합집합 + since.
+        // tr_id별 구독 투영 — 체결가 + 호가(H0STASP0). code별 owner 합집합 + since.
+        // ADR 0124 결정 4 — 체결가 trId 는 하드코딩 대신 실제 활성 채널을 표기한다(통합 flag ON 시 H0UNCNT0).
+        val tickTrId = bridge.activeTickTrId()
         val subscriptions = mutableListOf<SubscriptionView>()
         realtimeDemands.forEach {
             subscriptions.add(
                 SubscriptionView(
-                    trId = "H0STCNT0",
+                    trId = tickTrId,
                     code = it.code,
                     owners = it.owners,
                     sinceMs = it.sinceMs,

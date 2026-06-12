@@ -64,9 +64,10 @@ import java.util.concurrent.atomic.AtomicReference
  * - KIS-first 출처: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
  *   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
  *
- * H0UNCNT0 통합 체결가 구독 (ADR 0123 R3 후보):
- * - `magicjar.kis.ws.integrated-tick-enabled=false` 기본값에서는 기존 H0STCNT0+H0NXCNT0 이중 채널 유지.
- * - true일 때만 종목당 H0UNCNT0 1채널로 대체한다. 운영 실측 전 default OFF.
+ * H0UNCNT0 통합 체결가 구독 (ADR 0124 — 단일 채널 기본화):
+ * - `magicjar.kis.ws.integrated-tick-enabled=true` 기본값에서 종목당 H0UNCNT0 1채널(KRX+NXT 통합)로 구독한다.
+ * - false 로 내리면(비상 롤백 전용) 기존 H0STCNT0+H0NXCNT0 이중 채널로 즉시 회귀한다(코드 경로 보존).
+ *   2026-06-13 최고 관리자 결재로 default ON. 장중 실증 후 이중 발사 경로 제거는 ADR 0124가 관장.
  * - KIS-first 출처: open-trading-api examples_llm/domestic_stock/ccnl_total/ccnl_total.py
  *   tr_id = "H0UNCNT0" — 국내주식 실시간체결가 (통합)
  *
@@ -122,8 +123,9 @@ class KisWebSocketBridge(
     private val heartbeatTimeoutSeconds: Long = 10L,
     @Value("\${magicjar.kis.ws.polling-fallback-timeout-seconds:30}")
     private val pollingFallbackTimeoutSeconds: Long = 30L,
-    @Value("\${magicjar.kis.ws.integrated-tick-enabled:false}")
-    private val integratedTickEnabled: Boolean = false,
+    // ADR 0124 — default true(H0UNCNT0 단일 채널 기본화). false 는 비상 롤백 전용(이중 발사 경로 보존).
+    @Value("\${magicjar.kis.ws.integrated-tick-enabled:true}")
+    private val integratedTickEnabled: Boolean = true,
     /**
      * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
      *
@@ -479,9 +481,9 @@ class KisWebSocketBridge(
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
      *   ccnl_nxt() tr_id="H0NXCNT0" — NXT 대체거래소 실시간 체결가
      *
-     * H0UNCNT0 통합 체결가 flag:
-     *   integratedTickEnabled=false(default): H0STCNT0 + H0NXCNT0.
-     *   integratedTickEnabled=true: H0UNCNT0 단일 구독. slot 절감 검증 전 운영 default OFF.
+     * H0UNCNT0 통합 체결가 flag (ADR 0124 — default ON):
+     *   integratedTickEnabled=true(default): H0UNCNT0 단일 구독(KRX+NXT 통합, slot 절감).
+     *   integratedTickEnabled=false: H0STCNT0 + H0NXCNT0 이중 발사(비상 롤백 전용, 경로 보존).
      */
     override fun subscribe(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -555,6 +557,14 @@ class KisWebSocketBridge(
     }
 
     override fun subscribedCodes(): Set<String> = session.subscribedCodes.toSet()
+
+    /**
+     * 관리자 실시간 상태 스냅샷용 — 체결가 demand가 실제로 점유하는 대표 tr_id (ADR 0124 결정 4).
+     *
+     * integratedTickEnabled=true 면 H0UNCNT0(통합), false 면 H0STCNT0(KRX, 이중 발사 시 대표 채널)을 반환한다.
+     * 관리자 화면 체결가 수요 라벨이 실제 구독 채널과 불일치하는 소결함 정합용(read-only).
+     */
+    fun activeTickTrId(): String = tickPriceTrIds().first()
 
     /**
      * 관리자 실시간 상태 스냅샷용 — WS 세션·체결통보 read-only 진단 투영 (구독/재연결 로직 변경 0).
