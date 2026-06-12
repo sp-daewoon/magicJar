@@ -3,10 +3,10 @@ id: T-20260612-1508-strategy-orderbook-subscription
 agent: market-data
 model: opus
 branch: hotfix/strategy-orderbook-subscription
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T15:08:35.364+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T15:18:10.630+09:00
+pr: #935
 parentPhase: ?
 ---
 
