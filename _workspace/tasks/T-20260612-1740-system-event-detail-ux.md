@@ -3,10 +3,10 @@ id: T-20260612-1740-system-event-detail-ux
 agent: frontend
 model: opus
 branch: agent/frontend/system-event-detail-ux
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T17:40:29.968+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T17:45:50.313+09:00
+pr: #942
 parentPhase: ?
 ---
 
