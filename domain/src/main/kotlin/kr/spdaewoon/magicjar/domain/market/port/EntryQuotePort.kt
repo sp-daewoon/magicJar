@@ -7,13 +7,13 @@ import java.math.BigDecimal
  * 진입(BUY) marketable limit 산정용 **동기 호가 read** 포트 — ADR 0114 §10-3 (R2-C1).
  *
  * ## 신설 배경 (ADR 0114 §10-3 발굴 결함)
- * 현행 호가(H0STASP0)는 `KisWebSocketBridge.handleOrderbookData` → Kafka `market.orderbook.v1` → STOMP로만
+ * 현행 호가(H0UNASP0)는 `KisWebSocketBridge.handleOrderbookData` → Kafka `market.orderbook.v1` → STOMP로만
  * 흐르고 **동기 read 캐시가 없다**. EntryPricePolicy([EntryPriceInput])가 요구하는 `ask1`/`bid1`/`askQty1`/`quoteAsOf`를
  * 주문 시점에 읽을 곳이 부재했다. 본 포트가 그 단일 동기 read source를 제공한다.
  *
  * ## 구현(합성 어댑터) 우선순위 — ADR 0114 §10-3 ① → ②
- * 1. **1차 — Redis 호가 캐시**: H0STASP0 WS 수신 경로(`KisWebSocketBridge`)가 write-through한 `orderbook:top:{code}`.
- *    호가 WS 미구독 종목(LRU/slot 제약 — ADR 0048·§10-3 NXT 포화)은 **캐시 miss가 정상**이다.
+ * 1. **1차 — Redis 호가 캐시**: H0UNASP0 WS 수신 경로(`KisWebSocketBridge`)가 write-through한 `orderbook:top:{code}`.
+ *    호가 WS 미구독 종목은 **캐시 miss가 정상**이다.
  * 2. **2차 — KIS REST 호가 1회 조회**: 캐시 miss/stale 시 `FHKST01010200`
  *    (`/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn`) 1회.
  * 3. 둘 다 실패 → **null**. 시장가 fallback은 상위 정책(EntryPricePolicy)이 거부하므로 포트는 **정직하게 null** 반환한다

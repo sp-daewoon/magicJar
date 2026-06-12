@@ -70,8 +70,8 @@ class RealtimeStatusSnapshotPublisherTest {
                     WsSlotBudgetLedger.SlotSnapshot(
                         used = 2,
                         max = 40,
-                        byTrId = sortedMapOf("H0STCNT0" to 1, "H0STASP0" to 1),
-                        codesByTrId = sortedMapOf("H0STCNT0" to listOf("005930"), "H0STASP0" to listOf("005930")),
+                        byTrId = sortedMapOf("H0UNCNT0" to 1, "H0UNASP0" to 1),
+                        codesByTrId = sortedMapOf("H0UNCNT0" to listOf("005930"), "H0UNASP0" to listOf("005930")),
                     )
             }
 
@@ -92,12 +92,12 @@ class RealtimeStatusSnapshotPublisherTest {
         assertThat(payload.ws.connected).isTrue()
         assertThat(payload.ws.reconnects24h).isEqualTo(3)
         assertThat(payload.slots.used).isEqualTo(2)
-        assertThat(payload.slots.byTrId["H0STCNT0"]).isEqualTo(1)
+        assertThat(payload.slots.byTrId["H0UNCNT0"]).isEqualTo(1)
         // 슬롯 drill-down — codesByTrId 페이로드 흐름 검증.
-        assertThat(payload.slots.codesByTrId["H0STCNT0"]).containsExactly("005930")
+        assertThat(payload.slots.codesByTrId["H0UNCNT0"]).containsExactly("005930")
         assertThat(payload.subscriptions).hasSize(2)
-        // ADR 0124 결정 4 — 체결가 라벨은 활성 채널(H0UNCNT0). 호가는 H0STASP0. 정렬: H0STASP0 < H0UNCNT0.
-        assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0STASP0", "H0UNCNT0")
+        // ADR 0124 결정 4 — 체결가 라벨은 활성 채널(H0UNCNT0). 호가는 H0UNASP0.
+        assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0UNASP0", "H0UNCNT0")
         assertThat(payload.executionNotice.subscribed).isTrue()
         assertThat(payload.executionNotice.trId).isEqualTo("H0STCNI9")
     }

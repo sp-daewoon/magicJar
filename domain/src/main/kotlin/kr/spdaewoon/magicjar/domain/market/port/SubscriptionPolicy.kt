@@ -4,15 +4,15 @@ package kr.spdaewoon.magicjar.domain.market.port
  * KIS WS 40 stream slot 예산 결정 (ADR 0123 — ADR 0048 amend, 41→40 정정).
  * Pure function — Spring 의존 0.
  *
- * 슬롯 구성 (ADR 0048 §2-1 + NXT hotfix):
+ * 슬롯 구성:
  *   1  = H0STCNI0 (체결통보 — ADR 0042 STAGE 0-4 reserve, T-O 구현)
- *   30 = H0STCNT0 (체결가 실시간 — 관심종목 WS 구독)
- *   10 = H0STASP0 (호가창 LRU — 선택)
+ *   30 = H0UNCNT0/H0STCNT0 (체결가 실시간 — 관심종목 WS 구독)
+ *   10 = H0UNASP0 (통합 호가 — DETAIL/STRATEGY 수요)
  *
  * NXT(H0NXCNT0) 추가 시 슬롯 정합 (한도 단위 = "코드 × tr_id" 채널 — ADR 0123 §1-3 KIS-first 정정):
  *   H0STCNT0 종목당 1 slot + H0NXCNT0 종목당 1 slot = 동일 종목 2 slot 소모.
  *   NXT_TICK_MAX = 20 유지 시 H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 40 한도 초과.
- *   WsSlotBudgetLedger/owner priority가 실제 점유를 40 이하로 관리하고, H0UNCNT0 통합 채널은 R3 후보로 둔다.
+ *   WsSlotBudgetLedger/owner priority가 실제 점유를 40 이하로 관리한다.
  *
  * ★ ADR 0123 §1-3 — TOTAL_SLOTS 41→40 KIS-first 정정 (헌법 §3, 자체 추론 0):
  *   KIS 공식 예제 `kis_auth.py` `__runner()`가 40을 hard enforce:
@@ -38,7 +38,7 @@ object SubscriptionPolicy {
     const val TOTAL_SLOTS = 40
     const val EXECUTION_NOTICE_RESERVED = 1 // H0STCNI0
     const val PRICE_TICK_MAX = 30 // H0STCNT0 (NXT 미추가 시 최대 30)
-    const val ORDERBOOK_MAX = 10 // H0STASP0 (LRU)
+    const val ORDERBOOK_MAX = 10 // H0UNASP0
 
     /**
      * H0NXCNT0 NXT 대체거래소 체결가 최대 구독 종목 수.

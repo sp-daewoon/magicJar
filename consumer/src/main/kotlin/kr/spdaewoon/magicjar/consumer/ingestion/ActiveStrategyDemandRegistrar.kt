@@ -62,7 +62,7 @@ class ActiveStrategyDemandRegistrar(
                         priority = RealtimeDemandOwner.STRATEGY.defaultPriority,
                         ttlSeconds = STRATEGY_DEMAND_TTL_SECONDS,
                     )
-                    // F11 — 체결가(H0STCNT0) demand와 대칭으로 호가(H0STASP0) 구독도 보강한다.
+                    // F11 — 체결가(H0UNCNT0) demand와 대칭으로 호가(H0UNASP0) 구독도 보강한다.
                     // marketable limit 진입가(EntryQuotePort)가 ask1/bid1을 요구하므로 호가 WS 공급이 필수.
                     // 멱등 register(같은 ownerId 반복 호출 무해) — refresh 주기마다 갱신.
                     orderbookSubscriptionRouter.onStrategyActivated(code = code, ownerId = ownerId(strategyId))

@@ -338,10 +338,10 @@ class SymbolController(
     @Operation(
         summary = "종목 상세 실시간 구독 시작",
         description =
-            "SymbolDetail 페이지 진입 시 호출 — watchlist 등록 여부와 무관하게 KIS WS 현재가(H0STCNT0/H0NXCNT0)·호가(H0STASP0)와 " +
+            "SymbolDetail 페이지 진입 시 호출 — watchlist 등록 여부와 무관하게 KIS WS 현재가(H0UNCNT0)·호가(H0UNASP0)와 " +
                 "진행 중 캔들 close를 요청합니다. Kafka symbol.detail.command.v1 {action:ENTER} 발행 → consumer가 " +
                 "DETAIL owner 실시간 가격 + 호가 구독을 처리합니다. STOMP /topic/market.tick.{code}로 push 시작. " +
-                "호가(H0STASP0)는 종목 상세를 표시 중인 동안만 구독되고 이탈 즉시 해제됩니다(2026-06-12 — anchor `detail-orderbook-live-only`).",
+                "호가(H0UNASP0)는 종목 상세를 표시 중인 동안만 구독되고 이탈 즉시 해제됩니다(2026-06-12 — anchor `detail-orderbook-live-only`).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "구독 명령 발행 성공"),
@@ -354,7 +354,7 @@ class SymbolController(
     ): RealtimeSubscribeResponse {
         validateCode(code)
         publishSymbolDetailCommand(code, "ENTER")
-        // ENTER 명령으로 현재가(H0STCNT0)·호가(H0STASP0) DETAIL 구독을 consumer가 표시 중에만 수립한다
+        // ENTER 명령으로 현재가(H0UNCNT0)·호가(H0UNASP0) DETAIL 구독을 consumer가 표시 중에만 수립한다
         // (anchor `detail-orderbook-live-only`). orderbookSlot=live — frontend 호가창 복원 계약.
         return RealtimeSubscribeResponse(subscribed = true, priceSlot = "live", orderbookSlot = "live")
     }

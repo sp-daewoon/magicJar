@@ -82,7 +82,7 @@ class RealtimeStatusSnapshotPublisher(
         val realtimeDemands = realtimeRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
         val orderbookDemands = orderbookRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
 
-        // tr_id별 구독 투영 — 체결가 + 호가(H0STASP0). code별 owner 합집합 + since.
+        // tr_id별 구독 투영 — 체결가 + 호가(H0UNASP0). code별 owner 합집합 + since.
         // ADR 0124 결정 4 — 체결가 trId 는 하드코딩 대신 실제 활성 채널을 표기한다(통합 flag ON 시 H0UNCNT0).
         val tickTrId = bridge.activeTickTrId()
         val subscriptions = mutableListOf<SubscriptionView>()
@@ -99,7 +99,7 @@ class RealtimeStatusSnapshotPublisher(
         orderbookDemands.forEach {
             subscriptions.add(
                 SubscriptionView(
-                    trId = "H0STASP0",
+                    trId = "H0UNASP0",
                     code = it.code,
                     owners = it.owners,
                     sinceMs = it.sinceMs,

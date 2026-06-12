@@ -4,7 +4,7 @@
  * 배경:
  *  - magicJar는 2개 WS connection 존재:
  *    #1 frontend↔api STOMP (Spring Messaging) → useStompConnectionState 추적
- *    #2 consumer↔KIS WS (시세 H0STCNT0 + 호가 H0STASP0 + 체결통보 H0STCNI0/9) → 본 hook 추적
+ *    #2 consumer↔KIS WS (시세 H0UNCNT0 + 호가 H0UNASP0 + 체결통보 H0STCNI0/9) → 본 hook 추적
  *  - 사용자 dogfooding: consumer 임의 종료 시 헤더 indicator는 🟢인 채(STOMP만 추적), KIS WS 끊김 미인지
  *  - 해결: 헤더에 2 indicator 분리 — STOMP + KIS WS 각각 + 각각 toast (어디가 끊겼는지 명확)
  *

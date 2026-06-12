@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component
  * [EntryQuotePort] 합성 구현 — ADR 0114 §10-3 R2-C1.
  *
  * 우선순위(§10-3 ① → ②):
- * 1. **Redis 호가 캐시**([RedisOrderbookTopCache]) — H0STASP0 WS write-through `orderbook:top:{code}`.
+ * 1. **Redis 호가 캐시**([RedisOrderbookTopCache]) — H0UNASP0 WS write-through `orderbook:top:{code}`.
  * 2. cache miss 시 **KIS REST 1회**([KisRestAskingPriceAdapter], `FHKST01010200`).
  * 3. 둘 다 실패 → **null**(호가 미가용 = 진입 스킵. 시장가 fallback 금지는 상위 EntryPricePolicy).
  *

@@ -119,15 +119,15 @@ describe('RealtimeStatusBanner', () => {
 
 describe('RealtimeSlotGauge', () => {
   it('used/max 와 사용률 + trId 라벨·코드 병기를 표시한다', () => {
-    const slots: RealtimeSlots = { used: 12, max: 40, byTrId: { H0STCNT0: 8, H0STASP0: 4 } }
+    const slots: RealtimeSlots = { used: 12, max: 40, byTrId: { H0UNCNT0: 8, H0UNASP0: 4 } }
     renderWithRouter(<RealtimeSlotGauge slots={slots} />)
     expect(screen.getByText(/40/)).toBeInTheDocument()
     expect(screen.getByText(/30%/)).toBeInTheDocument()
     // trId 코드 + 한국어 라벨 병기
-    expect(screen.getByText('H0STCNT0')).toBeInTheDocument()
-    expect(screen.getByText('H0STASP0')).toBeInTheDocument()
-    expect(screen.getByText('체결가')).toBeInTheDocument()
-    expect(screen.getByText('호가')).toBeInTheDocument()
+    expect(screen.getByText('H0UNCNT0')).toBeInTheDocument()
+    expect(screen.getByText('H0UNASP0')).toBeInTheDocument()
+    expect(screen.getByText('체결가(통합)')).toBeInTheDocument()
+    expect(screen.getByText('호가(통합)')).toBeInTheDocument()
     // 채널 카운트 병기
     expect(screen.getByText('8채널')).toBeInTheDocument()
   })

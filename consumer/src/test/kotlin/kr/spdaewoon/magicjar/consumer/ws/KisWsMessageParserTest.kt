@@ -553,6 +553,63 @@ class KisWsMessageParserTest {
         assertThat(tick.source).isEqualTo("live-nxt")
     }
 
+    @Test
+    fun `H0UNASP0 raw 메시지 파싱 → 호가 10단계와 예상체결 필드 정합`() {
+        val fields =
+            Array(65) { i ->
+                when (i) {
+                    0 -> "005930"
+                    1 -> "090012"
+                    3 -> "69900"
+                    4 -> "70000"
+                    13 -> "69800"
+                    14 -> "69700"
+                    23 -> "1100"
+                    24 -> "1200"
+                    33 -> "2100"
+                    34 -> "2200"
+                    43 -> "12345"
+                    44 -> "23456"
+                    45 -> "345"
+                    46 -> "456"
+                    47 -> "69950"
+                    48 -> "70"
+                    49 -> "3000"
+                    50 -> "150"
+                    51 -> "2"
+                    52 -> "0.22"
+                    53 -> "100000"
+                    58 -> "A"
+                    else -> "0"
+                }
+            }
+        val raw = "0|H0UNASP0|001|${fields.joinToString("^")}"
+        val parsed = KisWsMessageParser.parse(raw)
+
+        assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.RealtimeData::class.java)
+        val data = parsed as KisWsMessageParser.ParsedMessage.RealtimeData
+        assertThat(data.trId).isEqualTo("H0UNASP0")
+
+        val snapshot = KisWsOrderbookParser.parseH0Unasp0(data.rawData)
+        assertThat(snapshot).isNotNull
+        assertThat(snapshot!!.asks.first().price).isEqualByComparingTo(BigDecimal("69900"))
+        assertThat(snapshot.asks.first().quantity).isEqualTo(1100L)
+        assertThat(snapshot.bids.first().price).isEqualByComparingTo(BigDecimal("69800"))
+        assertThat(snapshot.bids.first().quantity).isEqualTo(2100L)
+        assertThat(snapshot.totalAskQuantity).isEqualTo(12345L)
+        assertThat(snapshot.totalBidQuantity).isEqualTo(23456L)
+        assertThat(snapshot.overtimeTotalAskQuantity).isEqualTo(345L)
+        assertThat(snapshot.overtimeTotalBidQuantity).isEqualTo(456L)
+        assertThat(snapshot.anticipatedPrice).isEqualByComparingTo(BigDecimal("69950"))
+        assertThat(snapshot.anticipatedQuantity).isEqualTo(70L)
+        assertThat(snapshot.anticipatedVolume).isEqualTo(3000L)
+        assertThat(snapshot.anticipatedChange).isEqualByComparingTo(BigDecimal("150"))
+        assertThat(snapshot.anticipatedChangeSign).isEqualTo("2")
+        assertThat(snapshot.anticipatedChangeRate).isEqualByComparingTo(BigDecimal("0.22"))
+        assertThat(snapshot.accumulatedVolume).isEqualTo(100000L)
+        assertThat(snapshot.stockDealClassCode).isEqualTo("A")
+    }
+
     // ===== ADR 0123 R1 — OPSP0008 MAX SUBSCRIBE OVER 거부 파싱 =====
 
     /**
@@ -561,7 +618,7 @@ class KisWsMessageParserTest {
     @Test
     fun `OPSP0008 MAX SUBSCRIBE OVER 거부 감지`() {
         val json =
-            """{"header":{"tr_id":"H0STASP0","tr_key":"093370"},""" +
+            """{"header":{"tr_id":"H0UNASP0","tr_key":"093370"},""" +
                 """"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
         assertThat(KisWsMessageParser.isOpsp0008(json)).isTrue()
         assertThat(KisWsMessageParser.isSubscriptionSuccess(json)).isFalse()

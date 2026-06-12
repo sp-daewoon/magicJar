@@ -239,7 +239,7 @@
   <div class="card">
     <h3>1. 시장 데이터 → 봉 → 시그널 → 주문</h3>
     <div class="flow">
-      <div class="step"><b>KIS WebSocket</b><small>H0STCNT0/H0NXCNT0/H0STOUP0 tick, H0STASP0 orderbook</small></div>
+      <div class="step"><b>KIS WebSocket</b><small>H0UNCNT0/H0STOUP0 tick, H0UNASP0 orderbook</small></div>
       <div class="step"><b>Redis/Kafka</b><small>quote:last, candle:current, market.tick.v1, market.orderbook.v1</small></div>
       <div class="step"><b>1m 마감</b><small>TickToMinuteAggregator가 minute closed publish</small></div>
       <div class="step"><b>경계봉</b><small>BoundaryAggregator/BoundaryClosingKafkaListener</small></div>
@@ -517,7 +517,7 @@
       <div class="node"><b>상세 진입</b><small>symbol.detail ENTER</small></div>
       <div class="node"><b>debounce</b><small>200ms</small></div>
       <div class="node"><b>LRU slot</b><small>최대 10</small></div>
-      <div class="node"><b>KIS 호가</b><small>H0STASP0</small></div>
+      <div class="node"><b>KIS 호가</b><small>H0UNASP0</small></div>
       <div class="node"><b>idle cleanup</b><small>5분 미접근 unsub</small></div>
     </div>
   </div>

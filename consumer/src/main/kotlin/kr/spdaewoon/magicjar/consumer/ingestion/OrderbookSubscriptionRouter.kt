@@ -8,10 +8,10 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * 호가 구독 라우터 — KIS WS H0STASP0 (ADR 0048 §2-1 + F11 owner 차원).
+ * 호가 구독 라우터 — KIS WS H0UNASP0 통합 호가 (F11 owner 차원).
  *
  * ## owner 분리 — 두 경로 (2026-06-12 재결정 — anchor `detail-orderbook-live-only`)
- * 호가(H0STASP0) 구독은 다음 **두 owner**에서만 수립된다(보기용 합집합 잠식 차단):
+ * 호가(H0UNASP0) 구독은 다음 **두 owner**에서만 수립된다(보기용 합집합 잠식 차단):
  * - **STRATEGY** — 전략 ACTIVE 시 평가/진입 대상 종목(`onStrategyActivated`). marketable limit 진입가 산정에
  *   ask1/bid1이 필요하므로 호가 WS가 공급돼야 한다. registrar TTL refresh로 갱신, 명시 release로 해제.
  *   동일 종목 여러 전략(ownerId)이 요구하면 합집합으로 1개 구독 공유.
@@ -21,7 +21,7 @@ import kotlin.concurrent.withLock
  *   KIS WS 40 slot 예산을 누적 잠식하던 구조 제거). DETAIL은 ownerId 추적 없이 boolean demand(상세는 동시에 한
  *   종목만 표시 — exit 즉시 회수).
  *
- * 한 종목에 DETAIL·STRATEGY demand가 공존하면 **단 1개 H0STASP0 구독**으로 둘 다 충족하고(F11 패턴),
+ * 한 종목에 DETAIL·STRATEGY demand가 공존하면 **단 1개 H0UNASP0 구독**으로 둘 다 충족하고(F11 패턴),
  * 모든 owner demand가 빠질 때만 unsubscribe(owner 단위 추적 — 합집합으로 섞이지 않게).
  *
  * ## 배경 (F11 — 2026-06-12 라이브 incident + 표시-중 복원)
@@ -37,7 +37,7 @@ import kotlin.concurrent.withLock
  * 종목은 안전망에 걸리지 않는다. STRATEGY demand는 idle 대상 아님(registrar TTL이 관리 — 진입가 호가 공백 = 자본 risk).
  *
  * ## WS 슬롯 회계 (ADR 0123)
- * subscribe/unsubscribe 발사 시 [WsSlotBudgetLedger]에 (H0STASP0, code) 채널을 register/release한다
+ * subscribe/unsubscribe 발사 시 [WsSlotBudgetLedger]에 (H0UNASP0, code) 채널을 register/release한다
  * (체결가·NXT·체결통보와 단일 회계 — 40 한도 총 점유 가시화). DETAIL은 표시 중 1종목만 점유하므로 LRU 예산 불필요.
  *
  * Thread safety: ReentrantLock.
@@ -53,8 +53,8 @@ class OrderbookSubscriptionRouter(
     private val log = LoggerFactory.getLogger(OrderbookSubscriptionRouter::class.java)
     private val lock = ReentrantLock()
 
-    /** H0STASP0 tr_id — WsSlotBudgetLedger 채널 회계 key (KIS-first: 호가 실시간). */
-    private val trId = "H0STASP0"
+    /** H0UNASP0 tr_id — WsSlotBudgetLedger 채널 회계 key (KIS-first: 통합 호가 실시간). */
+    private val trId = TR_ID_UNIFIED_ORDERBOOK
 
     // STRATEGY demand: code → ownerId 집합 (전략 여러 개가 같은 종목을 요구할 수 있음 — 합집합).
     private val strategyDemands: MutableMap<String, MutableSet<String>> = mutableMapOf()
@@ -225,7 +225,7 @@ class OrderbookSubscriptionRouter(
         }
 
     /**
-     * 관리자 실시간 상태 스냅샷용 — 호가(H0STASP0) 구독 code별 owner 목록 + 최초 구독 시각(read-only).
+     * 관리자 실시간 상태 스냅샷용 — 호가(H0UNASP0) 구독 code별 owner 목록 + 최초 구독 시각(read-only).
      *
      * 구독 로직 변경 0 — demand read만. owner 문자열 = 체결가 라우터와 표기 대칭:
      * - STRATEGY는 [ownerLabel]로 `strategy:` prefix 1회 부여(bare `86` → `strategy:86`,
@@ -249,13 +249,15 @@ class OrderbookSubscriptionRouter(
         }
 
     companion object {
+        private const val TR_ID_UNIFIED_ORDERBOOK = "H0UNASP0"
+
         /** DETAIL 호가 idle 안전망 timeout — 15분 (현재가 DETAIL grace 5분보다 길게, EXIT 누락 보완). */
         const val DETAIL_IDLE_TIMEOUT_MS = 15L * 60L * 1000L
     }
 }
 
 /**
- * 관리자 실시간 상태 스냅샷용 호가(H0STASP0) demand 투영 (read-only).
+ * 관리자 실시간 상태 스냅샷용 호가(H0UNASP0) demand 투영 (read-only).
  */
 data class OrderbookDemandSnapshot(
     val code: String,

@@ -171,6 +171,19 @@ export interface OrderbookPayload {
   ts: string
   bids: OrderbookLevel[]
   asks: OrderbookLevel[]
+  sourceTrId?: string
+  totalAskQuantity?: number | null
+  totalBidQuantity?: number | null
+  overtimeTotalAskQuantity?: number | null
+  overtimeTotalBidQuantity?: number | null
+  anticipatedPrice?: string | null
+  anticipatedQuantity?: number | null
+  anticipatedVolume?: number | null
+  anticipatedChange?: string | null
+  anticipatedChangeSign?: string | null
+  anticipatedChangeRate?: string | null
+  accumulatedVolume?: number | null
+  stockDealClassCode?: string | null
 }
 
 // ──────────────────────────────────────────────

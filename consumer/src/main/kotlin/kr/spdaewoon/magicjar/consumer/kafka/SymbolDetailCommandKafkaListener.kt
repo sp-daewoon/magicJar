@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component
  * - ENTER → RealtimeSubscriptionRouter DETAIL(현재가) + OrderbookSubscriptionRouter DETAIL(호가) + universe 기록 + 분봉 gap-fill
  * - EXIT  → RealtimeSubscriptionRouter DETAIL(현재가) release + OrderbookSubscriptionRouter DETAIL(호가) 즉시 해제
  *
- * ## 호가(H0STASP0) DETAIL 경로 — 표시 중에만 복원 (2026-06-12 — anchor `detail-orderbook-live-only`)
+ * ## 호가(H0UNASP0) DETAIL 경로 — 표시 중에만 복원 (2026-06-12 — anchor `detail-orderbook-live-only`)
  * 종목 상세 진입 시 호가 구독은 #939에서 전면 제거됐다가, 수동매매 시 호가가 필요하다는 최고 관리자 결재로
  * **표시 중에만** 방식으로 부분 복원됐다([OrderbookSubscriptionRouter.onSymbolDetailEntered/Exited] —
  * 진입 즉시 구독 / 이탈 즉시 해제, 옛 LRU·debounce·5분 idle 잔류 폐기). 같은 종목 STRATEGY demand와 단일
@@ -78,7 +78,7 @@ class SymbolDetailCommandKafkaListener(
                         ownerId = ownerId,
                         code = code,
                     )
-                    // 호가(H0STASP0) — 상세 표시 중에만 구독 (anchor `detail-orderbook-live-only`).
+                    // 호가(H0UNASP0) — 상세 표시 중에만 구독 (anchor `detail-orderbook-live-only`).
                     orderbookSubscriptionRouter.onSymbolDetailEntered(code)
                     universeCache.recordDetail(code)
                     minuteGapFillService.submitIfNeeded(code)

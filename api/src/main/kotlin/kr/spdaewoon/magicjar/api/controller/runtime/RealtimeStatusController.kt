@@ -39,7 +39,7 @@ class RealtimeStatusController(
     @Operation(
         summary = "실시간 구독 상태 조회",
         description =
-            "현재 KIS WebSocket 세션·구독 슬롯 회계·체결가(H0STCNT0)/호가(H0STASP0) 구독 owner·체결통보(H0STCNI0/9) " +
+            "현재 KIS WebSocket 세션·구독 슬롯 회계·체결가(H0UNCNT0)/호가(H0UNASP0) 구독 owner·체결통보(H0STCNI0/9) " +
                 "상태를 한 번에 반환합니다. consumer가 Redis `admin:realtime-status`에 5초 주기로 발행한 스냅샷을 read하며, " +
                 "스냅샷이 15초 이상 미갱신이면 `stale=true`(consumer 발행 정지·장애 신호)로 표시합니다. " +
                 "subscriptions의 각 종목은 instrument 테이블로 종목명을 join하고, ACTIVE 전략이 사용하는 종목은 " +

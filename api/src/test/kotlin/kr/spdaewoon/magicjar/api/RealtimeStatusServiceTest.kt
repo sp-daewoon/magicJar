@@ -58,9 +58,9 @@ class RealtimeStatusServiceTest {
             """
             {"updatedAt":"${Instant.now()}",
              "ws":{"connected":true,"sessionCid":"cid-1","reconnects24h":2,"lastConnectedAtMs":1700000000000},
-             "slots":{"used":2,"max":40,"byTrId":{"H0STCNT0":1,"H0STASP0":1},
-                      "codesByTrId":{"H0STCNT0":["005930"],"H0STASP0":["005930"]}},
-             "subscriptions":[{"trId":"H0STCNT0","code":"005930","owners":["strategy:86"],"sinceMs":1700000000000}],
+             "slots":{"used":2,"max":40,"byTrId":{"H0UNCNT0":1,"H0UNASP0":1},
+                      "codesByTrId":{"H0UNCNT0":["005930"],"H0UNASP0":["005930"]}},
+             "subscriptions":[{"trId":"H0UNCNT0","code":"005930","owners":["strategy:86"],"sinceMs":1700000000000}],
              "executionNotice":{"subscribed":true,"mode":"MOCK","trId":"H0STCNI9","userIdMasked":"7468****"}}
             """.trimIndent()
         every { redis.opsForValue() } returns valueOps
@@ -85,14 +85,14 @@ class RealtimeStatusServiceTest {
         assertThat(res.ws.connected).isTrue()
         assertThat(res.slots.used).isEqualTo(2)
         // 슬롯 drill-down — channelsByTrId 종목명 join (배치 1회 조회로 코드+종목명 합성).
-        assertThat(res.slots.channelsByTrId["H0STCNT0"]).hasSize(1)
+        assertThat(res.slots.channelsByTrId["H0UNCNT0"]).hasSize(1)
         assertThat(
-            res.slots.channelsByTrId["H0STCNT0"]!!
+            res.slots.channelsByTrId["H0UNCNT0"]!!
                 .first()
                 .code,
         ).isEqualTo("005930")
         assertThat(
-            res.slots.channelsByTrId["H0STCNT0"]!!
+            res.slots.channelsByTrId["H0UNCNT0"]!!
                 .first()
                 .codeName,
         ).isEqualTo("삼성전자")

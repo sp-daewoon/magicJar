@@ -44,7 +44,7 @@ class WsSlotBudgetLedgerTest {
         assertThat(l.occupiedCount()).isEqualTo(2)
         assertThat(l.isOccupied("H0STCNT0", "005930")).isTrue()
         assertThat(l.isOccupied("H0NXCNT0", "005930")).isTrue()
-        assertThat(l.isOccupied("H0STASP0", "005930")).isFalse()
+        assertThat(l.isOccupied("H0UNASP0", "005930")).isFalse()
     }
 
     @Test
@@ -83,12 +83,12 @@ class WsSlotBudgetLedgerTest {
         val l = ledger(maxSlots = 40)
         l.register("H0STCNT0", "005930")
         l.register("H0STCNT0", "000660")
-        l.register("H0STASP0", "005930")
+        l.register("H0UNASP0", "005930")
         val snap = l.snapshot()
         assertThat(snap.used).isEqualTo(3)
         assertThat(snap.max).isEqualTo(40)
         assertThat(snap.byTrId["H0STCNT0"]).isEqualTo(2)
-        assertThat(snap.byTrId["H0STASP0"]).isEqualTo(1)
+        assertThat(snap.byTrId["H0UNASP0"]).isEqualTo(1)
     }
 
     @Test
@@ -97,11 +97,11 @@ class WsSlotBudgetLedgerTest {
         // 의도적으로 역순 등록 → 정렬 검증.
         l.register("H0STCNT0", "005930")
         l.register("H0STCNT0", "000660")
-        l.register("H0STASP0", "035720")
+        l.register("H0UNASP0", "035720")
         val snap = l.snapshot()
         // trId별 종목코드 목록이 정렬돼 노출 — "H0STCNT0 N개가 뭔지" drill-down.
         assertThat(snap.codesByTrId["H0STCNT0"]).containsExactly("000660", "005930")
-        assertThat(snap.codesByTrId["H0STASP0"]).containsExactly("035720")
+        assertThat(snap.codesByTrId["H0UNASP0"]).containsExactly("035720")
         // 카운트(byTrId)와 코드 목록 크기 일관.
         assertThat(snap.codesByTrId["H0STCNT0"]!!.size).isEqualTo(snap.byTrId["H0STCNT0"])
     }
@@ -131,12 +131,12 @@ class WsSlotBudgetLedgerTest {
     @Test
     fun `OPSP0008 거부 회계 보정 — 점유 취소 + 거부 카운트`() {
         val l = ledger()
-        l.register("H0STASP0", "093370")
-        assertThat(l.isOccupied("H0STASP0", "093370")).isTrue()
+        l.register("H0UNASP0", "093370")
+        assertThat(l.isOccupied("H0UNASP0", "093370")).isTrue()
 
-        val outcome = l.onRejected(trId = "H0STASP0", code = "093370")
+        val outcome = l.onRejected(trId = "H0UNASP0", code = "093370")
         // 거부 → 채널 점유 취소 (회계 보정).
-        assertThat(l.isOccupied("H0STASP0", "093370")).isFalse()
+        assertThat(l.isOccupied("H0UNASP0", "093370")).isFalse()
         assertThat(outcome.occupiedAfter).isEqualTo(0)
         assertThat(l.rejectedTotal()).isEqualTo(1)
     }
@@ -193,7 +193,7 @@ class WsSlotBudgetLedgerTest {
         assertThat(occupied!!.value()).isEqualTo(2.0)
         assertThat(available!!.value()).isEqualTo(37.0) // 40 - 1 - 2
 
-        l.onRejected("H0STASP0", "093370") // 미점유 거부도 카운터 증가
+        l.onRejected("H0UNASP0", "093370") // 미점유 거부도 카운터 증가
         val rejected =
             registry
                 .find(WsSlotBudgetLedger.METRIC_SUBSCRIBE_REJECTED)

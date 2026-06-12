@@ -20,8 +20,8 @@
 | A0 | 멀티 현재가 | `intstock-multprice` `FHKST11300006` | nightly snapshot/NXT 검증 | 사용 중 |
 | A0 | 휴장일 | `chk-holiday` `CTCA0903R` | 캘린더/수집 gate | 사용 중 |
 | A0 | 예탁원 정보 | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | corp action batch | 사용 중 |
-| A0 | WS 체결가 | `H0STCNT0`, `H0NXCNT0`, `H0STOUP0` | 실시간 tick | 사용 중 |
-| A0 | WS 호가 | `H0STASP0` | 상세/진입 호가 | 사용 중 |
+| A0 | WS 체결가 | `H0UNCNT0`, `H0STOUP0` | 실시간 tick | 사용 중 |
+| A0 | WS 호가 | `H0UNASP0` | 상세/진입 통합 호가 + 예상체결 필드 | 사용 중 (`H0STASP0` 퇴역) |
 | A0 | WS 체결통보 | `H0STCNI0`, `H0STCNI9` | order execution | 사용 중 |
 
 ## 1. 현재 사용 중인 MCP tool
@@ -42,8 +42,8 @@
 | P0 | 계좌 availability snapshot | 기존 `inquire-balance` `TTTC8434R`/`VTTC8434R` output1 `ord_psbl_qty` + output2 cash | 주문 path KIS 호출 0을 유지하면서 예수금/매도가능수량 stale 위험을 낮춘다. | refresh/guard flag OFF |
 | P1 | 투자자/체결 REST 보강 | `inquire-investor` `FHKST01010900`, `inquire-ccnl` `FHKST01010300` | 종목 상세/스크리너/WS stale 보강에 쓰는 read-only 정보다. | read-only |
 | P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | REAL read-only |
-| P1-deferred | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄일 가능성이 있다. | 코드 합류, feature flag OFF |
-| P2 | 통합 호가 WS | `asking_price_total` 후보 `H0UNASP0` | DETAIL/STRATEGY 호가 슬롯 절감 후보. | raw 재확인 후 |
+| A0 | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄인다. | 사용 중 |
+| A0 | 통합 호가 WS | `asking_price_total` `H0UNASP0` | DETAIL/STRATEGY 호가를 KRX+NXT 통합 1채널로 공급한다. | 사용 중 |
 | P2 | 주문조건별 가능수량 정밀조회 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | 계좌 snapshot으로 부족한 예외 분석/수동 진단용. 주문 hot path 기본 사용 금지. | 보류 |
 | P2 | 재무비율 | `FHKST66430300` 등 | 스크리너/fundamental 설명 강화. | batch only |
 | P2 | 추정실적/투자의견 | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI 설명/종목 상세 보조. | batch/cache |

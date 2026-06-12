@@ -52,7 +52,7 @@ export interface RealtimeSlotChannel {
  * KIS OpenAPI 는 동시 WS 구독 슬롯 수에 상한이 있음 (max).
  * - used: 현재 사용 슬롯
  * - max: 허용 상한
- * - byTrId: trId 별 사용 슬롯 분해 (예: { "H0STCNT0": 12, "H0STASP0": 4 })
+ * - byTrId: trId 별 사용 슬롯 분해 (예: { "H0UNCNT0": 12, "H0UNASP0": 4 })
  * - channelsByTrId: trId → 점유 채널(종목) 목록 — slot drill-down.
  *   optional: 구버전 백엔드 스냅샷엔 없음 (없으면 "상세 정보 없음" 표시).
  */
@@ -66,7 +66,7 @@ export interface RealtimeSlots {
 /**
  * 단일 구독 항목.
  *
- * - trId: KIS WS 거래 ID (H0STCNT0=체결가, H0STASP0=호가 등)
+ * - trId: KIS WS 거래 ID (H0UNCNT0=통합 체결가, H0UNASP0=통합 호가 등)
  * - code: 종목 코드
  * - codeName: 종목명
  * - owners: 이 구독을 요구한 owner 목록 (strategy·detail 등 — 색 배지 분기)

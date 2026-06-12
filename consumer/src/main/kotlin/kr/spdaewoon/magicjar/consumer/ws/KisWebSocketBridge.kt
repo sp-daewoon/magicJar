@@ -82,7 +82,7 @@ import java.util.concurrent.atomic.AtomicReference
  * - H0STCNI0 체결통보: 1 slot (reserve — 실제 subscribe는 T-O)
  * - H0STCNT0 체결가: 최대 20 slot (NXT 병행 구독 시 slot 2배 소모)
  * - H0NXCNT0 NXT 체결가: 최대 20 slot (H0STCNT0와 동일 종목 세트)
- * - H0STASP0 호가: 최대 0 slot (NXT 추가로 slot 포화 — LRU 호가는 SubscriptionPolicy.ORDERBOOK_MAX=0 적용 검토, backlog §53)
+ * - H0UNASP0 통합 호가: DETAIL/STRATEGY demand만 점유(종목당 1 slot, KRX+NXT 통합)
  * - 현행 정규장 full dual tick: H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) = 41로 40 한도 초과.
  *   R1 WsSlotBudgetLedger가 초과를 관측·보정하고, H0UNCNT0 통합 채널 전환은 운영 실측 후 R3에서 판단.
  *   시간외 단일가(16:00~18:00): H0STOUP0(20) + H0STCNI0(1) = 21 ≤ 40 안전.
@@ -191,6 +191,7 @@ class KisWebSocketBridge(
         internal const val TR_ID_KRX_TICK = "H0STCNT0"
         internal const val TR_ID_NXT_TICK = "H0NXCNT0"
         internal const val TR_ID_UNIFIED_TICK = "H0UNCNT0"
+        internal const val TR_ID_UNIFIED_ORDERBOOK = "H0UNASP0"
 
         internal fun tickPriceTrIds(integratedTickEnabled: Boolean): List<String> =
             if (integratedTickEnabled) {
@@ -218,7 +219,7 @@ class KisWebSocketBridge(
         /**
          * ADR 0114 §10-3 R2-C1 — `orderbook:top:{code}` 1호가 캐시 TTL(보수적 짧게).
          *
-         * 호가는 H0STASP0 tick으로 초 단위 갱신되므로 TTL을 짧게 둬 stale 캐시가 진입가에 쓰이는 risk를 줄인다.
+         * 호가는 H0UNASP0 tick으로 초 단위 갱신되므로 TTL을 짧게 둬 stale 캐시가 진입가에 쓰이는 risk를 줄인다.
          * EntryPricePolicy가 quoteAsOf(=ts) 기반 stale(default 3초)을 한 번 더 거르므로, TTL은 그보다 약간 긴
          * 10초로 둔다(WS 잠깐 끊김에도 직전 호가 1회 fallback 여지 + 그래도 EntryPricePolicy stale gate가 최종 차단).
          */
@@ -282,7 +283,7 @@ class KisWebSocketBridge(
     private val session = KisWebSocketSession()
     private val scheduler = Executors.newScheduledThreadPool(1)
 
-    // 호가 구독 종목코드 Set (H0STASP0 — ADR 0048 §2-1 LRU 10 slot)
+    // 호가 구독 종목코드 Set (H0UNASP0 — KRX+NXT 통합 호가)
     private val orderbookSubscribedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // NXT 체결가 구독 종목코드 Set (H0NXCNT0 — ADR 0063 NXT 08:00~20:00 KST cover)
@@ -602,8 +603,8 @@ class KisWebSocketBridge(
     }
 
     /**
-     * KIS WS 호가 구독 (H0STASP0) — ADR 0048 §2-1 LRU 10 slot.
-     * KIS-first 출처: open-trading-api asking_price_krx.py subscribe tr_type="1"
+     * KIS WS 통합 호가 구독 (H0UNASP0).
+     * KIS-first 출처: open-trading-api domestic_stock_functions_ws.py asking_price_total() tr_type="1"
      */
     override fun subscribeOrderbook(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -614,17 +615,17 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (!orderbookSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STASP0")
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_ORDERBOOK)
                 sendSink?.tryEmitNext(msg)
                 orderbookSubscribedCodes.add(code)
-                slotLedger()?.register(trId = "H0STASP0", code = code) // ADR 0123 R1 — 호가 채널 점유
-                log.info("KIS WS orderbook subscribe: code={}", code)
+                slotLedger()?.register(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1 — 호가 채널 점유
+                log.info("KIS WS orderbook subscribe: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
             }
         }
     }
 
     /**
-     * KIS WS 호가 구독 해제 (H0STASP0).
+     * KIS WS 통합 호가 구독 해제 (H0UNASP0).
      */
     override fun unsubscribeOrderbook(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -633,17 +634,17 @@ class KisWebSocketBridge(
                 log.warn("KIS WS orderbook unsubscribe — approval_key 발급 불가, local state만 정리: codes={}", codes)
                 codes.forEach { code ->
                     orderbookSubscribedCodes.remove(code)
-                    slotLedger()?.release(trId = "H0STASP0", code = code) // ADR 0123 R1
+                    slotLedger()?.release(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1
                 }
                 return
             }
         codes.forEach { code ->
             if (orderbookSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = "H0STASP0")
+                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_ORDERBOOK)
                 sendSink?.tryEmitNext(msg)
                 orderbookSubscribedCodes.remove(code)
-                slotLedger()?.release(trId = "H0STASP0", code = code) // ADR 0123 R1
-                log.info("KIS WS orderbook unsubscribe: code={}", code)
+                slotLedger()?.release(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1
+                log.info("KIS WS orderbook unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
             }
         }
     }
@@ -1045,10 +1046,10 @@ class KisWebSocketBridge(
                     // KIS-first: open-trading-api ccnl_nxt() tr_id=H0NXCNT0
                     // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
                     TR_ID_NXT_TICK -> handleNxtTickData(data)
-                    // H0UNCNT0 통합 체결가 — ADR 0123 R3 후보. 기본 OFF flag로만 활성화.
+                    // H0UNCNT0 통합 체결가 — ADR 0124 기본 채널.
                     // KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py
                     TR_ID_UNIFIED_TICK -> handleUnifiedTickData(data)
-                    "H0STASP0" -> handleOrderbookData(data)
+                    TR_ID_UNIFIED_ORDERBOOK -> handleOrderbookData(data)
                     // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
                     // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
                     //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
@@ -1105,7 +1106,7 @@ class KisWebSocketBridge(
     }
 
     private fun handleOrderbookData(rawData: String) {
-        val snapshot = KisWsOrderbookParser.parseH0Stasp0(rawData) ?: return
+        val snapshot = KisWsOrderbookParser.parseH0Unasp0(rawData) ?: return
         log.debug("KIS WS orderbook: code={} bids={} asks={}", snapshot.code, snapshot.bids.size, snapshot.asks.size)
 
         // ADR 0114 §10-3 R2-C1 — 진입 marketable limit 동기 read source(orderbook:top:{code}) write-through.
@@ -1121,6 +1122,19 @@ class KisWebSocketBridge(
                         "ts" to snapshot.ts.toString(),
                         "bids" to snapshot.bids.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
                         "asks" to snapshot.asks.map { mapOf("price" to it.price.toPlainString(), "quantity" to it.quantity) },
+                        "sourceTrId" to TR_ID_UNIFIED_ORDERBOOK,
+                        "totalAskQuantity" to snapshot.totalAskQuantity,
+                        "totalBidQuantity" to snapshot.totalBidQuantity,
+                        "overtimeTotalAskQuantity" to snapshot.overtimeTotalAskQuantity,
+                        "overtimeTotalBidQuantity" to snapshot.overtimeTotalBidQuantity,
+                        "anticipatedPrice" to snapshot.anticipatedPrice?.toPlainString(),
+                        "anticipatedQuantity" to snapshot.anticipatedQuantity,
+                        "anticipatedVolume" to snapshot.anticipatedVolume,
+                        "anticipatedChange" to snapshot.anticipatedChange?.toPlainString(),
+                        "anticipatedChangeSign" to snapshot.anticipatedChangeSign,
+                        "anticipatedChangeRate" to snapshot.anticipatedChangeRate?.toPlainString(),
+                        "accumulatedVolume" to snapshot.accumulatedVolume,
+                        "stockDealClassCode" to snapshot.stockDealClassCode,
                     ),
                 )
             kafkaTemplate.send("market.orderbook.v1", snapshot.code, payload)
@@ -1237,7 +1251,7 @@ class KisWebSocketBridge(
      * ADR 0048 §2-1 정합:
      *   H0STCNI0/H0STCNI9 = 사용자별 1 slot (의무 reserve).
      *   40 slot 한도에서는 본 메서드의 1 slot을 reserved로 먼저 반영하고, 나머지 채널은 WsSlotBudgetLedger가 점유를 계산한다.
-     *   legacy 1(체결통보) + 30(H0STCNT0+H0NXCNT0) + 10(H0STASP0) = 41 산식은 ADR 0123에서 정정됨.
+     *   legacy 1(체결통보) + 30(이중 체결가) + 10(호가) = 41 산식은 ADR 0123에서 정정됨.
      *
      * defaultUserId 비어있으면 skip — magicjar.kis.ws.user-id 미설정 환경(qa fixture 등) 보호.
      */
@@ -1360,12 +1374,12 @@ class KisWebSocketBridge(
     }
 
     /**
-     * ADR 0114 §10-3 R2-C1 — H0STASP0 1호가(매도1·매수1·매도잔량1)를 `orderbook:top:{code}` Redis write-through.
+     * ADR 0114 §10-3 R2-C1 — H0UNASP0 1호가(매도1·매수1·매도잔량1)를 `orderbook:top:{code}` Redis write-through.
      *
      * 진입(BUY) marketable limit 산정의 **동기 read source**다(`EntryQuotePort` → `RedisEntryQuoteAdapter`가 소비).
      * 전체 10단계는 Kafka `market.orderbook.v1`로 계속 흐르고(무변경), 본 캐시는 진입 산정에 필요한 1호가만 담는다.
      *
-     * TTL은 보수적으로 짧게(`ORDERBOOK_TOP_TTL`) 둔다 — 호가는 H0STASP0 tick으로 초 단위 갱신되므로 stale 캐시가
+     * TTL은 보수적으로 짧게(`ORDERBOOK_TOP_TTL`) 둔다 — 호가는 H0UNASP0 tick으로 초 단위 갱신되므로 stale 캐시가
      * 진입가에 쓰이는 risk를 줄인다. EntryPricePolicy가 quoteAsOf(=ts)로 stale을 한 번 더 거른다(default 3초).
      * 호가 WS 미구독 종목(ADR 0048 LRU·§10-3 NXT slot 포화)은 이 키가 없어 EntryQuotePort가 REST fallback으로 넘어간다.
      *
@@ -1382,6 +1396,13 @@ class KisWebSocketBridge(
                     "askQty1" to ask1.quantity.toString(),
                     "bidQty1" to bid1.quantity.toString(),
                     "ts" to snapshot.ts.toString(),
+                    "sourceTrId" to TR_ID_UNIFIED_ORDERBOOK,
+                    "anticipatedPrice" to snapshot.anticipatedPrice?.toPlainString(),
+                    "anticipatedQuantity" to snapshot.anticipatedQuantity?.toString(),
+                    "anticipatedVolume" to snapshot.anticipatedVolume?.toString(),
+                    "anticipatedChange" to snapshot.anticipatedChange?.toPlainString(),
+                    "anticipatedChangeSign" to snapshot.anticipatedChangeSign,
+                    "anticipatedChangeRate" to snapshot.anticipatedChangeRate?.toPlainString(),
                 )
             redisTemplate
                 .opsForValue()
@@ -2020,7 +2041,7 @@ class KisWebSocketBridge(
      * 1. 거부 응답 header에서 (trId, trKey=code) 추출.
      * 2. **ledger 회계 보정** — 해당 채널 점유 취소 + 거부 카운트 + WARN(1회/주기 throttle).
      * 3. **subscribedCodes 정합** — 현행 결함(거부돼도 subscribedCodes에 남아 재구독·재시도 0)을 정정:
-     *    거부된 채널이 H0STCNT0면 session.subscribedCodes에서, H0NXCNT0면 nxtSubscribedCodes에서, H0STASP0면
+     *    거부된 채널이 H0STCNT0면 session.subscribedCodes에서, H0NXCNT0면 nxtSubscribedCodes에서, H0UNASP0면
      *    orderbookSubscribedCodes에서 제거해 "구독 중인데 실제 미점유" stale 상태를 해소. 이후 owner 로직이
      *    재시도 가능 상태로 둔다(R2 eviction이 slot 확보 후 재등록).
      * 4. **graceful fallback hook** — onSubscribeRejected(code, trId) 발사 → gap-fill·polling 연결
@@ -2030,7 +2051,7 @@ class KisWebSocketBridge(
      * (주문 발사 아님) → fail-fast 아닌 명시 degraded(polling/gap-fill) 진행.
      *
      * KIS-first: 거부 응답 format — 2026-06-11 라이브 실측 (ADR 0123 §1-1)
-     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"},"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}
+     *   {"header":{"tr_id":"H0UNASP0","tr_key":"093370"},"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}
      */
     private fun handleOpsp0008(rawJson: String) {
         val channel = KisWsMessageParser.extractRejectedChannel(rawJson)
@@ -2050,7 +2071,7 @@ class KisWebSocketBridge(
             TR_ID_KRX_TICK -> session.subscribedCodes.remove(code)
             TR_ID_NXT_TICK -> nxtSubscribedCodes.remove(code)
             TR_ID_UNIFIED_TICK -> session.subscribedCodes.remove(code)
-            "H0STASP0" -> orderbookSubscribedCodes.remove(code)
+            TR_ID_UNIFIED_ORDERBOOK -> orderbookSubscribedCodes.remove(code)
             "H0STOUP0" -> overtimeSinglePriceCodes.remove(code)
             else -> log.debug("KIS WS OPSP0008 — set 정합 대상 아닌 trId={} (체결통보 등)", trId)
         }
@@ -2088,12 +2109,13 @@ class KisWebSocketBridge(
         session.shuttingDown = true
         stopHeartbeatWatchdog()
 
-        // 모든 종목 unsubscribe (기본 H0STCNT0+H0NXCNT0, flag ON 시 H0UNCNT0, plus H0STOUP0)
+        // 모든 종목 unsubscribe (기본 H0UNCNT0, plus H0UNASP0/H0STOUP0)
         val codes = session.subscribedCodes.toList()
         val tickTrIds = tickPriceTrIds()
         val extraNxtCodes = nxtSubscribedCodes.filterNot { it in codes }
+        val orderbookCodes = orderbookSubscribedCodes.toList()
         val overtimeCodes = overtimeSinglePriceCodes.toList()
-        if (codes.isNotEmpty() || extraNxtCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
+        if (codes.isNotEmpty() || extraNxtCodes.isNotEmpty() || orderbookCodes.isNotEmpty() || overtimeCodes.isNotEmpty()) {
             try {
                 val approvalKey = getApprovalKey()
                 // G-1: approval_key null 시 unsubscribe 메시지 전송 불가 — WS session 강제 종료로 대체.
@@ -2124,6 +2146,13 @@ class KisWebSocketBridge(
                     val nxtMsg = buildSubscribeMessage(approvalKey, code, trType = "2", trId = TR_ID_NXT_TICK)
                     sendSink?.tryEmitNext(nxtMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={} (extra)", code, TR_ID_NXT_TICK)
+                }
+                // H0UNASP0 통합 호가 unsubscribe — KIS-first: asking_price_total() tr_type "0" = 구독 해제
+                orderbookCodes.forEach { code ->
+                    val orderbookMsg =
+                        buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_ORDERBOOK)
+                    sendSink?.tryEmitNext(orderbookMsg)
+                    log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
                 }
                 // H0STOUP0 시간외 단일가 unsubscribe — ADR 0076 Phase 3 B-2
                 // KIS-first: overtime_ccnl_krx.py tr_type "0" = 구독 해제
@@ -2247,8 +2276,8 @@ class KisWebSocketBridge(
     private fun buildSubscribeMessage(
         approvalKey: String,
         code: String,
-        trType: String, // "1" = subscribe, "2" = unsubscribe
-        trId: String = TR_ID_KRX_TICK, // 기본: H0STCNT0 체결가 / H0STASP0 호가
+        trType: String, // "1" = subscribe, "0"/"2" = unsubscribe(TR별 KIS 규약)
+        trId: String = TR_ID_KRX_TICK, // 기본: H0STCNT0 체결가
     ): String =
         objectMapper.writeValueAsString(
             mapOf(

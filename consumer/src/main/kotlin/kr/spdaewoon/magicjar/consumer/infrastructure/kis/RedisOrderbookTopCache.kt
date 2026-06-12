@@ -11,8 +11,8 @@ import java.math.BigDecimal
 /**
  * `orderbook:top:{code}` 1호가 Redis 캐시 read — ADR 0114 §10-3 R2-C1 진입 호가 **1차 source**.
  *
- * 쓰기(write-through)는 `KisWebSocketBridge.writeOrderbookTopToRedis`(H0STASP0 수신 경로)가 담당하고,
- * 본 클래스는 **읽기만** 한다. 호가 WS 미구독 종목(ADR 0048 LRU·NXT slot 포화)은 키가 없어 miss가 정상이다
+ * 쓰기(write-through)는 `KisWebSocketBridge.writeOrderbookTopToRedis`(H0UNASP0 수신 경로)가 담당하고,
+ * 본 클래스는 **읽기만** 한다. 호가 WS 미구독 종목은 키가 없어 miss가 정상이다
  * (합성 어댑터 [CompositeEntryQuoteAdapter]가 REST fallback으로 넘어감).
  *
  * 캐시 payload(JSON): `ask1`·`bid1`·`askQty1`·`bidQty1`·`ts`. stale 판정은 EntryPricePolicy가 quoteAsOf(=ts)로 수행.

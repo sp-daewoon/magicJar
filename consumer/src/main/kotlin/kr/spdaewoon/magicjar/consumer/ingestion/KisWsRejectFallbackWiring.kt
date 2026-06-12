@@ -15,8 +15,9 @@ import org.springframework.stereotype.Component
  * 분봉 gap-fill + quote polling으로 보완한다(분봉 연속성 보장 — 후성 093370 결함 직접 해소).
  *
  * ## 흐름 (거부된 (code, trId) 1건당)
- * 1. **분봉 gap-fill** — H0STCNT0/H0NXCNT0(체결가) 거부 시 `SymbolDetailMinuteGapFillService.submitIfNeeded(code)`
- *    호출로 WS 미수신 구간 1m 분봉을 KIS REST로 보완. 호가(H0STASP0)·시간외(H0STOUP0) 거부는 분봉 영향 없어 skip.
+ * 1. **분봉 gap-fill** — H0UNCNT0/H0STCNT0/H0NXCNT0(체결가) 거부 시
+ *    `SymbolDetailMinuteGapFillService.submitIfNeeded(code)` 호출로 WS 미수신 구간 1m 분봉을 KIS REST로 보완.
+ *    호가(H0UNASP0)·시간외(H0STOUP0) 거부는 분봉 영향 없어 skip.
  * 2. **quote polling** — `WatchlistPollingWorker.add(code)`로 5s 현재가 polling 전환 (시세 degraded 명시).
  *
  * ## 헌법 §6 + onReconnect 패턴 정합
@@ -50,7 +51,8 @@ class KisWsRejectFallbackWiring(
     ) {
         try {
             // 체결가 채널 거부 → 분봉 연속성 risk → gap-fill 트리거. 호가·시간외는 분봉 미영향(skip).
-            if (trId == "H0STCNT0" || trId == "H0NXCNT0") {
+            val isTickReject = trId == "H0UNCNT0" || trId == "H0STCNT0" || trId == "H0NXCNT0"
+            if (isTickReject) {
                 gapFillServiceProvider.ifAvailable?.submitIfNeeded(code = code, reason = "ws-opsp0008-reject")
             }
             // 모든 거부 → quote polling 전환 (시세 degraded 명시 — 헌법 §11 silent 금지).
@@ -59,7 +61,7 @@ class KisWsRejectFallbackWiring(
                 "ADR 0123 R1 — OPSP0008 거부 fallback 적용: code={} trId={} (gap-fill={} polling=add)",
                 code,
                 trId,
-                trId == "H0STCNT0" || trId == "H0NXCNT0",
+                isTickReject,
             )
         } catch (e: Exception) {
             log.error(

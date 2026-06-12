@@ -28,7 +28,7 @@
 | A0 | 멀티시세 | `intstock-multprice` `FHKST11300006` | nightly snapshot, NXT 검증 |
 | A0 | 휴장일 | `chk-holiday` `CTCA0903R` | 캘린더/수집 gate |
 | A0 | 예탁원 | `HHKDB669100C0`/`101C0`/`102C0`/`104C0`/`105C0`/`106C0` | corp action batch |
-| A0 | WS | `H0STCNT0`, `H0NXCNT0`, `H0STASP0`, `H0STOUP0`, `H0STCNI0`, `H0STCNI9` | tick/orderbook/execution notice |
+| A0 | WS | `H0UNCNT0`, `H0UNASP0`, `H0STOUP0`, `H0STCNI0`, `H0STCNI9` | integrated tick/orderbook/execution notice |
 
 ## 1-2. 다음 채용 후보 우선순위
 
@@ -38,8 +38,8 @@
 | P1 | `inquire-investor` | `FHKST01010900` | 외국인/기관 수급 | 채용 |
 | P1 | `inquire-ccnl` | `FHKST01010300` | 최근 체결 REST 보강 | 채용 |
 | P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | REAL read-only 채용 |
-| P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | 코드 합류, flag OFF |
-| P2 | `asking_price_total` | `H0UNASP0` 후보 | 통합 호가 WS, slot 절감 | raw 재확인 후 |
+| A0 | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | 사용 중 |
+| A0 | `asking_price_total` | `H0UNASP0` | KRX+NXT 통합 호가 WS, 예상체결 필드 포함 | 사용 중 (`H0STASP0` 퇴역) |
 | P2 | `inquire-psbl-order` / `inquire-psbl-sell` | `TTTC8908R`/`VTTC8908R`, `TTTC8408R` | 주문조건별 가능수량 정밀 진단 | hot path 보류 |
 | P2 | finance ratios | `FHKST66430300` 등 | screener fundamental | 후순위 |
 | P2 | estimate/opinion | `HHKST668300C0`, `FHKST663300C0`, `FHKST663400C0` | AI/상세 보조 | 후순위 |

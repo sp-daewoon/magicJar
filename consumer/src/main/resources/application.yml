@@ -221,7 +221,7 @@ magicjar:
       max-slots: ${MAGICJAR_KIS_WS_MAX_SLOTS:40}
       slot-ledger:
         enabled: ${MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED:true}
-      # 호가(H0STASP0) 구독은 STRATEGY(전략 ACTIVE) + DETAIL(종목 상세 표시 중) 두 owner로 수립된다
+      # 호가(H0UNASP0) 구독은 STRATEGY(전략 ACTIVE) + DETAIL(종목 상세 표시 중) 두 owner로 수립된다
       #   (anchor `detail-orderbook-live-only`). DETAIL은 진입 즉시 구독·이탈 즉시 해제(LRU slot 예산 불필요 —
       #   표시 중 1종목만 점유) + EXIT 누락 대비 15분 idle 안전망. STRATEGY는 registrar TTL이 관리. 별도 slot 예산 없음.
       # admin-status: 관리자 실시간 구독 상태 스냅샷 발행 주기(ms) — Redis `admin:realtime-status` (anchor `admin-realtime-status`).

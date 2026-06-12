@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
  * KIS WS 구독 슬롯 단일 회계기 (ADR 0123 R1 — `WsSlotBudgetLedger`).
  *
  * ## 책임
- * 체결가(H0STCNT0)·NXT(H0NXCNT0)·호가(H0STASP0)·시간외(H0STOUP0)·체결통보(H0STCNI0/9) WS 구독을
+ * 체결가(H0UNCNT0)·호가(H0UNASP0)·시간외(H0STOUP0)·체결통보(H0STCNI0/9) WS 구독을
  * **"채널 = (code, trId)" 단위**로 단일 회계한다. 기존엔 [RealtimeSubscriptionRouter](체결가)와
  * `OrderbookSubscriptionRouter`(호가)가 각각 부분 한도만 관리하고 NXT 이중 발사를 회계하지 않아,
  * 총 점유가 40을 넘어도 시스템이 인지하지 못한 채 계속 subscribe를 발사 → OPSP0008(MAX SUBSCRIBE OVER)

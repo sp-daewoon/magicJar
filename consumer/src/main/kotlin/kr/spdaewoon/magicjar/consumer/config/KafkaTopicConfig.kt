@@ -11,7 +11,7 @@ import org.springframework.kafka.config.TopicBuilder
  * 생성 topic:
  * - market.tick.v1                  — KIS WS tick + polling fallback publish (retention 1h)
  * - market.candle.minute.closed.v1  — 1m closing 캔들 (retention 1d)
- * - market.orderbook.v1             — H0STASP0 호가 스냅샷 (retention 1h) — PR-10b 신규
+ * - market.orderbook.v1             — H0UNASP0 통합 호가 스냅샷 (retention 1h)
  * - symbol.detail.command.v1        — 종목 상세 실시간 sub/unsub 명령 (retention 1h)
  * - market.realtime.demand.v1       — 전략 후보 실시간 관찰 수요 (retention 1h)
  * - system.event.v1                  — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
@@ -47,7 +47,7 @@ class KafkaTopicConfig {
             .build()
 
     /**
-     * 호가 스냅샷 (KIS WS H0STASP0 → KisWebSocketBridge publish).
+     * 호가 스냅샷 (KIS WS H0UNASP0 → KisWebSocketBridge publish).
      * retention: 1h (실시간 호가 — 장기 보관 불필요)
      * PR-10b 신규.
      */

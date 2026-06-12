@@ -1,8 +1,8 @@
 /**
  * SymbolOrderbook — 매수·매도 10단계 호가표
  *
- * spec §6-2 §5 호가 LRU 10 slot 정합:
- * - ADR 0048 §2-1: H0STASP0 호가 LRU 10 slot
+ * spec §6-2 §5 호가 실시간 정합:
+ * - H0UNASP0 통합 호가
  * - 페이지 mount → POST /api/symbols/{code}/orderbook/subscribe (SymbolDetailPage에서 처리)
  * - STOMP /topic/market.orderbook.{code} 실시간 갱신
  * - 호가 데이터 없음 (장 마감 등) → "호가 데이터 없음" 표시 (graceful)

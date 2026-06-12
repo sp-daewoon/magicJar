@@ -14,7 +14,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  *
  * ## DETAIL 호가 구독 "표시 중에만" 복원 (anchor `detail-orderbook-live-only`)
  * 종목 상세 진입 호가 구독이 #939에서 제거됐다가, 수동매매 시 호가 필요성으로 **진입 시 구독 / 이탈 즉시 해제**
- * 방식으로 복원됐다(옛 LRU·debounce·5분 idle 잔류 폐기). 호가(H0STASP0)는 STRATEGY(전략 ACTIVE) + DETAIL
+ * 방식으로 복원됐다(옛 LRU·debounce·5분 idle 잔류 폐기). 호가(H0UNASP0)는 STRATEGY(전략 ACTIVE) + DETAIL
  * (상세 표시 중) 두 owner에서 구독되며 단일 구독을 공유한다(F11 패턴). 본 테스트가 보증하는 것:
  * 1. DETAIL enter → 구독 / exit → 즉시 해제
  * 2. STRATEGY enter → 구독 / deactivate → 해제
@@ -140,7 +140,7 @@ class OrderbookSubscriptionRouterTest {
         // 전략이 먼저 호가를 요구한 종목을 사용자가 상세로 본다.
         router.onStrategyActivated("005930", "strategy:86")
         router.onSymbolDetailEntered("005930")
-        // 단일 H0STASP0 구독 공유 — subscribe는 1회만.
+        // 단일 H0UNASP0 구독 공유 — subscribe는 1회만.
         assertEquals(1, mockKisWsPort.subscribeOrderbookCount)
         assertTrue(router.current().contains("005930"))
 

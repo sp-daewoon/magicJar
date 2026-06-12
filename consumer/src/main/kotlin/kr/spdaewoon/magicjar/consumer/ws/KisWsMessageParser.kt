@@ -14,7 +14,7 @@ import java.math.BigDecimal
  * 수신 raw 메시지 형식:
  *   {타입}|{TR_ID}|{N}|{데이터}
  *   - 타입: "0" = 실시간 데이터, "1" = 구독 응답, "PINGPONG" = heartbeat
- *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0UNCNT0(통합 체결가), H0STASP0(호가), H0STCNI0(체결통보)
+ *   - TR_ID: H0STCNT0(체결가), H0NXCNT0(NXT 체결가), H0UNCNT0(통합 체결가), H0UNASP0(통합 호가), H0STCNI0(체결통보)
  *   - N: 데이터 건수
  *   - 데이터: ^(캐럿) 구분 필드열
  *
@@ -390,7 +390,7 @@ object KisWsMessageParser {
      *
      * KIS WS 동시 구독 한도(40) 초과 시 신규 subscribe 요청이 거부된다.
      * KIS 응답 예시 (2026-06-11 라이브 실측 evidence — ADR 0123 §1-1):
-     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"},
+     *   {"header":{"tr_id":"H0UNASP0","tr_key":"093370"},
      *    "body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}
      *
      * msg_cd 문자열 기반 감지 (rt_cd "1" + msg_cd "OPSP0008"). isSubscriptionSuccess=false 분기에서만 평가.
@@ -406,7 +406,7 @@ object KisWsMessageParser {
      * 구독 거부 응답에서 (trId, trKey) 채널 식별자 추출 (ADR 0123 R1 — 회계 보정용).
      *
      * KIS 거부 응답 header에 거부된 채널의 tr_id·tr_key가 담긴다:
-     *   {"header":{"tr_id":"H0STASP0","tr_key":"093370"}, "body":{"msg_cd":"OPSP0008",...}}
+     *   {"header":{"tr_id":"H0UNASP0","tr_key":"093370"}, "body":{"msg_cd":"OPSP0008",...}}
      * ledger가 해당 (trId, trKey) 채널 점유를 취소(회계 보정)하기 위해 사용.
      *
      * Jackson tree 파싱 — extractAndStoreAesKey와 동일 패턴(KisWebSocketBridge 위임). 본 파서는

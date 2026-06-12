@@ -36,7 +36,7 @@ import java.time.Duration
  * - open-trading-api 출처:
  *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_asking_price_exp_ccn/inquire_asking_price_exp_ccn.py
  *   (tr_id·endpoint·params 직접 인용. real/demo 동일 tr_id `FHKST01010200`)
- * - 응답 output1 필드(KIS 공식 lowercase 규약 — WS H0STASP0 `KisWsOrderbookParser` 동일 호가 source 대문자 ASKP1/BIDP1/ASKP_RSQN1과 1:1):
+ * - 응답 output1 필드(KIS 공식 lowercase 규약 — WS H0UNASP0 `KisWsOrderbookParser` 동일 호가 source 대문자 ASKP1/BIDP1/ASKP_RSQN1과 1:1):
  *   · `askp1`        매도호가1
  *   · `bidp1`        매수호가1
  *   · `askp_rsqn1`   매도호가 잔량1
