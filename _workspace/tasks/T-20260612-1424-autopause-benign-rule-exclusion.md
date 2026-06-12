@@ -3,10 +3,10 @@ id: T-20260612-1424-autopause-benign-rule-exclusion
 agent: backend-core
 model: opus
 branch: hotfix/autopause-benign-rule-exclusion
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T14:24:12.498+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T14:31:22.833+09:00
+pr: #932
 parentPhase: ?
 ---
 
