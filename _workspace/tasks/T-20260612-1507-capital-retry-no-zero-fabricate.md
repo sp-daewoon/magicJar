@@ -3,10 +3,10 @@ id: T-20260612-1507-capital-retry-no-zero-fabricate
 agent: backend-core
 model: opus
 branch: hotfix/capital-retry-no-zero-fabricate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T15:07:09.061+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T15:27:59.600+09:00
+pr: #936
 parentPhase: ?
 ---
 
