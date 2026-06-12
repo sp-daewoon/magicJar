@@ -14,10 +14,10 @@ parentPhase: ?
 ADR 0109 amend — REAL canary hard cap 의미 정합(매수만 카운트·SELL cap 면제·매도 MARKET fallback)
 
 ## 결과물 체크리스트
-- [ ] 0109 amend §
-- [ ] ADR README 인덱스·변경이력
-- [ ] master §10
-- [ ] CHANGELOG row
+- [x] 0109 amend §
+- [x] ADR README 인덱스·변경이력
+- [x] master §10
+- [x] CHANGELOG row
 
 ## 의존성
 - (필요 시 기록)
