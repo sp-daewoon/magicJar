@@ -48,6 +48,9 @@ class OrderbookSubscriptionRouter(
     // STRATEGY demand: code → ownerId 집합 (전략 여러 개가 같은 종목을 요구할 수 있음 — 합집합).
     private val strategyDemands: MutableMap<String, MutableSet<String>> = mutableMapOf()
 
+    // 관리자 스냅샷용 — code별 최초 호가 구독 시각(epoch ms). 모든 owner가 빠지면 제거.
+    private val subscribedSinceMs: MutableMap<String, Long> = mutableMapOf()
+
     /**
      * 종목이 STRATEGY owner로 호가 구독을 필요로 하는지.
      * 호출자가 lock 보유 전제(Locked 접미사).
@@ -95,6 +98,7 @@ class OrderbookSubscriptionRouter(
         lock.withLock {
             val owners = strategyDemands.getOrPut(code) { mutableSetOf() }
             val added = owners.add(ownerId)
+            subscribedSinceMs.putIfAbsent(code, System.currentTimeMillis())
             ensureSubscribedLocked(code)
             if (added) {
                 log.info(
@@ -120,7 +124,10 @@ class OrderbookSubscriptionRouter(
         lock.withLock {
             val owners = strategyDemands[code] ?: return
             if (!owners.remove(ownerId)) return
-            if (owners.isEmpty()) strategyDemands.remove(code)
+            if (owners.isEmpty()) {
+                strategyDemands.remove(code)
+                subscribedSinceMs.remove(code)
+            }
             log.info(
                 "orderbook STRATEGY release: code={} ownerId={} remainingStrategyOwners={}",
                 code,
@@ -138,4 +145,29 @@ class OrderbookSubscriptionRouter(
         lock.withLock {
             strategyDemands.keys.toSet()
         }
+
+    /**
+     * 관리자 실시간 상태 스냅샷용 — 호가(H0STASP0) 구독 code별 owner 목록 + 최초 구독 시각(read-only).
+     *
+     * 구독 로직 변경 0 — strategyDemands read만. owner 문자열 = ownerId 그대로(예: `strategy:86`).
+     */
+    fun snapshotDemands(): List<OrderbookDemandSnapshot> =
+        lock.withLock {
+            strategyDemands.map { (code, owners) ->
+                OrderbookDemandSnapshot(
+                    code = code,
+                    owners = owners.sorted(),
+                    sinceMs = subscribedSinceMs[code],
+                )
+            }
+        }
 }
+
+/**
+ * 관리자 실시간 상태 스냅샷용 호가(H0STASP0) demand 투영 (read-only).
+ */
+data class OrderbookDemandSnapshot(
+    val code: String,
+    val owners: List<String>,
+    val sinceMs: Long?,
+)

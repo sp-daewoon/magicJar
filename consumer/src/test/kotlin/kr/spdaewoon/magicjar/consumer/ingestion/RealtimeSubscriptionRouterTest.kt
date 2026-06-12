@@ -156,6 +156,31 @@ class RealtimeSubscriptionRouterTest {
         verify(exactly = 1) { todayCandleSeedPort.seedTodayCandle("005930") }
     }
 
+    @Test
+    fun `snapshotDemands — code별 owner 합집합 + since (관리자 실시간 상태)`() {
+        router.request(RealtimeDemandOwner.DETAIL, "user001", "005930")
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        router.request(RealtimeDemandOwner.HOLDING, "holding", "000660")
+
+        val snap = router.snapshotDemands().associateBy { it.code }
+        assertTrue(snap.containsKey("005930"))
+        assertTrue(snap.containsKey("000660"))
+        // 005930은 DETAIL + STRATEGY owner 합집합 (정렬).
+        assertTrue(snap["005930"]!!.owners.contains("detail:user001"))
+        assertTrue(snap["005930"]!!.owners.contains("strategy:86"))
+        assertTrue(snap["005930"]!!.sinceMs != null)
+    }
+
+    @Test
+    fun `snapshotDemands — since는 재요청에도 최초 구독 시각 보존`() {
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        val firstSince = router.snapshotDemands().first { it.code == "005930" }.sinceMs
+        Thread.sleep(10)
+        router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 40)
+        val secondSince = router.snapshotDemands().first { it.code == "005930" }.sinceMs
+        assertTrue(firstSince == secondSince)
+    }
+
     class TestKisWsPort : KisWsPort {
         var connected = false
         val priceSubscribed: MutableSet<String> = CopyOnWriteArraySet()

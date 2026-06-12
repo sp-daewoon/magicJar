@@ -168,6 +168,38 @@ class WsSlotBudgetLedger(
     fun occupiedCount(): Int = occupiedChannels.size
 
     /**
+     * 관리자 실시간 상태 스냅샷용 — 점유 채널의 tr_id별 카운트 + 한도(read-only).
+     *
+     * 회계 로직 변경 0 — occupiedChannels(key="trId|code") read만. ledger 비활성(toggle off) 시 used=0.
+     *
+     * @return SlotSnapshot(used=점유 채널 수, max=maxSlots, byTrId=tr_id별 점유 카운트).
+     */
+    fun snapshot(): SlotSnapshot {
+        val byTrId =
+            occupiedChannels
+                .groupingBy { it.substringBefore('|') }
+                .eachCount()
+                .toSortedMap()
+        return SlotSnapshot(
+            used = occupiedChannels.size,
+            max = maxSlots,
+            byTrId = byTrId,
+        )
+    }
+
+    /**
+     * 관리자 슬롯 회계 스냅샷.
+     * @param used 점유 채널 수(code × tr_id).
+     * @param max 운영 상한(maxSlots — 기본 40, ENV `magicjar.kis.ws.max-slots`).
+     * @param byTrId tr_id별 점유 채널 수.
+     */
+    data class SlotSnapshot(
+        val used: Int,
+        val max: Int,
+        val byTrId: Map<String, Int>,
+    )
+
+    /**
      * 가용 slot = maxSlots - reserved(체결통보 1) - 점유 채널 수 (음수 방지).
      * R1은 산식·관측만 — 발사 직전 차단(선제 eviction)은 R2.
      */

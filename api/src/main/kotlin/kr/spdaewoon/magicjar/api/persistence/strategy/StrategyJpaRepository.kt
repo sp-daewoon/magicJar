@@ -103,4 +103,10 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
         @Param("codeJson") codeJson: String,
         @Param("intervalJson") intervalJson: String,
     ): List<StrategyJpaEntity>
+
+    /**
+     * 특정 status 전략 전건 — 관리자 실시간 상태(candleFreshness ACTIVE 종목 집계)용.
+     * 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
+     */
+    fun findAllByStatus(status: String): List<StrategyJpaEntity>
 }

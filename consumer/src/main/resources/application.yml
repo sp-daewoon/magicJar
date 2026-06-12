@@ -219,6 +219,10 @@ magicjar:
         enabled: ${MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED:true}
       # 호가(H0STASP0) DETAIL owner LRU slot 예산은 2026-06-12 제거됨 (anchor `detail-orderbook-removal`).
       #   호가는 전략 ACTIVE 경로(STRATEGY owner) 전용이며 registrar TTL이 관리한다 — 별도 slot 예산 없음.
+      # admin-status: 관리자 실시간 구독 상태 스냅샷 발행 주기(ms) — Redis `admin:realtime-status` (anchor `admin-realtime-status`).
+      #   read-only 관측 발행(구독/매매 로직 무관). api stale 판정 임계 15초보다 충분히 촘촘(기본 5초).
+      admin-status:
+        publish-interval-ms: ${MAGICJAR_KIS_WS_ADMIN_STATUS_PUBLISH_INTERVAL_MS:5000}
     # KIS REST rate limiter — api·batch·consumer 동일 Redis 버킷 share (ADR 0116 Phase 2 3-tier).
     # interval refill로 burst를 완화해 EGW00201 빈도를 낮춘다.
     rate-limiter:
