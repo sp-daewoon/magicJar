@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import io.mockk.mockk
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -24,7 +25,7 @@ class OrderbookSubscriptionRouterTest {
     @BeforeEach
     fun setUp() {
         mockKisWsPort = TestKisWsPort()
-        router = OrderbookSubscriptionRouter(mockKisWsPort)
+        router = OrderbookSubscriptionRouter(mockKisWsPort, mockk(relaxed = true))
     }
 
     @Test
@@ -144,6 +145,74 @@ class OrderbookSubscriptionRouterTest {
         assertFalse(router.current().contains(firstCode), "LRU evict 검증")
         // pendingDebounce에서도 정리되어야 함 (또는 expired cleanup으로 정리)
         assertFalse(readPendingDebounce(router).containsKey(firstCode), "evicted 종목의 pendingDebounce 잔존 금지")
+    }
+
+    // ── F11: STRATEGY owner 호가 구독 ─────────────────────────────────────────
+
+    @Test
+    fun `전략 ACTIVE 시 호가 구독 시작 (STRATEGY owner)`() {
+        router.onStrategyActivated("093370", "strategy:86")
+
+        assertTrue(mockKisWsPort.orderbookSubscribed.contains("093370"))
+        assertTrue(router.current().contains("093370"))
+    }
+
+    @Test
+    fun `전략 비활성 시 호가 구독 해제 (STRATEGY owner)`() {
+        router.onStrategyActivated("093370", "strategy:86")
+        assertTrue(router.current().contains("093370"))
+
+        router.onStrategyDeactivated("093370", "strategy:86")
+
+        assertFalse(router.current().contains("093370"))
+        assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+    }
+
+    @Test
+    fun `같은 종목 여러 전략 demand는 합집합 — 하나 빠져도 다른 전략 남으면 WS 유지`() {
+        router.onStrategyActivated("093370", "strategy:86")
+        router.onStrategyActivated("093370", "strategy:99")
+        // 멱등 + 합집합 — 구독은 1회만 발사
+        assertEquals(1, mockKisWsPort.subscribeOrderbookCount)
+
+        router.onStrategyDeactivated("093370", "strategy:86")
+        // strategy:99 demand 남음 → WS 유지
+        assertTrue(router.current().contains("093370"))
+        assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+
+        router.onStrategyDeactivated("093370", "strategy:99")
+        // 마지막 demand 빠짐 → unsub
+        assertFalse(router.current().contains("093370"))
+        assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+    }
+
+    @Test
+    fun `DETAIL과 STRATEGY가 같은 종목에 공존 — 한 owner 빠져도 다른 owner 있으면 WS 유지`() {
+        router.onStrategyActivated("093370", "strategy:86")
+        router.onSymbolDetailEntered("093370")
+        // 단일 구독 공유 (DETAIL 진입 시 이미 구독 중이라 추가 발사 0)
+        assertEquals(1, mockKisWsPort.subscribeOrderbookCount)
+
+        // 사용자 페이지 이탈 → DETAIL 회수, STRATEGY 남음 → WS 유지
+        router.onSymbolDetailExited("093370")
+        assertTrue(router.current().contains("093370"))
+        assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+
+        // 전략까지 비활성 → 비로소 unsub
+        router.onStrategyDeactivated("093370", "strategy:86")
+        assertFalse(router.current().contains("093370"))
+        assertTrue(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
+    }
+
+    @Test
+    fun `idle timeout은 DETAIL slot만 회수 — STRATEGY demand 있으면 WS 유지`() {
+        router.onStrategyActivated("093370", "strategy:86")
+        router.onSymbolDetailEntered("093370")
+
+        router.evictIdleSubscriptions() // lastAccess 막 갱신돼 idle 아님 — 아무 것도 회수 안 됨
+        assertTrue(router.current().contains("093370"))
+        // STRATEGY demand 있으므로 어떤 경우에도 unsub 발사 0
+        assertFalse(mockKisWsPort.orderbookUnsubscribed.contains("093370"))
     }
 
     @Suppress("UNCHECKED_CAST")

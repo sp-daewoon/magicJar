@@ -6,6 +6,7 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuote
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
@@ -13,6 +14,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -52,22 +54,33 @@ class KisRestAskingPriceAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.ws.user-id:}")
     private val defaultUserId: String,
+    /**
+     * 호가 REST 자격증명 userId resolve용 credential repository.
+     *
+     * F11(2026-06-12 라이브 incident) — `magicjar.kis.ws.user-id`(WS approval 발급 식별자)는 REST OAuth
+     * 자격증명(user_kis_credential)의 user_id와 다를 수 있다. 당일 일봉 seed가 동일 결함으로 전량 skip했던
+     * 선례(hotfix c95b5391: approval=thdeodns 캐시 정상이나 REST 토큰은 키 보유 user 74683223으로만 발급)와
+     * 같은 패턴 — 호가 fallback도 REAL 키 보유 userId를 우선 resolve하고 부재 시 ws.user-id fallback.
+     * ObjectProvider: qa fixture 등 repo 부재 환경 부팅 보장(fallback skip graceful 정합).
+     */
+    private val credentialRepositoryProvider: ObjectProvider<ConsumerUserKisCredentialJpaRepository>,
 ) {
     private val log = LoggerFactory.getLogger(KisRestAskingPriceAdapter::class.java)
 
     /**
-     * `FHKST01010200` 1호가 조회. 가용 시 [EntryQuote], 미가용(빈 호가·파싱 실패·REST 오류·userId 미설정) 시 null.
+     * `FHKST01010200` 1호가 조회. 가용 시 [EntryQuote], 미가용(빈 호가·파싱 실패·REST 오류·자격증명 부재) 시 null.
      *
      * timeout 3s(다른 USER_PATH 조회 정합). asOf는 응답 `aspr_acpt_hour`(호가접수시각) 우선, 없으면 수신 시각.
      */
     fun fetchTopQuote(code: String): EntryQuote? {
-        if (defaultUserId.isBlank()) {
-            // userId 미설정(qa fixture 등) — 토큰 발급 불가이므로 호가 fallback skip(호가 미가용 = 진입 스킵).
-            log.warn("KIS asking-price REST fallback skip — magicjar.kis.ws.user-id 미설정: code={}", code)
+        val resolvedUserId = resolveRestUserId()
+        if (resolvedUserId.isBlank()) {
+            // REAL 자격증명·ws.user-id 모두 부재(qa fixture 등) — 토큰 발급 불가이므로 fallback skip(진입 스킵).
+            log.warn("KIS asking-price REST fallback skip — REAL 자격증명 userId resolve 불가: code={}", code)
             return null
         }
         val accountType = AccountType.REAL
-        val token = kisAuthAdapter.getAccessToken(defaultUserId, accountType)
+        val token = kisAuthAdapter.getAccessToken(resolvedUserId, accountType)
 
         // D-1 try-finally drift 차단 패턴 — acquire를 try 안으로, signalSent flag로 통계 미발행 path 감시.
         var signalSent = false
@@ -149,6 +162,25 @@ class KisRestAskingPriceAdapter(
         val askQty1 = output1["askp_rsqn1"]?.toString()?.ifBlank { null }?.toLongOrNull()
         val asOf = parseAcptHour(output1["aspr_acpt_hour"]?.toString())
         return EntryQuote(ask1 = ask1, bid1 = bid1, askQty1 = askQty1, asOf = asOf)
+    }
+
+    /**
+     * 호가 REST 호출 userId resolve — REAL 자격증명 보유 user 우선, 부재 시 ws.user-id fallback.
+     * (user_kis_credential은 개인용 single-user 전제 — 첫 행 사용. 둘 다 없으면 blank → fallback skip.)
+     * hotfix c95b5391(당일 일봉 seed) resolveSeedUserId() 동일 패턴.
+     */
+    private fun resolveRestUserId(): String {
+        val repo = credentialRepositoryProvider.ifAvailable ?: return defaultUserId
+        return try {
+            repo
+                .findAllByAccountType("REAL")
+                .firstOrNull()
+                ?.id
+                ?.userId ?: defaultUserId
+        } catch (e: Exception) {
+            log.debug("KIS asking-price credential resolve 실패 — ws.user-id fallback: {}", e.message)
+            defaultUserId
+        }
     }
 
     /**

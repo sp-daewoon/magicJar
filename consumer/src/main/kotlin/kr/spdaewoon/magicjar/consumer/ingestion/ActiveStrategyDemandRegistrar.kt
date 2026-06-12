@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component
 class ActiveStrategyDemandRegistrar(
     private val strategyJpaRepository: ConsumerStrategyJpaRepository,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
+    private val orderbookSubscriptionRouter: OrderbookSubscriptionRouter,
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.autotrading.strategy-watch.enabled:true}")
     private val enabled: Boolean = true,
@@ -58,6 +59,10 @@ class ActiveStrategyDemandRegistrar(
                         priority = RealtimeDemandOwner.STRATEGY.defaultPriority,
                         ttlSeconds = STRATEGY_DEMAND_TTL_SECONDS,
                     )
+                    // F11 — 체결가(H0STCNT0) demand와 대칭으로 호가(H0STASP0) 구독도 보강한다.
+                    // marketable limit 진입가(EntryQuotePort)가 ask1/bid1을 요구하므로 호가 WS 공급이 필수.
+                    // 멱등 register(같은 ownerId 반복 호출 무해) — refresh 주기마다 갱신.
+                    orderbookSubscriptionRouter.onStrategyActivated(code = code, ownerId = ownerId(strategyId))
                 }.onFailure { e ->
                     log.warn("ACTIVE strategy demand request 실패: strategyId={} code={} err={}", strategyId, code, e.message)
                 }
@@ -73,6 +78,8 @@ class ActiveStrategyDemandRegistrar(
                         ownerId = ownerId(strategyId),
                         code = code,
                     )
+                    // F11 — 호가 구독도 대칭 release (다른 전략·DETAIL demand가 남으면 WS 유지).
+                    orderbookSubscriptionRouter.onStrategyDeactivated(code = code, ownerId = ownerId(strategyId))
                 }.onFailure { e ->
                     log.warn("ACTIVE strategy demand release 실패: strategyId={} code={} err={}", strategyId, code, e.message)
                 }
