@@ -204,6 +204,27 @@ class NotificationDispatcherTest {
         verify(exactly = 0) { slackSender.sendOutbox(any()) }
     }
 
+    @Test
+    fun `SELL_WITHOUT_POSITION 차단은 Slack 발송 제외 — outbox INSERT 없음 (DB·Kafka·STOMP 는 별도 경로 유지)`() {
+        val record = record("risk.violation.v1", sellWithoutPositionPayload("U1"))
+        dispatcher.onRiskViolation(record)
+
+        // Slack 채널만 제외: outbox INSERT·발송 0건
+        verify(exactly = 0) { outboxRepository.save(any()) }
+        verify(exactly = 0) { slackSender.sendOutbox(any()) }
+        verify(exactly = 0) { slackSender.sendDirect(any()) }
+    }
+
+    @Test
+    fun `타 리스크 룰(TRADE_FREQUENCY)은 SELL_WITHOUT_POSITION 제외 영향 없이 기존대로 Slack 발송`() {
+        every { slackSender.sendOutbox(any()) } returns true
+        val record = record("risk.violation.v1", riskViolationPayload("U1"))
+        dispatcher.onRiskViolation(record)
+
+        verify { outboxRepository.save(any()) }
+        verify { slackSender.sendOutbox(any()) }
+    }
+
     // --- payload builders ---
 
     private fun record(
@@ -260,6 +281,22 @@ class NotificationDispatcherTest {
           "alertMessage":"종목 005930 주문이 종목당 최대 투자금액을 넘어서 자동 주문을 내보내지 않았습니다.",
           "alertFormula":"신호 단가 347,750원 > 남은 종목 한도 304,500원",
           "alertSetting":"A. 포지션 한도 - 절대 한도와 비율 한도 중 작은 값 적용"
+        }
+        """.trimIndent()
+
+    private fun sellWithoutPositionPayload(userId: String) =
+        """
+        {
+          "eventId":"${UUID.randomUUID()}",
+          "signalId":201,
+          "strategyId":8,
+          "userId":"$userId",
+          "code":"005930",
+          "rule":"SELL_WITHOUT_POSITION",
+          "verdict":"BLOCKED",
+          "reason":"보유 수량이 없어 매도 신호를 주문으로 보내지 않았습니다.",
+          "alertTitle":"보유 없는 매도 차단",
+          "alertMessage":"보유 수량이 없어 매도 신호를 주문으로 보내지 않았습니다."
         }
         """.trimIndent()
 
