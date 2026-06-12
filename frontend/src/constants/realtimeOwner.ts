@@ -72,7 +72,7 @@ export const OWNER_LEGEND: OwnerLegendEntry[] = [
  * owner 문자열 → 인간화 view.
  *
  * @example ownerView('strategy:86')        // { label: '전략 #86', tone: 'strategy', ... }
- * @example ownerView('detail:74683223')    // { label: '종목 상세 (74683223)', tone: 'detail', ... }
+ * @example ownerView('detail:74683223')    // { label: '종목 상세', tone: 'detail', ... }
  * @example ownerView('strategy:strategy:86')// collapse 후 '전략 #86'
  */
 export function ownerView(raw: string): OwnerView {
@@ -90,7 +90,7 @@ export function ownerView(raw: string): OwnerView {
       }
     case 'detail':
       return {
-        label: arg ? `종목 상세 (${arg})` : '종목 상세',
+        label: '종목 상세',
         tone: 'detail',
         title: `${raw} — 종목 상세 화면 진입 중인 종목입니다.`,
       }

@@ -6,7 +6,7 @@
  *
  * owner 인간화 (CLAUDE.md 방향성 가드 정합 — owner 별 TTL·우선순위 분리):
  *  - strategy:86  → "전략 #86"     (보라)
- *  - detail:xxxx  → "종목 상세 (…)" (파랑)
+ *  - detail:xxxx  → "종목 상세"     (파랑)
  *  - holding:*    → "보유 감시"     (초록)
  *  - pending_buy:*→ "매수 대기"     (주황)
  *  - screener     → "스크리너 후보"  (amber)
