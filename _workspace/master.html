@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.12.5</div>
-      <div class="sub">2026-06-10</div>
+      <div class="value">v3.13.1</div>
+      <div class="sub">2026-06-13</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>hotfix(backend-core): RiskConfigRepository consume → chore(backend-core): task T-20260610-1412 done (PR</div>
+    <div>docs(kis): add v3.13.1 flow comparison html → fix(market-data): 실시간 구독 상태 owner key 단일 prefix 정규 → chore(frontend): start realtime-status UI improve  → feat(frontend): improve /admin/realtime readabilit → chore(frontend): mark realtime-status UI task done → chore(tasks): DONE task 19건 일괄 archive (헌법 §2 사이클 </div>
   </div>
 </div>
 
@@ -112,25 +112,25 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">623 lines · 갱신 2026-06-10</div>
+        <div class="card-meta">625 lines · 갱신 2026-06-12</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 CLAUDE.md</div>
         <div class="card-sub">프로젝트: magicJar (마법의항아리)</div>
-        <div class="card-meta">184 lines · 갱신 2026-06-05</div>
+        <div class="card-meta">184 lines · 갱신 2026-06-12</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 _workspace/INDEX.md</div>
         <div class="card-sub">🧭 의도별 진입 경로</div>
-        <div class="card-meta">133 lines · 갱신 2026-06-02</div>
+        <div class="card-meta">133 lines · 갱신 2026-06-12</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">801 lines · 갱신 2026-06-09</div>
+        <div class="card-meta">821 lines · 갱신 2026-06-12</div>
       </div>
     
   </div>
@@ -141,6 +141,24 @@
     
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0124</div>
+          <div class="adr-title">KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0123</div>
+          <div class="adr-title">KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0122</div>
+          <div class="adr-title">발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0121</div>
@@ -154,32 +172,35 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0119</div>
-          <div class="adr-title">1분봉 proactive cold-start 백필 폐지 — on-demand 전환</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0118</div>
-          <div class="adr-title">전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot + today 공식 보정</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0117</div>
-          <div class="adr-title">단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 117건 (검색·정렬 가능)</h3>
+    <h3>전체 120건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="124 kis ws 구독 수요 재편 — h0uncnt0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬 accepted">
+            <td>0124</td>
+            <td><a href="_workspace/arch/adr/0124-kis-ws-demand-consolidation.md">KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="123 kis ws 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 accepted">
+            <td>0123</td>
+            <td><a href="_workspace/arch/adr/0123-kis-ws-slot-budget-accounting.md">KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="122 발굴(discovery) → mock 페이퍼 트레이딩 dispatch 경로 accepted">
+            <td>0122</td>
+            <td><a href="_workspace/arch/adr/0122-daytrade-discovery-mock-paper-dispatch.md">발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="121 백테스트 사이징 정합(실전 riskconfig) + g3 게이트 재정의(실전 사이징 기준 포트폴리오 mdd) accepted">
             <td>0121</td>
@@ -1034,6 +1055,12 @@
         </div>
       
         <div class="card">
+          <div class="card-title">📍 long-only-trading</div>
+          <div class="card-sub">> **상태**: 권위 (2026-06-12 최고 관리자 직접 결재) > **결재 문구 인용**: "우리 시스템에는 숏(공매도)이 없어. 매도는 그냥 신호 나오면 팔면 끝이지 따로 계산할 게 없어." / "헌법 정책…</div>
+          <div class="card-meta">📄 docs/architecture/policies/long-only-trading.md · 갱신 2026-06-12</div>
+        </div>
+      
+        <div class="card">
           <div class="card-title">📍 mermaid-conventions</div>
           <div class="card-sub">> **권위**: 본 문서 + `scripts/fix-mermaid-syntax.mjs` 자동 변환 룰. > **결정 이력**: PR #242 (syntax fix 도입), ADR-0052 (baseline cycl…</div>
           <div class="card-meta">📄 docs/architecture/policies/mermaid-conventions.md · 갱신 2026-05-08</div>
@@ -1054,7 +1081,7 @@
         <div class="card">
           <div class="card-title">📍 development-rules</div>
           <div class="card-sub">> **상태**: DRAFT — 사용자 검토 대기 > **작성일**: 2026-05-03 > **작성자**: architect (opus 4.7 1M) > **선행**: master-architecture.md v2…</div>
-          <div class="card-meta">📄 docs/architecture/development-rules.md · 갱신 2026-05-06</div>
+          <div class="card-meta">📄 docs/architecture/development-rules.md · 갱신 2026-06-10</div>
         </div>
       
         <div class="card">
@@ -1066,13 +1093,13 @@
         <div class="card">
           <div class="card-title">📍 candle-data-policy-v2</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
-          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-09</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-12</div>
         </div>
       
         <div class="card">
           <div class="card-title">📍 external-api-policy</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고…</div>
-          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-06-08</div>
+          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-06-11</div>
         </div>
       
         <div class="card">
@@ -1558,6 +1585,13 @@
         </div>
       
         <div class="card baseline-card">
+          <div class="card-title">📊 v3.13.0</div>
+          <div class="card-files">
+            <a href="_workspace/baseline/v3.13.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.13.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.13.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.13.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.13.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.13.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.13.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.13.0/html/index.html">index</a>
+          </div>
+        </div>
+      
+        <div class="card baseline-card">
           <div class="card-title">📊 v3.12.0</div>
           <div class="card-files">
             <a href="_workspace/baseline/v3.12.0/html/01-architecture.html">01-architecture</a> · <a href="_workspace/baseline/v3.12.0/html/02-data-flow.html">02-data-flow</a> · <a href="_workspace/baseline/v3.12.0/html/03-use-sequences.html">03-use-sequences</a> · <a href="_workspace/baseline/v3.12.0/html/04-feature-spec.html">04-feature-spec</a> · <a href="_workspace/baseline/v3.12.0/html/05-ui-inventory.html">05-ui-inventory</a> · <a href="_workspace/baseline/v3.12.0/html/06-history-traceability.html">06-history-traceability</a> · <a href="_workspace/baseline/v3.12.0/html/07-policy-evolution.html">07-policy-evolution</a> · <a href="_workspace/baseline/v3.12.0/html/index.html">index</a>
@@ -1591,7 +1625,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 88건</h3>
+    <h3>최근 spec 10건 / 전체 93건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1890,6 +1924,31 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-06-12-kis-queue-r0-audit.md r0 audit — kis rate limit 큐 재설계 r1 착수 입력 (결재 후속)">
+          <div class="card-title">📄 R0 audit — KIS Rate Limit 큐 재설계 R1 착수 입력 (결재 후속)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-12-kis-queue-r0-audit.md · 2026-06-12</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-11-gap0-paper-mode-gate-hotfix.md gap-0 hotfix 미니 spec — 주문 게이트 paper origin 인지 (adr 0122 §6 명세↔구현 정합)">
+          <div class="card-title">📄 GAP-0 hotfix 미니 spec — 주문 게이트 paper origin 인지 (ADR 0122 §6 명세↔구현 정합)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-11-gap0-paper-mode-gate-hotfix.md · 2026-06-11</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-11-kis-ws-slot-budget.md spec — kis ws 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트">
+          <div class="card-title">📄 spec — KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-11-kis-ws-slot-budget.md · 2026-06-11</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-10-daytrade-mock-paper-dispatch-spec.md spec — 발굴(discovery) → mock 페이퍼 트레이딩 dispatch 경로">
+          <div class="card-title">📄 spec — 발굴(Discovery) → MOCK 페이퍼 트레이딩 dispatch 경로</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-10-daytrade-mock-paper-dispatch-spec.md · 2026-06-10</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-10-execution-ledger-integrity-architecture.md 체결-원장-리스크 체인 통합 아키텍처 진단 (execution → ledger → risk integrity)">
+          <div class="card-title">📄 체결-원장-리스크 체인 통합 아키텍처 진단 (Execution → Ledger → Risk Integrity)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-10-execution-ledger-integrity-architecture.md · 2026-06-10</div>
+        </div>
+      
         <div class="card" data-search="2026-06-10-kis-ratelimit-queue-redesign-spec.md spec — kis rate limit 큐 기반 재설계 + 백필 인벤토리 전수조사 + 정리안">
           <div class="card-title">📄 spec — KIS Rate Limit 큐 기반 재설계 + 백필 인벤토리 전수조사 + 정리안</div>
           <div class="card-meta">📄 _workspace/specs/2026-06-10-kis-ratelimit-queue-redesign-spec.md · 2026-06-10</div>
@@ -2071,9 +2130,9 @@
   <div class="cat-cards">
     <div class="card"><div class="card-title">🤖 ai-engineer</div><div class="card-meta">📄 .claude/agents/ai-engineer.md</div></div><div class="card"><div class="card-title">🤖 architect</div><div class="card-meta">📄 .claude/agents/architect.md</div></div><div class="card"><div class="card-title">🤖 backend-core</div><div class="card-meta">📄 .claude/agents/backend-core.md</div></div><div class="card"><div class="card-title">🤖 frontend</div><div class="card-meta">📄 .claude/agents/frontend.md</div></div><div class="card"><div class="card-title">🤖 market-data</div><div class="card-meta">📄 .claude/agents/market-data.md</div></div><div class="card"><div class="card-title">🤖 qa</div><div class="card-meta">📄 .claude/agents/qa.md</div></div><div class="card"><div class="card-title">🤖 strategy-engine</div><div class="card-meta">📄 .claude/agents/strategy-engine.md</div></div>
   </div>
-  <h3>SKILL 7개</h3>
+  <h3>SKILL 8개</h3>
   <div class="cat-cards">
-    <div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
+    <div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-ops-monitor</div><div class="card-meta">📄 .claude/skills/magicjar-ops-monitor/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
   </div>
   <h3>Slash Commands 3개</h3>
   <div class="cat-cards">
@@ -2087,6 +2146,18 @@
     
     <h3>최근 5건 highlight</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.13.1</div>
+          <div class="adr-title">v3.13.1 — KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 보강 패치</div>
+          <div class="adr-meta">2026-06-12</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.13.0</div>
+          <div class="adr-title">v3.13.0 — REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화</div>
+          <div class="adr-meta">2026-06-12</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.12.5</div>
@@ -2106,23 +2177,15 @@
           <div class="adr-meta">2026-06-09</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.12.2</div>
-          <div class="adr-title">v3.12.2 — v3.12.2 릴리즈</div>
-          <div class="adr-meta">2026-06-09</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.12.1</div>
-          <div class="adr-title">v3.12.1 — 포지션 정합 안전화 + KIS Rate Limit Phase 2 + 관측 스택 운영 패치</div>
-          <div class="adr-meta">2026-06-08</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.1">v3.13.1</a></td><td>2026-06-12</td><td>v3.13.1 — KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 보강 패치</td></tr>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.0">v3.13.0</a></td><td>2026-06-12</td><td>v3.13.0 — REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.5">v3.12.5</a></td><td>2026-06-10</td><td>v3.12.5 — v3.12.5 릴리즈</td></tr>
         
@@ -2180,10 +2243,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.5">v3.6.5</a></td><td>2026-05-14</td><td>v3.6.5 — v3.6.5 릴리즈</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.4">v3.6.4</a></td><td>2026-05-14</td><td>v3.6.4 — v3.6.4 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.3">v3.6.3</a></td><td>2026-05-14</td><td>v3.6.3 — v3.6.3 릴리즈</td></tr>
-        
       </tbody>
     </table>
   
@@ -2191,63 +2250,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 424건 · status별 분포</h3>
+    <h3>전체 496건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">424건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">496건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
-          <div class="card-title">T-20260610-1412-consumer-risk-config-wiring.md</div>
-          <div class="card-meta">DONE · backend-core · PR #888</div>
+          <div class="card-title">T-20260613-0116-ws-demand-consolidation.md</div>
+          <div class="card-meta">DONE · market-data </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260610-1359-strategy-position-phantom-reconcile.md</div>
-          <div class="card-meta">DONE · backend-core · PR #886</div>
+          <div class="card-title">T-20260613-0113-adr0124-ws-demand-consolidation.md</div>
+          <div class="card-meta">DONE · architect </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260610-1240-kis-ratelimit-queue-redesign-spec.md</div>
-          <div class="card-meta">DONE · architect · PR #880</div>
+          <div class="card-title">T-20260613-0000-realtime-status-ui-improve.md</div>
+          <div class="card-meta">DONE · frontend </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260610-1231-kis-ratelimit-alarm-tiering.md</div>
-          <div class="card-meta">DONE · backend-core · PR #881</div>
+          <div class="card-title">T-20260612-2359-realtime-status-owner-slots.md</div>
+          <div class="card-meta">DONE · market-data </div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1856-daytrade-screener-design.md</div>
-          <div class="card-meta">DONE · strategy </div>
+          <div class="card-title">T-20260612-1803-detail-orderbook-live-only.md</div>
+          <div class="card-meta">DONE · market-data · PR #944</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1749-slo-s4-buckets.md</div>
-          <div class="card-meta">DONE · backend-core </div>
+          <div class="card-title">T-20260612-1801-restore-detail-orderbook-ui.md</div>
+          <div class="card-meta">DONE · frontend · PR #943</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1727-kis-trid-metrics.md</div>
-          <div class="card-meta">DONE · backend-core · PR #827</div>
+          <div class="card-title">T-20260612-1740-system-event-detail-ux.md</div>
+          <div class="card-meta">DONE · frontend · PR #942</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1704-observability-ratelimit-dashboard.md</div>
-          <div class="card-meta">DONE · backend-core </div>
+          <div class="card-title">T-20260612-1540-remove-detail-orderbook.md</div>
+          <div class="card-meta">DONE · market-data · PR #939</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1635-kis-ratelimit-r2.md</div>
-          <div class="card-meta">DONE · backend-core · PR #825</div>
+          <div class="card-title">T-20260612-1540-remove-detail-orderbook-ui.md</div>
+          <div class="card-meta">DONE · frontend · PR #938</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260608-1610-kis-ratelimit-r1.md</div>
-          <div class="card-meta">DONE · backend-core · PR #824</div>
+          <div class="card-title">T-20260612-1508-strategy-orderbook-subscription.md</div>
+          <div class="card-meta">DONE · market-data · PR #935</div>
         </div>
       
     </div>
@@ -2268,12 +2327,12 @@
   <div class="cat-content" data-cat="F" data-group-content-cat="시계열" data-active="false">
     
     <div class="devlog-latest">
-      <a href="_workspace/devlog/2026-06-04.html">
-        <div class="card-title">📔 2026-06-04.html <span class="badge">최신</span></div>
+      <a href="_workspace/devlog/2026-06-10.html">
+        <div class="card-title">📔 2026-06-10.html <span class="badge">최신</span></div>
       </a>
     </div>
     <div class="devlog-rest">
-      <a href="_workspace/devlog/2026-06-03.html" class="card-mini">📔 2026-06-03</a><a href="_workspace/devlog/2026-06-02.html" class="card-mini">📔 2026-06-02</a><a href="_workspace/devlog/2026-06-01.html" class="card-mini">📔 2026-06-01</a><a href="_workspace/devlog/2026-05-31.html" class="card-mini">📔 2026-05-31</a><a href="_workspace/devlog/2026-05-30.html" class="card-mini">📔 2026-05-30</a><a href="_workspace/devlog/2026-05-29.html" class="card-mini">📔 2026-05-29</a><a href="_workspace/devlog/2026-05-26.html" class="card-mini">📔 2026-05-26</a><a href="_workspace/devlog/2026-05-25.html" class="card-mini">📔 2026-05-25</a><a href="_workspace/devlog/2026-05-24.html" class="card-mini">📔 2026-05-24</a><a href="_workspace/devlog/2026-05-23.html" class="card-mini">📔 2026-05-23</a><a href="_workspace/devlog/2026-05-22.html" class="card-mini">📔 2026-05-22</a><a href="_workspace/devlog/2026-05-21.html" class="card-mini">📔 2026-05-21</a><a href="_workspace/devlog/2026-05-20.html" class="card-mini">📔 2026-05-20</a><a href="_workspace/devlog/2026-05-19.html" class="card-mini">📔 2026-05-19</a><a href="_workspace/devlog/2026-05-18.html" class="card-mini">📔 2026-05-18</a><a href="_workspace/devlog/2026-05-17.html" class="card-mini">📔 2026-05-17</a><a href="_workspace/devlog/2026-05-16.html" class="card-mini">📔 2026-05-16</a><a href="_workspace/devlog/2026-05-15.html" class="card-mini">📔 2026-05-15</a><a href="_workspace/devlog/2026-05-14.html" class="card-mini">📔 2026-05-14</a><a href="_workspace/devlog/2026-05-13.html" class="card-mini">📔 2026-05-13</a><a href="_workspace/devlog/2026-05-12.html" class="card-mini">📔 2026-05-12</a><a href="_workspace/devlog/2026-05-11.html" class="card-mini">📔 2026-05-11</a><a href="_workspace/devlog/2026-05-10.html" class="card-mini">📔 2026-05-10</a><a href="_workspace/devlog/2026-05-09.html" class="card-mini">📔 2026-05-09</a><a href="_workspace/devlog/2026-05-08.html" class="card-mini">📔 2026-05-08</a><a href="_workspace/devlog/2026-05-07.html" class="card-mini">📔 2026-05-07</a><a href="_workspace/devlog/2026-05-06.html" class="card-mini">📔 2026-05-06</a><a href="_workspace/devlog/2026-05-05.html" class="card-mini">📔 2026-05-05</a><a href="_workspace/devlog/2026-05-04.html" class="card-mini">📔 2026-05-04</a><a href="_workspace/devlog/2026-05-03.html" class="card-mini">📔 2026-05-03</a><a href="_workspace/devlog/2026-05-02.html" class="card-mini">📔 2026-05-02</a><a href="_workspace/devlog/2026-05-01.html" class="card-mini">📔 2026-05-01</a><a href="_workspace/devlog/2026-04-30.html" class="card-mini">📔 2026-04-30</a><a href="_workspace/devlog/2026-04-29.html" class="card-mini">📔 2026-04-29</a><a href="_workspace/devlog/2026-04-28.html" class="card-mini">📔 2026-04-28</a><a href="_workspace/devlog/2026-04-27.html" class="card-mini">📔 2026-04-27</a><a href="_workspace/devlog/2026-04-26.html" class="card-mini">📔 2026-04-26</a><a href="_workspace/devlog/2026-04-25.html" class="card-mini">📔 2026-04-25</a>
+      <a href="_workspace/devlog/2026-06-04.html" class="card-mini">📔 2026-06-04</a><a href="_workspace/devlog/2026-06-03.html" class="card-mini">📔 2026-06-03</a><a href="_workspace/devlog/2026-06-02.html" class="card-mini">📔 2026-06-02</a><a href="_workspace/devlog/2026-06-01.html" class="card-mini">📔 2026-06-01</a><a href="_workspace/devlog/2026-05-31.html" class="card-mini">📔 2026-05-31</a><a href="_workspace/devlog/2026-05-30.html" class="card-mini">📔 2026-05-30</a><a href="_workspace/devlog/2026-05-29.html" class="card-mini">📔 2026-05-29</a><a href="_workspace/devlog/2026-05-26.html" class="card-mini">📔 2026-05-26</a><a href="_workspace/devlog/2026-05-25.html" class="card-mini">📔 2026-05-25</a><a href="_workspace/devlog/2026-05-24.html" class="card-mini">📔 2026-05-24</a><a href="_workspace/devlog/2026-05-23.html" class="card-mini">📔 2026-05-23</a><a href="_workspace/devlog/2026-05-22.html" class="card-mini">📔 2026-05-22</a><a href="_workspace/devlog/2026-05-21.html" class="card-mini">📔 2026-05-21</a><a href="_workspace/devlog/2026-05-20.html" class="card-mini">📔 2026-05-20</a><a href="_workspace/devlog/2026-05-19.html" class="card-mini">📔 2026-05-19</a><a href="_workspace/devlog/2026-05-18.html" class="card-mini">📔 2026-05-18</a><a href="_workspace/devlog/2026-05-17.html" class="card-mini">📔 2026-05-17</a><a href="_workspace/devlog/2026-05-16.html" class="card-mini">📔 2026-05-16</a><a href="_workspace/devlog/2026-05-15.html" class="card-mini">📔 2026-05-15</a><a href="_workspace/devlog/2026-05-14.html" class="card-mini">📔 2026-05-14</a><a href="_workspace/devlog/2026-05-13.html" class="card-mini">📔 2026-05-13</a><a href="_workspace/devlog/2026-05-12.html" class="card-mini">📔 2026-05-12</a><a href="_workspace/devlog/2026-05-11.html" class="card-mini">📔 2026-05-11</a><a href="_workspace/devlog/2026-05-10.html" class="card-mini">📔 2026-05-10</a><a href="_workspace/devlog/2026-05-09.html" class="card-mini">📔 2026-05-09</a><a href="_workspace/devlog/2026-05-08.html" class="card-mini">📔 2026-05-08</a><a href="_workspace/devlog/2026-05-07.html" class="card-mini">📔 2026-05-07</a><a href="_workspace/devlog/2026-05-06.html" class="card-mini">📔 2026-05-06</a><a href="_workspace/devlog/2026-05-05.html" class="card-mini">📔 2026-05-05</a><a href="_workspace/devlog/2026-05-04.html" class="card-mini">📔 2026-05-04</a><a href="_workspace/devlog/2026-05-03.html" class="card-mini">📔 2026-05-03</a><a href="_workspace/devlog/2026-05-02.html" class="card-mini">📔 2026-05-02</a><a href="_workspace/devlog/2026-05-01.html" class="card-mini">📔 2026-05-01</a><a href="_workspace/devlog/2026-04-30.html" class="card-mini">📔 2026-04-30</a><a href="_workspace/devlog/2026-04-29.html" class="card-mini">📔 2026-04-29</a><a href="_workspace/devlog/2026-04-28.html" class="card-mini">📔 2026-04-28</a><a href="_workspace/devlog/2026-04-27.html" class="card-mini">📔 2026-04-27</a><a href="_workspace/devlog/2026-04-26.html" class="card-mini">📔 2026-04-26</a><a href="_workspace/devlog/2026-04-25.html" class="card-mini">📔 2026-04-25</a>
       <a href="_workspace/devlog/index.html" class="card-mini">📚 전체 index</a>
     </div>
   
