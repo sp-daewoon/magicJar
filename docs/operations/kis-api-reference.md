@@ -4,6 +4,7 @@
 > **데이터 소스**: 사용자 직접 안내 + `mcp__kis-code-assistant__search_domestic_stock_api` MCP 검증 + `koreainvestment/open-trading-api/examples_llm/domestic_stock`.
 
 상세 채용 우선순위와 MCP 변경 시각화는 [`kis-api-mcp-adoption-plan.md`](kis-api-mcp-adoption-plan.md)를 기준으로 한다.
+현행/변경 플로우 HTML 비교판은 [`kis-api-mcp-flow-comparison.html`](kis-api-mcp-flow-comparison.html)에 둔다.
 
 ## 1. 운영 정책 (사용자 결정)
 

@@ -3,6 +3,7 @@
 > 작성일: 2026-06-12
 > 기준: v3.13.0 main 코드 inspection + KIS 공식 `open-trading-api/examples_llm/domestic_stock` raw 예제 확인
 > 원칙: 현재 사용 중인 KIS API와 MCP tool을 최상단에 두고, 새 채용 후보는 magicJar 운영 가치 순으로 정렬한다.
+> HTML 비교판: [`kis-api-mcp-flow-comparison.html`](kis-api-mcp-flow-comparison.html)
 
 ## 0. 현재 사용 중인 KIS API
 
