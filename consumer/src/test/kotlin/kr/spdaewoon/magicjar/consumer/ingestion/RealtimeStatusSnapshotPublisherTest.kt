@@ -53,6 +53,7 @@ class RealtimeStatusSnapshotPublisherTest {
                     )
                 // ADR 0124 결정 4 — 통합 flag ON 기본값에서 체결가 라벨은 H0UNCNT0.
                 every { activeTickTrId() } returns "H0UNCNT0"
+                every { subscribedMarketStatusCodes() } returns emptySet()
             }
         val realtimeRouter =
             mockk<RealtimeSubscriptionRouter> {
@@ -125,6 +126,7 @@ class RealtimeStatusSnapshotPublisherTest {
                     )
                 // 비상 롤백(integratedTickEnabled=false) 시 대표 채널 H0STCNT0.
                 every { activeTickTrId() } returns "H0STCNT0"
+                every { subscribedMarketStatusCodes() } returns emptySet()
             }
         val realtimeRouter =
             mockk<RealtimeSubscriptionRouter> {

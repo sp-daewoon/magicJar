@@ -172,6 +172,7 @@ class StrategyControllerTest {
                 scaleIn = anyOrNull(),
                 partialExits = anyOrNull(),
                 minHoldBars = anyOrNull(),
+                viActionPolicy = anyOrNull(),
                 requireCodes = any(),
             ),
         ).thenReturn(makeStrategy(1L))
