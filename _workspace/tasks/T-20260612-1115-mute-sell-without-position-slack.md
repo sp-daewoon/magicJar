@@ -3,10 +3,10 @@ id: T-20260612-1115-mute-sell-without-position-slack
 agent: backend-core
 model: opus
 branch: hotfix/mute-sell-without-position-slack
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T11:15:46.270+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-12T11:19:21.153+09:00
+pr: #926
 parentPhase: ?
 ---
 
