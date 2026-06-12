@@ -40,7 +40,7 @@
 |---|---|---|---|---|
 | P0 | 계좌 availability snapshot | 기존 `inquire-balance` `TTTC8434R`/`VTTC8434R` output1 `ord_psbl_qty` + output2 cash | 주문 path KIS 호출 0을 유지하면서 예수금/매도가능수량 stale 위험을 낮춘다. | refresh/guard flag OFF |
 | P1 | 투자자/체결 REST 보강 | `inquire-investor` `FHKST01010900`, `inquire-ccnl` `FHKST01010300` | 종목 상세/스크리너/WS stale 보강에 쓰는 read-only 정보다. | read-only |
-| P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R`, `inquire-period-profit` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | read-only |
+| P1 | 계좌 실현손익 reconcile | `inquire-balance-rlz-pl` `TTTC8494R` | 내부 저널 수익률과 KIS 계좌 손익을 대조한다. | REAL read-only |
 | P1-deferred | 통합 체결가 WS | `ccnl_total` `H0UNCNT0` | KRX+NXT 2슬롯을 1슬롯으로 줄일 가능성이 있다. | feature flag OFF |
 | P2 | 통합 호가 WS | `asking_price_total` 후보 `H0UNASP0` | DETAIL/STRATEGY 호가 슬롯 절감 후보. | raw 재확인 후 |
 | P2 | 주문조건별 가능수량 정밀조회 | `inquire-psbl-order` `TTTC8908R`/`VTTC8908R`, `inquire-psbl-sell` `TTTC8408R` | 계좌 snapshot으로 부족한 예외 분석/수동 진단용. 주문 hot path 기본 사용 금지. | 보류 |
@@ -234,13 +234,13 @@ flowchart TD
 
     A2["변경: journal/performance"] --> B2["내부 order_execution/trading_journal"]
     A2 --> C2["KIS balance TTTC8434R"]
-    A2 --> Pnl["KIS realized P/L TTTC8494R"]
+    A2 --> Pnl["KIS realized P/L TTTC8494R<br/>REAL read-only"]
     Pnl --> Diff["내부 손익 vs KIS 손익 diff"]
 ```
 
 | 현재 | 변경 | 코멘트 |
 |---|---|---|
-| KIS 잔고와 내부 position 수량/평단을 reconcile한다. | KIS 실현손익을 추가로 읽어 내부 저널 손익과 대조한다. | 수량 정합 다음 단계의 돈 정합이며, read-only로 시작한다. |
+| KIS 잔고와 내부 position 수량/평단을 reconcile한다. | KIS 실현손익을 추가로 읽어 내부 저널 손익과 대조한다. | 수량 정합 다음 단계의 돈 정합이며, REAL read-only로 시작한다. |
 
 ### 4-4. `H0UNCNT0` 통합 체결가
 
@@ -265,7 +265,7 @@ flowchart TD
 1. 문서/레퍼런스 갱신: 현재 사용 중인 API와 후보 우선순위 고정.
 2. 계좌 availability snapshot: `inquire-balance` ord_psbl_qty 파싱 + Redis LWW snapshot + 주문 path read-only guard.
 3. 투자자/체결 REST: read-only adapter + cache/API/MCP 후보 연결.
-4. 계좌 손익: realized P/L adapter + reconcile snapshot.
+4. 계좌 손익: `inquire-balance-rlz-pl` realized P/L adapter + reconcile snapshot 후보.
 5. `H0UNCNT0`: feature flag + ledger 반영 + fallback.
 
 ## 6. 원천 링크

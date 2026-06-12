@@ -36,7 +36,7 @@
 | P0 | `inquire-balance` availability snapshot | `TTTC8434R`/`VTTC8434R` | 예수금 + 종목별 주문가능수량 snapshot | 채용 |
 | P1 | `inquire-investor` | `FHKST01010900` | 외국인/기관 수급 | 채용 |
 | P1 | `inquire-ccnl` | `FHKST01010300` | 최근 체결 REST 보강 | 채용 |
-| P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | 채용 |
+| P1 | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 reconcile | REAL read-only 채용 |
 | P1-deferred | `ccnl_total` | `H0UNCNT0` | KRX+NXT 통합 체결가 WS, slot 절감 | flag OFF로 도입 |
 | P2 | `asking_price_total` | `H0UNASP0` 후보 | 통합 호가 WS, slot 절감 | raw 재확인 후 |
 | P2 | `inquire-psbl-order` / `inquire-psbl-sell` | `TTTC8908R`/`VTTC8908R`, `TTTC8408R` | 주문조건별 가능수량 정밀 진단 | hot path 보류 |
@@ -96,6 +96,7 @@
 | `KisRestAskingPriceAdapter` | `inquire-asking-price-exp-ccn` | `FHKST01010200` | entry quote REST fallback |
 | `KisMarketMicrostructureAdapter.fetchInvestorFlow` | `inquire-investor` | `FHKST01010900` | 외국인/기관/개인 수급 read-only |
 | `KisMarketMicrostructureAdapter.fetchRecentExecutions` | `inquire-ccnl` | `FHKST01010300` | 최근 체결 list read-only |
+| `KisRealizedProfitAdapter.fetchRealizedProfit` | `inquire-balance-rlz-pl` | `TTTC8494R` | KIS 실현손익 REAL read-only |
 | `KisRestCandleAdapter` | `inquire-time-itemchartprice` | `FHKST03010200` | 당일 분봉 |
 | `KisRestCandleAdapter` | `inquire-time-dailychartprice` | `FHKST03010230` | 과거 1m range |
 | `KisMultiPriceAdapter` | `intstock-multprice` | `FHKST11300006` | 최대 30종목 멀티시세 |
@@ -135,6 +136,7 @@
 
 ### E. 계좌 실현손익 — `inquire-balance-rlz-pl`
 - `/uapi/domestic-stock/v1/trading/inquire-balance-rlz-pl`, `TTTC8494R`.
+- 공식 예제 기준 모의 TR_ID가 없어 REAL read-only adapter로 둔다.
 - 내부 journal/performance 손익과 KIS 계좌 손익 diff를 산출한다. 1차는 read-only.
 
 ### F. 통합 체결가 WS — `H0UNCNT0`
