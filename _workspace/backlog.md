@@ -2231,6 +2231,8 @@ ADR 0076 Proposed (2026-05-15) — 누적 hotfix #443·#444·#445 root cause 분
 
 ADR 0076 §7-B 의제 B-1(H0STOUP0 풀세트 20 slot 고정) 채택 시 — H0STCNT0(20) + H0NXCNT0(20) + H0STCNI0(1) + H0STOUP0(20) = 61 slot으로 ADR 0048 §2-1 한도 41 위반. 풀 ≤ 13 강제 시 watchlist 사이즈 측정 + SubscriptionRouter priority 재조정. ADR 0076 §10 권장안은 B-2 dynamic subscribe로 한도 회피이나, 시간외 시각대 풀 사이즈 ≥ 20일 때 B-1로 전환 검토.
 
+> **현행 정합 note (2026-06-13)**: 위 산식은 H0STCNT0+H0NXCNT0 분리 이중 구독(종목당 2채널) 전제다. **2026-06-13 ADR 0124로 체결가가 H0UNCNT0 단일 채널(종목당 1채널)로 전환 + watchlist owner WS→polling 강등 + WS 한도 40 정정**되어 본 의제의 slot 산식은 재산정 대상이다. 시간외 H0STOUP0 풀세트 검토는 ADR 0123/0124 owner ledger·H0UNCNT0 단일 채널 기준으로 다시 평가한다.
+
 #### 의제 2: ADR 0076 §7-C (호가 NXT/시간외 cover — C-2 풀세트 또는 C-3 H0UNASP0 통합)
 
 - C-2: H0STASP0 + H0NXASP0 + H0STOAA0 풀세트 — slot 추가 30+ 소모

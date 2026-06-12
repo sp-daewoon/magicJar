@@ -44,7 +44,7 @@ magicJar는 ADR 0037과 `docs/architecture/external-api-policy.md` 기준으로 
 
 | 데이터 | 권위 |
 |---|---|
-| 현재가 tick | KIS WS `H0STCNT0` + `H0NXCNT0` 또는 통합 WS |
+| 현재가 tick | KIS WS `H0UNCNT0` (KRX+NXT 통합 단일 채널 — ADR 0124) |
 | 호가 | KIS WS 호가 stream |
 | 진행 중 1m·3m·4h·12h·1d current candle | Redis `candle:current:{code}:{interval}` |
 | 확정 candle | PostgreSQL `candle` table |
