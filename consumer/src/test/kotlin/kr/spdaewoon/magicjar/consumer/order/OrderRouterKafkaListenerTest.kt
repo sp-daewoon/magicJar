@@ -923,6 +923,67 @@ class OrderRouterKafkaListenerTest {
     }
 
     @Test
+    fun `(canary-6) SELL 은 QTY cap 무관 통과 — 숏 부재 매도 면제 (F8)`() {
+        // 2026-06-12 F8 hotfix · 최고 관리자 결재: 매도는 보유량이 자연 상한 → QTY cap 검사 skip.
+        val gate = canaryListener(qty = 1)
+        val deny =
+            gate.evaluateCanaryHardCap(
+                canaryIntent(quantity = 9999, side = OrderSide.SELL),
+                TradingMode.REAL,
+            )
+        assertThat(deny).isNull()
+    }
+
+    @Test
+    fun `(canary-7) SELL 은 NOTIONAL cap 무관 통과 — 숏 부재 매도 면제 (F8)`() {
+        val gate = canaryListener(notional = 100_000)
+        // 9999 × 78,000 = 약 7.8억 > 100,000 — BUY면 차단이지만 SELL은 면제.
+        val deny =
+            gate.evaluateCanaryHardCap(
+                canaryIntent(quantity = 9999, priceAtSignal = "78000", side = OrderSide.SELL),
+                TradingMode.REAL,
+            )
+        assertThat(deny).isNull()
+    }
+
+    @Test
+    fun `(canary-8) SELL 은 가격 미조회(PRICE_UNAVAILABLE)여도 통과 — 13_31 청산 차단 incident fix (F8)`() {
+        // 라이브 13:31 incident: 시장가 SELL(296)이 NOTIONAL cap 의 현재가 조회 실패로 PRICE_UNAVAILABLE 거부
+        // → 청산 차단. SELL 면제로 가격 산정 자체를 시도하지 않으므로 통과해야 한다.
+        val gate = canaryListener(notional = 100_000)
+        val deny =
+            gate.evaluateCanaryHardCap(
+                canaryIntent(
+                    quantity = 296,
+                    priceType = OrderPriceType.MARKET,
+                    priceAtSignal = null,
+                    limitPrice = null,
+                    side = OrderSide.SELL,
+                ),
+                TradingMode.REAL,
+            )
+        assertThat(deny).isNull()
+    }
+
+    @Test
+    fun `(canary-9) BUY 는 cap 면제 회귀 불변 — 가격 부재 시 여전히 fail-closed`() {
+        // F8 SELL 면제가 BUY 경로를 건드리지 않음을 LOCK (회귀 가드).
+        val gate = canaryListener(notional = 100_000)
+        val deny =
+            gate.evaluateCanaryHardCap(
+                canaryIntent(
+                    quantity = 1,
+                    priceType = OrderPriceType.MARKET,
+                    priceAtSignal = null,
+                    limitPrice = null,
+                    side = OrderSide.BUY,
+                ),
+                TradingMode.REAL,
+            )
+        assertThat(deny).isEqualTo("CANARY_NOTIONAL_CAP:PRICE_UNAVAILABLE")
+    }
+
+    @Test
     fun `(canary-4) MOCK 모드 — 모든 cap 비적용`() {
         val gate = canaryListener(qty = 1, notional = 1, perDay = 1)
         val deny =
