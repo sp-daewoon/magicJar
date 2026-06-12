@@ -14,11 +14,11 @@ parentPhase: ?
 H0UNCNT0 기본화 + watchlist polling 강등 + owner 우선순위 재정렬
 
 ## 결과물 체크리스트
-- [ ] flag default true
-- [ ] watchlist WS 폐지
-- [ ] priority 재정렬
-- [ ] 수요 라벨 정합
-- [ ] 테스트
+- [x] flag default true
+- [x] watchlist WS 폐지
+- [x] priority 재정렬
+- [x] 수요 라벨 정합
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)
