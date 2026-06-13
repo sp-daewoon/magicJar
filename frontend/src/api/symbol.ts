@@ -308,7 +308,7 @@ export interface CandleHealthBatchDto {
 export const symbolApi = {
   /**
    * GET /api/symbols/{code}
-   * 종목 메타 + 현재가 (KIS inquire-price + Redis quote:last)
+   * 종목 메타 + 현재가 (fresh quote:last → KIS J/KRX snapshot → 1d candle fallback)
    */
   getSymbol: async (code: string): Promise<SymbolDto> => {
     const res = await apiClient.get<SymbolDto>(`/symbols/${encodeURIComponent(code)}`)

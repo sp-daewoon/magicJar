@@ -754,7 +754,7 @@ class CandleRefreshService(
      * 일봉·주봉·월봉·연봉 갱신 (FHKST03010100) — cursor 페이지네이션 적용.
      *
      * raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py
-     * - fid_cond_mrkt_div_code: J(KRX주식) 또는 UN(통합 — ADR 0091 종목 단위 후보만)
+     * - fid_cond_mrkt_div_code: 현재 호출값은 J(KRX주식) 단일. UN/NX는 stale 동결 실측으로 폐기(위 resolver LOCK).
      * - fid_input_iscd: 종목코드
      * - fid_input_date_1: 시작일 (yyyyMMdd) — 30년 전 기준 전수 수집
      * - fid_input_date_2: 종료일 (yyyyMMdd) — cursor로 사용 (페이지네이션)

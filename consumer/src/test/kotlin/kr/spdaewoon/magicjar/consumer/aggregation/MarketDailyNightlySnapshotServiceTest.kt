@@ -22,7 +22,7 @@ import java.time.ZoneId
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * MarketDailyNightlySnapshotService — ADR 0118 R2 야간 today snapshot 단위테스트.
+ * MarketDailyNightlySnapshotService — ADR 0118 R2 야간/장전 targetDate snapshot 단위테스트.
  *
  * 검증 매트릭스 (PR 본문 evidence):
  *   - ENV off → DISABLED 즉시 종료(멀티시세 콜 0, upsert 0).
@@ -235,17 +235,17 @@ class MarketDailyNightlySnapshotServiceTest {
     }
 
     @Test
-    fun `toTodayCandle — OHLC 전부 있으면 매핑 결손 하나라도 있으면 null`() {
+    fun `toTargetDateCandle — OHLC 전부 있으면 매핑 결손 하나라도 있으면 null`() {
         val service =
             newService(props(), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
 
-        assertThat(service.toTodayCandle(quote("005930"), todayTs)).isNotNull
-        assertThat(service.toTodayCandle(quote("005930", open = null), todayTs)).isNull()
-        assertThat(service.toTodayCandle(quote("005930", high = null), todayTs)).isNull()
-        assertThat(service.toTodayCandle(quote("005930", low = null), todayTs)).isNull()
-        assertThat(service.toTodayCandle(quote("005930", close = null), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930"), todayTs)).isNotNull
+        assertThat(service.toTargetDateCandle(quote("005930", open = null), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", high = null), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", low = null), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", close = null), todayTs)).isNull()
         // volume 결손은 0 으로 적재(skip 아님 — 거래대금/전일종가는 검증 보강용).
-        val volNull = service.toTodayCandle(quote("005930", volume = null), todayTs)
+        val volNull = service.toTargetDateCandle(quote("005930", volume = null), todayTs)
         assertThat(volNull).isNotNull
         assertThat(volNull!!.volume).isEqualTo(0L)
     }

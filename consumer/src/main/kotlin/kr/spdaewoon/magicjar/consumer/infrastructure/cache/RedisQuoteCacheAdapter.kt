@@ -11,7 +11,7 @@ import java.time.Instant
 
 /**
  * Redis 실시간 호가 캐시 어댑터 — consumer 모듈 (ADR 0014 T2 cache · ADR 0029).
- * - key: quote:last:{code}  TTL 7일
+ * - key: quote:last:{code}  TTL 5분
  * - value: JSON {"price":"...","volume":...,"ts":"...","source":"live"|"polling"}
  * - warm: KIS REST 1회 fetch (KisRestPriceAdapter) → put
  * - evict: DELETE
@@ -25,7 +25,7 @@ class RedisQuoteCacheAdapter(
 
     companion object {
         private const val KEY_PREFIX = "quote:last:"
-        private val QUOTE_TTL = Duration.ofDays(7)
+        private val QUOTE_TTL = Duration.ofMinutes(5)
     }
 
     override fun getLatestPrice(code: String): BigDecimal? {

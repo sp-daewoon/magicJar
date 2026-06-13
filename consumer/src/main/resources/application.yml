@@ -334,13 +334,14 @@ magicjar:
     concurrency: ${MAGICJAR_MARKET_DAILY_BACKFILL_CONCURRENCY:10} # 동시 처리 종목 수(1=직렬, 상한 32)
     launch-delay-ms: ${MAGICJAR_MARKET_DAILY_BACKFILL_LAUNCH_DELAY_MS:100} # 종목 launch 간 지연(ms) — burst 분산
 
-  # MARKET_DAILY 야간 전종목 일봉 today snapshot 스케줄러 (ADR 0118 R2)
-  #   매 영업일 23:00 KST 멀티시세(FHKST11300006, 30종목/콜 ~84콜)로 전종목 today 1d 봉 upsert(DO UPDATE).
-  #   DailyCloseFinalizer(20:10 WS 집계 INSERT) 를 KIS 공식 종가로 후행 교정(권위). today 1봉만(과거=R-BF).
+  # MARKET_DAILY 야간/장전 전종목 일봉 snapshot 스케줄러 (ADR 0118 R2)
+  #   매 영업일 23:00 KST 당일, 08:05 KST 직전 영업일 멀티시세(FHKST11300006)로 1d 봉 upsert(DO UPDATE).
+  #   DailyCloseFinalizer(20:10 WS 집계 INSERT) 를 KIS 공식 종가로 후행 교정(권위). 대상일 1봉만(과거=R-BF).
   #   영업일 가드 + ENV kill-switch. 모든 KIS 콜 = BACKFILL(BG) 버킷 — USER_PATH·INGESTION 침범 0.
   market-daily-snapshot:
     enabled: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED:true}  # kill-switch (운영 점검 시 false)
     cron: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON:0 0 23 * * *} # 발사 cron (zone=Asia/Seoul 고정)
+    pre-open-cron: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_PRE_OPEN_CRON:0 5 8 * * *} # 장전 직전 영업일 재확정 cron
     chunk-spacing-ms: ${MAGICJAR_MARKET_DAILY_SNAPSHOT_CHUNK_SPACING_MS:120} # chunk 간 지연(ms) — burst 분산
 
   # MarketSession 설정 (ADR 0013 §2-2, PR-29a 본격 교체)

@@ -3,16 +3,16 @@ package kr.spdaewoon.magicjar.consumer.config
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
- * MARKET_DAILY 야간 전종목 일봉 today snapshot 스케줄러 설정 (ADR 0118 R2).
+ * MARKET_DAILY 야간/장전 전종목 일봉 snapshot 스케줄러 설정 (ADR 0118 R2).
  *
- * 매 영업일 야간 1회(default 23:00 KST) 멀티시세(FHKST11300006)로 전종목 보통주(~2,517)의
- * **그날(today) 일봉 1개**를 KIS 공식 마감값으로 upsert(ON CONFLICT DO UPDATE) 한다.
+ * 매 영업일 야간(default 23:00 KST) + 다음 영업일 장전(default 08:05 KST) 멀티시세(FHKST11300006)로
+ * 전종목 보통주(~2,517)의 대상 영업일 일봉 1개를 KIS 공식 마감값으로 upsert(ON CONFLICT DO UPDATE) 한다.
  * R-BF(과거 10년 backfill)·managed(DailyCloseFinalizer 20:10·LastCandleAtMonitor 18:00)와 **분업**:
  *
  * | 잡 | 시각 | universe | interval | 경로 | 권위 |
  * |----|------|----------|----------|------|------|
  * | DailyCloseFinalizer | 20:10 | managed(watchlist) | 1d | Redis WS 집계 INSERT(DO NOTHING) | WS tick 집계 |
- * | **R2 snapshot(본 설정)** | **23:00** | **전종목 ~2,517** | **today 1d** | **멀티시세 upsert(DO UPDATE)** | **KIS 공식 종가(권위·후행 교정)** |
+ * | **R2 snapshot(본 설정)** | **23:00 + 08:05** | **전종목 ~2,517** | **대상일 1d** | **멀티시세 upsert(DO UPDATE)** | **KIS 공식 종가(권위·후행 교정)** |
  * | R-BF backfill | admin /run·야간 | 전종목 | 과거 1d(10년) | range fetch saveAll(DO NOTHING) | 과거봉 immutable |
  *
  * R2 는 **today 1봉만** 전진시킨다(과거 gap 채우기 아님 — 그건 R-BF 소관). 시스템 며칠 down 시 누락
@@ -23,7 +23,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * | key | ENV | default | 의미 |
  * |-----|-----|---------|------|
  * | enabled | MAGICJAR_MARKET_DAILY_SNAPSHOT_ENABLED | true | 야간 snapshot 시동/중단 kill-switch. off=가동 0(운영 점검 시) |
- * | cron | MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON | 0 0 23 * * * | 발사 cron (zone=Asia/Seoul 고정). KRX 15:30 + NXT 20:00 마감 후 |
+ * | cron | MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON | 0 0 23 * * * | 야간 발사 cron (zone=Asia/Seoul 고정). KRX 15:30 + NXT 20:00 마감 후 |
+ * | pre-open-cron | MAGICJAR_MARKET_DAILY_SNAPSHOT_PRE_OPEN_CRON | 0 5 8 * * * | 장전 보정 cron. 직전 영업일 1d 를 재확정 |
  * | chunk-spacing-ms | MAGICJAR_MARKET_DAILY_SNAPSHOT_CHUNK_SPACING_MS | 120 | chunk(30종목/콜) 간 가벼운 지연(ms) — burst 분산. rate-limiter hard ceiling 은 별도 |
  *
  * ## rate-limit (ADR 0116 · 0118 §2-C·§5-1 LOCK)
@@ -38,6 +39,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class MarketDailySnapshotProperties(
     val enabled: Boolean = true,
     val cron: String = DEFAULT_CRON,
+    val preOpenCron: String = DEFAULT_PRE_OPEN_CRON,
     val chunkSpacingMs: Long = 120L,
 ) {
     companion object {
@@ -46,6 +48,7 @@ data class MarketDailySnapshotProperties(
          * 영업일 가드는 스케줄러가 BusinessDayCalendar 로 2차 필터(공휴일·임시휴장 skip).
          */
         const val DEFAULT_CRON = "0 0 23 * * *"
+        const val DEFAULT_PRE_OPEN_CRON = "0 5 8 * * *"
     }
 
     /** chunk 간 지연(ms). 0=지연 없음. 상한 5초(과도한 지연 방어). */
