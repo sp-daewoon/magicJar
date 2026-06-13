@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component
  *   - 따라서 본 provider는 KIS WS slot·SubscriptionRouter·watchlist와 **무관**하다 (의존 0).
  *
  * 소비:
- *   - R2 야간 23:00 멀티시세 snapshot 스케줄러 (batch) — 본 universe code list를 30종목 chunk로 호출.
+ *   - R2 저녁 20:05 멀티시세 snapshot 스케줄러 (consumer) — 본 universe code list를 30종목 chunk로 호출.
  *   - R3 1d gap catch-up (consumer) — listed_at clamp로 신규 상장 false gap 0.
  *
  * 보통주 필터(결재 ① LOCK)는 [ConsumerMarketDailyUniverseJpaRepository]가 native @Query로 수행한다

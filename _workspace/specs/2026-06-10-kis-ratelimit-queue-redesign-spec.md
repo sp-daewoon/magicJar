@@ -69,7 +69,7 @@
 | # | 컴포넌트 | 모듈 | 트리거·주기 | 1회 호출량 | priority→버킷 | 존재 사유 | ADR | 판정 |
 |---|---------|------|------------|-----------|--------------|----------|------|------|
 | N1 | `MarketDailyBackfillCampaign` | consumer | admin `/run` + 야간 재개(멱등) | **전종목 ~2,517** × 1d, `concurrency=10` Semaphore, `nightlyCallCap=6000` | BACKFILL→BG | 전종목 10년 일봉 재구축 | 0118 | **★ 정리**: 장중 실행 금지 가드 명시 (L1과 역할 분리 LOCK) |
-| N2 | `MarketDailyNightlySnapshotScheduler` | consumer | `cron 23:00`(영업일) | 전종목 멀티시세 today 1봉 | BACKFILL→BG | today 종가 권위 갱신 | 0118 | **유지** (야간 단발) |
+| N2 | `MarketDailyNightlySnapshotScheduler` | consumer | `cron 20:05 + 08:05`(영업일) | 전종목 멀티시세 today 1봉 + 직전 영업일 재확정 | BACKFILL→BG | today 종가 권위 갱신 | 0118 | **유지** (저녁/장전 2회) |
 | N3 | `MarketIndexScheduler.closeTick`+`prevDayTick` | batch | `cron 16:30`+`06:00` | 지수 마감·전일 | INGESTION_LOW→BG | 지수 마감 스냅 | 0100 | **유지** (장외) |
 | N4 | `InstrumentMasterSyncScheduler` | batch | `cron 13개`(06:05~19:00 MON-FRI) | 종목마스터·KSD·holiday | BACKFILL→BG | 종목 universe·휴장일 sync | — | **유지** (장외 분산됨) |
 | N5 | `DiscoveryScorecardScheduler` | api | `cron 08:30`+`23:30` | 발굴 후보 스코어 | (내부 DB 위주) | 단타 발굴 스냅 | discovery-spec | **유지** (장외) |

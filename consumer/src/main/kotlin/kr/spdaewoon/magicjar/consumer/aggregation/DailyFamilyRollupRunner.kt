@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component
  *
  * ## 사용 시점
  *   - [MarketDailyRollupService] 전종목 1회 백필 (admin 트리거) — 년봉 회귀 복구.
- *   - [MarketDailyNightlySnapshotService] R2 야간 today 1d snapshot 직후 — 1wk/1mo/1y 최신화.
+ *   - [MarketDailyNightlySnapshotService] R2 저녁/장전 1d snapshot 직후 — 1wk/1mo/1y 최신화.
  *
  * ## 닫힌 봉 + 진행봉 정합 (ADR 0120 §실시간 보존)
  *   본 러너는 DB 의 1d 전량(어제까지 닫힌 봉 + R2 가 적재한 today 1d)을 입력으로 롤업한다.
@@ -45,7 +45,7 @@ class DailyFamilyRollupRunner(
         val TARGET_INTERVALS = listOf(ONE_WEEK, ONE_MONTH, ONE_YEAR)
 
         /**
-         * ADR 0120 amend (2026-06-10) — R2 야간 incremental 기본 윈도우(최근 거래일 수).
+         * ADR 0120 amend (2026-06-10) — R2 incremental 기본 윈도우(최근 거래일 수).
          *
          * 매일 1wk/1mo/1y 전체 history(10년 ~2,450봉)를 재생성하던 무지성 full-regen 을 대체한다.
          * 과거 닫힌 주/월/년봉은 1d 가 불변이므로 재계산이 낭비 — **갱신 필요한 봉만** 재롤업하면 충분하다.
@@ -77,7 +77,7 @@ class DailyFamilyRollupRunner(
      *
      * @param code 종목 코드 (KIS 6자리)
      * @param recentDays 최근 N 거래일만 읽어 롤업(incremental). `null`이면 1d 전량 full-regen.
-     *   - **R2 야간**: [DEFAULT_INCREMENTAL_RECENT_DAYS](400) — 갱신 필요한 경계 봉만(연봉 경계까지 커버).
+     *   - **R2 저녁/장전**: [DEFAULT_INCREMENTAL_RECENT_DAYS](400) — 갱신 필요한 경계 봉만(연봉 경계까지 커버).
      *   - **admin /run**: `null`(full-regen) — 1회성 복구 + 수동 재실행(전 history 정합 보증).
      *   incremental 은 윈도우 밖 과거 봉을 건드리지 않는다(과거 1d 불변 → 과거 상위봉 불변 → 재계산 불필요).
      *   윈도우 경계에 걸친 주/월/년 봉은 윈도우 안에 그 구간의 1d 가 일부만 들어와도 같은 그룹키로 묶여

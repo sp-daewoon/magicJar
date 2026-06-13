@@ -18,7 +18,7 @@ import java.math.BigDecimal
 import java.time.Duration
 
 /**
- * KIS 멀티시세(관심종목 그룹별 시세) 조회 어댑터 (ADR 0118 R1 — MARKET_DAILY 야간 snapshot).
+ * KIS 멀티시세(관심종목 그룹별 시세) 조회 어댑터 (ADR 0118 R1 — MARKET_DAILY 저녁/장전 snapshot).
  *
  * KIS `intstock-multprice` (TR `FHKST11300006`) — **한 콜에 최대 30종목** 묶음 시세.
  * 보통주 ~3,000 ÷ 30 = ~100콜로 전종목 그날 일봉 1개를 확보한다(ADR 0118 §1-3 경제성 근거).
@@ -34,7 +34,7 @@ import java.time.Duration
  *        https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/intstock_multprice/chk_intstock_multprice.py
  *
  * rate-limit (ADR 0116 — 3-tier 버킷):
- *   멀티시세 야간 snapshot은 대량 호출 BG 성격 → KisCallPriority.BACKFILL (BG 버킷 3/s).
+ *   멀티시세 snapshot은 대량 호출 BG 성격 → KisCallPriority.BACKFILL (BG 버킷 3/s).
  *   ADR 0118 §2-C·§5-1 LOCK — USER_PATH·INGESTION 절대 침범 0 (사용자·자본 path 영향 0).
  *
  * 정보 수집 = prod REAL credential 단일 채널 (모의/실전 분기는 주문 라우터 한정 — 정책 LOCK).

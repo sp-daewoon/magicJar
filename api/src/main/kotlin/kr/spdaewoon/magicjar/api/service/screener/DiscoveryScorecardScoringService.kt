@@ -20,7 +20,7 @@ import java.time.ZoneId
  * 발굴 스코어카드 — 야간 채점 잡 (Flyway V77).
  *
  * 미채점(scored_at IS NULL) row를 snapshot_date(= 다음 거래일)의 실제 일봉으로 채점한다.
- * R2 야간 일봉 snapshot(23:00) **이후**(23:30 KST)에 돌아 그날 일봉이 적재되어 있다고 가정한다.
+ * R2 저녁 일봉 snapshot(20:05) **이후**(23:30 KST)에 돌아 그날 일봉이 적재되어 있다고 가정한다.
  *
  * ### 채점 규칙
  *   - snapshot_date(KST) == 채점 대상 일봉의 거래일.

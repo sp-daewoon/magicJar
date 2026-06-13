@@ -204,7 +204,7 @@ class MarketDailyBackfillCampaign(
 
         val callCap = properties.normalizedNightlyCallCap()
         val today = LocalDate.now(KST_ZONE)
-        // today 봉은 야간 snapshot(R2) 소관 — backfill 종료 경계는 어제까지.
+        // today 봉은 snapshot(R2) 소관 — backfill 종료 경계는 어제까지.
         val toDate = today.minusDays(1)
         val historyFloor = today.minusYears(properties.normalizedHistoryYears().toLong())
 
