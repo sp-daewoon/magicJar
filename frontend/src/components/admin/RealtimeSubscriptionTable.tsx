@@ -36,22 +36,27 @@ function OwnerBadge({ owner }: { owner: string }) {
   )
 }
 
-/** owner 종류 범례 (테이블 하단) */
+/**
+ * owner 종류 범례 (테이블 하단) — 라벨만 나열한다.
+ *
+ * 설명(desc)은 인라인으로 노출하지 않고, 라벨 배지에 마우스를 1초 이상 올리면
+ * 브라우저 native tooltip(`title`)으로 표시한다(최고 관리자 요청 2026-06-13 —
+ * "설명을 굳이 볼 필요 없으니 라벨만, hover 시에만 설명"). `cursor-help`로 hover 정보 존재를 알린다.
+ */
 function OwnerLegend() {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-gray-500">
+    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-gray-500">
       <span className="font-medium text-gray-400">범례:</span>
       {OWNER_LEGEND.map((entry) => (
-        <span key={entry.tone} className="inline-flex items-center gap-1" title={entry.desc}>
-          <span
-            className={[
-              'inline-flex rounded border px-1.5 py-0.5 font-medium',
-              OWNER_BADGE_CLASS[entry.tone],
-            ].join(' ')}
-          >
-            {entry.label}
-          </span>
-          <span className="text-gray-500">{entry.desc}</span>
+        <span
+          key={entry.tone}
+          title={entry.desc}
+          className={[
+            'inline-flex cursor-help rounded border px-1.5 py-0.5 font-medium',
+            OWNER_BADGE_CLASS[entry.tone],
+          ].join(' ')}
+        >
+          {entry.label}
         </span>
       ))}
     </div>
