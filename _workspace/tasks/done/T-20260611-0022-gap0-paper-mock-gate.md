@@ -3,9 +3,9 @@ id: T-20260611-0022-gap0-paper-mock-gate
 agent: backend-core
 model: opus
 branch: agent/backend-core/gap0-paper-mock-gate
-status: RUNNING
+status: DONE
 startedAt: 2026-06-11T00:22:32.726+09:00
-completedAt: null
+completedAt: 2026-06-13T12:51:35.492+09:00
 pr: null
 parentPhase: ?
 ---

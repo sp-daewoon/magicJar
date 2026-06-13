@@ -208,7 +208,8 @@ describe('RealtimeSubscriptionTable', () => {
     expect(screen.getByText('체결가')).toBeInTheDocument()
     // owner 배지 — 인간화 라벨
     expect(screen.getByText('전략 #86')).toBeInTheDocument()
-    expect(screen.getByText('상세 보기 (74683223)')).toBeInTheDocument()
+    // detail owner 배지는 id 없이 '종목 상세'로 단순화됨 (bcc12884 — id는 hover title에만)
+    expect(screen.getAllByText('종목 상세').length).toBeGreaterThan(0)
   })
 
   it('legacy 이중 prefix(strategy:strategy:86)를 collapse 해 표기한다', () => {

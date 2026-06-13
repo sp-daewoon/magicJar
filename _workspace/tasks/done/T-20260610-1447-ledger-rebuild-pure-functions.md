@@ -3,9 +3,9 @@ id: T-20260610-1447-ledger-rebuild-pure-functions
 agent: strategy
 model: opus
 branch: agent/strategy/ledger-rebuild-pure-functions
-status: RUNNING
+status: DONE
 startedAt: 2026-06-10T14:47:52.938+09:00
-completedAt: null
+completedAt: 2026-06-13T12:51:35.438+09:00
 pr: null
 parentPhase: ?
 ---

@@ -3,9 +3,9 @@ id: T-20260612-1319-canary-cap-buy-only-count
 agent: backend-core
 model: opus
 branch: hotfix/canary-cap-buy-only-count
-status: RUNNING
+status: DONE
 startedAt: 2026-06-12T13:19:28.925+09:00
-completedAt: null
+completedAt: 2026-06-13T12:51:35.541+09:00
 pr: null
 parentPhase: ?
 ---
