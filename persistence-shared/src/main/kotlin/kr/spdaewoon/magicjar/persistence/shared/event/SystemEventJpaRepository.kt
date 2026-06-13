@@ -2,6 +2,10 @@ package kr.spdaewoon.magicjar.persistence.shared.event
 
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
+import java.time.Instant
 
 /**
  * system_event Spring Data JPA 리포지터리 — Flyway V44 정합.
@@ -29,6 +33,7 @@ import org.springframework.data.jpa.repository.JpaRepository
  * - [countByUserId]                                      : 사용자별 row 수 (P2.1 신규)
  * - [countByUserIdAndViewedAtIsNull]                     : 사용자별 unread 수 (P2.1 신규)
  * - [countByViewedAtIsNull]                              : 전체 unread 수 (P2.1 신규)
+ * - [deleteOlderThan]                                    : 운영 대시보드 7일 보존 retention cron 대상
  *
  * // AI 호출 0 — ADR 0023 §2-4 정합
  */
@@ -54,4 +59,10 @@ interface SystemEventJpaRepository : JpaRepository<SystemEventJpaEntity, Long> {
     fun countByUserIdAndViewedAtIsNull(userId: String): Long
 
     fun countByViewedAtIsNull(): Long
+
+    @Modifying
+    @Query("DELETE FROM SystemEventJpaEntity e WHERE e.occurredAt < :cutoff")
+    fun deleteOlderThan(
+        @Param("cutoff") cutoff: Instant,
+    ): Int
 }
