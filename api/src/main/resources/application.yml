@@ -84,6 +84,13 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  # 시스템 이벤트 운영 대시보드 source table retention.
+  # Kafka system.event.v1 은 이미 7d 이며, DB system_event 도 같은 보존 기간으로 맞춘다.
+  system-event:
+    retention:
+      enabled: ${MAGICJAR_SYSTEM_EVENT_RETENTION_ENABLED:true}
+      days: ${MAGICJAR_SYSTEM_EVENT_RETENTION_DAYS:7}
+      cleanup-cron: ${MAGICJAR_SYSTEM_EVENT_RETENTION_CLEANUP_CRON:0 20 4 * * *}
   # 발굴 → MOCK 페이퍼 트레이딩 (ADR 0122) — 가상 자본 격리 + opt-in 승격. 실거래 결정권 0.
   daytrade:
     paper:
