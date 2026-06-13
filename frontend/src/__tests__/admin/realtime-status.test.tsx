@@ -247,14 +247,27 @@ describe('RealtimeSubscriptionTable', () => {
 // ──────────────────────────────────────────────
 
 describe('RealtimeCandleFreshnessPanel', () => {
-  it('180초 초과 항목이 있으면 경고 + 마감 동시호가 정상 힌트를 노출한다', () => {
+  it('판독 가이드는 (!) 아이콘 tooltip 으로 상시 노출된다 (정체 유무 무관)', () => {
+    const items: RealtimeCandleFreshness[] = [
+      { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 5 },
+    ]
+    renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
+    // 큰 amber 박스(<p>) 대신 (!) 아이콘 버튼 + role=tooltip 가이드
+    const guide = screen.getByRole('tooltip')
+    expect(guide).toHaveTextContent(/시세 유입 정지 의심/)
+    expect(guide).toHaveTextContent(/15:20 이후/)
+    // 접근성: 아이콘 버튼에 aria-label + 키보드 focus 가능
+    expect(
+      screen.getByRole('button', { name: /캔들 신선도 판독 가이드/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('180초 초과 항목이 있으면 정체 건수 배지를 노출한다', () => {
     const items: RealtimeCandleFreshness[] = [
       { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 240 },
       { code: '000660', codeName: 'SK하이닉스', interval: '1m', ageSeconds: 12 },
     ]
     renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
-    expect(screen.getByText(/시세 유입 정지 의심/)).toBeInTheDocument()
-    expect(screen.getByText(/15:20 이후는 마감/)).toBeInTheDocument()
     expect(screen.getByText(/정체 1건/)).toBeInTheDocument()
     // 종목명 표시
     expect(screen.getByText('삼성전자')).toBeInTheDocument()
@@ -268,12 +281,12 @@ describe('RealtimeCandleFreshnessPanel', () => {
     expect(screen.getByRole('link', { name: /005930/ })).toHaveAttribute('href', '/symbol/005930')
   })
 
-  it('모두 신선하면 경고가 없다', () => {
+  it('모두 신선하면 정체 배지가 없다', () => {
     const items: RealtimeCandleFreshness[] = [
       { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 5 },
     ]
     renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
-    expect(screen.queryByText(/시세 유입 정지 의심/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/정체/)).not.toBeInTheDocument()
     expect(screen.getByText(/5초 전/)).toBeInTheDocument()
   })
 
@@ -282,11 +295,19 @@ describe('RealtimeCandleFreshnessPanel', () => {
     expect(screen.getByText(/캔들 신선도 데이터가 없습니다/)).toBeInTheDocument()
   })
 
-  it('경과 시간을 분/초 한국어로 포맷한다', () => {
+  it('경과 시간을 시/분/초 한국어로 포맷한다', () => {
     const items: RealtimeCandleFreshness[] = [
-      { code: '005930', codeName: '삼성전자', interval: '1m', ageSeconds: 200 },
+      { code: 'A', codeName: '초', interval: '1m', ageSeconds: 39 },
+      { code: 'B', codeName: '분초', interval: '1m', ageSeconds: 200 },
+      { code: 'C', codeName: '시분초', interval: '1m', ageSeconds: 58599 },
+      { code: 'D', codeName: '정시', interval: '1m', ageSeconds: 3600 },
+      { code: 'E', codeName: '일', interval: '1m', ageSeconds: 194400 },
     ]
     renderWithRouter(<RealtimeCandleFreshnessPanel items={items} />)
-    expect(screen.getByText(/3분 20초 전/)).toBeInTheDocument()
+    expect(screen.getByText('39초 전')).toBeInTheDocument()
+    expect(screen.getByText('3분 20초 전')).toBeInTheDocument()
+    expect(screen.getByText('16시간 16분 39초 전')).toBeInTheDocument()
+    expect(screen.getByText('1시간 전')).toBeInTheDocument()
+    expect(screen.getByText('2일 6시간 전')).toBeInTheDocument()
   })
 })
