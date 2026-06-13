@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.13.3** | 2026-06-13 | 실시간 구독 상태 관측 마감 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.3) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.2** | 2026-06-13 | 실시간 구독 관측 정합 + KIS WS 수요 재편 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.2) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 보강 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.1) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.0** | 2026-06-12 | REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.0) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
