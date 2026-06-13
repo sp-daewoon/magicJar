@@ -17,7 +17,7 @@ import java.time.ZoneId
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * MarketDailyNightlySnapshotService — ADR 0118 R2 야간/장전 전종목 일봉 snapshot 본체.
+ * MarketDailyNightlySnapshotService — ADR 0118 R2 저녁/장전 전종목 일봉 snapshot 본체.
  *
  * ## 책임 (한 PR = 한 영역 · market-data)
  *   1. [MarketDailyUniverseProvider.resolveCodes] 보통주 ~2,517 코드 확보 (R1 재사용).
@@ -27,17 +27,17 @@ import kotlinx.datetime.Instant as KtInstant
  *   5. 관측 로그 + audit (처리 종목수·upsert 건수·실패·소요).
  *
  * ## R-BF / R2 / managed 3자 분업 (★ ADR 0118 §2-C·§2-D LOCK)
- *   - **R2(본 서비스, 23:00 + 다음날 08:05, 전종목)**: 대상 영업일 1d **1봉만** 멀티시세 공식 종가로
+ *   - **R2(본 서비스, 20:05 + 다음날 08:05, 전종목)**: 대상 영업일 1d **1봉만** 멀티시세 공식 종가로
  *     **DO UPDATE**(권위·후행 교정).
  *     과거 gap 채우기 아님 — 그건 R-BF 소관. 시스템 며칠 down 시 누락 과거분은 R-BF 로 메운다.
  *   - **DailyCloseFinalizer(20:10, managed watchlist)**: Redis WS 집계 → DB INSERT(DO NOTHING). WS tick 집계.
- *     R2 가 나중에 돌아 같은 (code,1d,targetDate) 키를 멀티시세 공식 종가로 덮어 권위 확정(§2-D).
+ *     R2 가 먼저 성공하면 이 INSERT 는 같은 (code,1d,targetDate) 키를 덮지 않고, R2 실패 시 managed fallback 이 된다.
  *   - **R-BF(MarketDailyBackfillCampaign, admin /run)**: 과거 10년 1d range fetch → saveAll(DO NOTHING).
  *     과거봉 immutable. 당일 봉은 backfill 종료 경계에서 제외(어제까지).
  *
  *   같은 키 upsert 충돌 없음: R2 는 [CandleRepository.upsertAll](insertOrUpdate · ON CONFLICT DO UPDATE),
  *   DailyCloseFinalizer 는 insertIgnore(DO NOTHING). ts 표준 동일(targetDate 00:00 KST) → 같은 UQ row 를
- *   R2 가 공식값으로 갱신, R-BF 는 당일 미적재(어제까지)로 충돌 0.
+ *   R2 공식값을 보존, R-BF 는 당일 미적재(어제까지)로 충돌 0.
  *
  * ## rate-limit (ADR 0116 · 0118 §2-C·§5-1 LOCK)
  *   [KisMultiPriceAdapter] 가 chunk 내부에서 BACKFILL(BG) 버킷 경유 — USER_PATH·INGESTION 침범 0.
@@ -291,7 +291,7 @@ class MarketDailyNightlySnapshotService(
         for (code in codes) {
             val detailed =
                 try {
-                    // ADR 0120 amend — R2 야간은 incremental(최근 400 거래일만 재롤업). 매일 전체 history full-regen 폐기.
+                    // ADR 0120 amend — R2 스케줄은 incremental(최근 400 거래일만 재롤업). 매번 전체 history full-regen 폐기.
                     // 과거 닫힌 주/월/년봉은 1d 불변이라 재계산 낭비 → 갱신 필요한 경계 봉만(연봉 경계까지 커버, ~95% 절감).
                     dailyFamilyRollupRunner.rollupDetailed(code, DailyFamilyRollupRunner.DEFAULT_INCREMENTAL_RECENT_DAYS)
                 } catch (e: Exception) {

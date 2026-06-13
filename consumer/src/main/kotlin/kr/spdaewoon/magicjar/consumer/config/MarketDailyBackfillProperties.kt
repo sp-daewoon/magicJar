@@ -29,7 +29,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *   call-cap·audit·progress·no-advance 회계는 동시성에서 원자적 카운터(AtomicInteger/Long)로 보호.
  *
  * ## nightly-call-cap 산정 근거 (ADR 0118 §2-B·§5-1)
- *   전종목 10년 ≈ 75,000콜. 야간 윈도(snapshot 100콜 선소비 후 잔여)에서 밤당 일정 예산만 소비.
+ *   전종목 10년 ≈ 75,000콜. 야간 윈도(저녁 snapshot 약 100콜 선소비 후 잔여)에서 밤당 일정 예산만 소비.
  *   default 6,000 = BG 버킷 3/s 기준 ~33분(순수 호출). jitter·재시도 포함 ~1~2시간/밤 → 며칠~한 주 분산 완주.
  *   사용자 환경에서 ENV 로 야간 윈도 길이에 맞춰 조정.
  *

@@ -104,10 +104,10 @@
     <span class="what">watchlist/보유 종목 일봉·분봉이 오래됐는지 검사 → 부족분 cold-start/backfill 트리거 + Slack 알림. <span class="muted">(managed 종목만)</span></span></div>
   <div class="slot"><span class="time">20:10</span><b>당일 일봉 마감 → DB 영속</b><span class="who">DailyCloseFinalizer · consumer</span>
     <span class="what">장중 <span class="t-redis">Redis</span>에 쌓인 오늘 1d 봉을 <span class="t-db">DB</span>로 확정 + 4h·12h 합산봉 생성 → <span class="t-kafka">candle.closed</span>. <span class="muted">(managed 종목만)</span></span></div>
-  <div class="slot"><span class="time">23:00</span><b>전종목 today 일봉 snapshot ★신규</b><span class="who">MarketDailyNightlySnapshotScheduler · consumer</span>
+  <div class="slot"><span class="time">20:05 / 08:05</span><b>전종목 today 일봉 snapshot ★신규</b><span class="who">MarketDailyNightlySnapshotScheduler · consumer</span>
     <span class="what"><span class="pill new">NEW 2026-06-09</span>보통주 <b>전종목(~2,517)</b> 오늘 종가를 멀티시세(J채널)로 ~84콜 받아 <span class="t-db">1d 봉 upsert(DO UPDATE)</span>. 비-watchlist 종목까지 매일 자동 전진. <span class="muted">ADR 0118 R2 / PR #849.</span></span></div>
 </div>
-<div class="ok"><b>당일 봉이 채워지는 3중 흐름</b> — ① 장중 <span class="t-kis">KIS WS 틱</span>이 <span class="t-redis">Redis</span> 진행봉에 실시간 누적 → ② <b>20:10</b> managed 종목 DB 확정 → ③ <b>23:00</b> 전종목 공식 종가로 덮어쓰기(권위). 과거 빠진 구간은 R-BF(아래) 수동 backfill 소관.</div>
+<div class="ok"><b>당일 봉이 채워지는 3중 흐름</b> — ① 장중 <span class="t-kis">KIS WS 틱</span>이 <span class="t-redis">Redis</span> 진행봉에 실시간 누적 → ② <b>20:05</b> 전종목 공식 종가 upsert(권위) → ③ <b>20:10</b> managed 종목은 없을 때만 DB 확정(DO NOTHING). 다음 영업일 <b>08:05</b>에 직전 영업일을 한 번 더 재확정한다.</div>
 
 <!-- ===================== 2. 상시 반복 루프 ===================== -->
 <h2>2. 상시 반복 — 초·분 단위로 계속</h2>
@@ -177,12 +177,12 @@
 <table>
   <thead><tr><th>주체</th><th>언제</th><th>범위</th><th>무엇을</th><th>방식</th></tr></thead>
   <tbody>
-    <tr><td><b>R2 야간 snapshot</b> ★</td><td>매일 23:00</td><td>전종목 ~2,517</td><td>오늘 1봉</td><td>멀티시세(J) → upsert(DO UPDATE) <span class="muted">PR #849</span></td></tr>
-    <tr><td><b>DailyCloseFinalizer</b></td><td>매일 20:10</td><td>managed(watchlist·보유 등)</td><td>오늘 1봉</td><td>Redis 집계 → DB 확정. R2가 나중에 공식값으로 덮음</td></tr>
+    <tr><td><b>R2 저녁/장전 snapshot</b> ★</td><td>매일 20:05 / 08:05</td><td>전종목 ~2,517</td><td>오늘 1봉 / 직전 영업일 1봉</td><td>멀티시세(J) → upsert(DO UPDATE) <span class="muted">PR #849</span></td></tr>
+    <tr><td><b>DailyCloseFinalizer</b></td><td>매일 20:10</td><td>managed(watchlist·보유 등)</td><td>오늘 1봉</td><td>Redis 집계 → DB 확정. R2가 먼저 성공하면 DO NOTHING으로 보존</td></tr>
     <tr><td><b>R-BF backfill 캠페인</b></td><td>수동(admin)</td><td>전종목</td><td>과거 10년</td><td>일봉 REST(J) backfill. 며칠 down 시 누락 catch-up</td></tr>
   </tbody>
 </table>
-<div class="ok"><b>2026-06-09 완료</b> — 일봉 채널을 <code>UN/NX</code>(KIS측 2/11 동결 결함)에서 <b>J(KRX 본시장) 단일</b>로 정정(#844·#846) 후, R-BF로 전종목 10년 일봉 재구축(2,467/2,517 내부 갭 0 검증). 이후 R2(#849)가 매일 23:00 전종목 today 봉을 자동 전진. 백업 <code>2026-06-09.dump</code>(171MB)가 복구 기준점.</div>
+<div class="ok"><b>2026-06-09 완료</b> — 일봉 채널을 <code>UN/NX</code>(KIS측 2/11 동결 결함)에서 <b>J(KRX 본시장) 단일</b>로 정정(#844·#846) 후, R-BF로 전종목 10년 일봉 재구축(2,467/2,517 내부 갭 0 검증). 이후 R2(#849)가 매일 20:05 전종목 today 봉을 자동 전진하고 08:05에 직전 영업일을 재확정한다. 백업 <code>2026-06-09.dump</code>(171MB)가 복구 기준점.</div>
 
 <footer>
   코드 직접 스캔: <code>@Scheduled</code>·<code>@KafkaListener</code>·<code>ApplicationRunner</code>·<code>Executor</code>·KIS WS. 실제 활성 여부는 프로파일/ENV/구독 상태에 따라 달라질 수 있다. 상세 카드형 인벤토리는 <a href="background-process-inventory.html">background-process-inventory.html</a> 참고. · 2026-06-09 · orchestrator

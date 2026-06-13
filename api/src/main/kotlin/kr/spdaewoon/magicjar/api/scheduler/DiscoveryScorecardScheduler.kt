@@ -20,7 +20,7 @@ import java.time.ZoneId
  * ## 2 cron (zone=Asia/Seoul · ENV 외부화 · 영업일 가드)
  *   - **snapshot (장전, default 08:30 KST)**: 활성 빌트인 DAYTRADE_* 프리셋 발굴 → TOP N INSERT(멱등).
  *     발굴 입력 = 전일 일봉이라 당일 일봉 없는 장전 시점이 정합. snapshotDate = 오늘(= 다음 거래일).
- *   - **scoring (야간, default 23:30 KST)**: R2 야간 일봉 snapshot(23:00) 후 미채점 row를 당일 일봉으로 채점.
+ *   - **scoring (야간, default 23:30 KST)**: R2 저녁 일봉 snapshot(20:05) 후 미채점 row를 당일 일봉으로 채점.
  *
  * ## 게이트 (3단)
  *   1. cron `zone=Asia/Seoul` — SpEL placeholder ENV 외부화.
@@ -68,7 +68,7 @@ class DiscoveryScorecardScheduler(
     }
 
     /**
-     * 야간 채점 — default 23:30 KST 매 영업일 (R2 야간 일봉 snapshot 23:00 이후).
+     * 야간 채점 — default 23:30 KST 매 영업일 (R2 저녁 일봉 snapshot 20:05 이후).
      * ENV `MAGICJAR_DISCOVERY_SCORECARD_SCORING_CRON`(property `magicjar.discovery-scorecard.scoring-cron`).
      */
     @Scheduled(cron = "\${magicjar.discovery-scorecard.scoring-cron:0 30 23 * * *}", zone = "Asia/Seoul")

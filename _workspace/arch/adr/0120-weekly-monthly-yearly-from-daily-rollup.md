@@ -4,7 +4,7 @@
 - 작성: market-data
 - 영역: 데이터(A) — candle ingestion / 상위 timeframe 생성 정책. 자본 결정권 0.
 - 관계:
-  - **ADR 0118** (전종목 일봉 universe + 야간 멀티시세 snapshot) — 본 ADR의 직접 트리거. ADR 0118 R-BF가 1d 기준봉을 전종목 10년 적재하므로, 1wk/1mo/1y는 그 1d에서 파생 합산으로 생성 가능해졌다. R2 야간 스케줄러에 합산 단계를 add-only로 확장(§3-3).
+  - **ADR 0118** (전종목 일봉 universe + 저녁/장전 멀티시세 snapshot) — 본 ADR의 직접 트리거. ADR 0118 R-BF가 1d 기준봉을 전종목 10년 적재하므로, 1wk/1mo/1y는 그 1d에서 파생 합산으로 생성 가능해졌다. R2 저녁/장전 스케줄러에 합산 단계를 add-only로 확장(§3-3).
   - **ADR 0119** (1m proactive cold-start 백필 폐지) — cold-start가 1d·1wk·1mo·1y 5 interval을 fetch하던 역할을 무용화한 후속. 본 ADR이 그 정합 위에서 1wk/1mo/1y의 적재 출처를 KIS-fetch → 1d-rollup으로 narrow화한다. 기준봉/파생봉 통일 모델을 완성.
   - **ADR 0062 / 0093** (합산 interval 백엔드 precomputed + timeframe별 페이지네이션 매트릭스) — `CandleAggregator`(1m→3m~12h) 패턴을 그대로 1d-family에 대칭 적용(`DailyRollupAggregator`). ADR 0062의 "백엔드 precomputed(A-1)" 결정을 1d-family로 확장.
   - **ADR 0118 amend §9-B** (J 채널 단일화) — 1d가 J(KRX 본시장) 단일 채널이므로, 1d-rollup 결과의 거래량은 "우리가 서빙하는 J 1d의 합"과 항상 일치한다(레거시 KIS-fetch W/M/Y는 UN/통합 채널이라 거래량 불일치 — §5-2 evidence). 롤업이 정합 우위.
@@ -77,7 +77,7 @@ KIS raw fetch는 **1m + 1d 둘뿐**으로 좁혀진다. 나머지 11개 interval
 |----|------|------|------|
 | R-BF (`MarketDailyBackfillCampaign`) | admin /run·야간 | 1d 과거 10년 | KIS range fetch — **기준봉 적재** (무변경) |
 | **admin rollup (`MarketDailyRollupService` · 본 ADR)** | `POST /admin/market-daily-rollup/run` | 전종목 1wk/1mo/1y | 1d 전량 in-memory 롤업 upsert(DO UPDATE) — **1회 복구 + 수동 재실행** (KIS 콜 0) |
-| **R2 확장 (`MarketDailyNightlySnapshotService` · 본 ADR §3-3)** | 매 영업일 23:00 | 전종목 1wk/1mo/1y | today 1d snapshot 직후 1d 전량에서 재롤업(증분 최신화) |
+| **R2 확장 (`MarketDailyNightlySnapshotService` · 본 ADR §3-3)** | 매 영업일 20:05 + 08:05 | 전종목 1wk/1mo/1y | 1d snapshot 직후 1d 전량에서 재롤업(증분 최신화) |
 
 ---
 
@@ -93,9 +93,9 @@ KIS raw fetch는 **1m + 1d 둘뿐**으로 좁혀진다. 나머지 11개 interval
 - `MarketDailyRollupService.runRollup()` — `MarketDailyUniverseProvider` 보통주 전종목 순회 + 종목별 runner 호출 + 집계 + audit(MARKET_DAILY_ROLLUP_START/DONE). 멱등(upsert DO UPDATE).
 - `MarketDailyRollupAdminController` — `POST /admin/market-daily-rollup/run` (port 8082). 년봉 회귀 1회 복구 + 수동 재실행.
 
-### 3-3. R2 야간 스케줄러 확장 (`MarketDailyNightlySnapshotService`)
+### 3-3. R2 저녁/장전 스케줄러 확장 (`MarketDailyNightlySnapshotService`)
 
-today 1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단계 추가 — DB 1d 전량(닫힌 봉 + today)에서 1wk/1mo/1y 재롤업. 매 영업일 23:00 주월년봉 최신화. best-effort(종목별 실패는 다음 영업일 재시도). SnapshotResult에 rollupSymbols/Weekly/Monthly/Yearly 관측 필드 add-only.
+1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단계 추가 — DB 1d 전량(닫힌 봉 + today)에서 1wk/1mo/1y 재롤업. 매 영업일 20:05 today 봉 최신화 + 08:05 직전 영업일 재확정 후 주월년봉도 함께 최신화한다. best-effort(종목별 실패는 다음 영업일 재시도). SnapshotResult에 rollupSymbols/Weekly/Monthly/Yearly 관측 필드 add-only.
 
 ### 3-4. KIS W/M/Y fetch 경로 — 잔존(폐지 아님)
 
@@ -192,14 +192,14 @@ today 1d snapshot(멀티시세 upsert) 직후 `runDailyFamilyRollup(codes)` 단�
 `POST /admin/market-daily-rollup/run` 전종목 백필 실측:
 - **처리율 ~3종목/분** → curl 10분 타임아웃에 **45/2,517종목만** 처리(나머지 ~2,470 미복구).
 - **병목 = `ConsumerCandleRepositoryAdapter.upsertAll` row-by-row 루프**: 종목당 ~2,000봉(1wk 1,568+1mo 361+1y 30)을 `insertOrUpdate` 단건 호출로 반복 → DB round-trip 폭증(~20초/종목).
-- **무지성 full-regen**: 매 run·매 R2 야간마다 종목별 1d 전량(10년 ~2,450봉) 읽어 1wk/1mo/1y **전체 history 재계산+upsert**. 1회성 복구엔 OK지만 R2 야간(23:00 매일) 전종목 전체 재생성은 낭비(과거 닫힌 주/월/년봉은 1d 불변인데 매일 ~160만 row upsert).
-- 부팅 트리거는 0(admin + R2 23:00뿐)이라 "재기동마다 무조건 도냐"는 무관 확인 — 단 무지성 full-regen·저속은 사실.
+- **무지성 full-regen**: 매 run·매 R2 저녁/장전마다 종목별 1d 전량(10년 ~2,450봉) 읽어 1wk/1mo/1y **전체 history 재계산+upsert**. 1회성 복구엔 OK지만 R2 2회/영업일 전종목 전체 재생성은 낭비(과거 닫힌 주/월/년봉은 1d 불변인데 매 run ~160만 row upsert).
+- 부팅 트리거는 0(admin + R2 스케줄뿐)이라 "재기동마다 무조건 도냐"는 무관 확인 — 단 무지성 full-regen·저속은 사실.
 
 ### 9-2. 최적화 3종 (사용자 결재)
 
 **① batch upsert** — `ConsumerCandleRepositoryAdapter.upsertAll`을 `NamedParameterJdbcTemplate.batchUpdate`로 전환([UPSERT_SQL] = `insertOrUpdate` @Query 와 1:1 동일 `ON CONFLICT (code,interval,ts) DO UPDATE`). `UPSERT_BATCH_CHUNK`(500) 묶음 → 종목당 ~2,000 round-trip → 수 회. **semantics 보존**: SQL·무조건 DO UPDATE 동일, 반환 affected = batch row count 합산(음수 `SUCCESS_NO_INFO`=-2 는 1 보정). 공유 경로(R2 snapshot·rollup·AggregateBackfillRunner) 회귀 0. 헌법 §6 정합(네이티브 SQL·Repository default fun 0 — JPA `insertOrUpdate` 메서드는 보존). ts 는 pgjdbc `java.time.Instant` 직접 바인딩(`ConsumerRiskPositionAdapter` 정합).
 
-**② R2 야간 incremental** — `DailyFamilyRollupRunner.rollupDetailed(code, recentDays)` 추가. R2 야간은 `DEFAULT_INCREMENTAL_RECENT_DAYS`(400 거래일 ≈1.6 calendar year)만 `findLatestByCodeAndInterval(ONE_DAY, 400)` 로 읽어 롤업 → 갱신 필요한 경계 봉만 upsert(올해 진행 + 작년 닫힌 연봉까지 안전 커버, 주/월 경계도 윈도우 내 포함). **경계 정확성**: 윈도우가 잘렸으면(`oneDayCount >= recentDays`) 가장 이른 그룹(윈도우 밖 더 이른 1d 포함 가능한 부분 그룹)은 upsert 제외 → 이미 정확 적재된 불변 봉을 부정확하게 덮지 않음 → full-regen 과 동일 결과. 양 ~95% 절감(1y 전체~30봉 → 2봉). **admin `/run`은 full-regen 유지**(recentDays=null · 1회성 복구·전 history 정합 보증).
+**② R2 저녁/장전 incremental** — `DailyFamilyRollupRunner.rollupDetailed(code, recentDays)` 추가. R2 스케줄은 `DEFAULT_INCREMENTAL_RECENT_DAYS`(400 거래일 ≈1.6 calendar year)만 `findLatestByCodeAndInterval(ONE_DAY, 400)` 로 읽어 롤업 → 갱신 필요한 경계 봉만 upsert(올해 진행 + 작년 닫힌 연봉까지 안전 커버, 주/월 경계도 윈도우 내 포함). **경계 정확성**: 윈도우가 잘렸으면(`oneDayCount >= recentDays`) 가장 이른 그룹(윈도우 밖 더 이른 1d 포함 가능한 부분 그룹)은 upsert 제외 → 이미 정확 적재된 불변 봉을 부정확하게 덮지 않음 → full-regen 과 동일 결과. 양 ~95% 절감(1y 전체~30봉 → 2봉). **admin `/run`은 full-regen 유지**(recentDays=null · 1회성 복구·전 history 정합 보증).
 
 **③ 백필 동시성 + 비동기 admin** — `MarketDailyRollupService.runRollupInternal`을 코루틴 `Semaphore(CONCURRENCY=4)` + `Dispatchers.IO.limitedParallelism(4)` 병렬화(KIS 콜 0 — rate-limiter 무관, hikari pool=5 대비 보수). `MarketDailyBackfillCampaign` 동시성 패턴 정합. admin `POST /run`은 `runRollupAsync()`로 **즉시 202 ACCEPTED + runId 반환 + 백그라운드 실행**(curl 10분 타임아웃 회피) — 동시 1건만(중복은 409 ALREADY_RUNNING). 진행 관측 = 로그 + DB audit + `GET /admin/market-daily-rollup/status`(running 여부 + lastResult).
 

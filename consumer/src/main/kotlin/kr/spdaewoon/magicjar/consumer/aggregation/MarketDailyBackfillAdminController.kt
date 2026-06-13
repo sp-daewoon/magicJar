@@ -44,7 +44,7 @@ import org.springframework.web.bind.annotation.RestController
  *
  * ## ⚠ full 실행 주의
  *   본 endpoint 1회 호출은 cap(default 6,000콜)까지만 처리한다. 전종목 10년(~75,000콜) full 완주는
- *   여러 밤/주말에 걸친 반복 호출(또는 R2 야간 스케줄러 배선)로 이뤄지며, **실 가동은 사용자 환경 + 명시 go 시점**이다.
+ *   여러 밤/주말에 걸친 반복 호출(또는 R2 snapshot 스케줄러 배선)로 이뤄지며, **실 가동은 사용자 환경 + 명시 go 시점**이다.
  */
 @RestController
 @RequestMapping("/admin/market-daily-backfill")

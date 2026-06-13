@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController
  *
  * ## 전제
  *   R-BF(POST /admin/market-daily-backfill/run)로 1d 전종목 10년이 먼저 적재되어 있어야 한다
- *   (1d 0건 종목은 skippedNoDaily 로 집계). R2 야간 스케줄러는 매 영업일 today 1d snapshot 직후
+ *   (1d 0건 종목은 skippedNoDaily 로 집계). R2 snapshot 스케줄러는 매 영업일 1d snapshot 직후
  *   1wk/1mo/1y 를 자동 재롤업하므로(incremental), 본 admin 은 대량 1회 복구 + 수동 재실행(full-regen) 경로다.
  *
  * 자본 영향 0 — 데이터 적재만. KIS 콜 0.

@@ -113,7 +113,7 @@ class SymbolMetaService(
         val candleLatest = normalCandles.getOrNull(0)
         val candlePrev = normalCandles.getOrNull(1)
 
-        // 장중 가드 (2026-06-10 실측 결함 fix): 오늘 1d 봉은 야간 R2(23:00) 적재 전까지 DB에 없으므로
+        // 장중 가드 (2026-06-10 실측 결함 fix): 오늘 1d 봉은 R2(20:05) 적재 전까지 DB에 없으므로
         // 장중 candleLatest = "어제 봉"이다. 이를 당일 시/고/저/거래량·전일종가 source로 쓰면
         // 헤더가 전일값으로 표시된다(캔들 차트는 #882 seed 경로로 당일 정상 — 헤더만 어긋나는 증상).
         // → candleLatest가 '오늘(KST)' 봉일 때만 당일 source 자격, 아니면 KIS 당일 metrics 우선.
