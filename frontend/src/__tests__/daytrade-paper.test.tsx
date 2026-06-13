@@ -162,6 +162,24 @@ describe('PaperDashboardPage — 페이퍼 대시보드 (ADR 0122 R3)', () => {
     expect(screen.queryByText('모의(페이퍼) 트레이딩 — 실거래 아님')).not.toBeInTheDocument()
   })
 
+  it('활성 모의 전략 카드의 제목은 전략 목록, #ID는 전략 빌더로 연결한다', async () => {
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('모멘텀 돌파 단타')).toBeInTheDocument()
+    })
+
+    const card = screen.getByLabelText('모의 전략 모멘텀 돌파 단타')
+    expect(within(card).getByRole('link', { name: '모멘텀 돌파 단타' })).toHaveAttribute(
+      'href',
+      '/strategy/list',
+    )
+    expect(within(card).getByRole('link', { name: '#42' })).toHaveAttribute(
+      'href',
+      '/strategy/builder?strategyId=42',
+    )
+  })
+
   it('빈 응답 → "활성 모의 전략이 없습니다" / "모의 포지션이 없습니다" (mock 합성 0)', async () => {
     strategiesResponse = 'empty'
     positionsResponse = 'empty'

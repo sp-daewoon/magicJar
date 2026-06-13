@@ -56,6 +56,7 @@ interface StrategyCardProps {
 
 export function StrategyCard({ strategy }: StrategyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showAllCodes, setShowAllCodes] = useState(false)
   const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
@@ -146,6 +147,12 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
   const takeProfitPct = parsePositiveNumber(strategy.takeProfitPct)
   const scaleInLabel = describeScaleIn(strategy.scaleIn)
   const partialExitCount = strategy.partialExits?.length ?? 0
+  const displayedCodes = showAllCodes ? codes : codes.slice(0, 4)
+  const hiddenCodeCount = Math.max(codes.length - 4, 0)
+  const hiddenCodeLabels = codes
+    .slice(4)
+    .map((code) => formatStrategyCodeLabel(code, strategy.codeNames))
+    .join(', ')
   // 보유 현황은 운영(자동매매) 상태에서만 의미 — 종목 매핑이 있을 때만 조회
   const showPositionPanel =
     (strategy.status === 'ACTIVE' || strategy.status === 'BUY_BLOCKED' || strategy.status === 'PAUSED') &&
@@ -180,7 +187,14 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           )}
           {isPaper && (
             <div className="mt-1">
-              <PaperBadge />
+              <Link
+                to="/strategy/paper"
+                className="inline-flex rounded-full focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+                aria-label="모의 트레이닝으로 이동"
+                title="모의 트레이닝으로 이동"
+              >
+                <PaperBadge />
+              </Link>
             </div>
           )}
           <div className="mt-1 flex flex-wrap gap-1">
@@ -189,7 +203,7 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
                 종목 미지정
               </span>
             )}
-            {codes.slice(0, 4).map((code) => (
+            {displayedCodes.map((code) => (
               <span
                 key={code}
                 title={formatStrategyCodeLabel(code, strategy.codeNames)}
@@ -198,10 +212,21 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
                 {formatStrategyCodeLabel(code, strategy.codeNames)}
               </span>
             ))}
-            {codes.length > 4 && (
-              <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-500">
-                +{codes.length - 4}
-              </span>
+            {hiddenCodeCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllCodes((prev) => !prev)}
+                title={showAllCodes ? '종목 접기' : hiddenCodeLabels}
+                aria-expanded={showAllCodes}
+                aria-label={
+                  showAllCodes
+                    ? '종목 목록 접기'
+                    : `나머지 종목 ${hiddenCodeCount}개 펼치기`
+                }
+                className="rounded bg-gray-800 px-1.5 py-0.5 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+              >
+                {showAllCodes ? '접기' : `+${hiddenCodeCount}`}
+              </button>
             )}
           </div>
         </div>

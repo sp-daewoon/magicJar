@@ -73,13 +73,24 @@ function PaperStrategyCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-white">
+            <Link
+              to="/strategy/list"
+              className="truncate text-sm font-medium text-white underline-offset-2 hover:text-amber-200 hover:underline focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+              title="전략 목록으로 이동"
+            >
               {strategy.presetTitle}
-            </span>
+            </Link>
             <PaperBadge />
           </div>
           <p className="mt-0.5 font-mono text-[10px] text-gray-600">
-            #{strategy.strategyId} · {strategy.presetKey}
+            <Link
+              to={`/strategy/builder?strategyId=${strategy.strategyId}`}
+              className="text-gray-500 underline-offset-2 hover:text-blue-300 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+              title="전략 빌더에서 수정"
+            >
+              #{strategy.strategyId}
+            </Link>{' '}
+            · {strategy.presetKey}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {strategy.codes.map((code) => (

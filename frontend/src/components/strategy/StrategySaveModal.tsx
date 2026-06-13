@@ -2,7 +2,7 @@
  * StrategySaveModal — 전략 저장 모달
  *
  * 입력 필드:
- *   name     — 전략 식별자 (영문·숫자·언더스코어)
+ *   name     — 전략 식별자 (한글·영문·숫자·공백·일부 구분자)
  *   nameKo   — 한국어 이름
  *   universe — 종목 유니버스 (KOSPI/KOSDAQ/ALL)
  *   tf       — 타임프레임 (1m/3m/5m/15m/30m/90m/1h/4h/12h/1d/1wk/1mo/1y)
@@ -96,6 +96,8 @@ const VI_POLICY_OPTIONS: Array<{ value: ViActionPolicy; label: string; hint: str
   { value: 'EXIT_MARKET', label: '시장가 청산', hint: '보유 중 VI가 감지되면 시장가 매도합니다.' },
   { value: 'HOLD', label: '보유 유지', hint: 'VI 감시 구독과 주문을 모두 하지 않습니다.' },
 ]
+
+const STRATEGY_NAME_PATTERN = /^[\p{L}\p{N}_ [\]()·-]+$/u
 
 function defaultViActionPolicy(
   name?: string,
@@ -252,11 +254,11 @@ export function StrategySaveModal({
       return
     }
     if (!name.trim()) {
-      setFormError('전략 식별자(영문)를 입력하세요')
+      setFormError('전략 식별자를 입력하세요')
       return
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(name.trim())) {
-      setFormError('전략 식별자는 영문·숫자·언더스코어만 허용됩니다')
+    if (!STRATEGY_NAME_PATTERN.test(name.trim())) {
+      setFormError('전략 식별자는 한글·영문·숫자와 공백, _, -, [], (), · 조합만 허용됩니다')
       return
     }
     if (!entry.trim()) {
@@ -420,13 +422,13 @@ export function StrategySaveModal({
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-400">
               전략 식별자 <span className="text-red-400">*</span>
-              <span className="ml-1 font-normal text-gray-600">(영문·숫자·_ 조합)</span>
+              <span className="ml-1 font-normal text-gray-600">(한글·영문·숫자·공백·_ 가능)</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="예: rsi_golden_cross"
+              placeholder="예: [페이퍼] 장전 갭상승·RVOL·거래대금 setup"
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               autoFocus
             />

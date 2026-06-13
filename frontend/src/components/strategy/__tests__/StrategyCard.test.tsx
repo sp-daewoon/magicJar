@@ -136,4 +136,44 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     expect(screen.queryByRole('button', { name: '백테스트 필요' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '모의 감시 중지' })).toBeInTheDocument()
   })
+
+  it('페이퍼 배지는 모의 트레이닝 화면으로 이동하는 링크다', () => {
+    renderCard({
+      ...baseStrategy,
+      origin: 'PAPER_DISCOVERY',
+      status: 'ACTIVE',
+      activationReady: true,
+      activationBlockedReason: null,
+    })
+
+    expect(screen.getByRole('link', { name: '모의 트레이닝으로 이동' })).toHaveAttribute(
+      'href',
+      '/strategy/paper',
+    )
+  })
+
+  it('종목이 4개를 넘으면 +N 버튼으로 나머지 종목을 펼친다', async () => {
+    const user = userEvent.setup()
+    renderCard({
+      ...baseStrategy,
+      codes: ['005930', '000660', '035720', '005380', '066570', '068270'],
+      codeNames: {
+        '005930': '삼성전자',
+        '000660': 'SK하이닉스',
+        '035720': '카카오',
+        '005380': '현대차',
+        '066570': 'LG전자',
+        '068270': '셀트리온',
+      },
+    })
+
+    expect(screen.getByText('삼성전자(005930)')).toBeInTheDocument()
+    expect(screen.queryByText('LG전자(066570)')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '나머지 종목 2개 펼치기' }))
+
+    expect(screen.getByText('LG전자(066570)')).toBeInTheDocument()
+    expect(screen.getByText('셀트리온(068270)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '종목 목록 접기' })).toBeInTheDocument()
+  })
 })
