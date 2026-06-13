@@ -22,19 +22,18 @@ import java.time.ZoneId
 /**
  * 종목 메타 + 현재가 조립 서비스 (spec §3-2).
  *
- * 2026-05-20 가격 source LOCK 정정 (사용자 dogfooding evidence — SK하이닉스):
- * - 이전: Redis quote:last → KIS metrics.currentPrice 우선
- *   결함: quote:last가 NXT 라이브 가격 publish → 정규장 종가와 다른 가격 표시
- * - 신규: candle DB 1d 최신 row → currentPrice·previousClose·시·고·저·거래량 single source
- *   효과: 차트 ↔ 좌측 시세창 LOCK 동기 (모두 candle DB), MTS 정규장 종가 정합 보장
+ * 2026-06-13 가격 source LOCK 정정 (사용자 dogfooding evidence — 현대건설):
+ * - Redis quote:last 는 실시간 보조 캐시다. TTL/read gate 를 5분으로 제한하고 stale quote 는 가격·등락 source 에서 제외한다.
+ * - quote 가 신선하면 WS/실시간 tick 을 최우선 사용한다.
+ * - quote 가 없거나 오래됐으면 KIS PriceMetrics(J/KRX 스냅샷, 5분 meta cache)를 candle 보다 우선한다.
+ * - KIS 도 실패했을 때만 DB candle 최신 row 로 fallback 한다.
  *
  * 데이터 우선순위:
  * 0. instrument 테이블 1순위: name·market·industry(sector)
- * 1. candle DB 1d 최신 row → currentPrice + previousClose + high/low/open/volume (정규장 source)
- *    - 차트와 동일 endpoint(inquire-daily-itemchartprice) source
- *    - 장중 실시간 변동은 Redis quote:last 호가 변동 별도 표시 path (좌측 시세창 정규장 종가 표시 책임)
- * 2. KIS inquire-daily-itemchartprice output1 → PER·PBR·EPS·시총·종목명 등 메타 (5분 TTL cache)
- * 3. KIS 호출 실패 시 503
+ * 1. 신선한 Redis quote:last → 장중/시간외 실시간 tick source.
+ * 2. KIS PriceMetrics(J/KRX) → 상세 진입/장외/장전 스냅샷 source (5분 TTL cache).
+ * 3. candle DB 1d 최신 row → KIS 실패 시 fallback.
+ * 4. KIS 호출 실패 + candle 부재 시 503.
  *
  * 룰 5 위반 금지: LLM provider import 0건.
  */
@@ -58,6 +57,9 @@ class SymbolMetaService(
          */
         internal val staleThreshold: Duration = Duration.ofMinutes(30)
 
+        /** quote:last 가격 source 신뢰 임계. Redis TTL 과 같은 5분 — 초과 시 quote 는 없는 값처럼 취급한다. */
+        internal val quoteFreshThreshold: Duration = Duration.ofMinutes(5)
+
         /**
          * NXT 야간 일봉 휴리스틱 임계 — 극저거래량 row만 제외한다.
          * 30% 임계는 LG전자 2026-05-21 정상 일봉(전일 대비 26.97%)까지 버려
@@ -73,7 +75,7 @@ class SymbolMetaService(
 
     fun getSymbol(code: String): SymbolDto {
         // 0. instrument 테이블 1순위 (PR-11b 정정 — design §11-8)
-        // market='UNKNOWN' 또는 부재 → KIS inquire-price fallback
+        // market='UNKNOWN' 또는 부재 → KIS price metrics fallback
         val instrumentEntity =
             try {
                 instrumentJpaRepository.findById(code).orElse(null)
@@ -95,11 +97,10 @@ class SymbolMetaService(
         val instrumentPrevVolume = instrumentEntity?.prevVolume
 
         // 1. candle DB 1d 최근 5 row (ts DESC) → NXT 야간 일봉 휴리스틱 제외
-        //    chart adapter가 fid_cond_mrkt_div_code=UN(NXT 통합)으로 fetch하므로 candle DB에는
-        //    NXT 야간 일봉이 정규장 일봉과 별도 row로 들어옴(volume 5-10% 수준 → 1-2 order 차이).
+        //    현재 REST 일봉 수집은 J(KRX) 단일로 잠겨 있지만, 과거 UN/NXT 잔재 row와 운영 전환 중 오염을 방어한다.
         //    QA 첫 임무 evidence (2026-05-21): PR #597 휴리스틱 `curVol * 10 < nextVol` 회귀.
         //    SK하이닉스 2026-05-21 candle close=1,918,000 vol=4,850,226 (NXT 의심) ↔ baseline 2026-05-19 vol=7.8M.
-        //    강화: 30% 임계로 상향 — `curVol < nextVol * 0.30`.
+        //    현행: 5% 미만 극저거래량 row만 제외 — `curVol < nextVol * 0.05`.
         //    근본 해결(candle venue 컬럼 도입)은 backlog §opt-B (P1).
         val rawCandles =
             try {
@@ -138,22 +139,17 @@ class SymbolMetaService(
                 emptyMap()
             }
 
-        val quoteSource = quoteMap["source"]?.toString() ?: "polling"
-        val quoteChangeMetrics = resolveQuoteChangeMetrics(quoteMap)
-        val isNxtTainted = quoteSource.contains("nxt", ignoreCase = true) && quoteChangeMetrics == null
-        val quoteCurrentPrice = if (isNxtTainted) null else quoteMap["price"]?.toString()
-        val quoteTs = if (isNxtTainted) null else quoteMap["ts"]?.toString()
-        val source = if (isNxtTainted) "candle-1d" else quoteSource
+        val rawQuoteSource = quoteMap["source"]?.toString() ?: "polling"
+        val rawQuoteChangeMetrics = resolveQuoteChangeMetrics(quoteMap)
+        val isNxtTainted = rawQuoteSource.contains("nxt", ignoreCase = true) && rawQuoteChangeMetrics == null
+        val rawQuoteTs = if (isNxtTainted) null else quoteMap["ts"]?.toString()
+        val rawQuoteAsOf = parseQuoteTs(rawQuoteTs)
         val staleFromCache =
             if (isNxtTainted) false else quoteMap["stale"]?.toString()?.toBooleanStrictOrNull() ?: false
-
-        // 가격 LOCK 우선순위:
-        //  1. Redis quote:last with priceChange/changeRate/changeSign (가격·등락 단일 source)
-        //  2. candle DB 1d 최신 close (차트와 LOCK 동기)
-        //  3. Redis quote:last price only (NXT 오염 아닐 때)
-        //  4. KIS metrics fallback (candle 부재 시)
-        val candleCurrentPrice = candleLatest?.closeRaw?.toPlainString()
-        val currentPrice = quoteChangeMetrics?.price?.toPlainString() ?: candleCurrentPrice ?: quoteCurrentPrice
+        val quoteFresh = !isNxtTainted && !staleFromCache && isQuoteFresh(rawQuoteAsOf)
+        val quoteChangeMetrics = rawQuoteChangeMetrics.takeIf { quoteFresh }
+        val quoteCurrentPrice = if (quoteFresh) quoteMap["price"]?.toString() else null
+        val quoteTs = rawQuoteTs.takeIf { quoteFresh }
 
         // 2. Redis meta:{code} 5분 cache — PER·PBR·시총 등
         val metaJson = redisTemplate.opsForValue().get("meta:$code")
@@ -170,7 +166,7 @@ class SymbolMetaService(
             }
 
         // 3. KIS REST 호출 — meta cache miss 시 (PER·PBR·시총·종목명 등)
-        // instrument 테이블에 정확한 데이터가 있어도 PER·PBR 등은 KIS inquire-price 필요
+        // instrument 테이블에 정확한 데이터가 있어도 PER·PBR 등은 KIS price metrics 필요
         val resolvedMetrics: PriceMetrics? =
             metrics ?: run {
                 val userId = currentUserId()
@@ -189,18 +185,29 @@ class SymbolMetaService(
                         }
                         fresh
                     } catch (e: Exception) {
-                        log.warn("KIS inquire-price 실패: code={} err={}", code, e.message)
+                        log.warn("KIS price metrics 실패: code={} err={}", code, e.message)
                         null
                     }
                 } else {
-                    log.warn("userId 없음 — KIS inquire-price 호출 불가: code={}", code)
+                    log.warn("userId 없음 — KIS price metrics 호출 불가: code={}", code)
                     null
                 }
             }
 
+        // 가격 LOCK 우선순위:
+        //  1. 신선한 Redis quote:last with priceChange/changeRate/changeSign (가격·등락 단일 source)
+        //  2. 신선한 Redis quote:last price only
+        //  3. KIS PriceMetrics(J/KRX, meta 5분 cache) — 상세 진입/장외/장전 권위 스냅샷
+        //  4. candle DB 1d 최신 close (KIS 실패 시 fallback)
+        val candleCurrentPrice = candleLatest?.closeRaw?.toPlainString()
+        val currentPrice =
+            quoteChangeMetrics?.price?.toPlainString()
+                ?: quoteCurrentPrice
+                ?: resolvedMetrics?.currentPrice?.toPlainString()
+                ?: candleCurrentPrice
+
         val price =
             currentPrice
-                ?: resolvedMetrics?.currentPrice?.toPlainString()
                 ?: resolvedMetrics?.previousClose?.toPlainString()
                 ?: throw org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
@@ -211,10 +218,10 @@ class SymbolMetaService(
         // candleLatest가 오늘 봉이면 2번째 row(어제)가 전일종가, 어제 봉이면 그 자신의 close가 전일종가
         // (기존 candlePrev 고정은 장중에 '그제 종가'를 전일종가로 쓰던 결함).
         val prevCloseFromCandle = if (candleLatestIsToday) candlePrev?.closeRaw else candleLatest?.closeRaw
-        val prevClose = quoteChangeMetrics?.previousClose ?: prevCloseFromCandle ?: resolvedMetrics?.previousClose
+        val prevClose = quoteChangeMetrics?.previousClose ?: resolvedMetrics?.previousClose ?: prevCloseFromCandle
         val priceDecimal = price.toBigDecimalOrNull()
 
-        // 전일대비·등락률 — candle 기반 직접 계산 우선 (정규장 LOCK), KIS 응답값은 NXT 영향 가능
+        // 전일대비·등락률 — quote/KIS/candle 순서로 선택된 price·previousClose 기준 계산.
         val change =
             if (quoteChangeMetrics != null) {
                 quoteChangeMetrics.signedChange.toPlainString()
@@ -238,17 +245,24 @@ class SymbolMetaService(
                 resolvedMetrics?.changeRate?.setScale(2, RoundingMode.HALF_UP)?.toPlainString() ?: "0.00"
             }
 
-        // stale 판정 — QA 첫 임무 evidence (2026-05-21):
-        //   ① cache stale flag (staleFromCache)
-        //   ② candle·quote 모두 부재 → KIS fallback (usedKisFallback)
-        //   ③ asOf 가 현재 시각 기준 STALE_THRESHOLD(30분)보다 오래됨 (시간 경과 검증) ★ 신규
-        // 결함 시점 evidence: asOf=15:19 KST + 현재=23:33 KST → 8시간 stale 인데 stale=false 응답.
-        val usedKisFallback = candleCurrentPrice == null && quoteCurrentPrice == null && quoteChangeMetrics == null
-        val asOfInstant = parseQuoteTs(quoteTs)
-        val stale = staleFromCache || usedKisFallback || isAsOfStale(asOfInstant)
+        // stale 판정은 "버린 quote"가 아니라 실제 선택한 source 기준이다.
+        // stale quote 를 버리고 KIS snapshot 을 썼다면 stale=false, KIS 도 실패해 candle fallback 이면 stale=true.
+        val usedCandleFallback = quoteCurrentPrice == null && quoteChangeMetrics == null && resolvedMetrics == null
+        val stale =
+            when {
+                quoteFresh -> false
+                resolvedMetrics != null -> false
+                else -> staleFromCache || usedCandleFallback || (rawQuoteAsOf != null && isQuoteExpired(rawQuoteAsOf))
+            }
+        val source =
+            when {
+                quoteFresh -> rawQuoteSource
+                resolvedMetrics != null -> "polling"
+                else -> "candle-1d"
+            }
 
         // name·market·industry: instrument 테이블 1순위 (design §11-8)
-        // instrument 부재 또는 market='UNKNOWN'이면 KIS inquire-price fallback
+        // instrument 부재 또는 market='UNKNOWN'이면 KIS price metrics fallback
         val resolvedName = instrumentName ?: resolvedMetrics?.name
         val resolvedMarket = instrumentMarket ?: resolvedMetrics?.market
         val resolvedIndustry = instrumentSector ?: resolvedMetrics?.industry
@@ -262,12 +276,12 @@ class SymbolMetaService(
             previousClose = prevClose?.toPlainString() ?: "0",
             change = change,
             changeRate = changeRate,
-            // 고·저·시·거래량: '오늘' 1d 봉(intradayCandle)일 때만 candle DB 우선, 장중(어제 봉)엔 KIS 당일 metrics.
+            // 고·저·시·거래량: KIS snapshot 우선. KIS 부재 시에만 '오늘' 1d 봉(intradayCandle)을 fallback 으로 쓴다.
             // 어제 봉 fallback은 두지 않는다 — 전일값을 당일로 표시하던 결함(2026-06-10) 재발 방지, 부재 시 null(정직 표시).
-            high = intradayCandle?.highRaw?.toPlainString() ?: resolvedMetrics?.high?.toPlainString(),
-            low = intradayCandle?.lowRaw?.toPlainString() ?: resolvedMetrics?.low?.toPlainString(),
-            open = intradayCandle?.openRaw?.toPlainString() ?: resolvedMetrics?.open?.toPlainString(),
-            volume = intradayCandle?.volume ?: resolvedMetrics?.volume,
+            high = resolvedMetrics?.high?.toPlainString() ?: intradayCandle?.highRaw?.toPlainString(),
+            low = resolvedMetrics?.low?.toPlainString() ?: intradayCandle?.lowRaw?.toPlainString(),
+            open = resolvedMetrics?.open?.toPlainString() ?: intradayCandle?.openRaw?.toPlainString(),
+            volume = resolvedMetrics?.volume ?: intradayCandle?.volume,
             marketCap = resolvedMetrics?.marketCap?.toPlainString(),
             per = resolvedMetrics?.per?.toPlainString(),
             pbr = resolvedMetrics?.pbr?.toPlainString(),
@@ -300,7 +314,7 @@ class SymbolMetaService(
         }
 
     /**
-     * NXT 야간 일봉 필터 — 최신 row volume 이 직전 row volume 의 NXT_VOLUME_RATIO_THRESHOLD(30%) 미만이면 skip.
+     * NXT 야간 일봉 필터 — 최신 row volume 이 직전 row volume 의 NXT_VOLUME_RATIO_THRESHOLD(5%) 미만이면 skip.
      *
      * 추가 가드 (QA 첫 임무 §6 옵션 A-3):
      *   candle ts(KST 변환) 이 KRX 정규장 운영시간 외(09:00 ~ 15:30 KST)에 있고
@@ -338,7 +352,7 @@ class SymbolMetaService(
      * 단일 candle row 가 NXT 야간 row 인지 판정.
      *  - next 부재면 비교 불가 → 정상 처리.
      *  - next.volume 이 0 이면 비교 무의미 → 정상 처리.
-     *  - cur.volume < next.volume * 0.30 이면 NXT 의심 (PR #597 회귀 fix — 30% 임계).
+     *  - cur.volume < next.volume * 0.05 이면 NXT 의심 (PR #597 회귀 fix — 5% 임계).
      */
     private fun isNxtNightSuspect(
         cur: CandleJpaEntity,
@@ -375,6 +389,16 @@ class SymbolMetaService(
         asOf: Instant?,
         now: Instant = Instant.now(),
     ): Boolean = asOf?.let { it.isBefore(now.minus(staleThreshold)) } ?: false
+
+    internal fun isQuoteFresh(
+        asOf: Instant?,
+        now: Instant = Instant.now(),
+    ): Boolean = asOf?.let { !isQuoteExpired(it, now) } ?: false
+
+    internal fun isQuoteExpired(
+        asOf: Instant,
+        now: Instant = Instant.now(),
+    ): Boolean = asOf.isBefore(now.minus(quoteFreshThreshold))
 
     /**
      * KRX 정규장 운영시간(KST 09:00 ~ 15:30) 내인지 판정.

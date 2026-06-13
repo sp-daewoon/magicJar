@@ -63,8 +63,8 @@ class SymbolController(
         summary = "종목 메타·현재가 조회",
         description =
             "종목코드(6자리)로 현재가·전일대비·등락률·PER·PBR·시총·업종·종목명을 반환합니다. " +
-                "1순위: Redis quote:last (실시간), 2순위: KIS inquire-price REST (FHKST01010100). " +
-                "KIS 장애 시 stale:true로 마지막 cache 반환. 데이터 부재 시 503.",
+                "1순위: 신선한 Redis quote:last(5분 이내 실시간), 2순위: KIS PriceMetrics J/KRX 스냅샷, " +
+                "3순위: DB 1d candle fallback. 데이터 부재 시 503.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "조회 성공"),

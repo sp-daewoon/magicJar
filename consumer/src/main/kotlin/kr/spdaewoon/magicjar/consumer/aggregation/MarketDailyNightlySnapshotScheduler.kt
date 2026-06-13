@@ -9,10 +9,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * MarketDailyNightlySnapshotScheduler — ADR 0118 R2 야간 전종목 일봉 today snapshot cron 트리거.
+ * MarketDailyNightlySnapshotScheduler — ADR 0118 R2 전종목 일봉 snapshot cron 트리거.
  *
- * 매 영업일 **23:00 KST**(default · ENV `MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON` 외부화) 1회 발사.
- * KRX 정규장 15:30 + NXT after-hour 20:00 마감 후 + KIS 야간 점검(23:40~00:10) 이전 안전 마진.
+ * - 매 영업일 **23:00 KST**(default · ENV `MAGICJAR_MARKET_DAILY_SNAPSHOT_CRON` 외부화): 당일 1d 발사.
+ * - 매 영업일 **08:05 KST**(default · ENV `MAGICJAR_MARKET_DAILY_SNAPSHOT_PRE_OPEN_CRON` 외부화):
+ *   직전 영업일 1d 장전 재확정. 23시 실패·KIS 지연·야간 점검 공백이 사용자 상세 진입 가격에 남지 않게 한다.
  *
  * ## 게이트 (2단계)
  *   1. **cron `zone=Asia/Seoul`** — 발사 시각(SpEL `\${...:default}` 로 ENV 외부화).
@@ -21,7 +22,8 @@ import java.time.ZoneId
  *   3. **ENV kill-switch** — [MarketDailySnapshotProperties.enabled] (서비스 내부에서 DISABLED 즉시 종료).
  *
  * ## 분업 (★ ADR 0118 §2-C·§2-D LOCK — 본체는 [MarketDailyNightlySnapshotService])
- *   - R2(본 스케줄러, 23:00, 전종목): today 1d **1봉만** 멀티시세 공식 종가로 DO UPDATE(권위·후행 교정).
+ *   - R2(본 스케줄러, 23:00 당일 + 08:05 직전 영업일, 전종목): 대상일 1d **1봉만** 멀티시세 공식 종가로
+ *     DO UPDATE(권위·후행 교정).
  *   - DailyCloseFinalizer(20:10, managed watchlist): Redis WS 집계 INSERT(DO NOTHING) — R2 가 나중에 덮음.
  *   - R-BF(MarketDailyBackfillCampaign, admin /run): 과거 10년 1d saveAll(DO NOTHING) — 과거봉 immutable.
  *   R2 는 today 1봉만 전진(과거 gap 채우기 아님). 시스템 며칠 down 시 누락 과거분은 R-BF 로 메운다.
@@ -56,7 +58,7 @@ class MarketDailyNightlySnapshotScheduler(
             return
         }
         try {
-            val result = snapshotService.runSnapshot()
+            val result = snapshotService.runSnapshot(today)
             log.info(
                 "MarketDailyNightlySnapshotScheduler 발사 완료: status={} universe={} upserted={} durationMs={}",
                 result.status,
@@ -68,5 +70,49 @@ class MarketDailyNightlySnapshotScheduler(
             // 야간 1회 best-effort — 실패해도 다음 영업일 재시도(누락 today 는 다음날 R-BF catch-up 가능).
             log.warn("MarketDailyNightlySnapshotScheduler 발사 실패 (다음 영업일 재시도): err={}", e.message, e)
         }
+    }
+
+    /**
+     * 장전 snapshot cron — default 08:05 KST 매일 발사, 오늘이 영업일이면 직전 영업일 1d 를 재확정한다.
+     *
+     * 23시 job 을 단순히 08시로 옮기면 today row 에 전일/장전 값을 쓸 수 있으므로, 대상 날짜를 명시적으로
+     * 직전 영업일로 계산한다.
+     */
+    @Scheduled(cron = "\${magicjar.market-daily-snapshot.pre-open-cron:0 5 8 * * *}", zone = "Asia/Seoul")
+    fun runPreOpenSnapshot() {
+        val today = LocalDate.now(kst)
+        if (!businessDayCalendar.isBusinessDay(today)) {
+            log.info("MarketDailyPreOpenSnapshotScheduler skip — KRX 비거래일 ({})", today)
+            return
+        }
+        val targetDate = previousBusinessDay(today)
+        try {
+            val result = snapshotService.runSnapshot(targetDate)
+            log.info(
+                "MarketDailyPreOpenSnapshotScheduler 발사 완료: targetDate={} status={} universe={} upserted={} durationMs={}",
+                targetDate,
+                result.status,
+                result.universeSize,
+                result.upsertedRows,
+                result.durationMs,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "MarketDailyPreOpenSnapshotScheduler 발사 실패 (다음 cron 재시도): targetDate={} err={}",
+                targetDate,
+                e.message,
+                e,
+            )
+        }
+    }
+
+    private fun previousBusinessDay(from: LocalDate): LocalDate {
+        var candidate = from.minusDays(1)
+        repeat(14) {
+            if (businessDayCalendar.isBusinessDay(candidate)) return candidate
+            candidate = candidate.minusDays(1)
+        }
+        log.warn("MarketDailyPreOpenSnapshotScheduler previousBusinessDay fallback — 14일 내 영업일 미발견: from={}", from)
+        return from.minusDays(1)
     }
 }

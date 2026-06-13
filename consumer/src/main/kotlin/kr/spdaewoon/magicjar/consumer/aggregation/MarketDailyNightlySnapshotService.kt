@@ -17,26 +17,27 @@ import java.time.ZoneId
 import kotlinx.datetime.Instant as KtInstant
 
 /**
- * MarketDailyNightlySnapshotService — ADR 0118 R2 야간 전종목 일봉 today snapshot 본체.
+ * MarketDailyNightlySnapshotService — ADR 0118 R2 야간/장전 전종목 일봉 snapshot 본체.
  *
  * ## 책임 (한 PR = 한 영역 · market-data)
  *   1. [MarketDailyUniverseProvider.resolveCodes] 보통주 ~2,517 코드 확보 (R1 재사용).
  *   2. **30종목 chunk** 로 [KisMultiPricePort.fetchMultiPrice](mrktDivCode="J") 호출 (~84콜) — chunk 간 spacing.
- *   3. 응답 6필드(open/high/low/close/volume) → **그날(today) 1d Candle** 변환 (ts=today 00:00 KST).
- *   4. [CandleRepository.upsertAll](ON CONFLICT DO UPDATE) — today 1d 봉을 KIS 공식 마감값으로 교정/적재.
+ *   3. 응답 6필드(open/high/low/close/volume) → targetDate 1d Candle 변환 (ts=targetDate 00:00 KST).
+ *   4. [CandleRepository.upsertAll](ON CONFLICT DO UPDATE) — 대상일 1d 봉을 KIS 공식 마감값으로 교정/적재.
  *   5. 관측 로그 + audit (처리 종목수·upsert 건수·실패·소요).
  *
  * ## R-BF / R2 / managed 3자 분업 (★ ADR 0118 §2-C·§2-D LOCK)
- *   - **R2(본 서비스, 23:00, 전종목)**: today 1d **1봉만** 멀티시세 공식 종가로 **DO UPDATE**(권위·후행 교정).
+ *   - **R2(본 서비스, 23:00 + 다음날 08:05, 전종목)**: 대상 영업일 1d **1봉만** 멀티시세 공식 종가로
+ *     **DO UPDATE**(권위·후행 교정).
  *     과거 gap 채우기 아님 — 그건 R-BF 소관. 시스템 며칠 down 시 누락 과거분은 R-BF 로 메운다.
  *   - **DailyCloseFinalizer(20:10, managed watchlist)**: Redis WS 집계 → DB INSERT(DO NOTHING). WS tick 집계.
- *     R2 가 23:00 에 **나중에 돌아** 같은 (code,1d,today) 키를 멀티시세 공식 종가로 덮어 권위 확정(§2-D).
+ *     R2 가 나중에 돌아 같은 (code,1d,targetDate) 키를 멀티시세 공식 종가로 덮어 권위 확정(§2-D).
  *   - **R-BF(MarketDailyBackfillCampaign, admin /run)**: 과거 10년 1d range fetch → saveAll(DO NOTHING).
- *     과거봉 immutable. today 봉은 backfill 종료 경계에서 제외(어제까지).
+ *     과거봉 immutable. 당일 봉은 backfill 종료 경계에서 제외(어제까지).
  *
  *   같은 키 upsert 충돌 없음: R2 는 [CandleRepository.upsertAll](insertOrUpdate · ON CONFLICT DO UPDATE),
- *   DailyCloseFinalizer 는 insertIgnore(DO NOTHING). ts 표준 동일(today 00:00 KST) → 같은 UQ row 를
- *   R2 가 공식값으로 갱신, R-BF 는 today 미적재(어제까지)로 충돌 0.
+ *   DailyCloseFinalizer 는 insertIgnore(DO NOTHING). ts 표준 동일(targetDate 00:00 KST) → 같은 UQ row 를
+ *   R2 가 공식값으로 갱신, R-BF 는 당일 미적재(어제까지)로 충돌 0.
  *
  * ## rate-limit (ADR 0116 · 0118 §2-C·§5-1 LOCK)
  *   [KisMultiPriceAdapter] 가 chunk 내부에서 BACKFILL(BG) 버킷 경유 — USER_PATH·INGESTION 침범 0.
@@ -66,7 +67,7 @@ class MarketDailyNightlySnapshotService(
 
         /**
          * J 채널 — KRX 본시장 (ADR 0118 amend §9-B LOCK).
-         * UN/NX 채널은 일부 종목 stale 동결 실측 → deprecated. today 종가 권위 = J 정규장.
+         * UN/NX 채널은 일부 종목 stale 동결 실측 → deprecated. 대상일 종가 권위 = J 정규장.
          */
         const val MRKT_DIV_CODE_J = "J"
 
@@ -104,7 +105,7 @@ class MarketDailyNightlySnapshotService(
         val candlesMapped: Int,
         val upsertedRows: Int,
         val skippedQuotes: Int,
-        // ADR 0120 — today 1d upsert 직후 1wk/1mo/1y 재롤업(1d 합산·KIS 콜 0) 결과.
+        // ADR 0120 — 대상일 1d upsert 직후 1wk/1mo/1y 재롤업(1d 합산·KIS 콜 0) 결과.
         val rollupSymbols: Int,
         val rollupWeekly: Long,
         val rollupMonthly: Long,
@@ -113,12 +114,12 @@ class MarketDailyNightlySnapshotService(
     )
 
     /**
-     * 야간 snapshot 1회 실행 — today 전종목 1d 봉을 멀티시세 공식 종가로 upsert.
+     * 야간/장전 snapshot 1회 실행 — 대상 영업일 전종목 1d 봉을 멀티시세 공식 종가로 upsert.
      *
-     * 매 호출 멱등(today 봉만 DO UPDATE) — 같은 날 중복 호출 시 행 안 늘고 값만 갱신.
+     * 매 호출 멱등(targetDate 봉만 DO UPDATE) — 같은 날 중복 호출 시 행 안 늘고 값만 갱신.
      * ENV off 시 즉시 DISABLED(콜 0). universe 0 시 EMPTY_UNIVERSE(graceful).
      */
-    fun runSnapshot(): SnapshotResult {
+    fun runSnapshot(targetDate: LocalDate = LocalDate.now(KST_ZONE)): SnapshotResult {
         val startMs = System.currentTimeMillis()
         val runId = "mkt-daily-snap:$startMs"
 
@@ -134,25 +135,29 @@ class MarketDailyNightlySnapshotService(
             return emptyResult(runId, SnapshotStatus.EMPTY_UNIVERSE, startMs)
         }
 
-        // today 봉 ts 표준 = 해당 날짜 KST 00:00:00 (DailyCloseFinalizer·KIS stck_bsop_date 관행 정합).
-        // 같은 UQ(code,1d,today) row 를 DailyCloseFinalizer(INSERT) 와 공유 → R2 upsert 가 공식값으로 교정.
-        val today = LocalDate.now(KST_ZONE)
-        val todayTs = KtInstant.fromEpochSeconds(today.atStartOfDay(KST_ZONE).toEpochSecond())
+        // targetDate 봉 ts 표준 = 해당 날짜 KST 00:00:00 (DailyCloseFinalizer·KIS stck_bsop_date 관행 정합).
+        // 같은 UQ(code,1d,targetDate) row 를 DailyCloseFinalizer(INSERT) 와 공유 → R2 upsert 가 공식값으로 교정.
+        val targetDateTs = KtInstant.fromEpochSeconds(targetDate.atStartOfDay(KST_ZONE).toEpochSecond())
 
         val chunks = codes.chunked(CHUNK_SIZE)
         val spacingMs = properties.normalizedChunkSpacingMs()
         log.info(
-            "MarketDailyNightlySnapshot 시동: runId={} universe={}종목 chunks={} spacingMs={} today={} mrktDivCode={}",
+            "MarketDailyNightlySnapshot 시동: runId={} universe={}종목 chunks={} spacingMs={} targetDate={} mrktDivCode={}",
             runId,
             codes.size,
             chunks.size,
             spacingMs,
-            today,
+            targetDate,
             MRKT_DIV_CODE_J,
         )
         audit(
             "MARKET_DAILY_SNAPSHOT_START",
-            mapOf("runId" to runId, "universeSize" to codes.size, "chunks" to chunks.size, "today" to today.toString()),
+            mapOf(
+                "runId" to runId,
+                "universeSize" to codes.size,
+                "chunks" to chunks.size,
+                "targetDate" to targetDate.toString(),
+            ),
         )
 
         var quotesReceived = 0
@@ -177,7 +182,7 @@ class MarketDailyNightlySnapshotService(
 
             val candles =
                 quotes.mapNotNull { quote ->
-                    val candle = toTodayCandle(quote, todayTs)
+                    val candle = toTargetDateCandle(quote, targetDateTs)
                     if (candle == null) skippedQuotes++
                     candle
                 }
@@ -185,7 +190,7 @@ class MarketDailyNightlySnapshotService(
             if (candles.isNotEmpty()) {
                 upsertedRows +=
                     try {
-                        // today 1d 봉 ON CONFLICT DO UPDATE — DailyCloseFinalizer INSERT 를 공식 종가로 덮음(권위).
+                        // 대상일 1d 봉 ON CONFLICT DO UPDATE — DailyCloseFinalizer INSERT 를 공식 종가로 덮음(권위).
                         candleRepository.upsertAll(candles)
                     } catch (e: Exception) {
                         log.warn(
@@ -200,10 +205,10 @@ class MarketDailyNightlySnapshotService(
             }
         }
 
-        // ── ADR 0120 (+amend) — today 1d upsert 직후 1wk/1mo/1y 재롤업 (전종목, 1d 합산, KIS 콜 0) ───
-        // R2 가 today 1d 를 공식 종가로 upsert 한 직후, DB 의 1d 최근 400 거래일(incremental)에서 상위 봉을
+        // ── ADR 0120 (+amend) — 대상일 1d upsert 직후 1wk/1mo/1y 재롤업 (전종목, 1d 합산, KIS 콜 0) ───
+        // R2 가 대상일 1d 를 공식 종가로 upsert 한 직후, DB 의 1d 최근 400 거래일(incremental)에서 상위 봉을
         // 재합산하여 갱신 필요한 주/월/년봉만 최신화한다(amend — 매일 전체 history full-regen 폐기, ~95% 절감).
-        // 오늘 진행 주/월/년봉은 today 1d 까지 반영된 닫힌-스냅샷으로 upsert 되고, 장중 라이브 갱신은
+        // 진행 중인 주/월/년봉은 대상일 1d 까지 반영된 닫힌-스냅샷으로 upsert 되고, 장중 라이브 갱신은
         // CandleQueryService.mergeQuoteLastCurrentCandle(quote:last 병합)이 별도로 담당하므로 실시간 보존 회귀 0.
         val rollup = runDailyFamilyRollup(codes, runId)
 
@@ -271,7 +276,7 @@ class MarketDailyNightlySnapshotService(
     )
 
     /**
-     * 전종목 1wk/1mo/1y 재롤업 — today 1d upsert 직후 1d 전량에서 합산(KIS 콜 0).
+     * 전종목 1wk/1mo/1y 재롤업 — 대상일 1d upsert 직후 1d 전량에서 합산(KIS 콜 0).
      *
      * best-effort: 종목별 실패는 다음 영업일 재시도(누락 과거분은 admin /market-daily-rollup/run 으로 복구).
      */
@@ -308,16 +313,16 @@ class MarketDailyNightlySnapshotService(
     }
 
     /**
-     * 멀티시세 quote → 그날(today) 1d Candle 변환 (KIS-first 매핑 · ADR 0118 §2-C step 3).
+     * 멀티시세 quote → 대상 영업일 1d Candle 변환 (KIS-first 매핑 · ADR 0118 §2-C step 3).
      *   open=open · high=high · low=low · close=close · volume=accumulatedVolume.
      *
      * 결손 graceful: OHLC 4필드 중 하나라도 null 이면 skip(mock 합성 0 — 부분 봉 적재 금지).
      *   volume 결손은 0 으로 적재(거래대금/전일종가는 검증 보강용이라 매핑 0 — Candle 도메인 미보유).
      *   adj 4필드는 null(수정주가 미적용 — 일반 raw 적재 컨벤션 정합).
      */
-    internal fun toTodayCandle(
+    internal fun toTargetDateCandle(
         quote: MultiPriceQuote,
-        todayTs: KtInstant,
+        targetDateTs: KtInstant,
     ): Candle? {
         val open = quote.open
         val high = quote.high
@@ -337,7 +342,7 @@ class MarketDailyNightlySnapshotService(
         return Candle(
             code = quote.code,
             interval = INTERVAL,
-            ts = todayTs,
+            ts = targetDateTs,
             openRaw = open,
             highRaw = high,
             lowRaw = low,

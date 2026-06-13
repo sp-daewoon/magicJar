@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.service.SymbolMetaService
+import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -61,17 +63,15 @@ class SymbolMetaServiceNxtStaleTest {
                 makeCandle(ts = "2026-05-18T00:00:00Z", close = 1_840_000, vol = 10_771_377L),
             )
         val filtered = service.filterNxtNightCandles(candles, "000660")
-        // 4,850,226 / 7,805,248 = 62% > 30% → 본래 휴리스틱은 통과(skip 안 함)
-        // BUT 사용자 실제 dogfooding evidence는 본 row가 NXT 야간 → 임계 30% 강화 필요
-        // 본 테스트는 강화된 30% 임계 휴리스틱 행동 검증 — 62% > 30% 이므로 skip 안 됨이 정합
-        // (의도: 30% 임계가 보호 못하는 경계 case 명시 — venue 컬럼 도입 P1 의제 정당화 evidence)
-        assertEquals(3, filtered.size, "62% 비율은 30% 임계 통과 — venue 분리 P1 필요한 잔존 case")
+        // 4,850,226 / 7,805,248 = 62% → 5% 극저거래량 휴리스틱은 통과(skip 안 함)
+        // (의도: volume 비율만으로는 못 잡는 경계 case 명시 — venue 컬럼 도입 P1 의제 정당화 evidence)
+        assertEquals(3, filtered.size, "62% 비율은 5% 임계 통과 — venue 분리 P1 필요한 잔존 case")
         assertEquals(BigDecimal("1918000"), filtered[0].closeRaw)
     }
 
     @Test
     fun `NXT 야간 candle - SK하이닉스 2026-05-20 evidence - 2점9퍼센트 비율 - skip`() {
-        // QA 보고서 §2-2 evidence — PR #597 휴리스틱(10%) + 강화(30%) 모두 fix
+        // QA 보고서 §2-2 evidence — 5% 미만 극저거래량 휴리스틱으로 skip
         val candles =
             listOf(
                 makeCandle(ts = "2026-05-20T00:00:00Z", close = 1_764_000, vol = 223_020L), // NXT 야간 명백
@@ -121,11 +121,21 @@ class SymbolMetaServiceNxtStaleTest {
     }
 
     @Test
-    fun `quote last 등락 필드가 있으면 NXT source라도 현재가 전일대비 기준으로 사용`() {
+    fun `fresh quote last 등락 필드가 있으면 현재가 전일대비 기준으로 사용`() {
         val valueOps: ValueOperations<String, String> = mock()
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
         whenever(valueOps.get("quote:last:066570")).thenReturn(
-            """{"price":"237000","volume":151,"ts":"2026-05-22T10:59:59Z","source":"live-nxt","priceChange":"2000","changeRate":"0.85","changeSign":"2"}""",
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "price" to "237000",
+                    "volume" to 151,
+                    "ts" to Instant.now().toString(),
+                    "source" to "live-unified",
+                    "priceChange" to "2000",
+                    "changeRate" to "0.85",
+                    "changeSign" to "2",
+                ),
+            ),
         )
         whenever(valueOps.get("meta:066570")).thenReturn(null)
         whenever(userAccountJpaRepository.findAll()).thenReturn(emptyList())
@@ -143,7 +153,60 @@ class SymbolMetaServiceNxtStaleTest {
         assertEquals("235000", symbol.previousClose)
         assertEquals("2000", symbol.change)
         assertEquals("0.85", symbol.changeRate)
-        assertEquals("live-nxt", symbol.source)
+        assertEquals("live-unified", symbol.source)
+    }
+
+    @Test
+    fun `stale quote last 는 가격 source 에서 제외하고 KIS snapshot 을 우선 사용한다`() {
+        val valueOps: ValueOperations<String, String> = mock()
+        whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
+        whenever(valueOps.get("quote:last:000720")).thenReturn(
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "price" to "128200",
+                    "volume" to 56,
+                    "ts" to Instant.now().minus(Duration.ofMinutes(10)).toString(),
+                    "source" to "live",
+                    "priceChange" to "5900",
+                    "changeRate" to "4.82",
+                    "changeSign" to "2",
+                ),
+            ),
+        )
+        whenever(valueOps.get("meta:000720")).thenReturn(null)
+        whenever(userAccountJpaRepository.findAll()).thenReturn(
+            listOf(UserAccountJpaEntity(userId = "test-user")),
+        )
+        whenever(priceMetricsPort.fetchPriceMetrics("test-user", "000720")).thenReturn(
+            priceMetrics(
+                current = "157500",
+                previous = "122700",
+                high = "157500",
+                low = "128500",
+                open = "138500",
+                volume = 1_157_067L,
+            ),
+        )
+        whenever(instrumentJpaRepository.findById("000720")).thenReturn(Optional.empty())
+        whenever(candleJpaRepository.findByCodeAndIntervalLatest(any(), any(), any())).thenReturn(
+            listOf(
+                makeCandle(ts = "2026-06-12T15:00:00Z", close = 130_000, vol = 2_796L),
+                makeCandle(ts = "2026-06-11T15:00:00Z", close = 122_700, vol = 974_982L),
+            ),
+        )
+
+        val symbol = service.getSymbol("000720")
+
+        assertEquals("157500", symbol.currentPrice)
+        assertEquals("122700", symbol.previousClose)
+        assertEquals("34800", symbol.change)
+        assertEquals("28.36", symbol.changeRate)
+        assertEquals("157500", symbol.high)
+        assertEquals("128500", symbol.low)
+        assertEquals("138500", symbol.open)
+        assertEquals(1_157_067L, symbol.volume)
+        assertEquals("polling", symbol.source)
+        assertFalse(symbol.stale)
     }
 
     @Test
@@ -156,7 +219,7 @@ class SymbolMetaServiceNxtStaleTest {
                 makeCandle(ts = "2026-05-19T00:00:00Z", close = 13_200, vol = 55_000L),
             )
         val filtered = service.filterNxtNightCandles(candles, "004090")
-        // 50,000 / 60,000 = 83% > 30% → 모두 통과
+        // 50,000 / 60,000 = 83% > 5% → 모두 통과
         assertEquals(3, filtered.size)
         assertEquals(BigDecimal("13470"), filtered[0].closeRaw)
     }
@@ -267,5 +330,36 @@ class SymbolMetaServiceNxtStaleTest {
             closeRaw = close?.let { BigDecimal.valueOf(it.toLong()) },
             volume = vol,
             source = "KIS",
+        )
+
+    private fun priceMetrics(
+        current: String,
+        previous: String,
+        high: String,
+        low: String,
+        open: String,
+        volume: Long,
+    ): PriceMetrics =
+        PriceMetrics(
+            per = null,
+            pbr = null,
+            eps = null,
+            bps = null,
+            marketCap = null,
+            industry = null,
+            name = null,
+            market = null,
+            currentPrice = BigDecimal(current),
+            previousClose = BigDecimal(previous),
+            priceChange = BigDecimal(current) - BigDecimal(previous),
+            changeRate =
+                (BigDecimal(current) - BigDecimal(previous))
+                    .divide(BigDecimal(previous), 4, java.math.RoundingMode.HALF_UP)
+                    .multiply(BigDecimal("100")),
+            changeSign = "2",
+            high = BigDecimal(high),
+            low = BigDecimal(low),
+            open = BigDecimal(open),
+            volume = volume,
         )
 }

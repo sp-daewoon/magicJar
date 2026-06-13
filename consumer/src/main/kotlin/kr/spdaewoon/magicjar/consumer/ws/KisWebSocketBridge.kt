@@ -1313,6 +1313,8 @@ class KisWebSocketBridge(
 
     /**
      * Redis quote:last:{code} 갱신.
+     * quote:last 는 화면/실시간 보조 캐시라 5분만 유지한다. 장외·휴장·저유동 종목에서 오래된 tick 이
+     * REST 스냅샷을 덮지 않도록 API read-side 도 동일 5분 freshness gate 를 적용한다.
      * dogfooding 결함 1 fix: priceChange·changeRate·changeSign 필드 포함 (등락률 싱크).
      * KIS-first: PRDY_VRSS[4]·PRDY_CTRT[5]·PRDY_VRSS_SIGN[3] 출처
      *   https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
@@ -1337,7 +1339,7 @@ class KisWebSocketBridge(
                 .set(
                     "quote:last:${tick.code}",
                     json,
-                    java.time.Duration.ofDays(7),
+                    java.time.Duration.ofMinutes(5),
                 )
         } catch (e: Exception) {
             log.error("KIS WS Redis 쓰기 실패: code={} error={}", tick.code, e.message)
