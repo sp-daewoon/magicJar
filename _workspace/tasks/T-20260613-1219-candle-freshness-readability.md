@@ -3,9 +3,9 @@ id: T-20260613-1219-candle-freshness-readability
 agent: frontend
 model: opus
 branch: agent/frontend/candle-freshness-readability
-status: RUNNING
+status: DONE
 startedAt: 2026-06-13T12:19:49.459+09:00
-completedAt: null
+completedAt: 2026-06-13T12:23:18.105+09:00
 pr: null
 parentPhase: ?
 ---
