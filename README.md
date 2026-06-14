@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.13.4** | 2026-06-15 | 실시간 토픽 명명규칙 전면 이식 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.4) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.3** | 2026-06-13 | 실시간 구독 상태 관측 마감 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.3) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.2** | 2026-06-13 | 실시간 구독 관측 정합 + KIS WS 수요 재편 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.2) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 보강 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.1) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
