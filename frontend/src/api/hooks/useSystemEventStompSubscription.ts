@@ -39,6 +39,7 @@
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useStompTopic } from '../../lib/stomp'
+import { systemEventUser, systemEventBroadcast } from '../stompDestinations'
 import { useToast } from '../../components/ui/ToastProvider'
 import type { SystemEvent } from '../system-event'
 
@@ -70,9 +71,9 @@ export function useSystemEventStompSubscription(userId: string | null): void {
   )
 
   // user-specific topic — userId 있을 때만 enabled
-  const userTopic = userId ? `/topic/system.event.user.${userId}` : ''
+  const userTopic = userId ? systemEventUser(userId) : ''
   useStompTopic<SystemEvent>(userTopic, handleEvent, userId !== null && userId !== '')
 
   // broadcast topic — 항상 구독
-  useStompTopic<SystemEvent>('/topic/system.event.broadcast', handleEvent, true)
+  useStompTopic<SystemEvent>(systemEventBroadcast, handleEvent, true)
 }

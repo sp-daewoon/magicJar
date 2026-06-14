@@ -12,6 +12,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchIndexTrend, type IndexTrendResponse } from '../market'
 import { useStompTopic } from '../../lib/stomp'
+import { marketIndex } from '../stompDestinations'
 
 interface UseIndexTrendOptions {
   code: string
@@ -42,7 +43,7 @@ export function useIndexTrend({ code, periods, enabled = true }: UseIndexTrendOp
 
   // STOMP — pref view 일 때만 push merge (override view는 polling으로 신선도 유지).
   useStompTopic<IndexTrendResponse>(
-    isPrefView && code ? `/topic/market.index.${code}` : '',
+    isPrefView && code ? marketIndex(code) : '',
     (payload) => {
       // 다른 code의 push가 잘못 도달했을 때 가드 — race-safe.
       if (payload.code !== code) return

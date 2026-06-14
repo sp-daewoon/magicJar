@@ -16,6 +16,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { useStompTopic } from '../../lib/stomp'
+import { riskUser } from '../stompDestinations'
 import type { RiskEventDto, RiskVerdict } from '../risk'
 import { buildRiskToastMessage } from '../riskAlertMessage'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -58,7 +59,7 @@ export function useStompRisk({
 
   const { showToast } = useToast()
 
-  const topic = userId !== null && userId !== undefined ? `/topic/risk.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? riskUser(userId) : ''
 
   const handleRiskEvent = useCallback(
     (event: RiskEventDto) => {

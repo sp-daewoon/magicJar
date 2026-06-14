@@ -24,6 +24,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStompTopic } from '../../lib/stomp'
+import { marketCandle } from '../stompDestinations'
 import {
   symbolApi,
   type CandleClosedPayload,
@@ -121,7 +122,7 @@ export function useSymbolCandles(
   // ADR 0064 §2-C: 합산 interval boundary STOMP 구독
   // isBoundaryInterval 검사 — 1m·1d·1wk·1mo·1y 는 구독 0
   const boundaryTopic = isBoundaryInterval(interval)
-    ? `/topic/market.candle.${interval}.${code}`
+    ? marketCandle(interval, code)
     : ''
   const boundaryEnabled = Boolean(code) && isBoundaryInterval(interval)
 

@@ -18,6 +18,7 @@ import {
   type IndexTrendResponse,
 } from '../market'
 import { useStompTopic } from '../../lib/stomp'
+import { marketIndex } from '../stompDestinations'
 
 export const MARKET_INDEX_QUERY_KEY = ['marketIndex', 'snapshot'] as const
 
@@ -55,10 +56,10 @@ export function useMarketIndex(opts?: { enabled?: boolean }) {
 
   // 4 default index 구독 — race-safe merge (다른 row 보존).
   // hook은 항상 동일 4 topic 을 같은 순서로 구독한다.
-  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[0]}`, mergeIndexPayload, enabled)
-  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[1]}`, mergeIndexPayload, enabled)
-  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[2]}`, mergeIndexPayload, enabled)
-  useStompTopic<IndexTrendResponse>(`/topic/market.index.${DEFAULT_INDEX_CODES[3]}`, mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(marketIndex(DEFAULT_INDEX_CODES[0]), mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(marketIndex(DEFAULT_INDEX_CODES[1]), mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(marketIndex(DEFAULT_INDEX_CODES[2]), mergeIndexPayload, enabled)
+  useStompTopic<IndexTrendResponse>(marketIndex(DEFAULT_INDEX_CODES[3]), mergeIndexPayload, enabled)
 
   return {
     snapshot: query.data,
