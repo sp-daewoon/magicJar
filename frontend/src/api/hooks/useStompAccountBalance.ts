@@ -26,6 +26,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useStompTopic } from '../../lib/stomp'
+import { accountBalanceUser } from '../stompDestinations'
 
 // ──────────────────────────────────────────────
 // 타입 (backend matrix LOCK)
@@ -68,7 +69,7 @@ export function useStompAccountBalance({
 
   const queryClient = useQueryClient()
 
-  const topic = userId !== null && userId !== undefined ? `/topic/account.balance.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? accountBalanceUser(userId) : ''
 
   const handleBalanceChanged = useCallback(
     (payload: AccountBalanceChangedPayload) => {

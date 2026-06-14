@@ -15,6 +15,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { useStompTopic } from '../../lib/stomp'
+import { signalUser } from '../stompDestinations'
 import { type SignalDto } from '../signal'
 import { useToast } from '../../components/ui/ToastProvider'
 
@@ -64,7 +65,7 @@ export function useStompSignal({
 
   const { showToast } = useToast()
 
-  const topic = userId !== null && userId !== undefined ? `/topic/signal.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? signalUser(userId) : ''
 
   const handleSignal = useCallback(
     (signal: SignalDto) => {

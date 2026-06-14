@@ -53,6 +53,7 @@ import {
 } from '../../lib/daytrade/signalInterpretation'
 import { currentKrxSession } from '../../lib/marketHours'
 import { useStompTopic } from '../../lib/stomp'
+import { marketTick, marketCandleMinute, marketOrderbook } from '../../api/stompDestinations'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { SymbolChart } from './SymbolChart'
 import { SymbolError } from './SymbolError'
@@ -189,7 +190,7 @@ export function SymbolDetailPage() {
   const stompEnabled = Boolean(code) && !isDelisted
 
   useStompTopic<TickPayload>(
-    `/topic/market.tick.${code}`,
+    marketTick(code),
     useCallback((payload) => {
       if (payload.code && payload.code !== code) return
       const receivedAt = Date.now()
@@ -205,7 +206,7 @@ export function SymbolDetailPage() {
   )
 
   useStompTopic<CandleMinutePayload>(
-    `/topic/market.candle.minute.${code}`,
+    marketCandleMinute(code),
     useCallback((payload) => {
       if (payload.code && payload.code !== code) return
       setRealtimeCandle(payload)
@@ -214,7 +215,7 @@ export function SymbolDetailPage() {
   )
 
   useStompTopic<OrderbookPayload>(
-    `/topic/market.orderbook.${code}`,
+    marketOrderbook(code),
     useCallback((payload) => {
       if (payload.code && payload.code !== code) return
       setOrderbook(payload)

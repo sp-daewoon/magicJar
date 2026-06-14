@@ -21,6 +21,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useStompTopic } from '../../lib/stomp'
+import { orderUser } from '../stompDestinations'
 import { useToast } from '../../components/ui/ToastProvider'
 
 // ──────────────────────────────────────────────
@@ -128,7 +129,7 @@ export function useStompOrder({
   const { showToast } = useToast()
   const queryClient = useQueryClient()
 
-  const topic = userId !== null && userId !== undefined ? `/topic/order.user.${userId}` : ''
+  const topic = userId !== null && userId !== undefined ? orderUser(userId) : ''
 
   const handleOrderEvent = useCallback(
     (event: OrderStompPayload) => {

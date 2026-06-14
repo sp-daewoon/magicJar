@@ -23,6 +23,7 @@ import {
   type AiResponseEnvelope,
 } from '../ai'
 import { getStompClient } from '../../lib/stomp'
+import { aiExplain } from '../stompDestinations'
 
 export type AiExplainState =
   | { status: 'IDLE' }
@@ -122,7 +123,7 @@ export function useAiExplain({ type, userId, timeoutMs = DEFAULT_TIMEOUT_MS }: U
       // 연결 보장 — 대기 후 subscribe (race 가드).
       const subscribeNow = () => {
         if (!client.connected) return
-        const topic = `/topic/ai.explain.${requestId}`
+        const topic = aiExplain(requestId)
         const sub = client.subscribe(topic, (stompMsg) => {
           try {
             const envelope = JSON.parse(stompMsg.body) as AiResponseEnvelope

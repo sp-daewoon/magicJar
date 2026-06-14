@@ -12,6 +12,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchSectorRanking, type SectorRankingResponse } from '../market'
 import { useStompTopic } from '../../lib/stomp'
+import { marketSectorRank } from '../stompDestinations'
 
 interface UseSectorRankingOptions {
   /** 명시 시 user pref override. 생략 시 backend echo user pref. */
@@ -49,7 +50,7 @@ export function useSectorRanking(opts: UseSectorRankingOptions = {}) {
   // 안전한 선택: pref echo view 인 경우만 push merge (override view는 polling 만으로 신선도 유지).
   const isPrefView = periods === undefined && rsPeriod === undefined
   useStompTopic<SectorRankingResponse>(
-    isPrefView ? '/topic/market.sector.rank' : '',
+    isPrefView ? marketSectorRank : '',
     (payload) => {
       queryClient.setQueryData(key, payload)
     },

@@ -18,6 +18,7 @@ import {
   type TrendPreferenceUpdateRequest,
 } from '../market'
 import { useStompTopic } from '../../lib/stomp'
+import { marketUserPref } from '../stompDestinations'
 
 export const TREND_PREFERENCE_QUERY_KEY = ['trendPreference'] as const
 
@@ -42,7 +43,7 @@ export function useTrendPreference({ userId, enabled = true }: UseTrendPreferenc
 
   // STOMP push — 다른 탭/세션 변경 즉시 반영 (race-safe: setQueryData 직접 갱신)
   useStompTopic<TrendPreferenceResponse>(
-    userId != null ? `/topic/market.user.${userId}.pref` : '',
+    userId != null ? marketUserPref(userId) : '',
     (payload) => {
       // race-safe merge — payload 자체가 최신 권위 (backend updated_at 갱신 직후 fanout)
       queryClient.setQueryData(TREND_PREFERENCE_QUERY_KEY, payload)
@@ -111,7 +112,7 @@ export function detectPresetId(maPeriods: number[]): TrendPreset['id'] {
 export function useTrendPreferenceSubscription(userId: number | null | undefined): void {
   const queryClient = useQueryClient()
   useStompTopic<TrendPreferenceResponse>(
-    userId != null ? `/topic/market.user.${userId}.pref` : '',
+    userId != null ? marketUserPref(userId) : '',
     (payload) => {
       queryClient.setQueryData(TREND_PREFERENCE_QUERY_KEY, payload)
       queryClient.invalidateQueries({ queryKey: ['marketIndex'] })
