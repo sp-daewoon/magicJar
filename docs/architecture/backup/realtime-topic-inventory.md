@@ -1,6 +1,6 @@
 # Realtime Topic Inventory & Naming Proposal
 
-> Status: DRAFT
+> Status: Accepted (ADR 0125) — 이 문서의 제안표(Recommended Naming Rule + Inventory & Rename Proposal)가 ADR 0125로 권위 승격됨. 2026-06-15 최고 관리자 결재. **Deviation**: DLT는 본 문서 `kafka.{owner}.dlt....v1` infix 제안 대신 `KafkaErrorHandlerConfig`의 `${record.topic()}.DLT` auto-suffix를 유지한다(ADR 0125 §3-3 — error handler 재작성 risk 회피). 마이그레이션은 §Migration Plan의 dual-write가 아닌 **clean cut**으로 수행하며(ADR 0125 §3-2), dual-write 절차는 향후 zero-downtime 운영 단계 표준으로 보존한다. 위치(`/backup`)는 후속 PR에서 `docs/architecture/`로 이동 예정(backend wire 플립과 충돌 회피).
 > Date: 2026-06-15 KST
 > Scope: runtime source only (`src/main`). `_workspace`, plans, screenshots, test fixtures are excluded.
 
