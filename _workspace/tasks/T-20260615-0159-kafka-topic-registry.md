@@ -3,10 +3,10 @@ id: T-20260615-0159-kafka-topic-registry
 agent: market-data
 model: opus
 branch: agent/market-data/kafka-topic-registry
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T01:59:01.394+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-15T02:08:14.958+09:00
+pr: #967
 parentPhase: ?
 ---
 
