@@ -11,11 +11,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 
 /**
- * P2 — Kafka `system.event.v1` → STOMP fanout.
+ * P2 — Kafka `kafka.shared.evt.system.event.v1` → STOMP fanout.
  *
  * ### 분기 (spec §11 LOCK)
- * - `event.userId != null` → `/topic/system.event.user.{userId}` (user-specific fanout)
- * - `event.userId == null` → `/topic/system.event.broadcast` (system-wide fanout)
+ * - `event.userId != null` → `/topic/stomp.api.system.event.user.{userId}` (user-specific fanout)
+ * - `event.userId == null` → `/topic/stomp.api.system.event.broadcast` (system-wide fanout)
  *
  * ### graceful
  * 잘못된 payload (역직렬화 실패) 또는 STOMP publish 실패는 listener thread 안 죽임 —

@@ -12,7 +12,7 @@ import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 
 /**
- * market.realtime.demand.v1 consumer.
+ * kafka.api.cmd.market.realtime-demand.v1 consumer.
  *
  * Strategy/Screener가 찾아낸 후보는 watchlist에 자동 삽입하지 않는다.
  * 이 topic은 "시스템이 잠시 실시간으로 관찰해야 하는 종목" 수요만 전달하고,
@@ -72,7 +72,8 @@ class RealtimeDemandKafkaListener(
             ack.acknowledge()
         } catch (e: Exception) {
             log.error(
-                "market.realtime.demand.v1 처리 실패 — offset={} err={}",
+                "{} 처리 실패 — offset={} err={}",
+                KafkaTopics.Market.REALTIME_DEMAND,
                 record.offset(),
                 e.message,
                 e,

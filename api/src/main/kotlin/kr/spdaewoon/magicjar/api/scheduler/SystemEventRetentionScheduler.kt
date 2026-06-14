@@ -12,7 +12,7 @@ import java.time.Instant
 /**
  * 시스템 이벤트 운영 대시보드 DB retention.
  *
- * Kafka `system.event.v1` retention 은 이미 7일이지만, dashboard source 인 `system_event`
+ * Kafka `kafka.shared.evt.system.event.v1` retention 은 이미 7일이지만, dashboard source 인 `system_event`
  * 테이블은 별도 정리가 없어 운영 화면에 계속 누적됐다. API 대시보드 소유 경계에서
  * 매일 오래된 row 만 bulk delete 한다.
  */

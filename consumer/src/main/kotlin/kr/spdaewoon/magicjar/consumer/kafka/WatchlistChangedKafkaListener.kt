@@ -13,7 +13,7 @@ import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 
 /**
- * watchlist.changed.v1 Kafka consumer (ADR 0028·0048 §2-6 §4 정합).
+ * kafka.api.evt.watchlist.changed.v1 Kafka consumer (ADR 0028·0048 §2-6 §4 정합).
  *
  * - groupId: magicjar-consumer-watchlist-ingestion
  * - manual ack (MANUAL_IMMEDIATE — ADR 0045 graceful shutdown 정합)
@@ -55,7 +55,7 @@ class WatchlistChangedKafkaListener(
             try {
                 objectMapper.readValue<WatchlistChangedEvent>(record.value())
             } catch (e: Exception) {
-                log.error("watchlist.changed.v1 파싱 실패 — offset={} err={}", record.offset(), e.message)
+                log.error("{} 파싱 실패 — offset={} err={}", KafkaTopics.System.WATCHLIST_CHANGED, record.offset(), e.message)
                 // parse 실패는 Dead Letter로 보낼 수 없으므로 ack + 스킵
                 ack.acknowledge()
                 return
@@ -78,7 +78,8 @@ class WatchlistChangedKafkaListener(
         } catch (e: Exception) {
             // 예외 시 ack 호출 안 함 → 재처리 (idempotent 보장)
             log.error(
-                "watchlist.changed.v1 처리 실패 (재처리 대상) — code={} action={} err={}",
+                "{} 처리 실패 (재처리 대상) — code={} action={} err={}",
+                KafkaTopics.System.WATCHLIST_CHANGED,
                 event.code,
                 event.action,
                 e.message,

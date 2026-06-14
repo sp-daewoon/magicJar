@@ -9,14 +9,14 @@ import org.springframework.kafka.config.TopicBuilder
 /**
  * Kafka topic 자동 생성 설정 (dispatch §3-2-G 정합).
  *
- * 생성 topic:
- * - market.tick.v1                  — KIS WS tick + polling fallback publish (retention 1h)
- * - market.candle.minute.closed.v1  — 1m closing 캔들 (retention 1d)
- * - market.orderbook.v1             — H0UNASP0 통합 호가 스냅샷 (retention 1h)
- * - market.status.v1                — H0UNMKO0 통합 장운영/VI 이벤트 (retention 1h)
- * - symbol.detail.command.v1        — 종목 상세 실시간 sub/unsub 명령 (retention 1h)
- * - market.realtime.demand.v1       — 전략 후보 실시간 관찰 수요 (retention 1h)
- * - system.event.v1                  — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
+ * 생성 topic (권위 wire는 KafkaTopics 레지스트리):
+ * - kafka.consumer.evt.market.tick.v1            — KIS WS tick + polling fallback publish (retention 1h)
+ * - kafka.consumer.evt.market.candle.1m.closed.v1 — 1m closing 캔들 (retention 1d)
+ * - kafka.consumer.evt.market.orderbook.v1       — H0UNASP0 통합 호가 스냅샷 (retention 1h)
+ * - kafka.consumer.evt.market.status.v1          — H0UNMKO0 통합 장운영/VI 이벤트 (retention 1h)
+ * - kafka.api.cmd.symbol.detail-realtime.v1      — 종목 상세 실시간 sub/unsub 명령 (retention 1h)
+ * - kafka.api.cmd.market.realtime-demand.v1      — 전략 후보 실시간 관찰 수요 (retention 1h)
+ * - kafka.shared.evt.system.event.v1             — 운영 이벤트 대시보드 STOMP fanout source (retention 7d)
  *
  * PR-9b market-data 담당. PR-10b 보강.
  */
@@ -330,7 +330,7 @@ class KafkaTopicConfig {
             .build()
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ADR 0074 Phase 3 — KIS 키 변경 이벤트 (system.kis-key-changed.v1)
+    // ADR 0074 Phase 3 — KIS 키 변경 이벤트 (kafka.api.evt.system.kis-key.changed.v1)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**

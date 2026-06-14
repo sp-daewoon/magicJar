@@ -33,7 +33,7 @@ spring:
     listener:
       ack-mode: RECORD
       concurrency: 1
-    # system.kis-key-changed.v1 consumer group (ADR 0074 Phase 3)
+    # kafka.api.evt.system.kis-key.changed.v1 consumer group (ADR 0074 Phase 3)
     # groupId: magicjar-consumer-system (SystemKisKeyChangedListener @KafkaListener 설정)
     # 기본 kafkaListenerContainerFactory 재사용 — 별도 factory 신규 0
     producer:
@@ -129,10 +129,10 @@ magicjar:
     scale-in:
       enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:true}
   # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
-  #   stop-loss.tick-watch-enabled : market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
+  #   stop-loss.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
   #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).
   #   exit.take-profit-limit-enabled: BUY 체결 즉시 익절 LIMIT 선주문(시스템 다운 중에도 KIS 서버에 익절 유지). scale-in 평단 변동 시 재발행.
-  #   take-profit.tick-watch-enabled : market.tick.v1 직접 listen → 익절가 도달 시 MARKET SELL 안전망(canary D2 hotfix B).
+  #   take-profit.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 익절가 도달 시 MARKET SELL 안전망(canary D2 hotfix B).
   #     익절 LIMIT 당일 만료 후에도 가격이 익절가 이상이면 시그널 의존 없이 익절을 보장(손절 watcher 대칭). open auto-tp LIMIT 살아 있으면 미발사(중복 매도 방지).
   #     false면 현행(시그널 의존 익절)으로 회귀. idemKey 에 KST 날짜 차원 포함(REJECTED 후 영구 차단 F1 회피).
   #   holding-watch.enabled        : 보유 종목 HOLDING owner KIS WS 구독 보장(evict 절대 금지 — 청산 재료 공백 0).
@@ -147,7 +147,7 @@ magicjar:
       tick-watch-enabled: ${MAGICJAR_TAKE_PROFIT_TICK_WATCHER_ENABLED:true}
     exit:
       take-profit-limit-enabled: ${MAGICJAR_AUTOTRADING_EXIT_TAKE_PROFIT_LIMIT_ENABLED:true}
-    # ADR 0115 §P1-2 — backfill/복구가 재발행한 order.filled.v1 replay 식별 신선도 임계(초).
+    # ADR 0115 §P1-2 — backfill/복구가 재발행한 kafka.consumer.evt.order.filled.v1 replay 식별 신선도 임계(초).
     #   executedAt이 평가시각 대비 이 초 초과 과거면 복구 체결로 보고 익절 TP 미발행(중복 익절 차단). fillSource=REST_BACKFILL 1차 식별의 fail-safe.
     replay:
       freshness-threshold-seconds: ${MAGICJAR_AUTOTRADING_REPLAY_FRESHNESS_THRESHOLD_SECONDS:120}
