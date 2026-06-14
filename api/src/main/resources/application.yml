@@ -36,12 +36,12 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  # ADR 0074 §2-2-3 Kafka 이벤트 설정
-  # system.kis-key-changed.v1: KIS 키 변경 신호 (consumer WS graceful reconnect trigger)
-  # killswitch.engaged.v1: KillSwitch 토글 (schema 확장 — engaged:boolean)
+  # ADR 0074 §2-2-3 Kafka 이벤트 설정 (참고용 — 권위 wire는 KafkaTopics 레지스트리, 이 블록은 미바인딩 문서값)
+  # kafka.api.evt.system.kis-key.changed.v1: KIS 키 변경 신호 (consumer WS graceful reconnect trigger)
+  # kafka.shared.evt.killswitch.engaged.v1: KillSwitch 토글 (schema 확장 — engaged:boolean)
   kafka-topics:
-    kis-key-changed: system.kis-key-changed.v1
-    killswitch-engaged: killswitch.engaged.v1
+    kis-key-changed: kafka.api.evt.system.kis-key.changed.v1
+    killswitch-engaged: kafka.shared.evt.killswitch.engaged.v1
 
   ai:
     # Spring AI Anthropic — T-DSL 자연어 변환 helper (ADR 0026 사용자 트리거)
@@ -85,7 +85,7 @@ magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
   # 시스템 이벤트 운영 대시보드 source table retention.
-  # Kafka system.event.v1 은 이미 7d 이며, DB system_event 도 같은 보존 기간으로 맞춘다.
+  # Kafka kafka.shared.evt.system.event.v1 은 이미 7d 이며, DB system_event 도 같은 보존 기간으로 맞춘다.
   system-event:
     retention:
       enabled: ${MAGICJAR_SYSTEM_EVENT_RETENTION_ENABLED:true}

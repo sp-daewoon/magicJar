@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 /**
- * `signal.generated.v1` Kafka 토픽 → STOMP `/topic/signal.user.{userId}` fanout.
+ * `kafka.consumer.evt.strategy.signal-generated.v1` Kafka 토픽 → STOMP `/topic/stomp.api.signal.user.{userId}` fanout.
  *
  * Phase 1 consumer가 발행한 시그널을 Kafka에서 수신하여
  * 해당 사용자의 STOMP 구독 토픽으로 실시간 전달 (ADR 0066 §2-3 D-1).
@@ -22,7 +22,7 @@ import java.math.BigDecimal
  * consumer 모듈의 `magicjar-signal-generator` 그룹과 분리.
  *
  * ### STOMP 토픽
- * `/topic/signal.user.{userId}` — 사용자별 fanout (userId는 payload userId 필드).
+ * `/topic/stomp.api.signal.user.{userId}` — 사용자별 fanout (userId는 payload userId 필드).
  *
  * ### 에러 처리
  * 역직렬화 실패 시 log.error + skip (메시지 손실 허용 — 시그널은 DB 재조회 가능).
@@ -50,7 +50,7 @@ class StompSignalDispatcher(
             val rawMap = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
             val userId =
                 rawMap["userId"]?.toString() ?: run {
-                    log.warn("signal.generated.v1 userId null — offset={}", record.offset())
+                    log.warn("{} userId null — offset={}", KafkaTopics.Risk.SIGNAL_GENERATED, record.offset())
                     return
                 }
 
@@ -73,7 +73,8 @@ class StompSignalDispatcher(
             )
         } catch (e: Exception) {
             log.error(
-                "signal.generated.v1 STOMP 포워드 실패: offset={} err={}",
+                "{} STOMP 포워드 실패: offset={} err={}",
+                KafkaTopics.Risk.SIGNAL_GENERATED,
                 record.offset(),
                 e.message,
             )

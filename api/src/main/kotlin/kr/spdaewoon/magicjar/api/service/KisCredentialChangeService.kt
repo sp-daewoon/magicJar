@@ -34,7 +34,7 @@ import java.time.Instant
  *   [3] 통과 시 기존 row DELETE + 새 row INSERT (val 필드 immutability 대응)
  *   [4] Redis access_token + kis:approval DEL
  *   [5] kis:key-changed-lock SET TTL 5s
- *   [6] Kafka system.kis-key-changed.v1 publish (REAL만)
+ *   [6] Kafka kafka.api.evt.system.kis-key.changed.v1 publish (REAL만)
  *   [7] 마스킹 응답 반환
  *
  * Atomicity LOCK: KIS OAuth 검증 통과 시에만 UPDATE. 실패 시 기존 row 보존.

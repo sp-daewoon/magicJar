@@ -9,7 +9,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Component
 
 /**
- * `risk.violation.v1` Kafka 토픽 → STOMP `/topic/risk.user.{userId}` fanout.
+ * `kafka.consumer.evt.risk.violation.v1` Kafka 토픽 → STOMP `/topic/stomp.api.risk.user.{userId}` fanout.
  *
  * RiskViolationKafkaProducer(consumer 모듈)가 발행한 risk 위반 이벤트를 Kafka에서 수신하여
  * 해당 사용자의 STOMP 구독 토픽으로 실시간 전달 (ADR 0067 §5-3 F-1).
@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component
  * consumer 모듈의 `magicjar-risk-gateway` 그룹과 분리.
  *
  * ### STOMP 토픽
- * `/topic/risk.user.{userId}` — 사용자별 fanout (userId는 payload userId 필드).
+ * `/topic/stomp.api.risk.user.{userId}` — 사용자별 fanout (userId는 payload userId 필드).
  *
  * ### 이벤트 type 2건
  * - `BLOCKED` — 즉시 위반 차단
@@ -50,7 +50,7 @@ class StompRiskNotifier(
             val rawMap = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
             val userId =
                 rawMap["userId"]?.toString() ?: run {
-                    log.warn("risk.violation.v1 userId null — offset={}", record.offset())
+                    log.warn("{} userId null — offset={}", KafkaTopics.Risk.VIOLATION, record.offset())
                     return
                 }
 
@@ -73,7 +73,8 @@ class StompRiskNotifier(
             )
         } catch (e: Exception) {
             log.error(
-                "risk.violation.v1 STOMP 포워드 실패: offset={} err={}",
+                "{} STOMP 포워드 실패: offset={} err={}",
+                KafkaTopics.Risk.VIOLATION,
                 record.offset(),
                 e.message,
             )

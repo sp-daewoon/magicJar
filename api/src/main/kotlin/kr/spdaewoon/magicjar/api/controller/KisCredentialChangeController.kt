@@ -75,7 +75,8 @@ class KisCredentialChangeController(
         description =
             "등록된 KIS 키를 새 키로 교체합니다. " +
                 "KIS OAuth tokenP 검증 통과 시에만 DB UPDATE (Atomicity LOCK). " +
-                "성공 시: Redis access_token + approval_key DEL + 5초 잠금 SET + Kafka system.kis-key-changed.v1 publish (REAL만). " +
+                "성공 시: Redis access_token + approval_key DEL + 5초 잠금 SET. " +
+                "Kafka kafka.api.evt.system.kis-key.changed.v1 publish (REAL만). " +
                 "계좌번호(accountNumber) 변경 불가 — read-only. 첫 등록은 POST /api/onboarding/kis/validate 사용.",
     )
     @ApiResponses(

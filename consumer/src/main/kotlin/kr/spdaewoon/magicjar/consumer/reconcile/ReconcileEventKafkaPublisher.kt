@@ -13,9 +13,9 @@ import java.util.UUID
  * Reconcile Kafka publish 어댑터 (ADR 0070 §4-1 토픽 매트릭스 + §2-11 자본 보호 흐름).
  *
  * publish 토픽 3건:
- * - `reconcile.run.v1` (7d) — run lifecycle (RUNNING·RECONCILED·DRIFT·DRIFT_PRICE·ERROR)
- * - `reconcile.drift.v1` (30d) — drift 검출 시 종목별 1건씩 — KillSwitchAutoToggler listen 트리거
- * - `killswitch.engaged.v1` (30d) — KillSwitch auto-ON publish (drift 직후)
+ * - `kafka.consumer.evt.reconcile.run.v1` (7d) — run lifecycle (RUNNING·RECONCILED·DRIFT·DRIFT_PRICE·ERROR)
+ * - `kafka.consumer.evt.reconcile.drift.v1` (30d) — drift 검출 시 종목별 1건씩 — KillSwitchAutoToggler listen 트리거
+ * - `kafka.shared.evt.killswitch.engaged.v1` (30d) — KillSwitch auto-ON publish (drift 직후)
  *
  * partition key = userId — 사용자별 ordering 보장.
  *
@@ -52,14 +52,16 @@ class ReconcileEventKafkaPublisher(
                 )
             kafkaTemplate.send(TOPIC_RUN, run.userId, payload)
             log.debug(
-                "reconcile.run.v1 publish: userId={} runId={} status={}",
+                "{} publish: userId={} runId={} status={}",
+                TOPIC_RUN,
                 run.userId,
                 run.id,
                 run.status,
             )
         } catch (e: Exception) {
             log.error(
-                "reconcile.run.v1 publish 실패: userId={} runId={} err={}",
+                "{} publish 실패: userId={} runId={} err={}",
+                TOPIC_RUN,
                 run.userId,
                 run.id,
                 e.message,
@@ -94,14 +96,16 @@ class ReconcileEventKafkaPublisher(
                 )
             kafkaTemplate.send(TOPIC_DRIFT, userId, payload)
             log.warn(
-                "reconcile.drift.v1 publish (자본 사고): userId={} symbol={} qtyDiff={}",
+                "{} publish (자본 사고): userId={} symbol={} qtyDiff={}",
+                TOPIC_DRIFT,
                 userId,
                 diff.symbol,
                 diff.qtyDiff,
             )
         } catch (e: Exception) {
             log.error(
-                "reconcile.drift.v1 publish 실패: userId={} symbol={} err={}",
+                "{} publish 실패: userId={} symbol={} err={}",
+                TOPIC_DRIFT,
                 userId,
                 diff.symbol,
                 e.message,
@@ -130,14 +134,16 @@ class ReconcileEventKafkaPublisher(
                 )
             kafkaTemplate.send(TOPIC_KILLSWITCH, userId, payload)
             log.warn(
-                "killswitch.engaged.v1 publish: userId={} reason={} triggeredBy={}",
+                "{} publish: userId={} reason={} triggeredBy={}",
+                TOPIC_KILLSWITCH,
                 userId,
                 reason,
                 triggeredBy,
             )
         } catch (e: Exception) {
             log.error(
-                "killswitch.engaged.v1 publish 실패: userId={} err={}",
+                "{} publish 실패: userId={} err={}",
+                TOPIC_KILLSWITCH,
                 userId,
                 e.message,
             )

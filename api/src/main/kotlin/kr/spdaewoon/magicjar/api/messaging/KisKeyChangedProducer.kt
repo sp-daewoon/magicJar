@@ -10,7 +10,7 @@ import java.util.UUID
 /**
  * KIS 키 변경 Kafka producer (ADR 0074 §2-2-3 정합).
  *
- * 토픽: system.kis-key-changed.v1 (retention 7d)
+ * 토픽: kafka.api.evt.system.kis-key.changed.v1 (retention 7d)
  * consumer: KisWebSocketBridge @KafkaListener — graceful reconnect 1회 (Phase 3)
  *
  * 이벤트 스키마 v1:

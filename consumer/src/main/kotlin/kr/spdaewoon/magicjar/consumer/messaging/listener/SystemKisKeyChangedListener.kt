@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component
 /**
  * KIS 키 변경 이벤트 Kafka 리스너 (ADR 0074 §2-2-3 Phase 3).
  *
- * 토픽: system.kis-key-changed.v1
+ * 토픽: kafka.api.evt.system.kis-key.changed.v1
  * groupId: magicjar-consumer-system
  *
  * 처리 흐름:
@@ -53,7 +53,8 @@ class SystemKisKeyChangedListener(
                 objectMapper.readValue<KisKeyChangedEvent>(record.value())
             } catch (e: Exception) {
                 log.error(
-                    "system.kis-key-changed.v1 파싱 실패 — offset={} err={}",
+                    "{} 파싱 실패 — offset={} err={}",
+                    KafkaTopics.System.KIS_KEY_CHANGED,
                     record.offset(),
                     e.message,
                 )
@@ -136,7 +137,7 @@ class SystemKisKeyChangedListener(
 }
 
 /**
- * system.kis-key-changed.v1 이벤트 페이로드 (ADR 0074 §2-2-3 Kafka 이벤트 스키마 정합).
+ * kafka.api.evt.system.kis-key.changed.v1 이벤트 페이로드 (ADR 0074 §2-2-3 Kafka 이벤트 스키마 정합).
  *
  * {
  *   "eventId": "<uuid>",
