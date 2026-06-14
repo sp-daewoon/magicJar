@@ -8,10 +8,10 @@
  * - onConnect 시 subscribe, cleanup 시 unsubscribe
  * - 연결 상태 인디케이터 (onConnect / onStompError / onDisconnect)
  *
- * ADR 0029 §2-5 STOMP topic 매트릭스:
- *   /topic/market.tick.{code}
- *   /topic/market.candle.minute.{code}
- *   /topic/market.orderbook.{code}
+ * STOMP topic 매트릭스 (Phase 2 새 명명규칙 — 권위: api/stompDestinations.ts 빌더):
+ *   /topic/stomp.api.market.tick.{code}
+ *   /topic/stomp.api.market.candle.1m.{code}
+ *   /topic/stomp.api.market.orderbook.{code}
  */
 import { Client } from '@stomp/stompjs'
 import { useEffect, useRef } from 'react'
@@ -85,13 +85,13 @@ function ensureConnected(): Promise<void> {
 /**
  * STOMP topic 구독 커스텀 훅
  *
- * @param topic - 구독할 topic (예: `/topic/market.tick.005930`)
+ * @param topic - 구독할 topic (예: `/topic/stomp.api.market.tick.005930`)
  * @param onMessage - 메시지 수신 콜백
  * @param enabled - false이면 구독하지 않음 (조건부 구독용)
  *
- * 사용 예:
+ * 사용 예 (raw 문자열 대신 api/stompDestinations.ts 빌더 사용 권장):
  *   useStompTopic<TickPayload>(
- *     `/topic/market.tick.${code}`,
+ *     marketTick(code),
  *     (payload) => setCurrentPrice(payload.price),
  *     isStompEnabled
  *   )

@@ -110,11 +110,11 @@ describe('useSystemEventStompSubscription', () => {
     expect(stompCalls.length).toBe(2)
 
     // 0번 호출 = user-specific
-    expect(stompCalls[0].topic).toBe('/topic/system.event.user.74683223')
+    expect(stompCalls[0].topic).toBe('/topic/stomp.api.system.event.user.74683223')
     expect(stompCalls[0].enabled).toBe(true)
 
     // 1번 호출 = broadcast
-    expect(stompCalls[1].topic).toBe('/topic/system.event.broadcast')
+    expect(stompCalls[1].topic).toBe('/topic/stomp.api.system.event.broadcast')
     expect(stompCalls[1].enabled).toBe(true)
   })
 
@@ -128,7 +128,7 @@ describe('useSystemEventStompSubscription', () => {
     expect(stompCalls[0].enabled).toBe(false)
 
     // broadcast 는 항상 enabled
-    expect(stompCalls[1].topic).toBe('/topic/system.event.broadcast')
+    expect(stompCalls[1].topic).toBe('/topic/stomp.api.system.event.broadcast')
     expect(stompCalls[1].enabled).toBe(true)
   })
 
