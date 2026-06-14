@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -235,7 +236,7 @@ class TickToMinuteAggregator(
                         "volume" to volume,
                     ),
                 )
-            kafkaTemplate.send("market.candle.minute.closed.v1", code, payload)
+            kafkaTemplate.send(KafkaTopics.Candle.MINUTE_CLOSED, code, payload)
             log.debug("1m candle Kafka publish: code={} ts={}", code, ts)
         } catch (e: Exception) {
             log.error("1m candle Kafka publish 실패: code={} error={}", code, e.message)

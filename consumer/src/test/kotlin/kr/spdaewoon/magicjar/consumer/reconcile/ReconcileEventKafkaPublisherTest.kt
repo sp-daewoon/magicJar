@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.reconcile.HoldingDiff
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileRun
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileStatus
@@ -50,8 +51,8 @@ class ReconcileEventKafkaPublisherTest {
             )
         publisher.publishRun(run)
 
-        verify { kafkaTemplate.send("reconcile.run.v1", "U1", any<String>()) }
-        assertThat(topicSlot.captured).isEqualTo("reconcile.run.v1")
+        verify { kafkaTemplate.send(KafkaTopics.Reconcile.RUN, "U1", any<String>()) }
+        assertThat(topicSlot.captured).isEqualTo(KafkaTopics.Reconcile.RUN)
         assertThat(keySlot.captured).isEqualTo("U1")
         assertThat(payloadSlot.captured).contains("\"userId\":\"U1\"")
         assertThat(payloadSlot.captured).contains("\"status\":\"RECONCILED\"")
@@ -77,7 +78,7 @@ class ReconcileEventKafkaPublisherTest {
             )
         publisher.publishDrift("U1", runId = 200L, diff = diff)
 
-        verify { kafkaTemplate.send("reconcile.drift.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Reconcile.DRIFT, "U1", any<String>()) }
         assertThat(payloadSlot.captured).contains("\"symbol\":\"005930\"")
         assertThat(payloadSlot.captured).contains("\"qtyDiff\":1")
         assertThat(payloadSlot.captured).contains("\"kisQty\":100")
@@ -91,7 +92,7 @@ class ReconcileEventKafkaPublisherTest {
 
         publisher.publishKillSwitchEngaged("U1", reason = "POSITION_DRIFT", triggeredBy = "AUTO")
 
-        verify { kafkaTemplate.send("killswitch.engaged.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Risk.KILLSWITCH_ENGAGED, "U1", any<String>()) }
         assertThat(payloadSlot.captured).contains("\"triggeredBy\":\"AUTO\"")
         assertThat(payloadSlot.captured).contains("\"reason\":\"POSITION_DRIFT\"")
     }

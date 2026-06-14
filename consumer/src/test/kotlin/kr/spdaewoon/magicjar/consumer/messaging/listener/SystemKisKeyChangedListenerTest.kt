@@ -7,6 +7,7 @@ import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -60,7 +61,7 @@ class SystemKisKeyChangedListenerTest {
               "schemaVersion": 1
             }
             """.trimIndent()
-        val record = ConsumerRecord("system.kis-key-changed.v1", 0, 0L, "user001", payload)
+        val record = ConsumerRecord(KafkaTopics.System.KIS_KEY_CHANGED, 0, 0L, "user001", payload)
 
         // when
         listener.onMessage(record, ack)
@@ -88,7 +89,7 @@ class SystemKisKeyChangedListenerTest {
               "schemaVersion": 1
             }
             """.trimIndent()
-        val record = ConsumerRecord("system.kis-key-changed.v1", 0, 1L, "user001", payload)
+        val record = ConsumerRecord(KafkaTopics.System.KIS_KEY_CHANGED, 0, 1L, "user001", payload)
 
         // when
         listener.onMessage(record, ack)
@@ -107,7 +108,7 @@ class SystemKisKeyChangedListenerTest {
     fun `JSON 파싱 실패 시 ack만 처리하고 reconnectGracefully 미호출`() {
         // given: 잘못된 JSON 페이로드
         val payload = """{ invalid json """
-        val record = ConsumerRecord("system.kis-key-changed.v1", 0, 2L, "user001", payload)
+        val record = ConsumerRecord(KafkaTopics.System.KIS_KEY_CHANGED, 0, 2L, "user001", payload)
 
         // when
         listener.onMessage(record, ack)

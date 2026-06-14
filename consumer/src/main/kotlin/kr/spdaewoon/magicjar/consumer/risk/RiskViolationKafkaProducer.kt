@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.risk.RiskAlertMessage
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskVerdict
@@ -43,7 +44,7 @@ class RiskViolationKafkaProducer(
     private val log = LoggerFactory.getLogger(RiskViolationKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "risk.violation.v1"
+        const val TOPIC = KafkaTopics.Risk.VIOLATION
     }
 
     /**

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.ingestion.SubscriptionRouter
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -42,7 +43,7 @@ class WatchlistChangedKafkaListener(
     private val log = LoggerFactory.getLogger(WatchlistChangedKafkaListener::class.java)
 
     @KafkaListener(
-        topics = ["watchlist.changed.v1"],
+        topics = [KafkaTopics.System.WATCHLIST_CHANGED],
         groupId = "magicjar-consumer-watchlist-ingestion",
         containerFactory = "watchlistChangedKafkaListenerContainerFactory",
     )

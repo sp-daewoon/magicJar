@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -22,7 +23,7 @@ class InstrumentUpdatedKafkaPublisher(
     private val log = LoggerFactory.getLogger(InstrumentUpdatedKafkaPublisher::class.java)
 
     companion object {
-        const val TOPIC = "instrument.updated.v1"
+        const val TOPIC = KafkaTopics.Data.INSTRUMENT_UPDATED
     }
 
     /**

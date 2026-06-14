@@ -8,6 +8,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -111,7 +112,7 @@ class TickToMinuteAggregatorTest {
         }
         // (deterministic) 발행 ts = closingTs (스케줄 시각 기준 직전 분), 해시 ts 무관하게 일관
         assertThat(tsSlot.captured).isEqualTo(closingTs)
-        verify(exactly = 1) { kafkaTemplate.send("market.candle.minute.closed.v1", "005930", any()) }
+        verify(exactly = 1) { kafkaTemplate.send(KafkaTopics.Candle.MINUTE_CLOSED, "005930", any()) }
     }
 
     @Test
@@ -204,7 +205,7 @@ class TickToMinuteAggregatorTest {
             candleRepository.insertOrUpdateIfGapfill("005930", "1m", pastTs, any(), any(), any(), any(), 300L, "KIS")
         }
         val payloadSlot = slot<String>()
-        verify(exactly = 1) { kafkaTemplate.send("market.candle.minute.closed.v1", "005930", capture(payloadSlot)) }
+        verify(exactly = 1) { kafkaTemplate.send(KafkaTopics.Candle.MINUTE_CLOSED, "005930", capture(payloadSlot)) }
         assertThat(payloadSlot.captured).contains("\"ts\":\"2026-06-04T05:21:00Z\"")
     }
 

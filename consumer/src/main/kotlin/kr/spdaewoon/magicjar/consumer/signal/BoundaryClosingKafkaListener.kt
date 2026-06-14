@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -52,7 +53,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-1m
      */
     @KafkaListener(
-        topics = ["market.candle.minute.closed.v1"],
+        topics = [KafkaTopics.Candle.MINUTE_CLOSED],
         groupId = "magicjar-consumer-signal-1m",
     )
     fun on1m(record: ConsumerRecord<String, String>) {
@@ -64,7 +65,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-3m
      */
     @KafkaListener(
-        topics = ["market.candle.3m.closed.v1"],
+        topics = [KafkaTopics.Candle.M3_CLOSED],
         groupId = "magicjar-consumer-signal-3m",
     )
     fun on3m(record: ConsumerRecord<String, String>) {
@@ -76,7 +77,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-5m
      */
     @KafkaListener(
-        topics = ["market.candle.5m.closed.v1"],
+        topics = [KafkaTopics.Candle.M5_CLOSED],
         groupId = "magicjar-consumer-signal-5m",
     )
     fun on5m(record: ConsumerRecord<String, String>) {
@@ -88,7 +89,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-15m
      */
     @KafkaListener(
-        topics = ["market.candle.15m.closed.v1"],
+        topics = [KafkaTopics.Candle.M15_CLOSED],
         groupId = "magicjar-consumer-signal-15m",
     )
     fun on15m(record: ConsumerRecord<String, String>) {
@@ -100,7 +101,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-30m
      */
     @KafkaListener(
-        topics = ["market.candle.30m.closed.v1"],
+        topics = [KafkaTopics.Candle.M30_CLOSED],
         groupId = "magicjar-consumer-signal-30m",
     )
     fun on30m(record: ConsumerRecord<String, String>) {
@@ -112,7 +113,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-90m
      */
     @KafkaListener(
-        topics = ["market.candle.90m.closed.v1"],
+        topics = [KafkaTopics.Candle.M90_CLOSED],
         groupId = "magicjar-consumer-signal-90m",
     )
     fun on90m(record: ConsumerRecord<String, String>) {
@@ -124,7 +125,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-1h
      */
     @KafkaListener(
-        topics = ["market.candle.1h.closed.v1"],
+        topics = [KafkaTopics.Candle.H1_CLOSED],
         groupId = "magicjar-consumer-signal-1h",
     )
     fun on1h(record: ConsumerRecord<String, String>) {
@@ -136,7 +137,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-4h
      */
     @KafkaListener(
-        topics = ["market.candle.4h.closed.v1"],
+        topics = [KafkaTopics.Candle.H4_CLOSED],
         groupId = "magicjar-consumer-signal-4h",
     )
     fun on4h(record: ConsumerRecord<String, String>) {
@@ -148,7 +149,7 @@ class BoundaryClosingKafkaListener(
      * groupId: magicjar-consumer-signal-12h
      */
     @KafkaListener(
-        topics = ["market.candle.12h.closed.v1"],
+        topics = [KafkaTopics.Candle.H12_CLOSED],
         groupId = "magicjar-consumer-signal-12h",
     )
     fun on12h(record: ConsumerRecord<String, String>) {

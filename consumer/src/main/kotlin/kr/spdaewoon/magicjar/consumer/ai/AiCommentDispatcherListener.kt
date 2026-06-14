@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisAiPromptCacheAda
 import kr.spdaewoon.magicjar.domain.ai.AiCommentRequest
 import kr.spdaewoon.magicjar.domain.ai.AiCommentResponse
 import kr.spdaewoon.magicjar.domain.ai.AiCommentType
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -53,7 +54,7 @@ class AiCommentDispatcherListener(
     private val log = LoggerFactory.getLogger(AiCommentDispatcherListener::class.java)
 
     @KafkaListener(
-        topics = ["ai.comment.requested.v1"],
+        topics = [KafkaTopics.Ai.COMMENT_REQUESTED],
         groupId = "magicjar-consumer-ai-dispatcher",
     )
     fun onRequest(record: ConsumerRecord<String, String>) {

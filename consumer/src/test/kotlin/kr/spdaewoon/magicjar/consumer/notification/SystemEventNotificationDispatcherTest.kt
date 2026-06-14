@@ -10,6 +10,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationOutboxRepository
@@ -136,7 +137,7 @@ class SystemEventNotificationDispatcherTest {
     }
 
     private fun record(event: SystemEvent): ConsumerRecord<String, String> =
-        ConsumerRecord("system.event.v1", 0, 0L, "broadcast", objectMapper.writeValueAsString(event))
+        ConsumerRecord(KafkaTopics.System.EVENT, 0, 0L, "broadcast", objectMapper.writeValueAsString(event))
 
     private fun event(severity: SystemEventSeverity): SystemEvent =
         SystemEvent(

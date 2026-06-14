@@ -6,6 +6,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
@@ -53,7 +54,7 @@ class OrderDltMonitorListenerTest {
     @Test
     fun `DLT 수신 시 outbox INSERT (P0_DLT_RECEIVED) + Slack 즉시 발송`() {
         val payload = """{"userId":"user-123","signalId":"sig-1","code":"005930","side":"BUY"}"""
-        val record = ConsumerRecord<String, String>("order.intent.v1.DLT", 0, 100L, "user-123", payload)
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_INTENT, 0, 100L, "user-123", payload)
 
         val outboxSlot = slot<NotificationOutbox>()
         every { outboxRepository.save(capture(outboxSlot)) } answers {
@@ -61,7 +62,7 @@ class OrderDltMonitorListenerTest {
         }
         every { slackSender.sendOutbox(any()) } returns true
 
-        listener.handleDlt(record, "order.intent.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_INTENT)
 
         verify { outboxRepository.save(any()) }
         verify { slackSender.sendOutbox(any()) }
@@ -72,7 +73,7 @@ class OrderDltMonitorListenerTest {
         assertThat(saved.priority).isEqualTo(NotificationPriority.P0)
         assertThat(saved.status).isEqualTo(NotificationStatus.PENDING)
         assertThat(saved.payloadJson).contains("DLT_RECEIVED")
-        assertThat(saved.payloadJson).contains("order.intent.v1.DLT")
+        assertThat(saved.payloadJson).contains(KafkaTopics.Dlt.ORDER_INTENT)
         assertThat(saved.payloadJson).contains("user-123")
     }
 
@@ -80,9 +81,9 @@ class OrderDltMonitorListenerTest {
     fun `outbox repository 미설정 시 graceful direct Slack fallback`() {
         every { outboxProvider.getIfAvailable() } returns null
 
-        val record = ConsumerRecord<String, String>("order.filled.v1.DLT", 0, 50L, "k", """{"userId":"u1"}""")
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_FILLED, 0, 50L, "k", """{"userId":"u1"}""")
 
-        listener.handleDlt(record, "order.filled.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_FILLED)
 
         verify(exactly = 0) { outboxRepository.save(any()) }
         verify { slackSender.sendDirect(any()) }
@@ -92,13 +93,13 @@ class OrderDltMonitorListenerTest {
     fun `Slack 발송 실패 시 incrementRetryCount + PENDING 유지`() {
         every { outboxProvider.getIfAvailable() } returns outboxRepository
 
-        val record = ConsumerRecord<String, String>("order.rejected.v1.DLT", 0, 70L, "u1", """{"userId":"u1"}""")
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_REJECTED, 0, 70L, "u1", """{"userId":"u1"}""")
         every { outboxRepository.save(any()) } answers {
             firstArg<NotificationOutbox>().copy(id = 7L)
         }
         every { slackSender.sendOutbox(any()) } returns false
 
-        listener.handleDlt(record, "order.rejected.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_REJECTED)
 
         verify { slackSender.sendOutbox(any()) }
         verify { outboxRepository.incrementRetryCount(7L) }
@@ -109,13 +110,13 @@ class OrderDltMonitorListenerTest {
     fun `Slack 발송 예외 시 incrementRetryCount`() {
         every { outboxProvider.getIfAvailable() } returns outboxRepository
 
-        val record = ConsumerRecord<String, String>("order.requested.v1.DLT", 0, 11L, "u1", """{"userId":"u1"}""")
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_REQUESTED, 0, 11L, "u1", """{"userId":"u1"}""")
         every { outboxRepository.save(any()) } answers {
             firstArg<NotificationOutbox>().copy(id = 3L)
         }
         every { slackSender.sendOutbox(any()) } throws RuntimeException("slack down")
 
-        listener.handleDlt(record, "order.requested.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_REQUESTED)
 
         verify { outboxRepository.incrementRetryCount(3L) }
     }
@@ -125,13 +126,13 @@ class OrderDltMonitorListenerTest {
         every { outboxProvider.getIfAvailable() } returns outboxRepository
 
         val invalidPayload = "this is not json"
-        val record = ConsumerRecord<String, String>("order.intent.v1.DLT", 0, 200L, null, invalidPayload)
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_INTENT, 0, 200L, null, invalidPayload)
 
         val outboxSlot = slot<NotificationOutbox>()
         every { outboxRepository.save(capture(outboxSlot)) } answers { outboxSlot.captured.copy(id = 1L) }
         every { slackSender.sendOutbox(any()) } returns true
 
-        listener.handleDlt(record, "order.intent.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_INTENT)
 
         verify { outboxRepository.save(any()) }
         assertThat(outboxSlot.captured.payloadJson).contains("\"userId\":\"unknown\"")
@@ -140,7 +141,7 @@ class OrderDltMonitorListenerTest {
     @Test
     fun `4 DLT topic 모두 listener method routing 정합`() {
         // onOrderIntentDlt
-        val intentRecord = ConsumerRecord<String, String>("order.intent.v1.DLT", 0, 1L, "k", """{"userId":"u"}""")
+        val intentRecord = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_INTENT, 0, 1L, "k", """{"userId":"u"}""")
         every { outboxRepository.save(any()) } answers { firstArg<NotificationOutbox>().copy(id = 10L) }
         every { slackSender.sendOutbox(any()) } returns true
 
@@ -157,21 +158,21 @@ class OrderDltMonitorListenerTest {
         every { outboxProvider.getIfAvailable() } returns outboxRepository
         every { outboxRepository.save(any()) } throws RuntimeException("DB down")
 
-        val record = ConsumerRecord<String, String>("order.intent.v1.DLT", 0, 1L, "k", """{"userId":"u"}""")
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_INTENT, 0, 1L, "k", """{"userId":"u"}""")
 
         // 예외 throw 시 시 테스트 실패 — handleDlt catch-all 검증
-        listener.handleDlt(record, "order.intent.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_INTENT)
         // 정상 종료 — 예외 swallow 정합
     }
 
     @Test
     fun `empty payload 시에도 outbox INSERT 발사`() {
         every { outboxProvider.getIfAvailable() } returns outboxRepository
-        val record = ConsumerRecord<String, String>("order.intent.v1.DLT", 0, 1L, "k", null)
+        val record = ConsumerRecord<String, String>(KafkaTopics.Dlt.ORDER_INTENT, 0, 1L, "k", null)
         every { outboxRepository.save(any()) } answers { firstArg<NotificationOutbox>().copy(id = 1L) }
         every { slackSender.sendOutbox(any()) } returns true
 
-        listener.handleDlt(record, "order.intent.v1.DLT")
+        listener.handleDlt(record, KafkaTopics.Dlt.ORDER_INTENT)
 
         verify { outboxRepository.save(any()) }
     }

@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationOutboxRepository
 import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
@@ -61,7 +62,7 @@ class OrderOutboxPublisherWorkerTest {
         id: Long,
         attemptCount: Int = 0,
         eventType: OrderOutboxEventType = OrderOutboxEventType.ORDER_REQUESTED,
-        topic: String = "order.requested.v1",
+        topic: String = KafkaTopics.Order.REQUESTED,
         userId: String = "U1",
     ): OrderEventOutbox =
         OrderEventOutbox(
@@ -86,7 +87,7 @@ class OrderOutboxPublisherWorkerTest {
         val worker = newWorker()
         worker.drainPending()
 
-        verify { kafkaTemplate.send("order.requested.v1", "U1", outbox.payloadJson) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.REQUESTED, "U1", outbox.payloadJson) }
         verify { outboxRepository.markPublished(1L) }
         verify(exactly = 0) { outboxRepository.markFailed(any(), any()) }
         verify(exactly = 0) { outboxRepository.recordAttemptFailure(any(), any()) }
@@ -131,7 +132,7 @@ class OrderOutboxPublisherWorkerTest {
         // 알림 priority P0 검증
         assertThat(notificationSlot.captured.priority.name).isEqualTo("P0")
         assertThat(notificationSlot.captured.payloadJson).contains("ORDER_OUTBOX_DRAIN_FAILED")
-        assertThat(notificationSlot.captured.payloadJson).contains("order.requested.v1")
+        assertThat(notificationSlot.captured.payloadJson).contains(KafkaTopics.Order.REQUESTED)
     }
 
     @Test

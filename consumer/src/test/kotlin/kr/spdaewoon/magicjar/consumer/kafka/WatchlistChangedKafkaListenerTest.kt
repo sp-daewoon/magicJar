@@ -7,6 +7,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisSourceTrackerAdapter
 import kr.spdaewoon.magicjar.consumer.ingestion.SubscriptionRouter
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -41,7 +42,7 @@ class WatchlistChangedKafkaListenerTest {
     fun `ADDED 이벤트 수신 시 cold-start 백필 없이 SubscriptionRouter add 호출`() {
         val payload =
             """{"userId":"user001","code":"005930","action":"ADDED","occurredAt":"2026-05-07T10:00:00Z"}"""
-        val record = ConsumerRecord("watchlist.changed.v1", 0, 0L, "user001", payload)
+        val record = ConsumerRecord(KafkaTopics.System.WATCHLIST_CHANGED, 0, 0L, "user001", payload)
 
         listener.onMessage(record, ack)
 
@@ -54,7 +55,7 @@ class WatchlistChangedKafkaListenerTest {
     fun `REMOVED 이벤트 수신 시 SubscriptionRouter remove + Redis evict 호출`() {
         val payload =
             """{"userId":"user001","code":"005930","action":"REMOVED","occurredAt":"2026-05-07T10:01:00Z"}"""
-        val record = ConsumerRecord("watchlist.changed.v1", 0, 1L, "user001", payload)
+        val record = ConsumerRecord(KafkaTopics.System.WATCHLIST_CHANGED, 0, 1L, "user001", payload)
 
         listener.onMessage(record, ack)
 

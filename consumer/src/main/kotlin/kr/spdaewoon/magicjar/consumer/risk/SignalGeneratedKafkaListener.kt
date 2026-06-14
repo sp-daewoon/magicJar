@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -121,7 +122,7 @@ class SignalGeneratedKafkaListener(
      * groupId = `magicjar-consumer-risk` — 독립 thread + offset.
      */
     @KafkaListener(
-        topics = ["signal.generated.v1"],
+        topics = [KafkaTopics.Risk.SIGNAL_GENERATED],
         groupId = "magicjar-consumer-risk",
         containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )

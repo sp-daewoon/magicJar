@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuote
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuotePort
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
@@ -1057,7 +1058,7 @@ class SignalGeneratedKafkaListenerTest {
             },
         )
 
-    private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)
+    private fun record(value: String) = ConsumerRecord(KafkaTopics.Risk.SIGNAL_GENERATED, 0, 0L, "user-A", value)
 
     private fun ack(): Acknowledgment = mockk(relaxed = true)
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.CorpActionRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.annotation.KafkaListener
@@ -59,7 +60,7 @@ class CandleAdjustmentJob(
      * Kafka 리스너 — corp_action.applied.v1 topic.
      * CorpActionSyncJob이 pending corp_action을 publish → 여기서 소비.
      */
-    @KafkaListener(topics = ["corp_action.applied.v1"], groupId = "candle-adjustment")
+    @KafkaListener(topics = [KafkaTopics.Data.CORP_ACTION_APPLIED], groupId = "candle-adjustment")
     fun onCorpAction(payload: String) {
         runCatching {
             val node = objectMapper.readTree(payload)

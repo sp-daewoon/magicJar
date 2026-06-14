@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.signal
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -33,7 +34,7 @@ class SignalKafkaProducer(
     private val log = LoggerFactory.getLogger(SignalKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "signal.generated.v1"
+        const val TOPIC = KafkaTopics.Risk.SIGNAL_GENERATED
     }
 
     /**

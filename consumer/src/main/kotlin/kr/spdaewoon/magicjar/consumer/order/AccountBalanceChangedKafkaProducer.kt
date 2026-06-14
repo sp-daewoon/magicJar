@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -52,7 +53,7 @@ class AccountBalanceChangedKafkaProducer(
     private val log = LoggerFactory.getLogger(AccountBalanceChangedKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "account.balance.changed.v1"
+        const val TOPIC = KafkaTopics.Order.ACCOUNT_BALANCE_CHANGED
 
         const val REASON_FILLED = "ORDER_FILLED"
         const val REASON_CANCELLED = "ORDER_CANCELLED"

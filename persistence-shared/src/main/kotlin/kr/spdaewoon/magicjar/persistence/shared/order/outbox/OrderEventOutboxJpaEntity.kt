@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes
 import java.time.Instant
@@ -65,7 +66,7 @@ class OrderEventOutboxJpaEntity(
     protected constructor() : this(
         eventId = UUID.randomUUID(),
         eventType = "ORDER_INTENT",
-        topic = "order.intent.v1",
+        topic = KafkaTopics.Order.INTENT,
         payloadJson = "{}",
         status = "PENDING",
     )

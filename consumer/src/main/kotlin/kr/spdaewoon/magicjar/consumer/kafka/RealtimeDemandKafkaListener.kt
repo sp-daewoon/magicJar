@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeDemandOwner
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.reconciliation.ManagedCandleUniverseCache
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -26,7 +27,7 @@ class RealtimeDemandKafkaListener(
     private val log = LoggerFactory.getLogger(RealtimeDemandKafkaListener::class.java)
 
     @KafkaListener(
-        topics = ["market.realtime.demand.v1"],
+        topics = [KafkaTopics.Market.REALTIME_DEMAND],
         groupId = "magicjar-consumer-realtime-demand",
         containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )

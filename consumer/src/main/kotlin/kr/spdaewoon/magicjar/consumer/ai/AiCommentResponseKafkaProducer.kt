@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.ai
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -25,7 +26,7 @@ class AiCommentResponseKafkaProducer(
     private val log = LoggerFactory.getLogger(AiCommentResponseKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "ai.comment.responded.v1"
+        const val TOPIC = KafkaTopics.Ai.COMMENT_RESPONDED
     }
 
     fun publish(event: AiResponseEnvelope) {

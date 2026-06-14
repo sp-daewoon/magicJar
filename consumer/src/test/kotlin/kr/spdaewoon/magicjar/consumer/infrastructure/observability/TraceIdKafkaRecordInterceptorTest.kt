@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.observability
 
 import io.mockk.mockk
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
@@ -28,7 +29,7 @@ class TraceIdKafkaRecordInterceptorTest {
     @Test
     fun `inbound record header X-Trace-Id 존재 시 MDC 복원`() {
         val traceId = "incoming-trace-id-from-producer"
-        val record = ConsumerRecord<Any, Any>("order.intent.v1", 0, 0L, "user-1", "{}")
+        val record = ConsumerRecord<Any, Any>(KafkaTopics.Order.INTENT, 0, 0L, "user-1", "{}")
         record.headers().add(
             TraceIdKafkaRecordInterceptor.HEADER_TRACE_ID,
             traceId.toByteArray(Charsets.UTF_8),
@@ -41,7 +42,7 @@ class TraceIdKafkaRecordInterceptorTest {
 
     @Test
     fun `inbound header 부재 시 UUID 신규 생성 — 32-hex`() {
-        val record = ConsumerRecord<Any, Any>("order.intent.v1", 0, 0L, "user-1", "{}")
+        val record = ConsumerRecord<Any, Any>(KafkaTopics.Order.INTENT, 0, 0L, "user-1", "{}")
 
         interceptor.intercept(record, consumer)
 
@@ -53,7 +54,7 @@ class TraceIdKafkaRecordInterceptorTest {
 
     @Test
     fun `success 호출 후 MDC clear`() {
-        val record = ConsumerRecord<Any, Any>("order.intent.v1", 0, 0L, "user-1", "{}")
+        val record = ConsumerRecord<Any, Any>(KafkaTopics.Order.INTENT, 0, 0L, "user-1", "{}")
         interceptor.intercept(record, consumer)
 
         interceptor.success(record, consumer)
@@ -65,7 +66,7 @@ class TraceIdKafkaRecordInterceptorTest {
 
     @Test
     fun `failure 호출 후 MDC clear`() {
-        val record = ConsumerRecord<Any, Any>("order.intent.v1", 0, 0L, "user-1", "{}")
+        val record = ConsumerRecord<Any, Any>(KafkaTopics.Order.INTENT, 0, 0L, "user-1", "{}")
         interceptor.intercept(record, consumer)
 
         interceptor.failure(record, RuntimeException("listener 실패"), consumer)
@@ -77,7 +78,7 @@ class TraceIdKafkaRecordInterceptorTest {
 
     @Test
     fun `빈 header 값 시 신규 생성`() {
-        val record = ConsumerRecord<Any, Any>("order.intent.v1", 0, 0L, "user-1", "{}")
+        val record = ConsumerRecord<Any, Any>(KafkaTopics.Order.INTENT, 0, 0L, "user-1", "{}")
         record.headers().add(
             TraceIdKafkaRecordInterceptor.HEADER_TRACE_ID,
             "".toByteArray(Charsets.UTF_8),

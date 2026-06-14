@@ -17,6 +17,7 @@ import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -1103,7 +1104,7 @@ class KisWebSocketBridge(
                         "stockDealClassCode" to snapshot.stockDealClassCode,
                     ),
                 )
-            kafkaTemplate.send("market.orderbook.v1", snapshot.code, payload)
+            kafkaTemplate.send(KafkaTopics.Market.ORDERBOOK, snapshot.code, payload)
         } catch (e: Exception) {
             log.error("KIS WS orderbook Kafka publish 실패: code={} error={}", snapshot.code, e.message)
         }
@@ -1142,7 +1143,7 @@ class KisWebSocketBridge(
                         "rawFieldCount" to event.rawFieldCount,
                     ),
                 )
-            kafkaTemplate.send("market.status.v1", event.code, payload)
+            kafkaTemplate.send(KafkaTopics.Market.STATUS, event.code, payload)
         } catch (e: Exception) {
             log.error("KIS WS market-status Kafka publish 실패: code={} error={}", event.code, e.message)
         }
@@ -1792,7 +1793,7 @@ class KisWebSocketBridge(
             tick.turnoverAccum?.let { data["turnoverAccum"] = it.toPlainString() }
 
             val payload = objectMapper.writeValueAsString(data)
-            kafkaTemplate.send("market.tick.v1", tick.code, payload)
+            kafkaTemplate.send(KafkaTopics.Market.TICK, tick.code, payload)
         } catch (e: Exception) {
             log.error("KIS WS Kafka publish 실패: code={} error={}", tick.code, e.message)
         }

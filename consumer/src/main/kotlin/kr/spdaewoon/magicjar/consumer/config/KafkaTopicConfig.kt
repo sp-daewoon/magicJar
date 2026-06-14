@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.config
 
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.admin.NewTopic
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -28,7 +29,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketTickTopic(): NewTopic =
         TopicBuilder
-            .name("market.tick.v1")
+            .name(KafkaTopics.Market.TICK)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -41,7 +42,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandleMinuteClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.minute.closed.v1")
+            .name(KafkaTopics.Candle.MINUTE_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -55,7 +56,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketOrderbookTopic(): NewTopic =
         TopicBuilder
-            .name("market.orderbook.v1")
+            .name(KafkaTopics.Market.ORDERBOOK)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -68,7 +69,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketStatusTopic(): NewTopic =
         TopicBuilder
-            .name("market.status.v1")
+            .name(KafkaTopics.Market.STATUS)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -81,7 +82,7 @@ class KafkaTopicConfig {
     @Bean
     fun symbolDetailCommandTopic(): NewTopic =
         TopicBuilder
-            .name("symbol.detail.command.v1")
+            .name(KafkaTopics.System.SYMBOL_DETAIL_COMMAND)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -94,7 +95,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketRealtimeDemandTopic(): NewTopic =
         TopicBuilder
-            .name("market.realtime.demand.v1")
+            .name(KafkaTopics.Market.REALTIME_DEMAND)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -109,7 +110,7 @@ class KafkaTopicConfig {
     @Bean
     fun instrumentUpdatedTopic(): NewTopic =
         TopicBuilder
-            .name("instrument.updated.v1")
+            .name(KafkaTopics.Data.INSTRUMENT_UPDATED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -128,7 +129,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle3mClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.3m.closed.v1")
+            .name(KafkaTopics.Candle.M3_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -143,7 +144,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle5mClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.5m.closed.v1")
+            .name(KafkaTopics.Candle.M5_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -157,7 +158,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle15mClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.15m.closed.v1")
+            .name(KafkaTopics.Candle.M15_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -171,7 +172,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle30mClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.30m.closed.v1")
+            .name(KafkaTopics.Candle.M30_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -185,7 +186,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle90mClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.90m.closed.v1")
+            .name(KafkaTopics.Candle.M90_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -199,7 +200,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle1hClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.1h.closed.v1")
+            .name(KafkaTopics.Candle.H1_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -213,7 +214,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle4hClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.4h.closed.v1")
+            .name(KafkaTopics.Candle.H4_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -227,7 +228,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketCandle12hClosedTopic(): NewTopic =
         TopicBuilder
-            .name("market.candle.12h.closed.v1")
+            .name(KafkaTopics.Candle.H12_CLOSED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -253,7 +254,7 @@ class KafkaTopicConfig {
     @Bean
     fun signalGeneratedTopic(): NewTopic =
         TopicBuilder
-            .name("signal.generated.v1")
+            .name(KafkaTopics.Risk.SIGNAL_GENERATED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -279,7 +280,7 @@ class KafkaTopicConfig {
     @Bean
     fun riskViolationTopic(): NewTopic =
         TopicBuilder
-            .name("risk.violation.v1")
+            .name(KafkaTopics.Risk.VIOLATION)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -301,7 +302,7 @@ class KafkaTopicConfig {
     @Bean
     fun orderIntentTopic(): NewTopic =
         TopicBuilder
-            .name("order.intent.v1")
+            .name(KafkaTopics.Order.INTENT)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -322,7 +323,7 @@ class KafkaTopicConfig {
     @Bean
     fun corpActionAppliedTopic(): NewTopic =
         TopicBuilder
-            .name("corp_action.applied.v1")
+            .name(KafkaTopics.Data.CORP_ACTION_APPLIED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -343,7 +344,7 @@ class KafkaTopicConfig {
     @Bean
     fun systemKisKeyChangedTopic(): NewTopic =
         TopicBuilder
-            .name("system.kis-key-changed.v1")
+            .name(KafkaTopics.System.KIS_KEY_CHANGED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -359,7 +360,7 @@ class KafkaTopicConfig {
     @Bean
     fun systemEventTopic(): NewTopic =
         TopicBuilder
-            .name("system.event.v1")
+            .name(KafkaTopics.System.EVENT)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -387,7 +388,7 @@ class KafkaTopicConfig {
     @Bean
     fun disclosureNewTopic(): NewTopic =
         TopicBuilder
-            .name("disclosure.new.v1")
+            .name(KafkaTopics.Data.DISCLOSURE_NEW)
             .partitions(3)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -415,7 +416,7 @@ class KafkaTopicConfig {
     @Bean
     fun newsCollectedTopic(): NewTopic =
         TopicBuilder
-            .name("news.collected.v1")
+            .name(KafkaTopics.Data.NEWS_COLLECTED)
             .partitions(3)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -444,7 +445,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketIndexUpdatedTopic(): NewTopic =
         TopicBuilder
-            .name("market.index.updated.v1")
+            .name(KafkaTopics.Market.INDEX_UPDATED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "3600000") // 1h
@@ -468,7 +469,7 @@ class KafkaTopicConfig {
     @Bean
     fun marketSectorUpdatedTopic(): NewTopic =
         TopicBuilder
-            .name("market.sector.updated.v1")
+            .name(KafkaTopics.Market.SECTOR_UPDATED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "86400000") // 1d
@@ -498,7 +499,7 @@ class KafkaTopicConfig {
     @Bean
     fun aiCommentRequestedTopic(): NewTopic =
         TopicBuilder
-            .name("ai.comment.requested.v1")
+            .name(KafkaTopics.Ai.COMMENT_REQUESTED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d
@@ -520,7 +521,7 @@ class KafkaTopicConfig {
     @Bean
     fun aiCommentRespondedTopic(): NewTopic =
         TopicBuilder
-            .name("ai.comment.responded.v1")
+            .name(KafkaTopics.Ai.COMMENT_RESPONDED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", "604800000") // 7d

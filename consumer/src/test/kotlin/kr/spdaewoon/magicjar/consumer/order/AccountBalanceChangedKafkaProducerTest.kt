@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -47,7 +48,7 @@ class AccountBalanceChangedKafkaProducerTest {
         )
 
         // topic LOCK
-        assertThat(topicSlot.captured).isEqualTo("account.balance.changed.v1")
+        assertThat(topicSlot.captured).isEqualTo(KafkaTopics.Order.ACCOUNT_BALANCE_CHANGED)
         // partition key = userId (per-user FIFO 보장)
         assertThat(keySlot.captured).isEqualTo("74683223")
 

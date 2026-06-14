@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
@@ -136,7 +137,7 @@ class PositionViAutoExitWatcherTest {
                     "ts" to "2026-06-13T09:10:00+09:00",
                 ),
             )
-        return ConsumerRecord("market.status.v1", 0, 0L, "005930", payload)
+        return ConsumerRecord(KafkaTopics.Market.STATUS, 0, 0L, "005930", payload)
     }
 
     private fun positionEntity(quantity: Int) =

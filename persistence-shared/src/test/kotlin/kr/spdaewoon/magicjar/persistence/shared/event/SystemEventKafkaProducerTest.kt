@@ -9,6 +9,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.junit.jupiter.api.Test
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.SendResult
@@ -41,12 +42,12 @@ class SystemEventKafkaProducerTest {
                 occurredAt = Instant.parse("2026-05-20T15:00:00Z"),
             )
         every {
-            kafkaTemplate.send("system.event.v1", "74683223", any<String>())
+            kafkaTemplate.send(KafkaTopics.System.EVENT, "74683223", any<String>())
         } returns CompletableFuture.completedFuture(mockk<SendResult<String, String>>(relaxed = true))
 
         sut.publish(event)
 
-        verify { kafkaTemplate.send("system.event.v1", "74683223", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.System.EVENT, "74683223", any<String>()) }
     }
 
     @Test
@@ -60,11 +61,11 @@ class SystemEventKafkaProducerTest {
                 detailJson = """{"reason":"timeout"}""",
             )
         every {
-            kafkaTemplate.send("system.event.v1", "broadcast", any<String>())
+            kafkaTemplate.send(KafkaTopics.System.EVENT, "broadcast", any<String>())
         } returns CompletableFuture.completedFuture(mockk<SendResult<String, String>>(relaxed = true))
 
         sut.publish(event)
 
-        verify { kafkaTemplate.send("system.event.v1", "broadcast", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.System.EVENT, "broadcast", any<String>()) }
     }
 }

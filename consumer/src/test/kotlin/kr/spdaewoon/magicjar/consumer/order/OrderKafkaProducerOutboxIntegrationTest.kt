@@ -7,6 +7,7 @@ import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
@@ -86,11 +87,11 @@ class OrderKafkaProducerOutboxIntegrationTest {
         producer.publish(sampleRequest())
 
         verify { outboxRepository.save(any()) }
-        verify { kafkaTemplate.send("order.requested.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.REQUESTED, "U1", any<String>()) }
         verify { outboxRepository.markPublished(1001L) }
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_REQUESTED)
-        assertThat(outboxSlot.captured.topic).isEqualTo("order.requested.v1")
+        assertThat(outboxSlot.captured.topic).isEqualTo(KafkaTopics.Order.REQUESTED)
         assertThat(outboxSlot.captured.partitionKey).isEqualTo("U1")
         assertThat(outboxSlot.captured.payloadJson).contains("\"userId\":\"U1\"")
     }
@@ -106,11 +107,11 @@ class OrderKafkaProducerOutboxIntegrationTest {
         producer.publish(sampleRequest(), reason = "REAL_GATE_DENIED:test")
 
         verify { outboxRepository.save(any()) }
-        verify { kafkaTemplate.send("order.rejected.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.REJECTED, "U1", any<String>()) }
         verify { outboxRepository.markPublished(2002L) }
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_REJECTED)
-        assertThat(outboxSlot.captured.topic).isEqualTo("order.rejected.v1")
+        assertThat(outboxSlot.captured.topic).isEqualTo(KafkaTopics.Order.REJECTED)
         assertThat(outboxSlot.captured.payloadJson).contains("REAL_GATE_DENIED:test")
     }
 
@@ -137,11 +138,11 @@ class OrderKafkaProducerOutboxIntegrationTest {
         producer.publish(sampleRequest(), execution, partial = false)
 
         verify { outboxRepository.save(any()) }
-        verify { kafkaTemplate.send("order.filled.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.FILLED, "U1", any<String>()) }
         verify { outboxRepository.markPublished(3003L) }
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_FILLED)
-        assertThat(outboxSlot.captured.topic).isEqualTo("order.filled.v1")
+        assertThat(outboxSlot.captured.topic).isEqualTo(KafkaTopics.Order.FILLED)
 
         // hotfix(2026-05-20): STOMP contract key 정합 가드
         // — frontend useStompReconnect.ts L104 `qty ?? executedQty` path 정합
@@ -194,11 +195,11 @@ class OrderKafkaProducerOutboxIntegrationTest {
         producer.publish(signal)
 
         verify { outboxRepository.save(any()) }
-        verify { kafkaTemplate.send("order.intent.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.INTENT, "U1", any<String>()) }
         verify { outboxRepository.markPublished(4004L) }
 
         assertThat(outboxSlot.captured.eventType).isEqualTo(OrderOutboxEventType.ORDER_INTENT)
-        assertThat(outboxSlot.captured.topic).isEqualTo("order.intent.v1")
+        assertThat(outboxSlot.captured.topic).isEqualTo(KafkaTopics.Order.INTENT)
     }
 
     @Test
@@ -206,14 +207,14 @@ class OrderKafkaProducerOutboxIntegrationTest {
         // OrderCancelledKafkaProducer는 outbox 미사용 — direct publish only.
         // payload key contract만 검증한다.
         val payloadSlot = slot<String>()
-        every { kafkaTemplate.send("order.cancelled.v1", "U1", capture(payloadSlot)) } answers {
+        every { kafkaTemplate.send(KafkaTopics.Order.CANCELLED, "U1", capture(payloadSlot)) } answers {
             mockk(relaxed = true)
         }
 
         val producer = OrderCancelledKafkaProducer(kafkaTemplate, objectMapper)
         producer.publish(sampleRequest())
 
-        verify { kafkaTemplate.send("order.cancelled.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.CANCELLED, "U1", any<String>()) }
         // hotfix(2026-05-20): STOMP contract key 정합 — frontend "0주" toast 회피
         assertThat(payloadSlot.captured).contains("\"quantity\":10")
     }
@@ -227,6 +228,6 @@ class OrderKafkaProducerOutboxIntegrationTest {
         producer.publish(sampleRequest())
 
         verify(exactly = 0) { outboxRepository.save(any()) }
-        verify { kafkaTemplate.send("order.requested.v1", "U1", any<String>()) }
+        verify { kafkaTemplate.send(KafkaTopics.Order.REQUESTED, "U1", any<String>()) }
     }
 }

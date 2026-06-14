@@ -16,6 +16,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THIRTY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THREE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.TWELVE_HOUR
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -82,14 +83,14 @@ class BoundaryAggregator(
         /** interval → Kafka topic 매핑 (ADR 0064 C-1 §4-5) */
         private val INTERVAL_TOPIC =
             mapOf(
-                THREE_MIN to "market.candle.3m.closed.v1",
-                FIVE_MIN to "market.candle.5m.closed.v1",
-                FIFTEEN_MIN to "market.candle.15m.closed.v1",
-                THIRTY_MIN to "market.candle.30m.closed.v1",
-                NINETY_MIN to "market.candle.90m.closed.v1",
-                ONE_HOUR to "market.candle.1h.closed.v1",
-                FOUR_HOUR to "market.candle.4h.closed.v1",
-                TWELVE_HOUR to "market.candle.12h.closed.v1",
+                THREE_MIN to KafkaTopics.Candle.M3_CLOSED,
+                FIVE_MIN to KafkaTopics.Candle.M5_CLOSED,
+                FIFTEEN_MIN to KafkaTopics.Candle.M15_CLOSED,
+                THIRTY_MIN to KafkaTopics.Candle.M30_CLOSED,
+                NINETY_MIN to KafkaTopics.Candle.M90_CLOSED,
+                ONE_HOUR to KafkaTopics.Candle.H1_CLOSED,
+                FOUR_HOUR to KafkaTopics.Candle.H4_CLOSED,
+                TWELVE_HOUR to KafkaTopics.Candle.H12_CLOSED,
             )
     }
 

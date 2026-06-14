@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.notification
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationEventType
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
@@ -81,30 +82,30 @@ class NotificationDispatcher(
 
     // --- 7 @KafkaListener ---
 
-    @KafkaListener(topics = ["order.filled.v1"], groupId = "magicjar-notification-order-filled")
+    @KafkaListener(topics = [KafkaTopics.Order.FILLED], groupId = "magicjar-notification-order-filled")
     fun onOrderFilled(record: ConsumerRecord<String, String>) = handleEvent(record, NotificationEventType.ORDER_FILLED, "order.filled")
 
-    @KafkaListener(topics = ["order.rejected.v1"], groupId = "magicjar-notification-order-rejected")
+    @KafkaListener(topics = [KafkaTopics.Order.REJECTED], groupId = "magicjar-notification-order-rejected")
     fun onOrderRejected(record: ConsumerRecord<String, String>) =
         handleEvent(record, NotificationEventType.ORDER_REJECTED, "order.rejected")
 
-    @KafkaListener(topics = ["order.cancelled.v1"], groupId = "magicjar-notification-order-cancelled")
+    @KafkaListener(topics = [KafkaTopics.Order.CANCELLED], groupId = "magicjar-notification-order-cancelled")
     fun onOrderCancelled(record: ConsumerRecord<String, String>) =
         handleEvent(record, NotificationEventType.ORDER_CANCELLED, "order.cancelled")
 
-    @KafkaListener(topics = ["risk.violation.v1"], groupId = "magicjar-notification-risk-violation")
+    @KafkaListener(topics = [KafkaTopics.Risk.VIOLATION], groupId = "magicjar-notification-risk-violation")
     fun onRiskViolation(record: ConsumerRecord<String, String>) =
         handleEvent(record, NotificationEventType.RISK_VIOLATION, "risk.violation")
 
-    @KafkaListener(topics = ["reconcile.drift.v1"], groupId = "magicjar-notification-reconcile-drift")
+    @KafkaListener(topics = [KafkaTopics.Reconcile.DRIFT], groupId = "magicjar-notification-reconcile-drift")
     fun onReconcileDrift(record: ConsumerRecord<String, String>) =
         handleEvent(record, NotificationEventType.RECONCILE_DRIFT, "reconcile.drift")
 
-    @KafkaListener(topics = ["killswitch.engaged.v1"], groupId = "magicjar-notification-killswitch")
+    @KafkaListener(topics = [KafkaTopics.Risk.KILLSWITCH_ENGAGED], groupId = "magicjar-notification-killswitch")
     fun onKillSwitchEngaged(record: ConsumerRecord<String, String>) =
         handleEvent(record, NotificationEventType.KILLSWITCH_ENGAGED, "killswitch.engaged")
 
-    @KafkaListener(topics = ["reconcile.run.v1"], groupId = "magicjar-notification-reconcile-run")
+    @KafkaListener(topics = [KafkaTopics.Reconcile.RUN], groupId = "magicjar-notification-reconcile-run")
     fun onReconcileRun(record: ConsumerRecord<String, String>) = handleEvent(record, NotificationEventType.RECONCILE_RUN, "reconcile.run")
 
     // --- 공통 처리 ---

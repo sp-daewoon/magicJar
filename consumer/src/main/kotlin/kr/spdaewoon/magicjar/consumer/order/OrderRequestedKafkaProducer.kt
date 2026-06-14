@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.event.OrderEventOutbox
 import kr.spdaewoon.magicjar.domain.order.event.OrderOutboxEventType
 import kr.spdaewoon.magicjar.domain.order.event.port.OrderEventOutboxRepository
@@ -38,7 +39,7 @@ class OrderRequestedKafkaProducer(
     private val log = LoggerFactory.getLogger(OrderRequestedKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "order.requested.v1"
+        const val TOPIC = KafkaTopics.Order.REQUESTED
         private const val KAFKA_SEND_TIMEOUT_SECONDS = 5L
     }
 

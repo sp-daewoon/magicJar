@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
@@ -53,7 +54,7 @@ class PositionViAutoExitWatcher(
     private val intentCooldown = ConcurrentHashMap<String, FiredIntent>()
     private val alertCooldown = ConcurrentHashMap<String, Long>()
 
-    @KafkaListener(topics = ["market.status.v1"], groupId = GROUP)
+    @KafkaListener(topics = [KafkaTopics.Market.STATUS], groupId = GROUP)
     fun onMarketStatus(record: ConsumerRecord<String, String>) {
         if (!enabled) return
         val event = parse(record) ?: return

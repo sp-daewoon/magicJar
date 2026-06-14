@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.messaging.listener
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -39,7 +40,7 @@ class SystemKisKeyChangedListener(
     private val log = LoggerFactory.getLogger(SystemKisKeyChangedListener::class.java)
 
     @KafkaListener(
-        topics = ["system.kis-key-changed.v1"],
+        topics = [KafkaTopics.System.KIS_KEY_CHANGED],
         groupId = "magicjar-consumer-system",
         containerFactory = "manualImmediateKafkaListenerContainerFactory",
     )

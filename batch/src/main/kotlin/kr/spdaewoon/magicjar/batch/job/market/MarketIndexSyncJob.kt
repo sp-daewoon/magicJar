@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.market.index.SectorIndexSnapshot
 import kr.spdaewoon.magicjar.domain.market.index.port.KisIndexFetcher
 import kr.spdaewoon.magicjar.domain.market.index.port.MarketIndexSnapshotRepository
 import kr.spdaewoon.magicjar.domain.market.index.port.SectorIndexSnapshotRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
@@ -65,8 +66,8 @@ class MarketIndexSyncJob(
     private val log = LoggerFactory.getLogger(MarketIndexSyncJob::class.java)
 
     companion object {
-        const val TOPIC_INDEX = "market.index.updated.v1"
-        const val TOPIC_SECTOR = "market.sector.updated.v1"
+        const val TOPIC_INDEX = KafkaTopics.Market.INDEX_UPDATED
+        const val TOPIC_SECTOR = KafkaTopics.Market.SECTOR_UPDATED
         const val SCHEMA_VERSION = 1
         val KST: ZoneId = ZoneId.of("Asia/Seoul")
         private const val OVERSEAS_DAILY_FALLBACK_LOOKBACK_DAYS = 7
