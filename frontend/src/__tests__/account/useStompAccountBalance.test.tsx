@@ -103,7 +103,7 @@ describe('useStompAccountBalance', () => {
     renderHook(() => useStompAccountBalance({ userId: 74683223 }), { wrapper: Wrapper })
 
     expect(stompCalls.length).toBe(1)
-    expect(stompCalls[0].topic).toBe('/topic/account.balance.74683223')
+    expect(stompCalls[0].topic).toBe('/topic/stomp.api.account.balance.user.74683223')
     expect(stompCalls[0].enabled).toBe(true)
   })
 
@@ -207,7 +207,7 @@ describe('useStompAccountBalance', () => {
     const { Wrapper } = createWrapper()
     renderHook(() => useStompAccountBalance({ userId: 1 }), { wrapper: Wrapper })
 
-    expect(stompCalls[0].topic).toBe('/topic/account.balance.1')
+    expect(stompCalls[0].topic).toBe('/topic/stomp.api.account.balance.user.1')
   })
 
   it('reason 3가지 (ORDER_FILLED/ORDER_CANCELLED/ORDER_REJECTED) 수신 모두 invalidate 트리거', async () => {

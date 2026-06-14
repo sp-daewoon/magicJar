@@ -56,7 +56,7 @@ vi.mock('../../../lib/stomp', () => {
   return {
     getStompClient: () => client,
     useStompTopic: vi.fn((topic: string, handler: (payload: unknown) => void, enabled?: boolean) => {
-      if (enabled && topic === '/topic/market.orderbook.005930') {
+      if (enabled && topic === '/topic/stomp.api.market.orderbook.005930') {
         window.setTimeout(() => handler(orderbookPayload), 0)
       }
     }),
