@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.config
 
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.admin.NewTopic
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -37,7 +38,7 @@ class OrderTopicConfig {
     @Bean
     fun orderRequestedTopic(): NewTopic =
         TopicBuilder
-            .name("order.requested.v1")
+            .name(KafkaTopics.Order.REQUESTED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
@@ -51,7 +52,7 @@ class OrderTopicConfig {
     @Bean
     fun orderFilledTopic(): NewTopic =
         TopicBuilder
-            .name("order.filled.v1")
+            .name(KafkaTopics.Order.FILLED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
@@ -65,7 +66,7 @@ class OrderTopicConfig {
     @Bean
     fun orderRejectedTopic(): NewTopic =
         TopicBuilder
-            .name("order.rejected.v1")
+            .name(KafkaTopics.Order.REJECTED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
@@ -79,7 +80,7 @@ class OrderTopicConfig {
     @Bean
     fun orderCancelledTopic(): NewTopic =
         TopicBuilder
-            .name("order.cancelled.v1")
+            .name(KafkaTopics.Order.CANCELLED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
@@ -105,7 +106,7 @@ class OrderTopicConfig {
     @Bean
     fun orderIntentDltTopic(): NewTopic =
         TopicBuilder
-            .name("order.intent.v1.DLT")
+            .name(KafkaTopics.Dlt.ORDER_INTENT)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_7D_MS)
@@ -118,7 +119,7 @@ class OrderTopicConfig {
     @Bean
     fun orderRequestedDltTopic(): NewTopic =
         TopicBuilder
-            .name("order.requested.v1.DLT")
+            .name(KafkaTopics.Dlt.ORDER_REQUESTED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_7D_MS)
@@ -131,7 +132,7 @@ class OrderTopicConfig {
     @Bean
     fun orderRejectedDltTopic(): NewTopic =
         TopicBuilder
-            .name("order.rejected.v1.DLT")
+            .name(KafkaTopics.Dlt.ORDER_REJECTED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_7D_MS)
@@ -144,7 +145,7 @@ class OrderTopicConfig {
     @Bean
     fun orderFilledDltTopic(): NewTopic =
         TopicBuilder
-            .name("order.filled.v1.DLT")
+            .name(KafkaTopics.Dlt.ORDER_FILLED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_7D_MS)

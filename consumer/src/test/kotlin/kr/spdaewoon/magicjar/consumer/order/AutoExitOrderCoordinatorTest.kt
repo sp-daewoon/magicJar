@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
@@ -106,7 +107,7 @@ class AutoExitOrderCoordinatorTest {
                     "source" to source.name,
                 ),
             )
-        return ConsumerRecord("order.filled.v1", 0, 0L, "user-A", payload)
+        return ConsumerRecord(KafkaTopics.Order.FILLED, 0, 0L, "user-A", payload)
     }
 
     @Test

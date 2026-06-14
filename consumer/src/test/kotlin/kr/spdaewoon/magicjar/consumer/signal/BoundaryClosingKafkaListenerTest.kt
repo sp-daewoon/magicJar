@@ -8,6 +8,7 @@ import io.mockk.verify
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -46,7 +47,7 @@ class BoundaryClosingKafkaListenerTest {
             }
             """.trimIndent()
 
-        val record = ConsumerRecord("market.candle.3m.closed.v1", 0, 0L, "005930", payload)
+        val record = ConsumerRecord(KafkaTopics.Candle.M3_CLOSED, 0, 0L, "005930", payload)
         val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
         val tsSlot = slot<Instant>()
@@ -87,7 +88,7 @@ class BoundaryClosingKafkaListenerTest {
             }
             """.trimIndent()
 
-        val record = ConsumerRecord("market.candle.5m.closed.v1", 0, 0L, "005930", payload)
+        val record = ConsumerRecord(KafkaTopics.Candle.M5_CLOSED, 0, 0L, "005930", payload)
         val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
         val tsSlot = slot<Instant>()
@@ -127,7 +128,7 @@ class BoundaryClosingKafkaListenerTest {
             }
             """.trimIndent()
 
-        val record = ConsumerRecord("market.candle.minute.closed.v1", 0, 0L, "005930", payload)
+        val record = ConsumerRecord(KafkaTopics.Candle.MINUTE_CLOSED, 0, 0L, "005930", payload)
         val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
         val tsSlot = slot<Instant>()
@@ -168,7 +169,7 @@ class BoundaryClosingKafkaListenerTest {
             }
             """.trimIndent()
 
-        val record = ConsumerRecord("market.candle.1h.closed.v1", 0, 0L, "000660", payload)
+        val record = ConsumerRecord(KafkaTopics.Candle.H1_CLOSED, 0, 0L, "000660", payload)
         val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
         val tsSlot = slot<Instant>()
@@ -191,7 +192,7 @@ class BoundaryClosingKafkaListenerTest {
     @Test
     fun `잘못된 payload (code 없음) → 예외 throw 0 + onBoundaryClosed 호출 0`() {
         val payload = """{"interval":"5m","ts":1700000000}"""
-        val record = ConsumerRecord("market.candle.5m.closed.v1", 0, 0L, "X", payload)
+        val record = ConsumerRecord(KafkaTopics.Candle.M5_CLOSED, 0, 0L, "X", payload)
         val codeSlot = slot<String>()
         val intervalSlot = slot<CandleInterval>()
         val tsSlot = slot<Instant>()

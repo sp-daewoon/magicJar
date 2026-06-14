@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import kr.spdaewoon.magicjar.domain.reconcile.port.ReconcileEventPublisher
@@ -67,7 +68,8 @@ class KillSwitchAutoTogglerTest {
         symbol: String,
     ): String = """{"eventId":"x","userId":"$userId","symbol":"$symbol","kisQty":100,"internalQty":99,"qtyDiff":1}"""
 
-    private fun consumerRecord(payload: String): ConsumerRecord<String, String> = ConsumerRecord("reconcile.drift.v1", 0, 0L, "U1", payload)
+    private fun consumerRecord(payload: String): ConsumerRecord<String, String> =
+        ConsumerRecord(KafkaTopics.Reconcile.DRIFT, 0, 0L, "U1", payload)
 
     @Test
     fun `(a) drift listen — 2-strike 도달 후 KillSwitchTogglePort_engage + publish`() {

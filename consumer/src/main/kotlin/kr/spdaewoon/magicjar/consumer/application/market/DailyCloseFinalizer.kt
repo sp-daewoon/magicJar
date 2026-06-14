@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -60,8 +61,8 @@ class DailyCloseFinalizer(
         private val KST = ZoneId.of("Asia/Seoul")
         private val FINAL_AGGREGATE_TOPICS =
             mapOf(
-                CandleInterval.FOUR_HOUR to "market.candle.4h.closed.v1",
-                CandleInterval.TWELVE_HOUR to "market.candle.12h.closed.v1",
+                CandleInterval.FOUR_HOUR to KafkaTopics.Candle.H4_CLOSED,
+                CandleInterval.TWELVE_HOUR to KafkaTopics.Candle.H12_CLOSED,
             )
     }
 

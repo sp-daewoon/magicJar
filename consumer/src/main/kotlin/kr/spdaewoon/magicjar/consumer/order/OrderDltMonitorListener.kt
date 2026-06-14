@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.notification.NotificationFormatter
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationEventType
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
@@ -56,10 +57,10 @@ class OrderDltMonitorListener(
     private val log = LoggerFactory.getLogger(OrderDltMonitorListener::class.java)
 
     companion object {
-        const val ORDER_INTENT_DLT = "order.intent.v1.DLT"
-        const val ORDER_REQUESTED_DLT = "order.requested.v1.DLT"
-        const val ORDER_REJECTED_DLT = "order.rejected.v1.DLT"
-        const val ORDER_FILLED_DLT = "order.filled.v1.DLT"
+        const val ORDER_INTENT_DLT = KafkaTopics.Dlt.ORDER_INTENT
+        const val ORDER_REQUESTED_DLT = KafkaTopics.Dlt.ORDER_REQUESTED
+        const val ORDER_REJECTED_DLT = KafkaTopics.Dlt.ORDER_REJECTED
+        const val ORDER_FILLED_DLT = KafkaTopics.Dlt.ORDER_FILLED
         const val GROUP = "magicjar-consumer-dlt-monitor"
     }
 

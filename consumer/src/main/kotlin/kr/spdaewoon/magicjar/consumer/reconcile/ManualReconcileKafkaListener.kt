@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -20,7 +21,7 @@ class ManualReconcileKafkaListener(
     private val log = LoggerFactory.getLogger(ManualReconcileKafkaListener::class.java)
 
     @KafkaListener(
-        topics = ["reconcile.manual.trigger.v1"],
+        topics = [KafkaTopics.Reconcile.MANUAL_TRIGGER],
         groupId = "magicjar-reconcile-manual",
     )
     fun onManualTrigger(record: ConsumerRecord<String, String>) {

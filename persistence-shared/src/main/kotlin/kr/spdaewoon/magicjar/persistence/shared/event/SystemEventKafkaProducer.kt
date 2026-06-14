@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.persistence.shared.event
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -29,7 +30,7 @@ class SystemEventKafkaProducer(
     private val log = LoggerFactory.getLogger(SystemEventKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "system.event.v1"
+        const val TOPIC = KafkaTopics.System.EVENT
         const val BROADCAST_KEY = "broadcast"
     }
 

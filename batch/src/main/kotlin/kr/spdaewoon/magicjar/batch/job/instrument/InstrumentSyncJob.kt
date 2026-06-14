@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaEn
 import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaRepository
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentStatus
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -59,7 +60,7 @@ class InstrumentSyncJob(
         private const val SYNC_LOCK_KEY = "instrument:sync:running"
         private const val SYNC_LAST_AT_KEY = "instrument:sync:lastAt"
         private const val SYNC_LOCK_TTL_SECONDS = 600L
-        private const val KAFKA_TOPIC = "instrument.updated.v1"
+        private const val KAFKA_TOPIC = KafkaTopics.Data.INSTRUMENT_UPDATED
     }
 
     /**

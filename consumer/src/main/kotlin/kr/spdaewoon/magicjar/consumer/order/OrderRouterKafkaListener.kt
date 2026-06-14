@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshotPort
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
@@ -134,7 +135,7 @@ class OrderRouterKafkaListener(
     private val kstZone = TimeZone.of("Asia/Seoul")
 
     companion object {
-        const val TOPIC = "order.intent.v1"
+        const val TOPIC = KafkaTopics.Order.INTENT
         const val GROUP = "magicjar-consumer-order"
         private const val RETRY_BACKOFF_MS = 500L
         private const val POST_KIS_DB_SYNC_FAILED_REASON = "ORDER_DB_SYNC_FAILED"

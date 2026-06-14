@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.CorpActionRepository
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.DartDisclosureFetcher
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.KisKsdInfoFetcher
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -144,7 +145,7 @@ class CorpActionSyncJob(
                         ),
                     )
                 // Kafka topic: corp_action.applied.v1 (PR-29b KafkaTopicConfig 단독 add)
-                kafkaTemplate.send("corp_action.applied.v1", action.instrumentCode, payload)
+                kafkaTemplate.send(KafkaTopics.Data.CORP_ACTION_APPLIED, action.instrumentCode, payload)
                 published++
             }.onFailure { log.error("[CorpActionSync] Kafka publish 실패 id=${action.id} ${it.message}") }
         }

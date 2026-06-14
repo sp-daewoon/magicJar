@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.KisOrderAck
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
@@ -1215,5 +1216,5 @@ class OrderRouterKafkaListenerTest {
             source = OrderSource.AUTO,
         )
 
-    private fun buildRecord(value: String) = ConsumerRecord<String, String>("order.intent.v1", 0, 0L, "12345678", value)
+    private fun buildRecord(value: String) = ConsumerRecord<String, String>(KafkaTopics.Order.INTENT, 0, 0L, "12345678", value)
 }

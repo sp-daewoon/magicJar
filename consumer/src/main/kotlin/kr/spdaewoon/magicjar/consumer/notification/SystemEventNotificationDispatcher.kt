@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationChannel
 import kr.spdaewoon.magicjar.domain.notification.NotificationEventType
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
@@ -39,7 +40,7 @@ class SystemEventNotificationDispatcher(
         private const val WARN_WINDOW_MIN = 10
     }
 
-    @KafkaListener(topics = ["system.event.v1"], groupId = "magicjar-notification-system-event")
+    @KafkaListener(topics = [KafkaTopics.System.EVENT], groupId = "magicjar-notification-system-event")
     fun onSystemEvent(record: ConsumerRecord<String, String>) {
         try {
             val event = objectMapper.readValue<SystemEvent>(record.value())

@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuote
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuotePort
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import kr.spdaewoon.magicjar.domain.order.execution.port.KillSwitchQueryPort
@@ -231,7 +232,7 @@ class DaytradePaperPathScenarioTest {
         // 페이퍼 식별 1급 키 = STRATEGY_SIGNAL + mode=MOCK + strategy.origin=PAPER_DISCOVERY (spec §3-R1 (a) — enum 발명 0).
         val kafkaTemplate = mockk<org.springframework.kafka.core.KafkaTemplate<String, String>>()
         val payloadSlot = slot<String>()
-        every { kafkaTemplate.send("order.intent.v1", "user-A", capture(payloadSlot)) } returns
+        every { kafkaTemplate.send(KafkaTopics.Order.INTENT, "user-A", capture(payloadSlot)) } returns
             CompletableFuture.completedFuture(mockk<SendResult<String, String>>())
         val realProducer =
             OrderIntentKafkaProducer(
@@ -396,7 +397,7 @@ class DaytradePaperPathScenarioTest {
             },
         )
 
-    private fun record(value: String) = ConsumerRecord("signal.generated.v1", 0, 0L, "user-A", value)
+    private fun record(value: String) = ConsumerRecord(KafkaTopics.Risk.SIGNAL_GENERATED, 0, 0L, "user-A", value)
 
     private fun ack(): Acknowledgment = mockk(relaxed = true)
 

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.reconcile.HoldingDiff
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileRun
 import org.slf4j.LoggerFactory
@@ -28,9 +29,9 @@ class ReconcileEventKafkaPublisher(
     private val log = LoggerFactory.getLogger(ReconcileEventKafkaPublisher::class.java)
 
     companion object {
-        const val TOPIC_RUN = "reconcile.run.v1"
-        const val TOPIC_DRIFT = "reconcile.drift.v1"
-        const val TOPIC_KILLSWITCH = "killswitch.engaged.v1"
+        const val TOPIC_RUN = KafkaTopics.Reconcile.RUN
+        const val TOPIC_DRIFT = KafkaTopics.Reconcile.DRIFT
+        const val TOPIC_KILLSWITCH = KafkaTopics.Risk.KILLSWITCH_ENGAGED
     }
 
     override fun publishRun(run: ReconcileRun) {

@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.notification.NotificationOutbox
 import kr.spdaewoon.magicjar.domain.notification.NotificationPriority
 import kr.spdaewoon.magicjar.domain.notification.NotificationStatus
@@ -91,7 +92,7 @@ class NotificationDispatcherTest {
                     dslExit = null,
                 ),
             )
-        val record = record("order.filled.v1", filledPayload("U1", "005930"))
+        val record = record(KafkaTopics.Order.FILLED, filledPayload("U1", "005930"))
         dispatcher.onOrderFilled(record)
 
         val slot = slot<NotificationOutbox>()
@@ -110,7 +111,7 @@ class NotificationDispatcherTest {
     @Test
     fun `(1-b) ORDER_FILLED — 추가 채널 송출 실패해도 기존 outbox plus 발송 영향 0 (격리)`() {
         every { slackSender.sendToOrderChannel(any()) } throws RuntimeException("추가 채널 webhook 5xx")
-        val record = record("order.filled.v1", filledPayload("U1", "005930"))
+        val record = record(KafkaTopics.Order.FILLED, filledPayload("U1", "005930"))
 
         // 추가 채널 예외가 caller 흐름으로 전파되지 않음 (예외 0 종료)
         dispatcher.onOrderFilled(record)
@@ -122,7 +123,7 @@ class NotificationDispatcherTest {
 
     @Test
     fun `(2) ORDER_REJECTED — outbox INSERT PENDING plus immediate Slack (P0 TRADE)`() {
-        val record = record("order.rejected.v1", rejectedPayload("U1", "005930"))
+        val record = record(KafkaTopics.Order.REJECTED, rejectedPayload("U1", "005930"))
         dispatcher.onOrderRejected(record)
 
         val slot = slot<NotificationOutbox>()
@@ -135,7 +136,7 @@ class NotificationDispatcherTest {
 
     @Test
     fun `(3) ORDER_CANCELLED — outbox INSERT PENDING (P2)`() {
-        val record = record("order.cancelled.v1", cancelledPayload("U1", "005930"))
+        val record = record(KafkaTopics.Order.CANCELLED, cancelledPayload("U1", "005930"))
         dispatcher.onOrderCancelled(record)
 
         val slot = slot<NotificationOutbox>()
@@ -146,7 +147,7 @@ class NotificationDispatcherTest {
     @Test
     fun `(4) RISK_VIOLATION (P0) — outbox INSERT + 즉시 Slack 발송 시도`() {
         every { slackSender.sendOutbox(any()) } returns true
-        val record = record("risk.violation.v1", riskViolationPayload("U1"))
+        val record = record(KafkaTopics.Risk.VIOLATION, riskViolationPayload("U1"))
         dispatcher.onRiskViolation(record)
 
         val slot = slot<NotificationOutbox>()
@@ -161,7 +162,7 @@ class NotificationDispatcherTest {
     @Test
     fun `(5) RECONCILE_DRIFT (P0) — outbox INSERT + 즉시 Slack 발송 시도`() {
         every { slackSender.sendOutbox(any()) } returns true
-        val record = record("reconcile.drift.v1", driftPayload("U1"))
+        val record = record(KafkaTopics.Reconcile.DRIFT, driftPayload("U1"))
         dispatcher.onReconcileDrift(record)
 
         val slot = slot<NotificationOutbox>()
@@ -173,7 +174,7 @@ class NotificationDispatcherTest {
     @Test
     fun `(6) KILLSWITCH_ENGAGED (P0) — outbox INSERT + 즉시 Slack 발송 시도`() {
         every { slackSender.sendOutbox(any()) } returns true
-        val record = record("killswitch.engaged.v1", killSwitchPayload("U1"))
+        val record = record(KafkaTopics.Risk.KILLSWITCH_ENGAGED, killSwitchPayload("U1"))
         dispatcher.onKillSwitchEngaged(record)
 
         val slot = slot<NotificationOutbox>()
@@ -184,7 +185,7 @@ class NotificationDispatcherTest {
 
     @Test
     fun `(7) RECONCILE_RUN (P2) — rate limit 체크 후 outbox INSERT`() {
-        val record = record("reconcile.run.v1", reconcileRunPayload("U1"))
+        val record = record(KafkaTopics.Reconcile.RUN, reconcileRunPayload("U1"))
         dispatcher.onReconcileRun(record)
 
         verify { outboxRepository.save(any()) }
@@ -197,7 +198,7 @@ class NotificationDispatcherTest {
             rateLimiter.shouldEmitOncePerWindow("U1", "risk.violation.position_limit.005930.8", 15)
         } returns false
 
-        val record = record("risk.violation.v1", positionLimitPayload("U1"))
+        val record = record(KafkaTopics.Risk.VIOLATION, positionLimitPayload("U1"))
         dispatcher.onRiskViolation(record)
 
         verify(exactly = 0) { outboxRepository.save(any()) }
@@ -206,7 +207,7 @@ class NotificationDispatcherTest {
 
     @Test
     fun `SELL_WITHOUT_POSITION 차단은 Slack 발송 제외 — outbox INSERT 없음 (DB·Kafka·STOMP 는 별도 경로 유지)`() {
-        val record = record("risk.violation.v1", sellWithoutPositionPayload("U1"))
+        val record = record(KafkaTopics.Risk.VIOLATION, sellWithoutPositionPayload("U1"))
         dispatcher.onRiskViolation(record)
 
         // Slack 채널만 제외: outbox INSERT·발송 0건
@@ -218,7 +219,7 @@ class NotificationDispatcherTest {
     @Test
     fun `타 리스크 룰(TRADE_FREQUENCY)은 SELL_WITHOUT_POSITION 제외 영향 없이 기존대로 Slack 발송`() {
         every { slackSender.sendOutbox(any()) } returns true
-        val record = record("risk.violation.v1", riskViolationPayload("U1"))
+        val record = record(KafkaTopics.Risk.VIOLATION, riskViolationPayload("U1"))
         dispatcher.onRiskViolation(record)
 
         verify { outboxRepository.save(any()) }

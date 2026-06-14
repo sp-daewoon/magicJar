@@ -8,6 +8,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
@@ -93,7 +94,7 @@ class PositionStopLossTickWatcherTest {
         stale: Boolean = false,
     ): ConsumerRecord<String, String> {
         val payload = objectMapper.writeValueAsString(mapOf("code" to code, "price" to price, "stale" to stale))
-        return ConsumerRecord("market.tick.v1", 0, 0L, code, payload)
+        return ConsumerRecord(KafkaTopics.Market.TICK, 0, 0L, code, payload)
     }
 
     @Test

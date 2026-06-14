@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.reconcile.port.KillSwitchTogglePort
 import kr.spdaewoon.magicjar.domain.reconcile.port.ReconcileEventPublisher
@@ -64,7 +65,7 @@ class KillSwitchAutoToggler(
     private val log = LoggerFactory.getLogger(KillSwitchAutoToggler::class.java)
 
     companion object {
-        const val TOPIC = "reconcile.drift.v1"
+        const val TOPIC = KafkaTopics.Reconcile.DRIFT
         const val GROUP = "magicjar-consumer-reconcile-killswitch"
         private const val REASON = "POSITION_DRIFT"
         private const val TRIGGERED_BY = "AUTO"

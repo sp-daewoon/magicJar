@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -37,7 +38,7 @@ class TickFallbackEmitter(
     private val log = LoggerFactory.getLogger(TickFallbackEmitter::class.java)
 
     companion object {
-        private const val TOPIC_TICK = "market.tick.v1"
+        private const val TOPIC_TICK = KafkaTopics.Market.TICK
         private const val MAX_STALE_SECONDS = 30L // 30초 이상 신호 없으면 stale
     }
 

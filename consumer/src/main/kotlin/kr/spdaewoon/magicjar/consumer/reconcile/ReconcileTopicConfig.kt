@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.admin.NewTopic
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -36,7 +37,7 @@ class ReconcileTopicConfig {
     @Bean
     fun reconcileRunTopic(): NewTopic =
         TopicBuilder
-            .name("reconcile.run.v1")
+            .name(KafkaTopics.Reconcile.RUN)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_7D_MS)
@@ -53,7 +54,7 @@ class ReconcileTopicConfig {
     @Bean
     fun reconcileDriftTopic(): NewTopic =
         TopicBuilder
-            .name("reconcile.drift.v1")
+            .name(KafkaTopics.Reconcile.DRIFT)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)
@@ -70,7 +71,7 @@ class ReconcileTopicConfig {
     @Bean
     fun killSwitchEngagedTopic(): NewTopic =
         TopicBuilder
-            .name("killswitch.engaged.v1")
+            .name(KafkaTopics.Risk.KILLSWITCH_ENGAGED)
             .partitions(1)
             .replicas(1)
             .config("retention.ms", RETENTION_30D_MS)

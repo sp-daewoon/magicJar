@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.infrastructure.observability.TraceIdKafkaRecordInterceptor
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.SerializationException
@@ -49,7 +50,7 @@ class KafkaErrorHandlerConfigTest {
         val recoverer = config.deadLetterPublishingRecoverer(kafkaTemplate)
         val record =
             ConsumerRecord<Any, Any>(
-                "order.intent.v1",
+                KafkaTopics.Order.INTENT,
                 0,
                 100L,
                 "user-123",
@@ -63,7 +64,7 @@ class KafkaErrorHandlerConfigTest {
         val recordSlot = slot<ProducerRecord<String, String>>()
         verify { kafkaTemplate.send(capture(recordSlot)) }
         val sent = recordSlot.captured
-        assertThat(sent.topic()).isEqualTo("order.intent.v1.DLT")
+        assertThat(sent.topic()).isEqualTo(KafkaTopics.Dlt.ORDER_INTENT)
         assertThat(sent.partition()).isEqualTo(0)
     }
 
@@ -115,9 +116,9 @@ class KafkaErrorHandlerConfigTest {
         val recoverer = config.deadLetterPublishingRecoverer(kafkaTemplate)
 
         listOf(
-            "order.requested.v1" to "order.requested.v1.DLT",
-            "order.rejected.v1" to "order.rejected.v1.DLT",
-            "order.filled.v1" to "order.filled.v1.DLT",
+            KafkaTopics.Order.REQUESTED to KafkaTopics.Dlt.ORDER_REQUESTED,
+            KafkaTopics.Order.REJECTED to KafkaTopics.Dlt.ORDER_REJECTED,
+            KafkaTopics.Order.FILLED to KafkaTopics.Dlt.ORDER_FILLED,
         ).forEach { (src, expected) ->
             val record = ConsumerRecord<Any, Any>(src, 0, 1L, "k", "v")
             recoverer.accept(record, RuntimeException("err"))

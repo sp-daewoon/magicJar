@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -23,7 +24,7 @@ class OrderCancelledKafkaProducer(
     private val log = LoggerFactory.getLogger(OrderCancelledKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "order.cancelled.v1"
+        const val TOPIC = KafkaTopics.Order.CANCELLED
     }
 
     fun publish(request: OrderRequest) {

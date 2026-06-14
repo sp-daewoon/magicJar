@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
@@ -76,7 +77,7 @@ class PositionStopLossTickWatcher(
      */
     private val intentCooldown = ConcurrentHashMap<String, FiredIntent>()
 
-    @KafkaListener(topics = ["market.tick.v1"], groupId = GROUP)
+    @KafkaListener(topics = [KafkaTopics.Market.TICK], groupId = GROUP)
     fun onTick(record: ConsumerRecord<String, String>) {
         if (!enabled) return
         val tick = parse(record) ?: return
