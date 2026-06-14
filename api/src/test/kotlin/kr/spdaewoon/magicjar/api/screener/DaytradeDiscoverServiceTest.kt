@@ -15,6 +15,7 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
 import kr.spdaewoon.magicjar.domain.screener.port.InstrumentLookupPort
 import kr.spdaewoon.magicjar.domain.strategy.Signal
@@ -170,7 +171,7 @@ class DaytradeDiscoverServiceTest {
         val topicCaptor = org.mockito.kotlin.argumentCaptor<String>()
         val payloadCaptor = org.mockito.kotlin.argumentCaptor<String>()
         verify(kafkaTemplate).send(topicCaptor.capture(), any(), payloadCaptor.capture())
-        assertThat(topicCaptor.firstValue).isEqualTo("market.realtime.demand.v1")
+        assertThat(topicCaptor.firstValue).isEqualTo(KafkaTopics.Market.REALTIME_DEMAND)
         assertThat(payloadCaptor.firstValue).contains("\"owner\":\"STRATEGY\"")
         assertThat(payloadCaptor.firstValue).contains("\"source\":\"DAYTRADE_DISCOVER\"")
     }

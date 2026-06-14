@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.api.persistence.screener.ScreeningRunRepositoryAdap
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.screener.ScreenerCriteria
 import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
@@ -263,7 +264,7 @@ class ScreenerService(
                             "ts" to Instant.now().toString(),
                         ),
                     )
-                kafkaTemplate.send("market.realtime.demand.v1", match.instrumentCode, payload)
+                kafkaTemplate.send(KafkaTopics.Market.REALTIME_DEMAND, match.instrumentCode, payload)
             }.onFailure { ex ->
                 log.warn(
                     "[screener] realtime demand 발행 실패 (무시): strategyId={} code={} err={}",

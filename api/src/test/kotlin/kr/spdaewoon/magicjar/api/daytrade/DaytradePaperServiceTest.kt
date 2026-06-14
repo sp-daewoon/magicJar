@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchCa
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchCandidateJpaRepository
 import kr.spdaewoon.magicjar.api.service.daytrade.DaytradePaperService
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
@@ -158,7 +159,7 @@ class DaytradePaperServiceTest {
         service().promote(PaperPromoteRequest(userId = 1L, presetKey = "DAYTRADE_MOMENTUM_BREAKOUT", codes = listOf("005930", "000660")))
 
         // 종목 수만큼 market.realtime.demand.v1 발행 (owner=STRATEGY — payload 내). 다른 토픽 0.
-        verify(kafkaTemplate, times(2)).send(eq("market.realtime.demand.v1"), any(), any())
+        verify(kafkaTemplate, times(2)).send(eq(KafkaTopics.Market.REALTIME_DEMAND), any(), any())
     }
 
     @Test

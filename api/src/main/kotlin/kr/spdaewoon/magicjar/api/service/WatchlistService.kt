@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.WatchlistJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.WatchlistJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.Sort
@@ -43,7 +44,7 @@ class WatchlistService(
 
     companion object {
         private const val AUDIT_ACTOR = "user"
-        private const val WATCHLIST_CHANGED_TOPIC = "watchlist.changed.v1"
+        private const val WATCHLIST_CHANGED_TOPIC = KafkaTopics.System.WATCHLIST_CHANGED
 
         // watchlist 응답 허용 type — securities_group이 비어있는 시드/상장폐지/stub 종목의 보조 판별.
         // STOCK·PREFERRED는 보통주·우선주, UNKNOWN은 stub(sync 전 임시).

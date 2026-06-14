@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.journal.JournalEventType
 import kr.spdaewoon.magicjar.domain.journal.TradingJournalEntry
 import kr.spdaewoon.magicjar.domain.journal.port.TradingJournalRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -62,9 +63,9 @@ class JournalEventConsumer(
      * payload 필드: orderId·userId·code·side·executedQty/executedQuantity/filledQty/quantity·
      *               executedPrice·executedAt·signalId·strategyId·kisOrderNo·partial·mode·instrumentName(nullable)
      */
-    @KafkaListener(topics = ["order.filled.v1"], groupId = GROUP)
+    @KafkaListener(topics = [KafkaTopics.Order.FILLED], groupId = GROUP)
     fun onOrderFilled(record: ConsumerRecord<String, String>) {
-        processEvent(record, "order.filled.v1") { payload ->
+        processEvent(record, KafkaTopics.Order.FILLED) { payload ->
             val userId = parseUserId(payload) ?: return@processEvent null
             val orderId = (payload["orderId"] as? Number)?.toLong() ?: return@processEvent null
             val code = payload["code"]?.toString() ?: return@processEvent null

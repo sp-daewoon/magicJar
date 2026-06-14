@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -40,7 +41,7 @@ class MarketOrderbookStompForwarder(
     }
 
     @KafkaListener(
-        topics = ["market.orderbook.v1"],
+        topics = [KafkaTopics.Market.ORDERBOOK],
         groupId = "magicjar-api-stomp-orderbook",
     )
     fun onOrderbookMessage(record: ConsumerRecord<String, String>) {
@@ -58,7 +59,7 @@ class MarketOrderbookStompForwarder(
             }
             lastEmitMs[code] = now
 
-            messagingTemplate.convertAndSend("/topic/market.orderbook.$code", payload)
+            messagingTemplate.convertAndSend(StompDestinations.marketOrderbook(code), payload)
             log.debug("STOMP /topic/market.orderbook.{} 발행", code)
         } catch (e: Exception) {
             log.error("market.orderbook STOMP 포워드 실패: offset={} err={}", record.offset(), e.message)

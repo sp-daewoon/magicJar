@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategyresearch.StrategyResearchCandidateJpaRepository
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.port.RiskConfigRepository
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
@@ -318,7 +319,7 @@ class DaytradePaperService(
                             "ts" to Instant.now().toString(),
                         ),
                     )
-                kafkaTemplate.send("market.realtime.demand.v1", code, payload)
+                kafkaTemplate.send(KafkaTopics.Market.REALTIME_DEMAND, code, payload)
             }.onFailure { ex ->
                 log.warn("페이퍼 realtime demand 발행 실패(무시): ownerId={} code={} err={}", ownerId, code, ex.message)
             }
@@ -348,7 +349,7 @@ class DaytradePaperService(
                         "ts" to Instant.now().toString(),
                     ),
                 )
-            kafkaTemplate.send("market.realtime.demand.v1", code, payload)
+            kafkaTemplate.send(KafkaTopics.Market.REALTIME_DEMAND, code, payload)
         }
     }
 

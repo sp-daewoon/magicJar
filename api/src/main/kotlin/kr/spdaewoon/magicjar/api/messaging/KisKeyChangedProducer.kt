@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.messaging
 
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -30,7 +31,7 @@ class KisKeyChangedProducer(
     private val log = LoggerFactory.getLogger(KisKeyChangedProducer::class.java)
 
     companion object {
-        const val TOPIC = "system.kis-key-changed.v1"
+        const val TOPIC = KafkaTopics.System.KIS_KEY_CHANGED
     }
 
     /**

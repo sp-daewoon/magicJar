@@ -30,21 +30,21 @@ class StompMarketNotifier(
 
     /** 지수 추세 fanout — code 별 topic. */
     fun publishIndexTrend(trend: IndexTrend) {
-        val topic = "/topic/market.index.${trend.code}"
+        val topic = StompDestinations.marketIndex(trend.code)
         brokerMessagingTemplate.convertAndSend(topic, IndexTrendResponse.from(trend))
         log.debug("STOMP {} 발행: trend={} cross={}", topic, trend.trendLabel, trend.crossSignal)
     }
 
     /** 섹터 ranking fanout — 단일 topic (전 사용자 공통). */
     fun publishSectorRanking(ranking: SectorRanking) {
-        val topic = "/topic/market.sector.rank"
+        val topic = StompDestinations.MARKET_SECTOR_RANK
         brokerMessagingTemplate.convertAndSend(topic, SectorRankingResponse.from(ranking))
         log.debug("STOMP {} 발행: today={} long={}", topic, ranking.todayTop.size, ranking.longTop.size)
     }
 
     /** 사용자 pref 변경 fanout — userId 별 topic (다중 탭 sync 의무). */
     fun publishUserPreference(pref: TrendPreference) {
-        val topic = "/topic/market.user.${pref.userId}.pref"
+        val topic = StompDestinations.marketUserPref(pref.userId)
         brokerMessagingTemplate.convertAndSend(topic, TrendPreferenceResponse.from(pref))
         log.debug(
             "STOMP {} 발행: userId={} periods={} rs={}",

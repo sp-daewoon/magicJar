@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderIntent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
 import org.slf4j.LoggerFactory
@@ -48,7 +49,7 @@ class ManualOrderIntentKafkaProducer(
     private val log = LoggerFactory.getLogger(ManualOrderIntentKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "order.intent.v1"
+        const val TOPIC = KafkaTopics.Order.INTENT
     }
 
     /**

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.infrastructure.naver
 
 import kr.spdaewoon.magicjar.api.persistence.NewsArticleJpaEntity
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -45,7 +46,7 @@ class NewsKafkaProducer(
     private val log = LoggerFactory.getLogger(NewsKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "news.collected.v1"
+        const val TOPIC = KafkaTopics.Data.NEWS_COLLECTED
 
         /** Redis dedup 키 — ADR 0075 §4-1 */
         private const val DEDUP_KEY_PREFIX = "news:dedup:url:"

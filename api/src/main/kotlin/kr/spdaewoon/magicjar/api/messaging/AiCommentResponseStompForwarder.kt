@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -26,7 +27,7 @@ class AiCommentResponseStompForwarder(
     private val log = LoggerFactory.getLogger(AiCommentResponseStompForwarder::class.java)
 
     @KafkaListener(
-        topics = ["ai.comment.responded.v1"],
+        topics = [KafkaTopics.Ai.COMMENT_RESPONDED],
         groupId = "magicjar-api-stomp-ai-explain",
     )
     fun onAiResponse(record: ConsumerRecord<String, String>) {
@@ -34,7 +35,7 @@ class AiCommentResponseStompForwarder(
             @Suppress("UNCHECKED_CAST")
             val payload = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
             val requestId = payload["requestId"]?.toString() ?: return
-            messagingTemplate.convertAndSend("/topic/ai.explain.$requestId", payload)
+            messagingTemplate.convertAndSend(StompDestinations.aiExplain(requestId), payload)
             log.debug(
                 "STOMP /topic/ai.explain.{} 발행 — provider={} cached={} graceful={}",
                 requestId,

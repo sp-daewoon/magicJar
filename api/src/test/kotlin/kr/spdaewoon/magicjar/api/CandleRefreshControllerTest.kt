@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.SymbolController
+import kr.spdaewoon.magicjar.api.messaging.StompDestinations
 import kr.spdaewoon.magicjar.api.service.CandleQueryService
 import kr.spdaewoon.magicjar.api.service.CandleRecollectJobService
 import kr.spdaewoon.magicjar.api.service.CandleRefreshService
@@ -206,7 +207,7 @@ class CandleRefreshControllerTest {
                 code = "005930",
                 intervals = listOf("3m"),
                 status = "QUEUED",
-                topic = "/topic/candle.recollect.005930.job-1",
+                topic = StompDestinations.candleRecollectJob("005930", "job-1"),
                 submittedAt = "2026-06-01T00:00:00Z",
             ),
         )
@@ -217,7 +218,7 @@ class CandleRefreshControllerTest {
                 status { isAccepted() }
                 jsonPath("$.jobId") { value("job-1") }
                 jsonPath("$.status") { value("QUEUED") }
-                jsonPath("$.topic") { value("/topic/candle.recollect.005930.job-1") }
+                jsonPath("$.topic") { value(StompDestinations.candleRecollectJob("005930", "job-1")) }
             }
     }
 

@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.messaging
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.controller.SignalResponse
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -40,7 +41,7 @@ class StompSignalDispatcher(
     private val log = LoggerFactory.getLogger(StompSignalDispatcher::class.java)
 
     @KafkaListener(
-        topics = ["signal.generated.v1"],
+        topics = [KafkaTopics.Risk.SIGNAL_GENERATED],
         groupId = "magicjar-api-stomp-signal",
     )
     fun onSignalGenerated(record: ConsumerRecord<String, String>) {
@@ -54,7 +55,7 @@ class StompSignalDispatcher(
                 }
 
             val payload = toSignalResponse(rawMap)
-            val topic = "/topic/signal.user.$userId"
+            val topic = StompDestinations.signalUser(userId)
             // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
             stompEventPersister.persist(
                 userId = userId,

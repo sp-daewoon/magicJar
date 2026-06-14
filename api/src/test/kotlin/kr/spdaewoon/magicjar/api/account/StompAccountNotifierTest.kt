@@ -3,7 +3,9 @@ package kr.spdaewoon.magicjar.api.account
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.messaging.AccountBalanceChangedStompPayload
 import kr.spdaewoon.magicjar.api.messaging.StompAccountNotifier
+import kr.spdaewoon.magicjar.api.messaging.StompDestinations
 import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Test
@@ -43,7 +45,7 @@ class StompAccountNotifierTest {
                     "occurredAt" to "2026-05-20T15:11:55Z",
                 ),
             )
-        return ConsumerRecord("account.balance.changed.v1", 0, 0L, userId, payload)
+        return ConsumerRecord(KafkaTopics.Order.ACCOUNT_BALANCE_CHANGED, 0, 0L, userId, payload)
     }
 
     @Test
@@ -53,7 +55,7 @@ class StompAccountNotifierTest {
 
         sut.onAccountBalanceChanged(makeRecord(userId))
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/account.balance.$userId"), payloadCaptor.capture())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.accountBalanceUser(userId)), payloadCaptor.capture())
         val captured = payloadCaptor.value
         assert(captured.accountType == "REAL") { "accountType=REAL 예상, 실제=${captured.accountType}" }
         assert(captured.reason == "ORDER_FILLED") { "reason=ORDER_FILLED 예상, 실제=${captured.reason}" }
@@ -67,7 +69,7 @@ class StompAccountNotifierTest {
 
         sut.onAccountBalanceChanged(makeRecord(userId, accountType = "MOCK", reason = "ORDER_CANCELLED"))
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/account.balance.$userId"), payloadCaptor.capture())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.accountBalanceUser(userId)), payloadCaptor.capture())
         val captured = payloadCaptor.value
         assert(captured.accountType == "MOCK") { "accountType=MOCK 예상, 실제=${captured.accountType}" }
         assert(captured.reason == "ORDER_CANCELLED") { "reason=ORDER_CANCELLED 예상, 실제=${captured.reason}" }
@@ -83,7 +85,7 @@ class StompAccountNotifierTest {
                     "occurredAt" to "2026-05-20T15:11:55Z",
                 ),
             )
-        val record = ConsumerRecord("account.balance.changed.v1", 0, 0L, "key", payload)
+        val record = ConsumerRecord(KafkaTopics.Order.ACCOUNT_BALANCE_CHANGED, 0, 0L, "key", payload)
 
         sut.onAccountBalanceChanged(record)
 

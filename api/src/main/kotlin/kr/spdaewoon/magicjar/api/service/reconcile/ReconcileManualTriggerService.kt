@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.service.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileRun
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -36,7 +37,7 @@ class ReconcileManualTriggerService(
     private val log = LoggerFactory.getLogger(ReconcileManualTriggerService::class.java)
 
     companion object {
-        private const val TOPIC_MANUAL_TRIGGER = "reconcile.manual.trigger.v1"
+        private const val TOPIC_MANUAL_TRIGGER = KafkaTopics.Reconcile.MANUAL_TRIGGER
         private const val REDIS_LASTRUN_PREFIX = "reconcile:lastrun:"
         private const val REDIS_LOCK_PREFIX = "reconcile:lock:"
         private val IDEMPOTENCY_TTL = Duration.ofMinutes(5)

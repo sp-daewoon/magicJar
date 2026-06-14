@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -41,7 +42,7 @@ class MarketTickStompForwarder(
     }
 
     @KafkaListener(
-        topics = ["market.tick.v1"],
+        topics = [KafkaTopics.Market.TICK],
         groupId = "magicjar-api-stomp-tick",
     )
     fun onTickMessage(record: ConsumerRecord<String, String>) {
@@ -59,7 +60,7 @@ class MarketTickStompForwarder(
             }
             lastEmitMs[code] = now
 
-            messagingTemplate.convertAndSend("/topic/market.tick.$code", payload)
+            messagingTemplate.convertAndSend(StompDestinations.marketTick(code), payload)
             log.debug("STOMP /topic/market.tick.{} 발행: price={}", code, payload["price"])
         } catch (e: Exception) {
             log.error("market.tick STOMP 포워드 실패: offset={} err={}", record.offset(), e.message)

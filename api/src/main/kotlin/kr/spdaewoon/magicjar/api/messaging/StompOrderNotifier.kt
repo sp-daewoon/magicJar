@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.swagger.v3.oas.annotations.media.Schema
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -41,7 +42,12 @@ class StompOrderNotifier(
     private val log = LoggerFactory.getLogger(StompOrderNotifier::class.java)
 
     @KafkaListener(
-        topics = ["order.requested.v1", "order.filled.v1", "order.rejected.v1", "order.cancelled.v1"],
+        topics = [
+            KafkaTopics.Order.REQUESTED,
+            KafkaTopics.Order.FILLED,
+            KafkaTopics.Order.REJECTED,
+            KafkaTopics.Order.CANCELLED,
+        ],
         groupId = "magicjar-api-stomp-order",
     )
     fun onOrderEvent(
@@ -51,10 +57,10 @@ class StompOrderNotifier(
         try {
             val eventType =
                 when (topic) {
-                    "order.requested.v1" -> "REQUESTED"
-                    "order.filled.v1" -> "FILLED"
-                    "order.rejected.v1" -> "REJECTED"
-                    "order.cancelled.v1" -> "CANCELLED"
+                    KafkaTopics.Order.REQUESTED -> "REQUESTED"
+                    KafkaTopics.Order.FILLED -> "FILLED"
+                    KafkaTopics.Order.REJECTED -> "REJECTED"
+                    KafkaTopics.Order.CANCELLED -> "CANCELLED"
                     else -> {
                         log.warn("알 수 없는 order 이벤트 토픽: {}", topic)
                         return
@@ -70,7 +76,7 @@ class StompOrderNotifier(
                 }
 
             val payload = toStompPayload(rawMap, eventType)
-            val destination = "/topic/order.user.$userId"
+            val destination = StompDestinations.orderUser(userId)
             // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
             stompEventPersister.persist(
                 userId = userId,

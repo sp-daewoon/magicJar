@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.ai.explain
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -22,7 +23,7 @@ class AiCommentRequestKafkaProducer(
     private val log = LoggerFactory.getLogger(AiCommentRequestKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "ai.comment.requested.v1"
+        const val TOPIC = KafkaTopics.Ai.COMMENT_REQUESTED
     }
 
     fun publish(event: AiExplainRequestEvent) {

@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.journal.JournalEventType
 import kr.spdaewoon.magicjar.domain.journal.TradingJournalEntry
 import kr.spdaewoon.magicjar.domain.journal.port.TradingJournalRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -89,7 +90,7 @@ class JournalEventConsumerTest {
         val savedEntry = makeSavedEntry(JournalEventType.ORDER_FILLED, 101L)
         whenever(journalRepository.saveEntry(any())).thenReturn(savedEntry)
 
-        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+        sut.onOrderFilled(makeRecord(KafkaTopics.Order.FILLED, objectMapper.writeValueAsString(payload)))
 
         val captor = argumentCaptor<TradingJournalEntry>()
         verify(journalRepository).saveEntry(captor.capture())
@@ -122,7 +123,7 @@ class JournalEventConsumerTest {
         val savedEntry = makeSavedEntry(JournalEventType.ORDER_FILLED, 101L)
         whenever(journalRepository.saveEntry(any())).thenReturn(savedEntry)
 
-        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+        sut.onOrderFilled(makeRecord(KafkaTopics.Order.FILLED, objectMapper.writeValueAsString(payload)))
 
         val captor = argumentCaptor<TradingJournalEntry>()
         verify(journalRepository).saveEntry(captor.capture())
@@ -178,7 +179,7 @@ class JournalEventConsumerTest {
         val savedEntry = makeSavedEntry(JournalEventType.ORDER_FILLED, 101L)
         whenever(journalRepository.saveEntry(any())).thenReturn(savedEntry)
 
-        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+        sut.onOrderFilled(makeRecord(KafkaTopics.Order.FILLED, objectMapper.writeValueAsString(payload)))
 
         val captor = argumentCaptor<TradingJournalEntry>()
         verify(journalRepository).saveEntry(captor.capture())
@@ -206,9 +207,9 @@ class JournalEventConsumerTest {
         whenever(journalRepository.saveEntry(any())).thenReturn(null)
 
         // 1회 처리
-        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+        sut.onOrderFilled(makeRecord(KafkaTopics.Order.FILLED, objectMapper.writeValueAsString(payload)))
         // 2회 처리 (재처리 시뮬레이션)
-        sut.onOrderFilled(makeRecord("order.filled.v1", objectMapper.writeValueAsString(payload)))
+        sut.onOrderFilled(makeRecord(KafkaTopics.Order.FILLED, objectMapper.writeValueAsString(payload)))
 
         // saveEntry 2회 호출, null 반환 → log.warn only (예외 0)
         verify(journalRepository, org.mockito.kotlin.times(2)).saveEntry(any())

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -40,7 +41,7 @@ class StompRiskNotifier(
     private val log = LoggerFactory.getLogger(StompRiskNotifier::class.java)
 
     @KafkaListener(
-        topics = ["risk.violation.v1"],
+        topics = [KafkaTopics.Risk.VIOLATION],
         groupId = "magicjar-api-stomp-risk",
     )
     fun onRiskViolation(record: ConsumerRecord<String, String>) {
@@ -54,7 +55,7 @@ class StompRiskNotifier(
                 }
 
             val payload = toRiskEventDto(rawMap)
-            val topic = "/topic/risk.user.$userId"
+            val topic = StompDestinations.riskUser(userId)
             // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
             stompEventPersister.persist(
                 userId = userId,
