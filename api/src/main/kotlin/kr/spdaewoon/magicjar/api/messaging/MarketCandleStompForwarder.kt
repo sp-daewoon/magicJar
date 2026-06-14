@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -23,7 +24,7 @@ class MarketCandleStompForwarder(
     private val log = LoggerFactory.getLogger(MarketCandleStompForwarder::class.java)
 
     @KafkaListener(
-        topics = ["market.candle.minute.closed.v1"],
+        topics = [KafkaTopics.Candle.MINUTE_CLOSED],
         groupId = "magicjar-api-stomp-candle",
     )
     fun onCandleMessage(record: ConsumerRecord<String, String>) {
@@ -32,7 +33,7 @@ class MarketCandleStompForwarder(
             val payload = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
             val code = payload["code"]?.toString() ?: return
 
-            messagingTemplate.convertAndSend("/topic/market.candle.minute.$code", payload)
+            messagingTemplate.convertAndSend(StompDestinations.marketCandleMinute(code), payload)
             log.debug("STOMP /topic/market.candle.minute.{} 발행: ts={}", code, payload["ts"])
         } catch (e: Exception) {
             log.error("market.candle.minute STOMP 포워드 실패: offset={} err={}", record.offset(), e.message)

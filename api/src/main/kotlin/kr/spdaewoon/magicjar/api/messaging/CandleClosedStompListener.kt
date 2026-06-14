@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -45,7 +46,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-3m
      */
     @KafkaListener(
-        topics = ["market.candle.3m.closed.v1"],
+        topics = [KafkaTopics.Candle.M3_CLOSED],
         groupId = "magicjar-api-stomp-boundary-3m",
     )
     fun on3mClosed(record: ConsumerRecord<String, String>) {
@@ -57,7 +58,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-5m
      */
     @KafkaListener(
-        topics = ["market.candle.5m.closed.v1"],
+        topics = [KafkaTopics.Candle.M5_CLOSED],
         groupId = "magicjar-api-stomp-boundary-5m",
     )
     fun on5mClosed(record: ConsumerRecord<String, String>) {
@@ -69,7 +70,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-15m
      */
     @KafkaListener(
-        topics = ["market.candle.15m.closed.v1"],
+        topics = [KafkaTopics.Candle.M15_CLOSED],
         groupId = "magicjar-api-stomp-boundary-15m",
     )
     fun on15mClosed(record: ConsumerRecord<String, String>) {
@@ -81,7 +82,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-30m
      */
     @KafkaListener(
-        topics = ["market.candle.30m.closed.v1"],
+        topics = [KafkaTopics.Candle.M30_CLOSED],
         groupId = "magicjar-api-stomp-boundary-30m",
     )
     fun on30mClosed(record: ConsumerRecord<String, String>) {
@@ -93,7 +94,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-90m
      */
     @KafkaListener(
-        topics = ["market.candle.90m.closed.v1"],
+        topics = [KafkaTopics.Candle.M90_CLOSED],
         groupId = "magicjar-api-stomp-boundary-90m",
     )
     fun on90mClosed(record: ConsumerRecord<String, String>) {
@@ -105,7 +106,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-1h
      */
     @KafkaListener(
-        topics = ["market.candle.1h.closed.v1"],
+        topics = [KafkaTopics.Candle.H1_CLOSED],
         groupId = "magicjar-api-stomp-boundary-1h",
     )
     fun on1hClosed(record: ConsumerRecord<String, String>) {
@@ -117,7 +118,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-4h
      */
     @KafkaListener(
-        topics = ["market.candle.4h.closed.v1"],
+        topics = [KafkaTopics.Candle.H4_CLOSED],
         groupId = "magicjar-api-stomp-boundary-4h",
     )
     fun on4hClosed(record: ConsumerRecord<String, String>) {
@@ -129,7 +130,7 @@ class CandleClosedStompListener(
      * groupId: magicjar-api-stomp-boundary-12h
      */
     @KafkaListener(
-        topics = ["market.candle.12h.closed.v1"],
+        topics = [KafkaTopics.Candle.H12_CLOSED],
         groupId = "magicjar-api-stomp-boundary-12h",
     )
     fun on12hClosed(record: ConsumerRecord<String, String>) {
@@ -154,7 +155,7 @@ class CandleClosedStompListener(
             val payload = objectMapper.readValue(record.value(), Map::class.java) as Map<String, Any?>
             val code = payload["code"]?.toString() ?: return
 
-            val topic = "/topic/market.candle.$interval.$code"
+            val topic = StompDestinations.marketCandle(interval, code)
             messagingTemplate.convertAndSend(topic, payload)
             log.debug(
                 "STOMP {} 발행: code={} ts={} close={}",

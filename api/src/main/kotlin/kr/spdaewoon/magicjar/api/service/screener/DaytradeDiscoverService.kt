@@ -13,6 +13,7 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
 import kr.spdaewoon.magicjar.domain.screener.ScreenerScoreBreakdown
@@ -431,7 +432,7 @@ class DaytradeDiscoverService(
                             "ts" to Instant.now().toString(),
                         ),
                     )
-                kafkaTemplate.send("market.realtime.demand.v1", match.instrumentCode, payload)
+                kafkaTemplate.send(KafkaTopics.Market.REALTIME_DEMAND, match.instrumentCode, payload)
                 registered++
             }.onFailure { ex ->
                 log.warn("단타 발굴 realtime demand 발행 실패 (무시): ownerId={} code={} err={}", ownerId, match.instrumentCode, ex.message)

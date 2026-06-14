@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.messaging
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -52,9 +53,9 @@ class SystemEventStompNotifier(
     private val log = LoggerFactory.getLogger(SystemEventStompNotifier::class.java)
 
     companion object {
-        const val TOPIC_USER_PREFIX = "/topic/system.event.user."
-        const val TOPIC_BROADCAST = "/topic/system.event.broadcast"
-        const val KAFKA_TOPIC = "system.event.v1"
+        const val TOPIC_USER_PREFIX = StompDestinations.SYSTEM_EVENT_USER_PREFIX
+        const val TOPIC_BROADCAST = StompDestinations.SYSTEM_EVENT_BROADCAST
+        const val KAFKA_TOPIC = KafkaTopics.System.EVENT
         const val GROUP_ID = "magicjar-system-event-stomp"
         const val CHANNEL = "system-event"
     }

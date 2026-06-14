@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.swagger.v3.oas.annotations.media.Schema
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -43,7 +44,11 @@ class StompReconcileNotifier(
     private val log = LoggerFactory.getLogger(StompReconcileNotifier::class.java)
 
     @KafkaListener(
-        topics = ["reconcile.run.v1", "reconcile.drift.v1", "killswitch.engaged.v1"],
+        topics = [
+            KafkaTopics.Reconcile.RUN,
+            KafkaTopics.Reconcile.DRIFT,
+            KafkaTopics.Risk.KILLSWITCH_ENGAGED,
+        ],
         groupId = "magicjar-api-stomp-recon",
     )
     fun onReconcileEvent(
@@ -60,7 +65,7 @@ class StompReconcileNotifier(
                 }
 
             val payload = toStompPayload(rawMap, topic)
-            val destination = "/topic/recon.user.$userId"
+            val destination = StompDestinations.reconUser(userId)
             // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
             stompEventPersister.persist(
                 userId = userId,
@@ -96,14 +101,14 @@ class StompReconcileNotifier(
         val status = raw["status"]?.toString()
         val eventType =
             when (topic) {
-                "reconcile.run.v1" ->
+                KafkaTopics.Reconcile.RUN ->
                     if (status == "RUNNING") {
                         "reconcile.run.started"
                     } else {
                         "reconcile.run.completed"
                     }
-                "reconcile.drift.v1" -> "reconcile.drift.detected"
-                "killswitch.engaged.v1" -> "killswitch.auto.engaged"
+                KafkaTopics.Reconcile.DRIFT -> "reconcile.drift.detected"
+                KafkaTopics.Risk.KILLSWITCH_ENGAGED -> "killswitch.auto.engaged"
                 else -> {
                     log.warn("알 수 없는 reconcile 이벤트 토픽: {}", topic)
                     "unknown"

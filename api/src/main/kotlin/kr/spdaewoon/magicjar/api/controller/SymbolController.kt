@@ -18,6 +18,7 @@ import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectProgressEvent
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectRangeRequest
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRefreshResponse
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.kafka.core.KafkaTemplate
@@ -455,7 +456,7 @@ class SymbolController(
                     "ts" to Instant.now().toString(),
                 ),
             )
-        kafkaTemplate.send("symbol.detail.command.v1", code, payload)
+        kafkaTemplate.send(KafkaTopics.System.SYMBOL_DETAIL_COMMAND, code, payload)
         log.debug("symbol.detail.command 발행: action={} code={}", action, code)
     }
 

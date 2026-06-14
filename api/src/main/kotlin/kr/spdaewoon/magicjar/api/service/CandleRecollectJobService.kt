@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.service
 
 import jakarta.annotation.PreDestroy
+import kr.spdaewoon.magicjar.api.messaging.StompDestinations
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectJobResponse
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectProgressEvent
 import kr.spdaewoon.magicjar.api.service.dto.CandleRecollectRangeRequest
@@ -187,6 +188,6 @@ class CandleRecollectJobService(
         fun topicFor(
             code: String,
             jobId: String,
-        ): String = "/topic/candle.recollect.$code.$jobId"
+        ): String = StompDestinations.candleRecollectJob(code, jobId)
     }
 }

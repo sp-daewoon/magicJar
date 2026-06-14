@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.messaging
 
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
@@ -34,7 +35,7 @@ class KillSwitchEngagedProducer(
     private val log = LoggerFactory.getLogger(KillSwitchEngagedProducer::class.java)
 
     companion object {
-        const val TOPIC = "killswitch.engaged.v1"
+        const val TOPIC = KafkaTopics.Risk.KILLSWITCH_ENGAGED
     }
 
     /**

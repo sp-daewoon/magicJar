@@ -2,8 +2,10 @@ package kr.spdaewoon.magicjar.api.reconcile
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.messaging.ReconcileStompPayload
+import kr.spdaewoon.magicjar.api.messaging.StompDestinations
 import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
 import kr.spdaewoon.magicjar.api.messaging.StompReconcileNotifier
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
@@ -46,7 +48,7 @@ class StompReconcileNotifierTest {
 
     @Test
     fun `reconcile_run_v1 status=RUNNING → reconcile_run_started event STOMP 발행`() {
-        val topic = "reconcile.run.v1"
+        val topic = KafkaTopics.Reconcile.RUN
         val userId = "12345678"
         val record = makeRecord(topic, userId, mapOf("status" to "RUNNING", "triggerSource" to "CRON"))
 
@@ -54,7 +56,7 @@ class StompReconcileNotifierTest {
 
         val captor = ArgumentCaptor.forClass(ReconcileStompPayload::class.java)
         verify(messagingTemplate).convertAndSend(
-            eq("/topic/recon.user.$userId"),
+            eq(StompDestinations.reconUser(userId)),
             capture(captor),
         )
         assertThat(captor.value.eventType).isEqualTo("reconcile.run.started")
@@ -63,7 +65,7 @@ class StompReconcileNotifierTest {
 
     @Test
     fun `reconcile_run_v1 status=RECONCILED → reconcile_run_completed event STOMP 발행`() {
-        val topic = "reconcile.run.v1"
+        val topic = KafkaTopics.Reconcile.RUN
         val userId = "12345678"
         val record = makeRecord(topic, userId, mapOf("status" to "RECONCILED", "driftCount" to 0))
 
@@ -71,7 +73,7 @@ class StompReconcileNotifierTest {
 
         val captor = ArgumentCaptor.forClass(ReconcileStompPayload::class.java)
         verify(messagingTemplate).convertAndSend(
-            eq("/topic/recon.user.$userId"),
+            eq(StompDestinations.reconUser(userId)),
             capture(captor),
         )
         assertThat(captor.value.eventType).isEqualTo("reconcile.run.completed")
@@ -80,7 +82,7 @@ class StompReconcileNotifierTest {
 
     @Test
     fun `reconcile_drift_v1 → reconcile_drift_detected event STOMP 발행`() {
-        val topic = "reconcile.drift.v1"
+        val topic = KafkaTopics.Reconcile.DRIFT
         val userId = "12345678"
         val record =
             makeRecord(
@@ -93,7 +95,7 @@ class StompReconcileNotifierTest {
 
         val captor = ArgumentCaptor.forClass(ReconcileStompPayload::class.java)
         verify(messagingTemplate).convertAndSend(
-            eq("/topic/recon.user.$userId"),
+            eq(StompDestinations.reconUser(userId)),
             capture(captor),
         )
         assertThat(captor.value.eventType).isEqualTo("reconcile.drift.detected")
@@ -104,7 +106,7 @@ class StompReconcileNotifierTest {
 
     @Test
     fun `killswitch_engaged_v1 → killswitch_auto_engaged event STOMP 발행`() {
-        val topic = "killswitch.engaged.v1"
+        val topic = KafkaTopics.Risk.KILLSWITCH_ENGAGED
         val userId = "12345678"
         val record =
             makeRecord(
@@ -117,7 +119,7 @@ class StompReconcileNotifierTest {
 
         val captor = ArgumentCaptor.forClass(ReconcileStompPayload::class.java)
         verify(messagingTemplate).convertAndSend(
-            eq("/topic/recon.user.$userId"),
+            eq(StompDestinations.reconUser(userId)),
             capture(captor),
         )
         assertThat(captor.value.eventType).isEqualTo("killswitch.auto.engaged")
@@ -127,7 +129,7 @@ class StompReconcileNotifierTest {
 
     @Test
     fun `userId null인 페이로드 — STOMP 발행 skip`() {
-        val topic = "reconcile.run.v1"
+        val topic = KafkaTopics.Reconcile.RUN
         val payload = objectMapper.writeValueAsString(mapOf("runId" to 1))
         val record = ConsumerRecord<String, String>(topic, 0, 0L, "key", payload)
 

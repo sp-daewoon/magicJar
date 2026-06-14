@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.messaging
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.swagger.v3.oas.annotations.media.Schema
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -51,7 +52,7 @@ class StompAccountNotifier(
     private val log = LoggerFactory.getLogger(StompAccountNotifier::class.java)
 
     companion object {
-        const val TOPIC = "account.balance.changed.v1"
+        const val TOPIC = KafkaTopics.Order.ACCOUNT_BALANCE_CHANGED
         const val GROUP = "magicjar-account-stomp"
         const val CHANNEL = "account"
         const val EVENT_TYPE_BALANCE_CHANGED = "BALANCE_CHANGED"
@@ -78,7 +79,7 @@ class StompAccountNotifier(
                     occurredAt = rawMap["occurredAt"]?.toString() ?: Instant.now().toString(),
                 )
 
-            val destination = "/topic/account.balance.$userId"
+            val destination = StompDestinations.accountBalanceUser(userId)
             // ADR 0084 P1-2: publish 직전 stomp_event 영속 (best-effort)
             stompEventPersister.persist(
                 userId = userId,

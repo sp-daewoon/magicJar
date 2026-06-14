@@ -2,8 +2,10 @@ package kr.spdaewoon.magicjar.api.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.messaging.OrderStompPayload
+import kr.spdaewoon.magicjar.api.messaging.StompDestinations
 import kr.spdaewoon.magicjar.api.messaging.StompEventPersister
 import kr.spdaewoon.magicjar.api.messaging.StompOrderNotifier
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.stomp.port.StompEventRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
@@ -51,42 +53,42 @@ class StompOrderNotifierTest {
 
     @Test
     fun `order_requested_v1 → REQUESTED event → STOMP 발행`() {
-        val topic = "order.requested.v1"
+        val topic = KafkaTopics.Order.REQUESTED
         val userId = "user1"
 
         sut.onOrderEvent(makeRecord(topic, userId), topic)
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), any<Any>())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), any<Any>())
     }
 
     @Test
     fun `order_filled_v1 → FILLED event → STOMP 발행`() {
-        val topic = "order.filled.v1"
+        val topic = KafkaTopics.Order.FILLED
         val userId = "user1"
 
         sut.onOrderEvent(makeRecord(topic, userId), topic)
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), any<Any>())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), any<Any>())
     }
 
     @Test
     fun `order_rejected_v1 → REJECTED event → STOMP 발행`() {
-        val topic = "order.rejected.v1"
+        val topic = KafkaTopics.Order.REJECTED
         val userId = "user1"
 
         sut.onOrderEvent(makeRecord(topic, userId), topic)
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), any<Any>())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), any<Any>())
     }
 
     @Test
     fun `order_cancelled_v1 → CANCELLED event → STOMP 발행`() {
-        val topic = "order.cancelled.v1"
+        val topic = KafkaTopics.Order.CANCELLED
         val userId = "user1"
 
         sut.onOrderEvent(makeRecord(topic, userId), topic)
 
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), any<Any>())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), any<Any>())
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -96,7 +98,7 @@ class StompOrderNotifierTest {
 
     @Test
     fun `FILLED — publisher contract 정합 (executedQty + quantity key) — qty·executedQty 정상 매핑`() {
-        val topic = "order.filled.v1"
+        val topic = KafkaTopics.Order.FILLED
         val userId = "user1"
         // OrderFilledKafkaProducer가 publish하는 STOMP contract 정합 payload
         val payload =
@@ -117,7 +119,7 @@ class StompOrderNotifierTest {
         sut.onOrderEvent(record, topic)
 
         val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), captor.capture())
         val sent = captor.value
         assertThat(sent.event).isEqualTo("FILLED")
         assertThat(sent.qty).isEqualTo(10)
@@ -128,7 +130,7 @@ class StompOrderNotifierTest {
     @Test
     fun `FILLED — 옛 publisher contract (executedQuantity key) defensive fallback`() {
         // outbox replay·in-flight Kafka msg lag 시 옛 payload key 잔존 case
-        val topic = "order.filled.v1"
+        val topic = KafkaTopics.Order.FILLED
         val userId = "user1"
         val payload =
             objectMapper.writeValueAsString(
@@ -146,13 +148,13 @@ class StompOrderNotifierTest {
         sut.onOrderEvent(record, topic)
 
         val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), captor.capture())
         assertThat(captor.value.executedQty).isEqualTo(7)
     }
 
     @Test
     fun `REJECTED — 옛 publisher contract (reason key) defensive fallback → rejectReason 매핑`() {
-        val topic = "order.rejected.v1"
+        val topic = KafkaTopics.Order.REJECTED
         val userId = "user1"
         val payload =
             objectMapper.writeValueAsString(
@@ -169,7 +171,7 @@ class StompOrderNotifierTest {
         sut.onOrderEvent(record, topic)
 
         val captor = ArgumentCaptor.forClass(OrderStompPayload::class.java)
-        verify(messagingTemplate).convertAndSend(eq("/topic/order.user.$userId"), captor.capture())
+        verify(messagingTemplate).convertAndSend(eq(StompDestinations.orderUser(userId)), captor.capture())
         assertThat(captor.value.rejectReason).isEqualTo("REAL_GATE_DENIED:test")
     }
 }

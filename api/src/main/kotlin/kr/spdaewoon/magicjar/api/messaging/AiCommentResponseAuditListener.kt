@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.messaging
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.persistence.AiCommentLogJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.AiCommentLogJpaRepository
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -32,7 +33,7 @@ class AiCommentResponseAuditListener(
     private val log = LoggerFactory.getLogger(AiCommentResponseAuditListener::class.java)
 
     @KafkaListener(
-        topics = ["ai.comment.responded.v1"],
+        topics = [KafkaTopics.Ai.COMMENT_RESPONDED],
         groupId = "magicjar-api-audit-ai-explain",
     )
     fun onAiResponse(record: ConsumerRecord<String, String>) {

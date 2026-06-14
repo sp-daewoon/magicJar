@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.service.strategy
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -74,7 +75,7 @@ class StrategyRealtimeDemandPublisher(
             .distinct()
 
     private companion object {
-        const val TOPIC = "market.realtime.demand.v1"
+        const val TOPIC = KafkaTopics.Market.REALTIME_DEMAND
         const val STRATEGY_REALTIME_PRIORITY_BASE = 40
         const val STRATEGY_REALTIME_TTL_SECONDS = 180L
         val CODE_REGEX = Regex("^\\d{6}$")

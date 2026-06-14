@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.infrastructure.dart
 
 import kr.spdaewoon.magicjar.api.persistence.DisclosureJpaEntity
+import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -46,7 +47,7 @@ class DisclosureKafkaProducer(
     private val log = LoggerFactory.getLogger(DisclosureKafkaProducer::class.java)
 
     companion object {
-        const val TOPIC = "disclosure.new.v1"
+        const val TOPIC = KafkaTopics.Data.DISCLOSURE_NEW
 
         // Redis dedup 키 — ADR 0075 §4-1
         private const val DEDUP_KEY_PREFIX = "news:dedup:rcept:"
