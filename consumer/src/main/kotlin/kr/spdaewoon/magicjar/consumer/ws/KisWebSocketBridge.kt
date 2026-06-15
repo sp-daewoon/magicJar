@@ -195,6 +195,8 @@ class KisWebSocketBridge(
         internal const val TR_ID_UNIFIED_TICK = "H0UNCNT0"
         internal const val TR_ID_UNIFIED_ORDERBOOK = "H0UNASP0"
         internal const val TR_ID_UNIFIED_MARKET_STATUS = "H0UNMKO0"
+        private const val TR_TYPE_SUBSCRIBE = "1"
+        private const val TR_TYPE_UNSUBSCRIBE = "2"
 
         /**
          * WS_DISCONNECTED 알림 강등 grace window (초) — 2026-06-04 점검 사이클 #4.
@@ -327,9 +329,9 @@ class KisWebSocketBridge(
      * ## 배경 (2026-06-15 REAL 세션 실측)
      * DETAIL 종목 EXIT/15분 idle 해제 시 H0UNASP0(+10:42엔 H0UNCNT0) unsubscribe가 KIS `OPSP8997
      * invalid tr_type`(응답 header `tr_id=null`)으로 거부됐다(3회 재현: 10:42 005930, 11:08 326030).
-     * trType 값("0")·`buildSubscribeMessage` 직렬화는 KIS 공식(ccnl_total.py·asking_price_total.py
-     * docstring 해제="0")과 정합 — 즉 trType/직렬화는 원인이 아니다. 응답이 tr_id=null이라 어떤 code/trId
-     * 해제가 거부됐는지 추적이 불가했다.
+     * trType 값("0")·`buildSubscribeMessage` 직렬화는 전송 원문 기준 정상처럼 보였으나,
+     * 코드 상단 KIS-first 계약과 실측 응답이 해제 trType="2" 필요성을 가리켰다. 응답이 tr_id=null이라
+     * 어떤 code/trId 해제가 거부됐는지 추적이 불가했다.
      *
      * ## 이 deque 의 역할
      * unsubscribe 메시지를 sink emit 직전에 (epochMs, code, trId, trType, rawJson) 으로 기록한다.
@@ -514,7 +516,7 @@ class KisWebSocketBridge(
                 lastTickAtMsByCode[code] = System.currentTimeMillis()
                 noTickWarned.remove(code)
                 if (live) {
-                    sendTickSubscribe(approvalKey, code, trType = "1")
+                    sendTickSubscribe(approvalKey, code, trType = TR_TYPE_SUBSCRIBE)
                     log.info("KIS WS subscribe: code={} trId={}", code, TR_ID_UNIFIED_TICK)
                 } else {
                     log.info("KIS WS subscribe 등록(연결 전 — onConnected 재구독 위임): code={} trId={}", code, TR_ID_UNIFIED_TICK)
@@ -542,7 +544,7 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (session.subscribedCodes.contains(code)) {
-                // 결함③ 진단: emit 직전 전송 원문 로깅 + 이력 기록 (동작은 sendTickSubscribe(trType="0")와 동일).
+                // 결함③ 진단: emit 직전 전송 원문 로깅 + 이력 기록.
                 emitUnsubscribeMessage(approvalKey, code, trId = TR_ID_UNIFIED_TICK)
                 slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
                 session.subscribedCodes.remove(code)
@@ -610,7 +612,7 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (!orderbookSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_ORDERBOOK)
+                val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_ORDERBOOK)
                 sendSink?.tryEmitNext(msg)
                 orderbookSubscribedCodes.add(code)
                 slotLedger()?.register(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1 — 호가 채널 점유
@@ -659,7 +661,7 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (!marketStatusSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_MARKET_STATUS)
+                val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_MARKET_STATUS)
                 sendSink?.tryEmitNext(msg)
                 marketStatusSubscribedCodes.add(code)
                 slotLedger()?.register(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
@@ -715,7 +717,7 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (!overtimeSinglePriceCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = "H0STOUP0")
+                val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = "H0STOUP0")
                 sendSink?.tryEmitNext(msg)
                 overtimeSinglePriceCodes.add(code)
                 log.info("KIS WS subscribe: code={} trId=H0STOUP0", code)
@@ -730,7 +732,7 @@ class KisWebSocketBridge(
      *
      * KIS-first 출처:
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
-     *   tr_type "0" = 구독 해제
+     *   tr_type "2" = 구독 해제
      */
     fun unsubscribeOvertimeSinglePrice(codes: List<String>) {
         if (codes.isEmpty()) return
@@ -1130,7 +1132,8 @@ class KisWebSocketBridge(
                     extractAndStoreAesKey(parsed.rawJson)
                     log.info("KIS WS 구독 응답: success=true json={}", parsed.rawJson.take(200))
                 } else if (!success && KisWsMessageParser.isOpsp8997InvalidTrType(parsed.rawJson)) {
-                    // 결함③ 진단(2026-06-15): OPSP8997 invalid tr_type — unsubscribe(tr_type "0") 거부.
+                    // 결함③ 진단(2026-06-15): OPSP8997 invalid tr_type — unsubscribe 거부.
+                    // 후속 hotfix: 실제 해제 발사는 TR_TYPE_UNSUBSCRIBE("2")로 정정.
                     // 응답 header tr_id=null로 추적 불가 → 최근 unsubscribe 발사 이력을 상관관계 덤프(관측 전용).
                     // ⚠ trType 값은 KIS 공식 정합(해제="0") 확인됨 — 절대 "2"로 변경 금지(회귀). 이번엔 진단만.
                     dumpRecentUnsubscribesForDiagnosis(parsed.rawJson)
@@ -1309,7 +1312,7 @@ class KisWebSocketBridge(
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/chk_ccnl_notice.py
      *   kws.subscribe(request=ccnl_notice, data=[trenv.my_htsid])
      *   - tr_key = HTS 사용자 ID (defaultUserId — magicjar.kis.ws.user-id 설정값)
-     *   - tr_type "1" = 구독 등록 / "0" = 해제
+     *   - tr_type "1" = 구독 등록 / "2" = 해제
      *   - header: approval_key + tr_type + custtype="P"
      *
      * ADR 0048 §2-1 정합:
@@ -1347,14 +1350,13 @@ class KisWebSocketBridge(
     /**
      * 체결통보 unsubscribe — graceful shutdown (destroy) 시 발사.
      *
-     * KIS-first 출처: ccnl_notice.py tr_type "0" = 구독 해제
+     * KIS-first 출처: ccnl_notice.py tr_type "2" = 구독 해제
      *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/ccnl_notice.py
      */
     private fun unsubscribeExecutionNoticeIfPossible(approvalKey: String) {
         if (defaultUserId.isBlank()) return
         val trId = executionNoticeTrId()
-        // tr_type "0" = 구독 해제 (KIS-first 정합 — 기존 H0STOUP0와 동일 패턴)
-        val msg = buildSubscribeMessage(approvalKey, defaultUserId, trType = "0", trId = trId)
+        val msg = buildSubscribeMessage(approvalKey, defaultUserId, trType = TR_TYPE_UNSUBSCRIBE, trId = trId)
         sendSink?.tryEmitNext(msg)
         log.info(
             "KIS WS 체결통보 unsubscribe: trId={} userId={}",
@@ -2277,35 +2279,35 @@ class KisWebSocketBridge(
                 pendingUnsubAckLatch.set(ackLatch)
 
                 codes.forEach { code ->
-                    val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_TICK)
+                    val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_UNSUBSCRIBE, trId = TR_ID_UNIFIED_TICK)
                     sendSink?.tryEmitNext(msg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_TICK)
                 }
-                // H0UNASP0 통합 호가 unsubscribe — KIS-first: asking_price_total() tr_type "0" = 구독 해제
+                // H0UNASP0 통합 호가 unsubscribe.
                 orderbookCodes.forEach { code ->
                     val orderbookMsg =
-                        buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_ORDERBOOK)
+                        buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_UNSUBSCRIBE, trId = TR_ID_UNIFIED_ORDERBOOK)
                     sendSink?.tryEmitNext(orderbookMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
                 }
-                // H0UNMKO0 통합 장운영/VI unsubscribe — KIS-first: market_status_total() tr_type "0" = 구독 해제
+                // H0UNMKO0 통합 장운영/VI unsubscribe.
                 marketStatusCodes.forEach { code ->
                     val marketStatusMsg =
-                        buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_MARKET_STATUS)
+                        buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_UNSUBSCRIBE, trId = TR_ID_UNIFIED_MARKET_STATUS)
                     sendSink?.tryEmitNext(marketStatusMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
                 }
                 // H0STOUP0 시간외 단일가 unsubscribe — ADR 0076 Phase 3 B-2
-                // KIS-first: overtime_ccnl_krx.py tr_type "0" = 구독 해제
+                // KIS-first: overtime_ccnl_krx.py tr_type "2" = 구독 해제
                 // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
                 overtimeCodes.forEach { code ->
-                    val overtimeMsg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = "H0STOUP0")
+                    val overtimeMsg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_UNSUBSCRIBE, trId = "H0STOUP0")
                     sendSink?.tryEmitNext(overtimeMsg)
                     log.debug("KIS WS shutdown unsubscribe 전송: code={} trId=H0STOUP0", code)
                 }
 
                 // H0STCNI0/H0STCNI9 체결통보 unsubscribe — ADR 0068 §14-6 LOCK
-                // KIS-first: ccnl_notice.py tr_type "0" = 구독 해제
+                // KIS-first: ccnl_notice.py tr_type "2" = 구독 해제
                 // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_notice/ccnl_notice.py
                 unsubscribeExecutionNoticeIfPossible(approvalKey)
 
@@ -2417,7 +2419,7 @@ class KisWebSocketBridge(
     private fun buildSubscribeMessage(
         approvalKey: String,
         code: String,
-        trType: String, // "1" = subscribe, "0"/"2" = unsubscribe(TR별 KIS 규약)
+        trType: String, // "1" = subscribe, "2" = unsubscribe
         trId: String = TR_ID_UNIFIED_TICK, // 기본: H0UNCNT0 통합 체결가
     ): String =
         objectMapper.writeValueAsString(
@@ -2443,8 +2445,8 @@ class KisWebSocketBridge(
     /**
      * unsubscribe 메시지 sink emit + 전송 원문 로깅 + 이력 기록 (결함③ 진단 관측 — 부작용 0).
      *
-     * 동작은 기존 `sendSink?.tryEmitNext(buildSubscribeMessage(... trType="0" ...))`와 1:1 동일하다
-     * (같은 sink·같은 메시지). 추가되는 것은:
+     * 동작은 `sendSink?.tryEmitNext(buildSubscribeMessage(... trType=TR_TYPE_UNSUBSCRIBE ...))`와 1:1 동일하다.
+     * 추가되는 것은:
      *  1. **전송 원문(JSON) 로깅** — sink emit 직전. 다음 OPSP8997 발생 시 그 wire JSON 이 정상인지/깨졌는지
      *     (동시 emit race로 corruption 등) 눈으로 확정 가능.
      *  2. **이력 기록** ([recentUnsubscribes]) — OPSP8997 응답은 header `tr_id=null`이라 추적 불가하므로,
@@ -2457,9 +2459,9 @@ class KisWebSocketBridge(
         code: String,
         trId: String,
     ) {
-        val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = trId)
+        val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_UNSUBSCRIBE, trId = trId)
         // 전송 원문 로깅 — emit 직전(헌법 §11-2 silent 금지). OPSP8997 진단 시 wire 정상 여부 확정 근거.
-        log.info("KIS WS unsubscribe 전송 원문: code={} trId={} trType=0 raw={}", code, trId, msg)
+        log.info("KIS WS unsubscribe 전송 원문: code={} trId={} trType={} raw={}", code, trId, TR_TYPE_UNSUBSCRIBE, msg)
         recordUnsubscribeTrace(code = code, trId = trId, rawJson = msg)
         sendSink?.tryEmitNext(msg)
     }
