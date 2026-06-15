@@ -251,6 +251,57 @@ class MarketDailyNightlySnapshotServiceTest {
     }
 
     @Test
+    fun `toTargetDateCandle — OHLC 0값 손상 봉 skip (06-12 회귀 fix · 부분 봉 적재 금지)`() {
+        val service =
+            newService(props(), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+
+        // ★ 06-12 실측 손상 패턴 — open/high/low=0, close 만 정상(멀티시세 inter2_prpr 만 carry).
+        //   직전 null-only 가드는 BigDecimal.ZERO(non-null)를 통과시켜 전종목 손상 봉을 적재했다.
+        val corrupt =
+            quote(
+                "403870",
+                open = BigDecimal.ZERO,
+                high = BigDecimal.ZERO,
+                low = BigDecimal.ZERO,
+                close = BigDecimal("5000"),
+            )
+        assertThat(service.toTargetDateCandle(corrupt, todayTs)).isNull()
+
+        // 개별 필드 0 도 손상으로 취급(가격 ≤0 은 물리적으로 불가능 — null 가드와 동일).
+        assertThat(service.toTargetDateCandle(quote("005930", open = BigDecimal.ZERO), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", high = BigDecimal.ZERO), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", low = BigDecimal.ZERO), todayTs)).isNull()
+        assertThat(service.toTargetDateCandle(quote("005930", close = BigDecimal.ZERO), todayTs)).isNull()
+        // 음수도 손상.
+        assertThat(service.toTargetDateCandle(quote("005930", low = BigDecimal("-1")), todayTs)).isNull()
+    }
+
+    @Test
+    fun `runSnapshot — OHL=0 손상 quote 는 전건 skip (upsert 0 · 손상 봉 DB 미적재)`() {
+        val provider = mockk<MarketDailyUniverseProvider> { every { resolveCodes() } returns listOf("403870", "005930") }
+        // 06-12 패턴: 한 종목 손상(OHL=0·close 정상) + 한 종목 정상.
+        val realPort =
+            mockk<KisMultiPricePort> {
+                every { fetchMultiPrice(any(), any()) } returns
+                    listOf(
+                        quote("403870", open = BigDecimal.ZERO, high = BigDecimal.ZERO, low = BigDecimal.ZERO, close = BigDecimal("5000")),
+                        quote("005930"), // 정상
+                    )
+            }
+        val candleSlot = slot<List<Candle>>()
+        val candleRepo =
+            mockk<CandleRepository> { every { upsertAll(capture(candleSlot)) } answers { firstArg<List<Candle>>().size } }
+        val service = newService(props(), provider, realPort, candleRepo)
+
+        val result = service.runSnapshot()
+
+        // 손상 봉은 skip(1건), 정상 봉만 적재(1건) — 손상 봉이 DB 에 절대 안 들어감.
+        assertThat(result.skippedQuotes).isEqualTo(1)
+        assertThat(result.candlesMapped).isEqualTo(1)
+        assertThat(candleSlot.captured.map { it.code }).containsExactly("005930")
+    }
+
+    @Test
     fun `audit 기록 — START·DONE 액션 저장`() {
         val provider = mockk<MarketDailyUniverseProvider> { every { resolveCodes() } returns listOf("005930") }
         val multiPricePort =
