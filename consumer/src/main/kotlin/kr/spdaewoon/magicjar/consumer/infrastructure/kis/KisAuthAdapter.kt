@@ -17,11 +17,11 @@ import kotlin.concurrent.withLock
 
 /**
  * KIS OAuth 운영용 토큰 어댑터 (ADR 0038 — Redis cache + 분산락 + in-process mutex).
- * - Redis cache `kis:token:{userId}:{accountType}` TTL 23h
+ * - Redis cache `kis:oauth:token:user:{userId}:account:{accountType}` TTL 23h
  * - in-process ReentrantLock (per userId:accountType) — JVM 내 동시 thread 직렬화
  *   cold-start 시 2+ thread가 동시에 Redis miss 판정 후 KIS tokenP 동시 호출하는 문제 차단
  *   (EGW00133: KIS tokenP 1분 1회 제한 위반 방지)
- * - Redis SETNX 분산락 `kis:token:lock:{userId}:{accountType}` TTL 30s — 다중 JVM 확장 대비
+ * - Redis SETNX 분산락 `kis:oauth:token:user:{userId}:account:{accountType}:lock` TTL 30s — 다중 JVM 확장 대비
  * - 분산락 미획득 시 30s spinWait 후 cache 재조회 (Bootstrap fallback)
  * - PR-6 KisAuthValidator(단발 검증용)와 별개 — 운영용 신규 클래스
  *
@@ -78,7 +78,7 @@ class KisAuthAdapter(
     ): String {
         require(userId.isNotBlank()) {
             "KIS getAccessToken userId 빈 문자열 차단 — caller 결함 " +
-                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk · P0 hotfix 2026-05-20)"
+                "(cache key '${RedisKeyRegistry.Kis.token("", accountType)}' pollution + cross-user leak risk · P0 hotfix 2026-05-20)"
         }
         val cacheKey = RedisKeyRegistry.Kis.token(userId, accountType)
         val lockKey = RedisKeyRegistry.Kis.tokenLock(userId, accountType)

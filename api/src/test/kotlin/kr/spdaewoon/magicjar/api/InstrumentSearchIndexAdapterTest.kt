@@ -31,7 +31,7 @@ class InstrumentSearchIndexAdapterTest {
             .thenReturn(emptySet())
         whenever(zSetOps.rangeByLex(eq("instrument:search:prefix:code:38"), any<RedisZSetCommands.Range>()))
             .thenReturn(setOf("38110\t038110"))
-        whenever(valueOps.get("instrument:by-code:038110"))
+        whenever(valueOps.get("instrument:summary:code:038110"))
             .thenReturn(
                 """{"code":"038110","name":"에코플라스틱","market":"KOSDAQ","sector":"운송장비·부품","active":true}""",
             )

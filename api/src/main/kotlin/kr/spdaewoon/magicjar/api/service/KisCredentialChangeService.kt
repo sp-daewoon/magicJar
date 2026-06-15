@@ -186,7 +186,7 @@ class KisCredentialChangeService(
             // Redis invalidate (ADR 0074 §7-1)
             kisCacheInvalidator.deleteAccessToken(userId, accountType)
             if (RuntimeModeParser.isRealMode(accountType)) {
-                kisCacheInvalidator.deleteApprovalKey(userId)
+                kisCacheInvalidator.deleteApprovalKey(userId, accountType)
             }
             kisCacheInvalidator.setKeyChangedLock(userId, accountType)
 

@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component
 /**
  * 계좌 availability snapshot Redis 저장소.
  *
- * key: `account:availability:{mode}:{userId}`.
+ * key: `account:availability:user:{userId}:mode:{mode}`.
  * value: [AccountAvailabilitySnapshot] JSON.
  *
  * 주문 hot path 는 [read]만 수행한다. KIS 조회/refresh 는 별도 worker 가 수행하고 [putIfNewer]로 LWW 저장한다.

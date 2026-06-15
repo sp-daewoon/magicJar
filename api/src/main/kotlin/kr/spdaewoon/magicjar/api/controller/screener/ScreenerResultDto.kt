@@ -10,7 +10,7 @@ import io.swagger.v3.oas.annotations.media.Schema
  */
 @Schema(description = "screening 결과 + 랭킹")
 data class ScreenerResultDto(
-    @Schema(description = "screening 캐시 키 (debug용)", example = "screener:cache:abc123:xyz789")
+    @Schema(description = "screening 캐시 키 (debug용)", example = "screener:result:dsl:abc123:universe:xyz789")
     val cacheKey: String,
     @Schema(description = "universe 사이즈 (필터 후 종목 수)", example = "2847")
     val universeSize: Int,

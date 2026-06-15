@@ -64,7 +64,7 @@ class RealtimeStatusServiceTest {
              "executionNotice":{"subscribed":true,"mode":"MOCK","trId":"H0STCNI9","userIdMasked":"7468****"}}
             """.trimIndent()
         every { redis.opsForValue() } returns valueOps
-        every { valueOps.get("admin:realtime-status") } returns json
+        every { valueOps.get("ops:realtime:status") } returns json
         every { instrumentRepo.findAllById(any<Iterable<String>>()) } returns listOf(instrument("005930", "삼성전자"))
         every { strategyRepo.findAllByStatus("ACTIVE") } returns listOf(activeStrategy("[\"005930\"]"))
         every { candleHealth.assess("005930", "1m") } returns
@@ -114,7 +114,7 @@ class RealtimeStatusServiceTest {
              "subscriptions":[],"executionNotice":{"subscribed":false,"mode":"MOCK","trId":"H0STCNI9"}}
             """.trimIndent()
         every { redis.opsForValue() } returns valueOps
-        every { valueOps.get("admin:realtime-status") } returns json
+        every { valueOps.get("ops:realtime:status") } returns json
         every { instrumentRepo.findAllById(any<Iterable<String>>()) } returns emptyList()
         every { strategyRepo.findAllByStatus("ACTIVE") } returns emptyList()
 
@@ -127,7 +127,7 @@ class RealtimeStatusServiceTest {
     @Test
     fun `스냅샷 부재 — stale true + 빈 상태`() {
         every { redis.opsForValue() } returns valueOps
-        every { valueOps.get("admin:realtime-status") } returns null
+        every { valueOps.get("ops:realtime:status") } returns null
 
         val res = service().getStatus()
 

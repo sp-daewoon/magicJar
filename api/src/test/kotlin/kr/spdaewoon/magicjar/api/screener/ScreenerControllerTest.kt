@@ -68,7 +68,7 @@ class ScreenerControllerTest {
 
     private fun buildResultDto(cacheHit: Boolean = false): ScreenerResultDto =
         ScreenerResultDto(
-            cacheKey = "screener:cache:abc:xyz",
+            cacheKey = "screener:result:dsl:abc:universe:xyz",
             universeSize = 2847,
             evaluatedCount = 2814,
             matchedCount = 3,

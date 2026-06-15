@@ -19,7 +19,7 @@ import java.time.Duration
  *   - ENV 미주입 시 @EnabledIfEnvironmentVariable로 **skip**된다(절대 추측 단정 0 — NXT 통합 여부 미결).
  *
  * 실행 방법 (장 시간·영업일):
- *   1) REAL credential로 KIS 토큰 발급 (앱 정상 경로 — 예: 앱 부팅 후 Redis `kis:token:{userId}:REAL`).
+ *   1) REAL credential로 KIS 토큰 발급 (앱 정상 경로 — 예: 앱 부팅 후 Redis `kis:oauth:token:user:{userId}:account:REAL`).
  *   2) 아래 ENV 주입:
  *        MJ_NXT_PROBE_APPKEY=<KIS appkey>
  *        MJ_NXT_PROBE_APPSECRET=<KIS appsecret>

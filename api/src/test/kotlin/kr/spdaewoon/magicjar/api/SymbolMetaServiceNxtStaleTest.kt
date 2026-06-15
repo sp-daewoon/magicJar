@@ -124,7 +124,7 @@ class SymbolMetaServiceNxtStaleTest {
     fun `fresh quote last 등락 필드가 있으면 현재가 전일대비 기준으로 사용`() {
         val valueOps: ValueOperations<String, String> = mock()
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
-        whenever(valueOps.get("quote:last:066570")).thenReturn(
+        whenever(valueOps.get("market:quote:last:code:066570")).thenReturn(
             objectMapper.writeValueAsString(
                 mapOf(
                     "price" to "237000",
@@ -160,7 +160,7 @@ class SymbolMetaServiceNxtStaleTest {
     fun `stale quote last 는 가격 source 에서 제외하고 KIS snapshot 을 우선 사용한다`() {
         val valueOps: ValueOperations<String, String> = mock()
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
-        whenever(valueOps.get("quote:last:000720")).thenReturn(
+        whenever(valueOps.get("market:quote:last:code:000720")).thenReturn(
             objectMapper.writeValueAsString(
                 mapOf(
                     "price" to "128200",

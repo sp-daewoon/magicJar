@@ -110,7 +110,7 @@ class ScreenerServiceTest {
     @Test
     fun `캐시 HIT — ScreenerEngine 호출 없음 + cacheHit=true`() {
         val request = buildRequest()
-        val cachedResult = buildResult(cacheHit = true).copy(cacheKey = "screener:cache:x:y")
+        val cachedResult = buildResult(cacheHit = true).copy(cacheKey = "screener:result:dsl:x:universe:y")
         whenever(screenerCachePort.tryLock(any(), any(), any())).thenReturn(true)
         whenever(screenerCachePort.get(any())).thenReturn(cachedResult)
 
@@ -147,7 +147,7 @@ class ScreenerServiceTest {
     @Test
     fun `분산락 충돌 + 캐시 HIT — 409 없음 + cacheHit=true`() {
         val request = buildRequest()
-        val cachedResult = buildResult(cacheHit = true).copy(cacheKey = "screener:cache:x:y")
+        val cachedResult = buildResult(cacheHit = true).copy(cacheKey = "screener:result:dsl:x:universe:y")
         whenever(screenerCachePort.tryLock(any(), any(), any())).thenReturn(false)
         whenever(screenerCachePort.get(any())).thenReturn(cachedResult)
 

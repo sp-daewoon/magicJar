@@ -36,7 +36,7 @@ class SignalDedupeGuardTest {
         assertThat(result).isTrue
         verify {
             valueOps.setIfAbsent(
-                "signal:dedupe:42:005930:5m:1700000000",
+                "signal:dedupe:strategy:42:code:005930:interval:5m:ts:1700000000",
                 "1",
                 Duration.ofSeconds(30),
             )

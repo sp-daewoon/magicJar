@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.aggregation
 
 import kr.spdaewoon.magicjar.consumer.config.ChartCandleProperties
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -46,12 +47,12 @@ class BackfillGapGuardStore(
     private fun missKey(
         code: String,
         interval: CandleInterval,
-    ): String = "candle:backfill:guard:miss:$code:${interval.code}"
+    ): String = RedisKeyRegistry.Market.candleBackfillMiss(code, interval.code)
 
     private fun unrecoverableKey(
         code: String,
         interval: CandleInterval,
-    ): String = "candle:backfill:guard:unrecoverable:$code:${interval.code}"
+    ): String = RedisKeyRegistry.Market.candleBackfillUnrecoverable(code, interval.code)
 
     /**
      * (code, interval)가 회복 불가로 영구 마킹되어 백필 재시도를 건너뛰어야 하는가.

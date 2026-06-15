@@ -267,7 +267,7 @@ class ApiKisBalanceQueryAdapterTest {
     //   docker logs magicjar-api 20+ 회 반복:
     //     ERROR account KIS upstream 실패: status=500 body={"rt_cd":"1","msg1":"기간이 만료된 token 입니다.","msg_cd":"EGW00123"}
     //   Redis TTL 살아있어 helper fast path가 stale 토큰 무한 재사용 →
-    //   수동 `redis-cli DEL "kis:token:74683223:REAL"` 후에야 신규 발급 + 정상 응답 복귀.
+    //   수동 `redis-cli DEL "kis:oauth:token:user:74683223:account:REAL"` 후에야 신규 발급 + 정상 응답 복귀.
 
     /** EGW00123 응답 body (KIS 실제 wire format). */
     private val egw00123Body = """{"rt_cd":"1","msg1":"기간이 만료된 token 입니다.","msg_cd":"EGW00123"}"""

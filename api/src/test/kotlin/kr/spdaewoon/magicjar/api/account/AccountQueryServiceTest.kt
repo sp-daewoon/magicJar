@@ -58,8 +58,8 @@ class AccountQueryServiceTest {
     private val accountType = AccountType.REAL
 
     // hotfix 2026-05-20 — cache key 에 accountType 포함 (REAL/MOCK 분리)
-    private val cacheKey = "account:balance:$userId:REAL"
-    private val lockKey = "account:balance:lock:$userId:REAL"
+    private val cacheKey = "account:balance:user:$userId:account:REAL"
+    private val lockKey = "account:balance:user:$userId:account:REAL:lock"
     private val now: Instant = Instant.parse("2026-05-18T05:30:00Z")
 
     /**
@@ -162,32 +162,32 @@ class AccountQueryServiceTest {
     fun `cache key — REAL accountType 별도 key (account-balance-userId-REAL)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
         stubLockAcquired()
-        whenever(valueOps.get(eq("account:balance:$userId:REAL"))).thenReturn(null)
+        whenever(valueOps.get(eq("account:balance:user:$userId:account:REAL"))).thenReturn(null)
         whenever(kisPort.fetchFullBalance(userId, AccountType.REAL)).thenReturn(fixtureSnapshot())
 
         sut.getBalance(userId, AccountType.REAL)
 
         // REAL key 만 read·write 검증 (MOCK key 무관)
-        verify(valueOps, atLeastOnce()).get(eq("account:balance:$userId:REAL"))
+        verify(valueOps, atLeastOnce()).get(eq("account:balance:user:$userId:account:REAL"))
         val keyCap = argumentCaptor<String>()
         verify(valueOps).set(keyCap.capture(), any<String>(), any<Duration>())
-        assertThat(keyCap.firstValue).isEqualTo("account:balance:$userId:REAL")
+        assertThat(keyCap.firstValue).isEqualTo("account:balance:user:$userId:account:REAL")
     }
 
     @Test
     fun `cache key — MOCK accountType 별도 key (account-balance-userId-MOCK) — REAL cache 무관`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
         stubLockAcquired()
-        whenever(valueOps.get(eq("account:balance:$userId:MOCK"))).thenReturn(null)
+        whenever(valueOps.get(eq("account:balance:user:$userId:account:MOCK"))).thenReturn(null)
         // MOCK fixture
         val mockSnapshot = fixtureSnapshot().copy(accountType = AccountType.MOCK)
         whenever(kisPort.fetchFullBalance(userId, AccountType.MOCK)).thenReturn(mockSnapshot)
 
         sut.getBalance(userId, AccountType.MOCK)
 
-        verify(valueOps, atLeastOnce()).get(eq("account:balance:$userId:MOCK"))
+        verify(valueOps, atLeastOnce()).get(eq("account:balance:user:$userId:account:MOCK"))
         // REAL key 미접근 검증 (cross-contamination 차단)
-        verify(valueOps, never()).get(eq("account:balance:$userId:REAL"))
+        verify(valueOps, never()).get(eq("account:balance:user:$userId:account:REAL"))
     }
 
     @Test

@@ -28,7 +28,7 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
 
     @Test
     fun `snapshot을 계좌 단위 key에서 읽는다`() {
-        every { valueOps.get("account:availability:REAL:user1") } returns objectMapper.writeValueAsString(snapshot(1000))
+        every { valueOps.get("account:availability:user:user1:mode:REAL") } returns objectMapper.writeValueAsString(snapshot(1000))
 
         val result = adapter.read("user1", TradingMode.REAL)
 
@@ -41,7 +41,7 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
         every {
             redisTemplate.execute(
                 any<RedisScript<Long>>(),
-                eq(listOf("account:availability:REAL:user1")),
+                eq(listOf("account:availability:user:user1:mode:REAL")),
                 any<String>(),
                 eq("1000"),
                 eq("900"),
@@ -54,7 +54,7 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
         verify(exactly = 1) {
             redisTemplate.execute(
                 any<RedisScript<Long>>(),
-                eq(listOf("account:availability:REAL:user1")),
+                eq(listOf("account:availability:user:user1:mode:REAL")),
                 any<String>(),
                 eq("1000"),
                 eq("900"),
@@ -67,7 +67,7 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
         every {
             redisTemplate.execute(
                 any<RedisScript<Long>>(),
-                eq(listOf("account:availability:REAL:user1")),
+                eq(listOf("account:availability:user:user1:mode:REAL")),
                 any<String>(),
                 eq("2000"),
                 eq("900"),
@@ -80,7 +80,7 @@ class RedisAccountAvailabilitySnapshotAdapterTest {
         verify(exactly = 1) {
             redisTemplate.execute(
                 any<RedisScript<Long>>(),
-                eq(listOf("account:availability:REAL:user1")),
+                eq(listOf("account:availability:user:user1:mode:REAL")),
                 any<String>(),
                 eq("2000"),
                 eq("900"),

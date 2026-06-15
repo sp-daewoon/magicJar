@@ -265,7 +265,7 @@ class KisAuthAdapterMutexTest {
             .`as`("단일 thread cache miss 시 tokenP 1회 호출")
             .isEqualTo(1)
         // Redis set 호출 검증 — cacheKey에 토큰 저장
-        val cacheKey = "kis:token:user1:${AccountType.REAL.name}"
+        val cacheKey = "kis:oauth:token:user:user1:account:${AccountType.REAL.name}"
         assertThat(setCalls.any { (k, v) -> k == cacheKey && v == "issued-token" })
             .`as`("발급 토큰이 Redis cache key=$cacheKey 에 저장되어야 함")
             .isTrue()

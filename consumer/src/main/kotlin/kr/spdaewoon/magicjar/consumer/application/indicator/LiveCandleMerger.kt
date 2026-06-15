@@ -17,7 +17,7 @@ import kotlinx.datetime.Instant as KtInstant
  * 백테스트/실시간 평가 모두 IndicatorEngine.calculate에 도달하는 candles list 마지막 row가
  * DB에서 마감되지 않은 오늘 1d bar 일 경우 stale close 값을 사용해 BUY/SELL 잘못 발생 risk.
  *
- * frontend 차트 + REST 응답은 [CandleQueryService] 가 Redis `candle:today:{code}:1d` 합류 완료 (PR #425·#426).
+ * frontend 차트 + REST 응답은 [CandleQueryService] 가 Redis `market:candle:session:code:{code}:interval:1d` 합류 완료 (PR #425·#426).
  * strategy-engine IndicatorSource 진입 candles 도 동일 정책 적용해야 sync 일치.
  *
  * ### 합류 패턴 (CandleQueryService line 100~146 1:1 정합)
@@ -79,7 +79,7 @@ class LiveCandleMerger(
     }
 
     /**
-     * Redis `candle:today:{code}:1d` Hash 읽어 Candle 변환.
+     * Redis `market:candle:session:code:{code}:interval:1d` Hash 읽어 Candle 변환.
      * 파싱 실패·Redis 미응답 시 null (graceful fallback).
      */
     private fun readCandleToday(code: String): Candle? {

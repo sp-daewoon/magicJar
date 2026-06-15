@@ -8,8 +8,8 @@ import kr.spdaewoon.magicjar.domain.user.AccountType
  * This object is intentionally dependency-free so api, consumer, batch, and library modules
  * can share Redis key construction without pulling Spring/Redis clients into domain.
  *
- * Current functions return the existing production wire keys. Standard functions expose the
- * recommended convention for gradual copy/dual-read migrations.
+ * Current functions return the standard production wire keys. Legacy wire keys are intentionally
+ * not generated from application paths after the Redis naming cutover.
  */
 object RedisKeyRegistry {
     object Kis {
@@ -21,7 +21,7 @@ object RedisKeyRegistry {
         fun token(
             userId: String,
             accountType: String,
-        ): String = "kis:token:$userId:$accountType"
+        ): String = Standard.token(userId, accountType)
 
         fun tokenLock(
             userId: String,
@@ -31,12 +31,7 @@ object RedisKeyRegistry {
         fun tokenLock(
             userId: String,
             accountType: String,
-        ): String = "kis:token:lock:$userId:$accountType"
-
-        fun legacyAccessToken(
-            userId: String,
-            accountType: String,
-        ): String = "access_token:$userId:$accountType"
+        ): String = Standard.tokenLock(userId, accountType)
 
         fun approval(
             userId: String,
@@ -46,9 +41,7 @@ object RedisKeyRegistry {
         fun approval(
             userId: String,
             accountType: String,
-        ): String = "kis:approval:$userId:$accountType"
-
-        fun approvalLegacyUserOnly(userId: String): String = "kis:approval:$userId"
+        ): String = Standard.approval(userId, accountType)
 
         fun approvalLock(
             userId: String,
@@ -58,12 +51,12 @@ object RedisKeyRegistry {
         fun approvalLock(
             userId: String,
             accountType: String,
-        ): String = "kis:approval:lock:$userId:$accountType"
+        ): String = Standard.approvalLock(userId, accountType)
 
         fun keyChangedLock(
             userId: String,
             accountType: String,
-        ): String = "kis:key-changed-lock:$userId:$accountType"
+        ): String = Standard.keyChangedLock(userId, accountType)
 
         object Standard {
             fun token(
@@ -102,7 +95,7 @@ object RedisKeyRegistry {
         fun balance(
             userId: String,
             accountType: String,
-        ): String = "account:balance:$userId:$accountType"
+        ): String = Standard.balance(userId, accountType)
 
         fun balanceLock(
             userId: String,
@@ -112,14 +105,14 @@ object RedisKeyRegistry {
         fun balanceLock(
             userId: String,
             accountType: String,
-        ): String = "account:balance:lock:$userId:$accountType"
+        ): String = Standard.balanceLock(userId, accountType)
 
         fun availability(
             mode: String,
             userId: String,
-        ): String = "account:availability:$mode:$userId"
+        ): String = Standard.availability(userId, mode)
 
-        fun currentPosition(userId: String): String = "position:current:$userId"
+        fun currentPosition(userId: String): String = Standard.currentPosition(userId)
 
         object Standard {
             fun balance(
@@ -142,29 +135,47 @@ object RedisKeyRegistry {
     }
 
     object Market {
-        fun quoteLast(code: String): String = "quote:last:$code"
+        fun quoteLast(code: String): String = Standard.quoteLast(code)
 
-        fun orderbookTop(code: String): String = "orderbook:top:$code"
+        fun orderbookTop(code: String): String = Standard.orderbookTop(code)
 
         fun candleCurrent(
             code: String,
             interval: String,
-        ): String = "candle:current:$code:$interval"
+        ): String = Standard.candleCurrent(code, interval)
 
-        fun candleToday1d(code: String): String = "candle:today:$code:1d"
+        fun candleToday1d(code: String): String = Standard.candleToday1d(code)
 
-        fun candleToday1dPattern(): String = "candle:today:*:1d"
+        fun candleToday1dPattern(): String = "market:candle:session:code:*:interval:1d"
 
         fun codeFromCandleToday1dKey(key: String): String? {
-            val prefix = "candle:today:"
-            val suffix = ":1d"
-            if (!key.startsWith(prefix) || !key.endsWith(suffix)) return null
-            return key.removePrefix(prefix).removeSuffix(suffix).takeIf { it.isNotBlank() }
+            val standardPrefix = "market:candle:session:code:"
+            val standardSuffix = ":interval:1d"
+            if (key.startsWith(standardPrefix) && key.endsWith(standardSuffix)) {
+                return key.removePrefix(standardPrefix).removeSuffix(standardSuffix).takeIf { it.isNotBlank() }
+            }
+
+            val legacyPrefix = "candle:today:"
+            val legacySuffix = ":1d"
+            if (key.startsWith(legacyPrefix) && key.endsWith(legacySuffix)) {
+                return key.removePrefix(legacyPrefix).removeSuffix(legacySuffix).takeIf { it.isNotBlank() }
+            }
+            return null
         }
 
-        fun symbolMeta(code: String): String = "meta:$code"
+        fun symbolMeta(code: String): String = Standard.symbolMeta(code)
 
-        fun sessionCurrent(): String = "session:cache:current"
+        fun sessionCurrent(): String = Standard.sessionCurrent()
+
+        fun candleBackfillMiss(
+            code: String,
+            interval: String,
+        ): String = Standard.candleBackfillMiss(code, interval)
+
+        fun candleBackfillUnrecoverable(
+            code: String,
+            interval: String,
+        ): String = Standard.candleBackfillUnrecoverable(code, interval)
 
         object Standard {
             fun quoteLast(code: String): String = "market:quote:last:code:$code"
@@ -181,6 +192,16 @@ object RedisKeyRegistry {
             fun symbolMeta(code: String): String = "market:symbol:meta:code:$code"
 
             fun sessionCurrent(): String = "market:session:current"
+
+            fun candleBackfillMiss(
+                code: String,
+                interval: String,
+            ): String = "market:candle:backfill:miss:code:$code:interval:$interval"
+
+            fun candleBackfillUnrecoverable(
+                code: String,
+                interval: String,
+            ): String = "market:candle:backfill:unrecoverable:code:$code:interval:$interval"
         }
     }
 
@@ -188,9 +209,9 @@ object RedisKeyRegistry {
         fun activeByCode(
             code: String,
             interval: String,
-        ): String = "strategy:active:by_code:$code:$interval"
+        ): String = Standard.activeByCode(code, interval)
 
-        fun activeByCodePattern(): String = "strategy:active:by_code:*"
+        fun activeByCodePattern(): String = "strategy:active:code:*:interval:*"
 
         object Standard {
             fun activeByCode(
@@ -206,7 +227,7 @@ object RedisKeyRegistry {
             code: String,
             interval: String,
             tsEpochSeconds: Long,
-        ): String = "signal:dedupe:$strategyId:$code:$interval:$tsEpochSeconds"
+        ): String = Standard.dedupe(strategyId, code, interval, tsEpochSeconds)
 
         object Standard {
             fun dedupe(
@@ -223,12 +244,12 @@ object RedisKeyRegistry {
             strategyId: Long,
             userId: String,
             window: String,
-        ): String = "risk:trade-freq:$strategyId:$userId:$window"
+        ): String = Standard.tradeFrequency(userId, strategyId, window)
 
         fun dailyPnl(
             userId: String,
             date: String,
-        ): String = "daily_pnl:$userId:$date"
+        ): String = Standard.dailyPnl(userId, date)
 
         object Standard {
             fun tradeFrequency(
@@ -249,17 +270,17 @@ object RedisKeyRegistry {
 
         fun searchPrefixPattern(): String = "instrument:search:prefix:*"
 
-        fun byCode(code: String): String = "instrument:by-code:$code"
+        fun byCode(code: String): String = Standard.byCode(code)
 
-        fun byCodePattern(): String = "instrument:by-code:*"
+        fun byCodePattern(): String = "instrument:summary:code:*"
 
-        fun list(market: String): String = "instrument:list:$market"
+        fun list(market: String): String = Standard.list(market)
 
-        fun listPattern(): String = "instrument:list:*"
+        fun listPattern(): String = "instrument:list:market:*"
 
-        fun syncRunning(): String = "instrument:sync:running"
+        fun syncRunning(): String = Standard.syncRunning()
 
-        fun syncLastAt(): String = "instrument:sync:lastAt"
+        fun syncLastAt(): String = Standard.syncLastAt()
 
         object Standard {
             fun searchPrefix(prefix: String): String = "instrument:search:prefix:$prefix"
@@ -275,14 +296,14 @@ object RedisKeyRegistry {
     }
 
     object Indicator {
-        fun resultPattern(code: String): String = "indicator:cache:$code:*"
+        fun resultPattern(code: String): String = "indicator:result:code:$code:*"
 
         fun result(
             code: String,
             interval: String,
             name: String,
             paramsHash: String,
-        ): String = "indicator:cache:$code:$interval:$name:$paramsHash"
+        ): String = Standard.result(code, interval, name, paramsHash)
 
         fun resultWithRange(
             code: String,
@@ -290,7 +311,7 @@ object RedisKeyRegistry {
             name: String,
             paramsHash: String,
             rangeHash: String,
-        ): String = "indicator:cache:$code:$interval:$name:$paramsHash:$rangeHash"
+        ): String = Standard.resultWithRange(code, interval, name, paramsHash, rangeHash)
 
         object Standard {
             fun result(
@@ -315,7 +336,7 @@ object RedisKeyRegistry {
             code: String,
             interval: String,
             patternsHash: String,
-        ): String = "pattern:cache:$code:$interval:$patternsHash"
+        ): String = Standard.result(code, interval, patternsHash)
 
         object Standard {
             fun result(
@@ -327,22 +348,22 @@ object RedisKeyRegistry {
     }
 
     object Performance {
-        fun summaryPattern(userId: String): String = "perf:summary:$userId:*"
+        fun summaryPattern(userId: String): String = "performance:summary:user:$userId:*"
 
         fun summary(
             userId: String,
             period: String,
             periodStart: String,
             periodEnd: String,
-        ): String = "perf:summary:$userId:$period:$periodStart:$periodEnd"
+        ): String = Standard.summary(userId, period, periodStart, periodEnd)
 
-        fun equityPattern(userId: String): String = "perf:equity:$userId:*"
+        fun equityPattern(userId: String): String = "performance:equity:user:$userId:*"
 
         fun equity(
             userId: String,
             from: String,
             to: String,
-        ): String = "perf:equity:$userId:$from:$to"
+        ): String = Standard.equity(userId, from, to)
 
         object Standard {
             fun summary(
@@ -364,7 +385,12 @@ object RedisKeyRegistry {
         fun lock(
             userId: String,
             strategyId: Long,
-        ): String = "screener:lock:$userId:$strategyId"
+        ): String = Standard.lock(userId, strategyId)
+
+        fun result(
+            dslHash: String,
+            universeFilterHash: String,
+        ): String = Standard.result(dslHash, universeFilterHash)
 
         fun daytrade(
             preset: String,
@@ -372,9 +398,14 @@ object RedisKeyRegistry {
             interval: String,
             limit: Int,
             tradingDay: String,
-        ): String = "screener:daytrade:$preset:$filterHash:$interval:$limit:$tradingDay"
+        ): String = Standard.daytrade(preset, filterHash, interval, limit, tradingDay)
 
         object Standard {
+            fun result(
+                dslHash: String,
+                universeFilterHash: String,
+            ): String = "screener:result:dsl:$dslHash:universe:$universeFilterHash"
+
             fun lock(
                 userId: String,
                 strategyId: Long,
@@ -391,11 +422,11 @@ object RedisKeyRegistry {
     }
 
     object News {
-        fun naverRateLimit(): String = "news:ratelimit:naver"
+        fun naverRateLimit(): String = Standard.naverRateLimit()
 
-        fun urlDedup(urlHash: String): String = "news:dedup:url:$urlHash"
+        fun urlDedup(urlHash: String): String = Standard.urlDedup(urlHash)
 
-        fun disclosureDedup(rceptNo: String): String = "news:dedup:rcept:$rceptNo"
+        fun disclosureDedup(rceptNo: String): String = Standard.disclosureDedup(rceptNo)
 
         object Standard {
             fun naverRateLimit(): String = "news:ratelimit:provider:naver"
@@ -406,23 +437,31 @@ object RedisKeyRegistry {
         }
     }
 
+    object Ai {
+        fun promptCache(promptHash: String): String = Standard.promptCache(promptHash)
+
+        object Standard {
+            fun promptCache(promptHash: String): String = "ai:prompt:cache:sha256:$promptHash"
+        }
+    }
+
     object Notification {
-        fun eventDedup(eventId: String): String = "notification:dedup:$eventId"
+        fun eventDedup(eventId: String): String = Standard.eventDedup(eventId)
 
         fun orderDedup(
             userId: String,
             orderId: String,
-        ): String = "notification:dedup:order:$userId:$orderId"
+        ): String = Standard.orderDedup(userId, orderId)
 
         fun rateLimit(
             userId: String,
             topicHash: String,
-        ): String = "notification:ratelimit:$userId:$topicHash"
+        ): String = Standard.rateLimit(userId, topicHash)
 
         fun once(
             userId: String,
             topicHash: String,
-        ): String = "notification:once:$userId:$topicHash"
+        ): String = Standard.once(userId, topicHash)
 
         object Standard {
             fun eventDedup(eventId: String): String = "notification:dedup:event:$eventId"
@@ -445,11 +484,11 @@ object RedisKeyRegistry {
     }
 
     object Ops {
-        fun realtimeStatus(): String = "admin:realtime-status"
+        fun realtimeStatus(): String = Standard.realtimeStatus()
 
-        fun watchlistSource(userId: String): String = "watchlist:source:$userId"
+        fun watchlistSource(userId: String): String = Standard.watchlistSource(userId)
 
-        fun watchlistSourcePattern(): String = "watchlist:source:*"
+        fun watchlistSourcePattern(): String = "ops:watchlist:source:user:*"
 
         object Standard {
             fun realtimeStatus(): String = "ops:realtime:status"
@@ -459,9 +498,9 @@ object RedisKeyRegistry {
     }
 
     object Reconcile {
-        fun lock(userId: String): String = "reconcile:lock:$userId"
+        fun lock(userId: String): String = Standard.lock(userId)
 
-        fun lastRun(userId: String): String = "reconcile:lastrun:$userId"
+        fun lastRun(userId: String): String = Standard.lastRun(userId)
 
         object Standard {
             fun lock(userId: String): String = "reconcile:user:$userId:lock"
@@ -469,64 +508,4 @@ object RedisKeyRegistry {
             fun lastRun(userId: String): String = "reconcile:user:$userId:last-run"
         }
     }
-
-    /**
-     * Copy-only migration candidates. Critical trading keys are deliberately excluded even if
-     * they have no TTL; a missing TTL on those keys is an incident to investigate, not a key
-     * naming migration to automate.
-     */
-    val noTtlCopyMigrationRules: List<RedisKeyMigrationRule> =
-        listOf(
-            RedisKeyMigrationRule(
-                name = "instrument.by-code",
-                legacyPattern = Instrument.byCodePattern(),
-                legacyRegex = Regex("""^instrument:by-code:([^:]+)$"""),
-                standardKey = { Instrument.Standard.byCode(it.groupValues[1]) },
-            ),
-            RedisKeyMigrationRule(
-                name = "instrument.list",
-                legacyPattern = Instrument.listPattern(),
-                legacyRegex = Regex("""^instrument:list:([^:]+)$"""),
-                standardKey = { Instrument.Standard.list(it.groupValues[1]) },
-            ),
-            RedisKeyMigrationRule(
-                name = "instrument.sync.last-at",
-                legacyPattern = Instrument.syncLastAt(),
-                legacyRegex = Regex("""^instrument:sync:lastAt$"""),
-                standardKey = { Instrument.Standard.syncLastAt() },
-            ),
-            RedisKeyMigrationRule(
-                name = "market.symbol.meta",
-                legacyPattern = "meta:*",
-                legacyRegex = Regex("""^meta:([^:]+)$"""),
-                standardKey = { Market.Standard.symbolMeta(it.groupValues[1]) },
-            ),
-            RedisKeyMigrationRule(
-                name = "market.session.current",
-                legacyPattern = Market.sessionCurrent(),
-                legacyRegex = Regex("""^session:cache:current$"""),
-                standardKey = { Market.Standard.sessionCurrent() },
-            ),
-            RedisKeyMigrationRule(
-                name = "ops.realtime.status",
-                legacyPattern = Ops.realtimeStatus(),
-                legacyRegex = Regex("""^admin:realtime-status$"""),
-                standardKey = { Ops.Standard.realtimeStatus() },
-            ),
-            RedisKeyMigrationRule(
-                name = "ops.watchlist.source",
-                legacyPattern = Ops.watchlistSourcePattern(),
-                legacyRegex = Regex("""^watchlist:source:([^:]+)$"""),
-                standardKey = { Ops.Standard.watchlistSource(it.groupValues[1]) },
-            ),
-        )
-}
-
-data class RedisKeyMigrationRule(
-    val name: String,
-    val legacyPattern: String,
-    val legacyRegex: Regex,
-    val standardKey: (MatchResult) -> String,
-) {
-    fun targetFor(legacyKey: String): String? = legacyRegex.matchEntire(legacyKey)?.let(standardKey)
 }

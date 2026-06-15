@@ -71,7 +71,7 @@ class TradeFrequencyRedisGuardTest {
                 .toEpochSecond()
                 .toDouble()
         // day 키 trim 하한 capture (minute 키 trim 과 구분하기 위해 day 키 패턴만 검증).
-        val dayKey = "risk:trade-freq:8:user-A:day"
+        val dayKey = "risk:trade-frequency:user:user-A:strategy:8:window:day"
         val trimSlot = slot<Double>()
         every { zops.removeRangeByScore(dayKey, 0.0, capture(trimSlot)) } returns 0L
 
@@ -86,8 +86,8 @@ class TradeFrequencyRedisGuardTest {
     fun `removeRecord — minute 와 day 카운트에서 signalId 를 제거`() {
         guard.removeRecord(strategyId = 8L, userId = "user-A", signalId = 77L)
 
-        verify { zops.remove("risk:trade-freq:8:user-A:minute", "77") }
-        verify { zops.remove("risk:trade-freq:8:user-A:day", "77") }
+        verify { zops.remove("risk:trade-frequency:user:user-A:strategy:8:window:minute", "77") }
+        verify { zops.remove("risk:trade-frequency:user:user-A:strategy:8:window:day", "77") }
     }
 
     @Test

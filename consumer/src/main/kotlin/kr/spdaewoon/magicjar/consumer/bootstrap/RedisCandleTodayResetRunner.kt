@@ -10,15 +10,15 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 
 /**
- * 부팅 시 Redis candle:today:{code}:1d HASH stale reset ApplicationRunner.
+ * 부팅 시 Redis market:candle:session:code:{code}:interval:1d HASH stale reset ApplicationRunner.
  *
  * 문제:
- *   - candle:today:{code}:1d TTL = 24h → Consumer down 후 24h 내 재기동 시 stale HASH 잔존.
+ *   - market:candle:session:code:{code}:interval:1d TTL = 24h → Consumer down 후 24h 내 재기동 시 stale HASH 잔존.
  *   - 재기동 후 첫 tick 도착 → KisWebSocketBridge.updateCandleToday 가 stale HASH 위에 누적.
  *   - open 필드 = down 직전 close 값으로 stuck → 당일 1d candle open 부정확.
  *
  * 해결:
- *   - 부팅 시 watchlist 모든 종목의 candle:today:{code}:1d 키 DEL.
+ *   - 부팅 시 watchlist 모든 종목의 market:candle:session:code:{code}:interval:1d 키 DEL.
  *   - 다음 tick 도착 시 KisWebSocketBridge.updateCandleToday 가 fresh open으로 정상 누적.
  *
  * 실행 순서: @Order(5) — PositionBootstrapRunner(default @Order) 이후,

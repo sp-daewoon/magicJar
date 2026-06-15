@@ -23,13 +23,13 @@ import kotlin.concurrent.withLock
  * api 어댑터 다수가 중복 구현하던 토큰 lookup 로직을 단일 helper로 통합한다.
  * - 기존: ApiKisBalanceQueryAdapter·KisRestPriceMetricsAdapter·CandleRefreshService 각자 발급
  * - 결함: KisRestPriceMetricsAdapter·CandleRefreshService는 `access_token:` prefix (consumer/Balance는 `kis:token:`) → cache miss 폭증 → KIS EGW00133/EGW00201 502
- * - 본 helper: 단일 `kis:token:{userId}:{accountType}` prefix LOCK (T-1)
+ * - 본 helper: 단일 `kis:oauth:token:user:{userId}:account:{accountType}` prefix LOCK (T-1)
  *
  * ### 분산락 정합 (ADR 0038 — consumer KisAuthAdapter 패턴 적용)
  * - 1) Redis cache hit → 즉시 반환 (lock 없이 fast path)
  * - 2) cache miss → in-process ReentrantLock 획득 (per userId:accountType)
  *   - 2a) lock 안에서 Redis double-check
- *   - 2b) Redis SETNX 분산락 `kis:token:lock:{userId}:{accountType}` (TTL 30s)
+ *   - 2b) Redis SETNX 분산락 `kis:oauth:token:user:{userId}:account:{accountType}:lock` (TTL 30s)
  *     - 획득 성공 → KIS /oauth2/tokenP 발급 → cache write → unlock
  *     - 획득 실패 → spinWait 후 cache 재조회 (다중 JVM 안전)
  *
@@ -40,8 +40,8 @@ import kotlin.concurrent.withLock
  *
  * ### prefix 통합 효과 (T-1·T-2)
  * - consumer `KisAuthAdapter` + consumer `SystemKisKeyChangedListener` + api `ApiKisBalanceQueryAdapter`
- *   모두 동일 `kis:token:` prefix 사용 → 단일 진실원
- * - api `KisCacheInvalidator` (T-2)는 전환기 안전망으로 두 prefix 모두 DEL
+ *   모두 동일 `kis:oauth:token:` prefix 사용 → 단일 진실원
+ * - api `KisCacheInvalidator` (T-2)는 표준 token/approval 키만 DEL
  *
  * ### 자격증명 우선순위
  * 사용자 요청 시 REAL 우선 → MOCK fallback. 호출자가 명시한 [AccountType] 우선.
@@ -99,7 +99,7 @@ class KisTokenCacheHelper(
      * appKey/secretKey 도 필요하면 [resolveTokenAndKeys] 사용.
      *
      * 빈 userId 차단 (P0 hotfix 2026-05-20 — backend-core):
-     *   evidence — Redis `kis:token::REAL` `kis:token::MOCK` cache pollution + cross-user leak risk.
+     *   evidence — 빈 userId token cache pollution + cross-user leak risk.
      *   caller 결함 (예: CandleRefreshService.resolveAccessTokenAndKeys 의 `userId = ""` 명시 path)
      *   입구에서 fail-fast — 호출자가 명시적 userId 전달하도록 강제.
      */
@@ -109,7 +109,7 @@ class KisTokenCacheHelper(
     ): String {
         require(userId.isNotBlank()) {
             "KIS getAccessToken userId 빈 문자열 차단 — caller 결함 " +
-                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk)"
+                "(cache key '${tokenKey("", accountType)}' pollution + cross-user leak risk)"
         }
         return resolveTokenAndKeys(userId, accountType).first
     }
@@ -121,7 +121,7 @@ class KisTokenCacheHelper(
      *   evidence — REAL dashboard 진입 시 GET /api/account/positions 502 무한 폭주.
      *   Redis TTL 살아있어 helper fast path(line 187 readCache)가 stale 토큰 무한 재사용 →
      *   `body={"msg_cd":"EGW00123","msg1":"기간이 만료된 token 입니다."}` 20+ 회 반복.
-     *   수동 `redis-cli DEL "kis:token:74683223:REAL"` 후에야 신규 발급 + 정상 응답 복귀.
+     *   수동 token cache DEL 후에야 신규 발급 + 정상 응답 복귀.
      *
      * 본 API 호출 → 다음 getAccessToken 호출에서 cache miss → 분산락 보호 하에 신규 발급.
      * 분산락(lock key)은 건드리지 않음 — 진행 중 발급이 있다면 그쪽이 완료 후 신규 토큰을 cache에 write.
@@ -158,7 +158,7 @@ class KisTokenCacheHelper(
     ): Triple<String, String, String> {
         require(userId.isNotBlank()) {
             "KIS resolveTokenAndKeys userId 빈 문자열 차단 — caller 결함 " +
-                "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk)"
+                "(cache key '${tokenKey("", accountType)}' pollution + cross-user leak risk)"
         }
         val cred = loadCredential(userId, accountType)
         var appKey: ByteArray? = null
@@ -183,7 +183,7 @@ class KisTokenCacheHelper(
      *
      * P0 hotfix 2026-05-20 (backend-core): "DB 첫 번째 row" fallback 폐기.
      *   - 기존: userId 매칭 실패 시 첫 row 반환 → cross-user 토큰 leak root cause
-     *     (빈 userId 흘려도 첫 row credential 로 KIS tokenP 발급 + cache key `kis:token::REAL` 저장)
+     *     (빈 userId 흘려도 첫 row credential 로 KIS tokenP 발급 + 오염 cache key 저장)
      *   - 신규: 정확 매칭 실패 시 IllegalStateException — 사용자별 자격증명 엄격 분리
      */
     private fun loadCredential(

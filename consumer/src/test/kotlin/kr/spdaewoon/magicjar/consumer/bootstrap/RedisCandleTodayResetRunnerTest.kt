@@ -12,7 +12,7 @@ import org.springframework.data.redis.core.StringRedisTemplate
 /**
  * RedisCandleTodayResetRunner 단위 테스트.
  *
- * 테스트 1: watchlist 종목 존재 → 각 종목 candle:today:{code}:1d DEL 호출 검증
+ * 테스트 1: watchlist 종목 존재 → 각 종목 market:candle:session:code:{code}:interval:1d DEL 호출 검증
  * 테스트 2: watchlist 빈 경우 → DEL 호출 없이 graceful return
  */
 class RedisCandleTodayResetRunnerTest {
@@ -37,15 +37,15 @@ class RedisCandleTodayResetRunnerTest {
             )
         every { watchlistJpaRepository.findAllByOrderByPriorityAscCreatedAtDesc() } returns entries
         // 첫 번째 종목: 키 존재 → true, 나머지: 키 없음 → false
-        every { redisTemplate.delete("candle:today:005930:1d") } returns true
-        every { redisTemplate.delete("candle:today:000660:1d") } returns false
-        every { redisTemplate.delete("candle:today:035720:1d") } returns false
+        every { redisTemplate.delete("market:candle:session:code:005930:interval:1d") } returns true
+        every { redisTemplate.delete("market:candle:session:code:000660:interval:1d") } returns false
+        every { redisTemplate.delete("market:candle:session:code:035720:interval:1d") } returns false
 
         runner.run(args)
 
-        verify(exactly = 1) { redisTemplate.delete("candle:today:005930:1d") }
-        verify(exactly = 1) { redisTemplate.delete("candle:today:000660:1d") }
-        verify(exactly = 1) { redisTemplate.delete("candle:today:035720:1d") }
+        verify(exactly = 1) { redisTemplate.delete("market:candle:session:code:005930:interval:1d") }
+        verify(exactly = 1) { redisTemplate.delete("market:candle:session:code:000660:interval:1d") }
+        verify(exactly = 1) { redisTemplate.delete("market:candle:session:code:035720:interval:1d") }
     }
 
     @Test

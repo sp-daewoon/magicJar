@@ -150,7 +150,7 @@ class CandleQueryServiceLimitClampTest {
         whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
         whenever(hashOps.entries(any())).thenReturn(emptyMap())
-        whenever(valueOps.get("quote:last:066570")).thenReturn(
+        whenever(valueOps.get("market:quote:last:code:066570")).thenReturn(
             """{"price":"237000","ts":"2026-05-22T10:59:59Z","source":"live-nxt","priceChange":"2000","changeRate":"0.85","changeSign":"2"}""",
         )
         whenever(repository.findByCodeAndIntervalLatest(any(), any(), any())).thenReturn(
@@ -184,8 +184,8 @@ class CandleQueryServiceLimitClampTest {
         val valueOps = mock<ValueOperations<String, String>>()
         whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
-        whenever(valueOps.get("quote:last:168360")).thenReturn(null)
-        whenever(hashOps.entries("candle:current:168360:1d")).thenReturn(
+        whenever(valueOps.get("market:quote:last:code:168360")).thenReturn(null)
+        whenever(hashOps.entries("market:candle:current:code:168360:interval:1d")).thenReturn(
             mapOf(
                 "ts" to "2026-06-09T15:00:00Z",
                 "startTs" to "2026-06-09T15:00:00Z",
@@ -196,7 +196,7 @@ class CandleQueryServiceLimitClampTest {
                 "volume" to "1",
             ),
         )
-        whenever(hashOps.entries("candle:today:168360:1d")).thenReturn(
+        whenever(hashOps.entries("market:candle:session:code:168360:interval:1d")).thenReturn(
             mapOf(
                 "ts" to "2026-06-09T15:00:00Z",
                 "startTs" to "2026-06-09T15:00:00Z",
@@ -244,7 +244,7 @@ class CandleQueryServiceLimitClampTest {
             whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
             whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
             whenever(hashOps.entries(any())).thenReturn(emptyMap())
-            whenever(valueOps.get("quote:last:066570")).thenReturn(
+            whenever(valueOps.get("market:quote:last:code:066570")).thenReturn(
                 """{"price":"293000","ts":"2026-05-29T10:59:54Z","source":"live-nxt","priceChange":"67500","changeRate":"29.93","changeSign":"1"}""",
             )
             whenever(repository.findByCodeAndIntervalLatest(eq("066570"), eq(interval), any())).thenReturn(
@@ -295,7 +295,7 @@ class CandleQueryServiceLimitClampTest {
         whenever(redisTemplate.opsForHash<String, String>()).thenReturn(hashOps)
         whenever(redisTemplate.opsForValue()).thenReturn(valueOps)
         whenever(hashOps.entries(any())).thenReturn(emptyMap())
-        whenever(valueOps.get("quote:last:066570")).thenReturn(
+        whenever(valueOps.get("market:quote:last:code:066570")).thenReturn(
             """{"price":"293000","ts":"2026-05-29T10:59:54Z","source":"live-nxt","priceChange":"67500","changeRate":"29.93","changeSign":"1"}""",
         )
         whenever(repository.findByCodeAndIntervalLatest(eq("066570"), eq("1wk"), any())).thenReturn(

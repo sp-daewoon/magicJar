@@ -71,14 +71,14 @@ class RedisScreenerCacheAdapterTest {
                 ),
             elapsedMs = 1234L,
             cacheHit = cacheHit,
-            cacheKey = "screener:cache:abc:xyz",
+            cacheKey = "screener:result:dsl:abc:universe:xyz",
         )
 
     // ── 1. put ────────────────────────────────────────────────────────
 
     @Test
     fun `put — Redis SET 호출 + TTL 30분 기본값`() {
-        val cacheKey = "screener:cache:abc:xyz"
+        val cacheKey = "screener:result:dsl:abc:universe:xyz"
         val result = buildResult()
 
         adapter.put(cacheKey, result)
@@ -88,7 +88,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `put — 사용자 지정 TTL 적용`() {
-        val cacheKey = "screener:cache:abc:xyz"
+        val cacheKey = "screener:result:dsl:abc:universe:xyz"
         val result = buildResult()
         val customTtl = Duration.ofMinutes(10)
 
@@ -101,7 +101,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `get HIT — 역직렬화 성공 + cacheHit=true 세팅`() {
-        val cacheKey = "screener:cache:abc:xyz"
+        val cacheKey = "screener:result:dsl:abc:universe:xyz"
         val result = buildResult(cacheHit = false)
         val json = objectMapper.writeValueAsString(result)
         whenever(valueOps.get(cacheKey)).thenReturn(json)
@@ -120,7 +120,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `get MISS — null 반환`() {
-        val cacheKey = "screener:cache:unknown:key"
+        val cacheKey = "screener:result:dsl:unknown:universe:key"
         whenever(valueOps.get(cacheKey)).thenReturn(null)
 
         val cached = adapter.get(cacheKey)
@@ -132,7 +132,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `tryLock SETNX — 획득 성공 시 true 반환`() {
-        val lockKey = "screener:lock:1:42"
+        val lockKey = "screener:run:user:1:strategy:42:lock"
         whenever(valueOps.setIfAbsent(eq(lockKey), eq("1"), eq(Duration.ofSeconds(60)))).thenReturn(true)
 
         val acquired = adapter.tryLock(userId = 1L, strategyId = 42L)
@@ -144,7 +144,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `tryLock SETNX — 이미 잠김 시 false 반환`() {
-        val lockKey = "screener:lock:1:42"
+        val lockKey = "screener:run:user:1:strategy:42:lock"
         whenever(valueOps.setIfAbsent(eq(lockKey), eq("1"), eq(Duration.ofSeconds(60)))).thenReturn(false)
 
         val acquired = adapter.tryLock(userId = 1L, strategyId = 42L)
@@ -156,7 +156,7 @@ class RedisScreenerCacheAdapterTest {
 
     @Test
     fun `releaseLock — Redis DELETE 호출`() {
-        val lockKey = "screener:lock:1:42"
+        val lockKey = "screener:run:user:1:strategy:42:lock"
 
         adapter.releaseLock(userId = 1L, strategyId = 42L)
 
