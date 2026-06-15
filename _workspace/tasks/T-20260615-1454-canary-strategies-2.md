@@ -3,10 +3,10 @@ id: T-20260615-1454-canary-strategies-2
 agent: strategy
 model: opus
 branch: agent/strategy/canary-strategies-2
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T14:54:30.081+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-15T15:10:54.250+09:00
+pr: #989
 parentPhase: ?
 ---
 
