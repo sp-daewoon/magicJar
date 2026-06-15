@@ -228,6 +228,23 @@ class ConsumerCandleRepositoryAdapter(
         return deleted
     }
 
+    /**
+     * 정확히 (code, interval, ts) 1행 삭제 — ADR 0118 R-BF amend (2026-06-15 특정 날짜 1d 정밀 복구).
+     * 손상 0값 row 가 KIS range 미보유(무거래·거래정지)여서 DO UPDATE 로 덮을 수 없을 때 그 정확한 1행만 제거.
+     */
+    @Transactional
+    override fun deleteByCodeAndIntervalAndTs(
+        code: String,
+        interval: CandleInterval,
+        ts: Instant,
+    ): Int {
+        val deleted = candleJpaRepository.deleteByCodeAndIntervalAndTs(code, interval.code, ts)
+        if (deleted > 0) {
+            log.debug("candle 정확 ts 삭제 (consumer): code={} interval={} ts={} deleted={}", code, interval.code, ts, deleted)
+        }
+        return deleted
+    }
+
     private fun ConsumerCandleJpaEntity.toDomain(interval: CandleInterval): Candle =
         Candle(
             id = id,

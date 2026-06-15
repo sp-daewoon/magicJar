@@ -141,4 +141,31 @@ interface CandleRepository {
         bucketEnd: Instant,
         keepTs: Instant,
     ): Int = 0
+
+    /**
+     * 정확히 (code, interval, ts) 1행 삭제 — ADR 0118 R-BF amend (2026-06-15 특정 날짜 1d 정밀 복구).
+     *
+     * ## 왜 필요한가 — 손상 row가 KIS range 미보유여서 DO UPDATE 로 덮을 수 없는 경우
+     *   06-12 장전 멀티시세 0값 오염 row(open/high/low ≤0·volume=0) 를 KIS daily range 로 재fetch 했을 때,
+     *   해당 종목·날짜가 실제 무거래/거래정지/신규상장 직전이라 KIS 가 그 날짜 봉을 0건 반환하면 upsert 대상이
+     *   없다. 그러면 손상 0값 row 가 그대로 잔존한다(mock 합성 0 — 가짜값 채우기 금지). 손상 잔존을 막기 위해
+     *   그 정확한 1행을 삭제(차트·지표가 0값 봉을 그리지 않도록)하는 좁은 경로가 필요하다.
+     *
+     * ## 삭제 안전 제약 (광역 DELETE 금지 — 정확 키 매칭)
+     *   삭제 대상은 `code=? AND interval=? AND ts=?` 정확 1행뿐(범위·LIKE·IN 없음). 다른 날짜·다른 interval·
+     *   다른 종목은 절대 건드리지 않는다. 호출자(날짜 타겟 복구)가 대상 날짜의 정확한 KST 자정 ts 로만 호출한다.
+     *
+     * 기본 구현은 no-op(0 반환) — 삭제를 지원하지 않는 조회 어댑터(api) 호환용.
+     * 실제 삭제는 consumer 어댑터가 native DELETE 로 override 한다.
+     *
+     * @param code 종목 코드
+     * @param interval 캔들 인터벌(복구 경로는 1d 고정)
+     * @param ts 삭제할 정확한 ts (대상 날짜 KST 자정 — KIS 1d 봉 앵커 관례 정합)
+     * @return 삭제된 row 수(0 또는 1)
+     */
+    fun deleteByCodeAndIntervalAndTs(
+        code: String,
+        interval: CandleInterval,
+        ts: Instant,
+    ): Int = 0
 }
