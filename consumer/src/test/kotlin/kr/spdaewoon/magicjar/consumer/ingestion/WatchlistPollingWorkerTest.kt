@@ -15,9 +15,13 @@ import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
+import org.springframework.web.reactive.function.client.WebClientRequestException
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
 /**
@@ -192,6 +196,23 @@ class WatchlistPollingWorkerTest {
         verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
     }
 
+    @Test
+    fun `KIS request failure 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
+        // given
+        worker.add("000660")
+        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws requestFailureException()
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
+
+        // when
+        worker.tick()
+        worker.tick()
+
+        // then — connection prematurely closed 류 요청 실패도 KIS 불안정으로 보고 slice 중단 + cooldown.
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
+        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
+    }
+
     private fun rateLimitException(): WebClientResponseException =
         WebClientResponseException.create(
             HttpStatus.INTERNAL_SERVER_ERROR.value(),
@@ -199,5 +220,13 @@ class WatchlistPollingWorkerTest {
             org.springframework.http.HttpHeaders.EMPTY,
             """{"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다."}""".toByteArray(),
             StandardCharsets.UTF_8,
+        )
+
+    private fun requestFailureException(): WebClientRequestException =
+        WebClientRequestException(
+            RuntimeException("Connection prematurely closed BEFORE response"),
+            HttpMethod.GET,
+            URI.create("https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price"),
+            HttpHeaders.EMPTY,
         )
 }

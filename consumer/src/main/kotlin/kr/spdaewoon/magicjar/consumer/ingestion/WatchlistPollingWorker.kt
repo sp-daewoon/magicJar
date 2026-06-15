@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClientRequestException
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.util.concurrent.ConcurrentHashMap
 
@@ -27,8 +28,9 @@ import java.util.concurrent.ConcurrentHashMap
  * - **round-robin slice**: 5초 tick 마다 전체 pool 이 아니라 `max-codes-per-tick` 개만 순환 조회한다. REAL 세션
  *   실측상 10종목 전량/5초 polling 은 KIS `EGW00201` 을 지속 유발했고, USER bucket 과 경합해 잔고조회
  *   `EGW00215` 까지 밀었다. watchlist 는 매매 WS 경로가 아니므로 신선도보다 KIS quota 보호가 우선이다.
- * - **rate-limit cooldown**: KIS 가 rate-limit 를 응답하거나 로컬 limiter acquire 가 timeout 되면 즉시 남은
- *   slice 를 중단하고 짧은 cooldown 동안 skip 한다. 이미 초과 상태인 KIS 에 재시도 폭탄을 더 얹지 않는다.
+ * - **cooldown**: KIS 가 rate-limit 를 응답하거나 로컬 limiter acquire 가 timeout 되면 즉시 남은 slice 를
+ *   중단하고 짧은 cooldown 동안 skip 한다. `Connection prematurely closed` 같은 KIS 연결 실패도 같은 방식으로
+ *   보수 처리한다. 이미 불안정한 KIS 에 재시도 폭탄을 더 얹지 않는다.
  * - **주기 자동 완화**: `@Scheduled(fixedDelay)` — 이전 tick 완료 후 5초 대기. pool 이 커서 한 tick 처리가
  *   5초를 넘겨도 다음 tick 이 겹치지 않고 자연히 밀린다(스케줄 폭주 방지).
  * - pool 이 [POOL_WARN_THRESHOLD] 초과 시 1회 WARN — 운영자가 watchlist 비대화를 인지하도록.
@@ -163,7 +165,10 @@ class WatchlistPollingWorker(
                 }
                 log.warn("polling fetch 실패: code={} err={}", code, e.message)
             } catch (e: KisRateLimitTimeoutException) {
-                enterRateLimitCooldown(code)
+                enterCooldown(code, "local-acquire-timeout")
+                return
+            } catch (e: WebClientRequestException) {
+                enterCooldown(code, "request-failure")
                 return
             } catch (e: Exception) {
                 log.warn("polling fetch 실패: code={} err={}", code, e.message)
@@ -209,10 +214,18 @@ class WatchlistPollingWorker(
         classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit
 
     private fun enterRateLimitCooldown(code: String) {
+        enterCooldown(code, "kis-rate-limit")
+    }
+
+    private fun enterCooldown(
+        code: String,
+        reason: String,
+    ) {
         val cooldownMs = rateLimitCooldownMs.coerceAtLeast(0)
         rateLimitCooldownUntilMs = System.currentTimeMillis() + cooldownMs
         log.warn(
-            "watchlist polling KIS rate-limit/acquire-timeout — remaining slice 중단 + cooldown: code={} cooldownMs={} poolSize={}",
+            "watchlist polling KIS failure — remaining slice 중단 + cooldown: reason={} code={} cooldownMs={} poolSize={}",
+            reason,
             code,
             cooldownMs,
             pool.size,
