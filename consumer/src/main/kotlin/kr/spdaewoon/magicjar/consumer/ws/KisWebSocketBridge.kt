@@ -41,6 +41,7 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -222,6 +223,12 @@ class KisWebSocketBridge(
 
         private const val NXT_INTEGRATED_OPEN_MIN = CandleSession.NXT_INTEGRATED_OPEN_MIN
         private val NINETY_MIN_BOUNDARY_STARTS = CandleSession.NINETY_MIN_START_MIN.toList()
+
+        /**
+         * 최근 unsubscribe 전송 이력 상한 (결함③ 진단 관측 — [recentUnsubscribes]).
+         * OPSP8997 invalid tr_type 응답 직전 발사된 해제 메시지를 cover할 만큼만(소규모 ring).
+         */
+        private const val UNSUB_HISTORY_MAX = 40
     }
 
     private val log = LoggerFactory.getLogger(KisWebSocketBridge::class.java)
@@ -313,6 +320,27 @@ class KisWebSocketBridge(
      * tick이 다시 들어오면([recordTickReceived]) 제거 → 재무장(다음 stale 시 1회 다시 WARN).
      */
     private val noTickWarned: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * 최근 unsubscribe 전송 이력 (결함③ 진단 관측 전용 — 부작용 0).
+     *
+     * ## 배경 (2026-06-15 REAL 세션 실측)
+     * DETAIL 종목 EXIT/15분 idle 해제 시 H0UNASP0(+10:42엔 H0UNCNT0) unsubscribe가 KIS `OPSP8997
+     * invalid tr_type`(응답 header `tr_id=null`)으로 거부됐다(3회 재현: 10:42 005930, 11:08 326030).
+     * trType 값("0")·`buildSubscribeMessage` 직렬화는 KIS 공식(ccnl_total.py·asking_price_total.py
+     * docstring 해제="0")과 정합 — 즉 trType/직렬화는 원인이 아니다. 응답이 tr_id=null이라 어떤 code/trId
+     * 해제가 거부됐는지 추적이 불가했다.
+     *
+     * ## 이 deque 의 역할
+     * unsubscribe 메시지를 sink emit 직전에 (epochMs, code, trId, trType, rawJson) 으로 기록한다.
+     * OPSP8997 invalid tr_type 응답 수신 시 [dumpRecentUnsubscribesForDiagnosis]가 본 이력을 덤프 →
+     * "직전에 어떤 해제 메시지가 나갔는지 + 그 wire JSON 이 정상인지(동시 emit race로 깨졌는지)"를 눈으로
+     * 확정할 수 있게 한다. 원인이 전송 race로 확정되면 그때 별도 fix.
+     *
+     * ConcurrentLinkedDeque + [UNSUB_HISTORY_MAX] 상한(addLast/pollFirst trim) — emit thread + 수신 thread
+     * 다중 접근 thread-safe. 관측 전용이므로 trim race로 1~2건 오차는 무해.
+     */
+    private val recentUnsubscribes = ConcurrentLinkedDeque<UnsubscribeTrace>()
 
     @Volatile
     private var pollingFallbackActive = AtomicBoolean(false)
@@ -514,7 +542,8 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (session.subscribedCodes.contains(code)) {
-                sendTickSubscribe(approvalKey, code, trType = "0")
+                // 결함③ 진단: emit 직전 전송 원문 로깅 + 이력 기록 (동작은 sendTickSubscribe(trType="0")와 동일).
+                emitUnsubscribeMessage(approvalKey, code, trId = TR_ID_UNIFIED_TICK)
                 slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
                 session.subscribedCodes.remove(code)
                 lastTickAtMsByCode.remove(code)
@@ -606,8 +635,8 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (orderbookSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_ORDERBOOK)
-                sendSink?.tryEmitNext(msg)
+                // 결함③ 진단(H0UNASP0 OPSP8997 주 대상): emit 직전 전송 원문 로깅 + 이력 기록.
+                emitUnsubscribeMessage(approvalKey, code, trId = TR_ID_UNIFIED_ORDERBOOK)
                 orderbookSubscribedCodes.remove(code)
                 slotLedger()?.release(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1
                 log.info("KIS WS orderbook unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
@@ -655,8 +684,8 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (marketStatusSubscribedCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = TR_ID_UNIFIED_MARKET_STATUS)
-                sendSink?.tryEmitNext(msg)
+                // 결함③ 진단: emit 직전 전송 원문 로깅 + 이력 기록.
+                emitUnsubscribeMessage(approvalKey, code, trId = TR_ID_UNIFIED_MARKET_STATUS)
                 marketStatusSubscribedCodes.remove(code)
                 slotLedger()?.release(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
                 log.info("KIS WS market-status unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
@@ -713,8 +742,8 @@ class KisWebSocketBridge(
             }
         codes.forEach { code ->
             if (overtimeSinglePriceCodes.contains(code)) {
-                val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = "H0STOUP0")
-                sendSink?.tryEmitNext(msg)
+                // 결함③ 진단: emit 직전 전송 원문 로깅 + 이력 기록.
+                emitUnsubscribeMessage(approvalKey, code, trId = "H0STOUP0")
                 overtimeSinglePriceCodes.remove(code)
                 log.info("KIS WS unsubscribe: code={} trId=H0STOUP0", code)
             }
@@ -1100,6 +1129,11 @@ class KisWebSocketBridge(
                     // H0STCNI0/9 등 encrypted RealtimeData 처리 시 KisWsAesDecryptor에 위임.
                     extractAndStoreAesKey(parsed.rawJson)
                     log.info("KIS WS 구독 응답: success=true json={}", parsed.rawJson.take(200))
+                } else if (!success && KisWsMessageParser.isOpsp8997InvalidTrType(parsed.rawJson)) {
+                    // 결함③ 진단(2026-06-15): OPSP8997 invalid tr_type — unsubscribe(tr_type "0") 거부.
+                    // 응답 header tr_id=null로 추적 불가 → 최근 unsubscribe 발사 이력을 상관관계 덤프(관측 전용).
+                    // ⚠ trType 값은 KIS 공식 정합(해제="0") 확인됨 — 절대 "2"로 변경 금지(회귀). 이번엔 진단만.
+                    dumpRecentUnsubscribesForDiagnosis(parsed.rawJson)
                 } else if (KisWsMessageParser.isUnsubscribeAck(parsed.rawJson)) {
                     // E-1: unsubscribe ACK 수신 — destroy() 대기 latch 해제
                     // ADR 0076 E-1: destroy() 시 unsubscribe 후 ACK 2s 대기
@@ -2405,6 +2439,84 @@ class KisWebSocketBridge(
                     ),
             ),
         )
+
+    /**
+     * unsubscribe 메시지 sink emit + 전송 원문 로깅 + 이력 기록 (결함③ 진단 관측 — 부작용 0).
+     *
+     * 동작은 기존 `sendSink?.tryEmitNext(buildSubscribeMessage(... trType="0" ...))`와 1:1 동일하다
+     * (같은 sink·같은 메시지). 추가되는 것은:
+     *  1. **전송 원문(JSON) 로깅** — sink emit 직전. 다음 OPSP8997 발생 시 그 wire JSON 이 정상인지/깨졌는지
+     *     (동시 emit race로 corruption 등) 눈으로 확정 가능.
+     *  2. **이력 기록** ([recentUnsubscribes]) — OPSP8997 응답은 header `tr_id=null`이라 추적 불가하므로,
+     *     직전 발사 해제 메시지를 상관관계 덤프([dumpRecentUnsubscribesForDiagnosis])로 남긴다.
+     *
+     * @return tryEmitNext 결과 — 기존 호출부가 결과를 쓰지 않으므로 호환(반환만 추가).
+     */
+    private fun emitUnsubscribeMessage(
+        approvalKey: String,
+        code: String,
+        trId: String,
+    ) {
+        val msg = buildSubscribeMessage(approvalKey, code, trType = "0", trId = trId)
+        // 전송 원문 로깅 — emit 직전(헌법 §11-2 silent 금지). OPSP8997 진단 시 wire 정상 여부 확정 근거.
+        log.info("KIS WS unsubscribe 전송 원문: code={} trId={} trType=0 raw={}", code, trId, msg)
+        recordUnsubscribeTrace(code = code, trId = trId, rawJson = msg)
+        sendSink?.tryEmitNext(msg)
+    }
+
+    /** 최근 unsubscribe 이력 push + 상한 trim (결함③ 진단 — [recentUnsubscribes]). */
+    private fun recordUnsubscribeTrace(
+        code: String,
+        trId: String,
+        rawJson: String,
+    ) {
+        recentUnsubscribes.addLast(
+            UnsubscribeTrace(
+                epochMs = System.currentTimeMillis(),
+                code = code,
+                trId = trId,
+                rawJson = rawJson,
+            ),
+        )
+        // 상한 trim — 관측 전용이므로 race로 1~2건 오차 무해.
+        while (recentUnsubscribes.size > UNSUB_HISTORY_MAX) {
+            recentUnsubscribes.pollFirst() ?: break
+        }
+    }
+
+    /**
+     * OPSP8997 invalid tr_type 수신 시 최근 unsubscribe 이력 덤프 (결함③ 진단 상관관계).
+     *
+     * OPSP8997 응답은 header `tr_id=null`이라 어떤 해제가 거부됐는지 응답만으로는 추적 불가하다.
+     * 직전 [UNSUB_HISTORY_MAX]건 해제 발사 이력(시각·code·trId·전송 원문 JSON)을 함께 찍어
+     * 운영자가 "거부 직전 어떤 메시지가 나갔고 그 JSON 이 정상인지"를 눈으로 잇게 한다.
+     */
+    private fun dumpRecentUnsubscribesForDiagnosis(invalidTrTypeJson: String) {
+        val recent = recentUnsubscribes.toList()
+        log.warn(
+            "KIS WS OPSP8997 invalid tr_type 수신 — 응답 tr_id=null로 추적 불가. 거부 응답 원문(full)={} | 최근 unsubscribe 발사 {}건 상관관계 덤프 시작",
+            invalidTrTypeJson,
+            recent.size,
+        )
+        val now = System.currentTimeMillis()
+        recent.takeLast(UNSUB_HISTORY_MAX).forEach { trace ->
+            log.warn(
+                "KIS WS OPSP8997 상관관계 — {}ms 전 발사: code={} trId={} raw={}",
+                now - trace.epochMs,
+                trace.code,
+                trace.trId,
+                trace.rawJson,
+            )
+        }
+    }
+
+    /** 최근 unsubscribe 전송 이력 1건 (결함③ 진단 관측 전용). */
+    private data class UnsubscribeTrace(
+        val epochMs: Long,
+        val code: String,
+        val trId: String,
+        val rawJson: String,
+    )
 
     /**
      * hotfix 2026-05-20 — KIS WS 구독 SUCCESS 응답에서 AES iv·key 추출 + [trIdToAesKey] 저장.
