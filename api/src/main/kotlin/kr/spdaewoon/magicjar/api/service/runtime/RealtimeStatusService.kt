@@ -20,7 +20,7 @@ import java.time.Instant
  * 1. consumer가 5초 주기로 Redis `ops:realtime:status`에 발행한 스냅샷 JSON read.
  * 2. updatedAt 기반 stale 판정([STALE_THRESHOLD] 초과 시 stale=true — consumer 발행 정지·장애 신호).
  * 3. subscriptions code → instrument 테이블 종목명 join (배치 조회 1회).
- * 4. ACTIVE 전략이 사용하는 종목 집합 → 1m 캔들 신선도([CandleHealthService.assess]) 부착.
+ * 4. ACTIVE 전략 종목 + 현재 체결가(H0UNCNT0) 구독 종목 → 1m 캔들 신선도([CandleHealthService.assess]) 부착.
  *
  * 모든 조회는 read-only + fail-open(부분 실패 시 빈 값으로 graceful) — 관측 화면이 down되지 않도록.
  *
@@ -44,6 +44,7 @@ class RealtimeStatusService(
         private val STALE_THRESHOLD: Duration = Duration.ofSeconds(15)
 
         private const val FRESHNESS_INTERVAL = "1m"
+        private const val UNIFIED_TICK_TR_ID = "H0UNCNT0"
     }
 
     fun getStatus(): RealtimeStatusResponse {
@@ -112,7 +113,7 @@ class RealtimeStatusService(
                     trId = snapshot.executionNotice.trId,
                     userIdMasked = snapshot.executionNotice.userIdMasked,
                 ),
-            candleFreshness = resolveCandleFreshness(nameByCode),
+            candleFreshness = resolveCandleFreshness(snapshot, nameByCode),
         )
     }
 
@@ -142,12 +143,16 @@ class RealtimeStatusService(
     }
 
     /**
-     * ACTIVE 전략이 사용하는 종목 집합 → 1m 캔들 신선도.
+     * ACTIVE 전략 종목 + 현재 체결가(H0UNCNT0) 구독 종목 → 1m 캔들 신선도.
      *
-     * 전략 codes(JSONB) 합집합을 1m 신선도 점검 대상으로 삼는다 — 전략 평가가 실제로 의존하는 종목의
-     * 캔들 누락을 관리자가 즉시 식별하도록. nameByCode를 재사용해 codeName도 함께 노출한다.
+     * 전략 평가가 의존하는 종목과 현재 실시간 체결 tick으로 1m 캔들을 갱신해야 하는 종목을 함께 본다.
+     * 보유 감시·상세 화면처럼 ACTIVE 전략 owner가 아니어도 H0UNCNT0에 물려 있으면 누락을 드러내야 한다.
+     * H0UNASP0(호가)·H0UNMKO0(VI) 단독 구독은 1m 캔들 생성 경로가 아니므로 대상에서 제외한다.
      */
-    private fun resolveCandleFreshness(nameByCode: Map<String, String>): List<CandleFreshnessDto> {
+    private fun resolveCandleFreshness(
+        snapshot: RawSnapshot,
+        nameByCode: Map<String, String>,
+    ): List<CandleFreshnessDto> {
         val activeCodes =
             try {
                 strategyJpaRepository
@@ -158,13 +163,22 @@ class RealtimeStatusService(
                 log.warn("ACTIVE 전략 종목 집계 실패(graceful): err={}", e.message)
                 emptySet<String>()
             }
-        if (activeCodes.isEmpty()) return emptyList()
+        val liveTickCodeCandidates =
+            (
+                snapshot.slots.codesByTrId[UNIFIED_TICK_TR_ID].orEmpty() +
+                    snapshot.subscriptions
+                        .filter { it.trId == UNIFIED_TICK_TR_ID }
+                        .map { it.code }
+            )
+        val liveTickCodes = liveTickCodeCandidates.filter { it.isNotBlank() }.toSet()
+        val targetCodes = (activeCodes + liveTickCodes).toSortedSet()
+        if (targetCodes.isEmpty()) return emptyList()
 
         // 종목명 보강 — 구독 join에 없던 ACTIVE 전용 종목은 별도 조회.
-        val missing = activeCodes.filter { it !in nameByCode }.toSet()
+        val missing = targetCodes.filter { it !in nameByCode }.toSet()
         val extraNames = if (missing.isEmpty()) emptyMap() else resolveNames(missing)
 
-        return activeCodes.map { code ->
+        return targetCodes.map { code ->
             val ageSeconds =
                 try {
                     candleHealthService.assess(code, FRESHNESS_INTERVAL).staleSeconds
@@ -304,7 +318,7 @@ data class ExecutionNoticeDto(
     val userIdMasked: String? = null,
 )
 
-@Schema(description = "ACTIVE 전략 종목 1m 캔들 신선도")
+@Schema(description = "ACTIVE 전략 + 체결가(H0UNCNT0) 구독 종목 1m 캔들 신선도")
 data class CandleFreshnessDto(
     @field:Schema(description = "종목코드", example = "005930")
     val code: String,

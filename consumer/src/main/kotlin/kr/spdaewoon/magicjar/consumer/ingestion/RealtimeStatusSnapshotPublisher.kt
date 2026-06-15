@@ -17,7 +17,7 @@ import java.time.Instant
  * ## 책임
  * KIS WS 세션·슬롯 회계·체결가/호가 구독 owner·체결통보 상태를 모아 Redis `ops:realtime:status`에
  * **5초 주기**로 직렬화 발행한다. api 모듈 `RealtimeStatusController`가 본 키를 read → 종목명 join +
- * stale 판정 + ACTIVE 전략 종목 1m 캔들 신선도를 덧붙여 관리자 화면에 반환한다.
+ * stale 판정 + ACTIVE 전략/실시간 체결 구독 종목 1m 캔들 신선도를 덧붙여 관리자 화면에 반환한다.
  *
  * "구독 중인 모든 토픽·내부 상태를 한 화면에서 보고 장애를 처리"하기 위한 관측 전용 레이어 — 본 발행기는
  * [RealtimeSubscriptionRouter]·[OrderbookSubscriptionRouter]·[WsSlotBudgetLedger]·[KisWebSocketBridge]의
@@ -158,7 +158,7 @@ class RealtimeStatusSnapshotPublisher(
  * Redis `admin:realtime-status` 직렬화 페이로드 (consumer → api 계약).
  *
  * api가 본 페이로드를 read → updatedAt 기반 stale 판정 + subscriptions code 종목명 join +
- * ACTIVE 전략 종목 1m 캔들 신선도(candleFreshness)를 덧붙여 관리자 응답으로 변환한다.
+ * ACTIVE 전략/실시간 체결 구독 종목 1m 캔들 신선도(candleFreshness)를 덧붙여 관리자 응답으로 변환한다.
  */
 data class RealtimeStatusSnapshot(
     val updatedAt: String,
