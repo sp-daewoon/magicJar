@@ -348,3 +348,10 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 
 - watchlist 화면용 quote freshness는 낮아진다. 예를 들어 pool 10종목이면 기본값 기준 한 종목이 다시 polling되기까지 약 25초가 걸릴 수 있다.
 - 대신 주문, 잔고, 자본 조회에 필요한 USER bucket을 보호하고, realtime status scheduler가 다시 status 발행만 담당하도록 되돌린다.
+
+배포 후 관찰:
+
+- PR #981/#982 merge 후 consumer 재배포 완료.
+- 안정 부팅 이후 `/api/admin/realtime-status`는 `stale=false`, `wsConnected=true`, `slotsUsed=2`, `subscriptions=2`로 fresh.
+- 관찰 창에서 `EGW00201`, `EGW00215`, 잔고조회 실패 재발 없음.
+- `Connection prematurely closed BEFORE response`는 1회 있었지만 `watchlist polling KIS failure ... reason=request-failure ... cooldownMs=30000`로 남은 slice 중단 + cooldown 처리됨.
