@@ -46,9 +46,10 @@ class BalanceReconcileJob(
     /**
      * 시장 OPEN 5분 cron — KST 09:00~15:55 MON-FRI.
      *
-     * cron: 매 5분 0초 (예: 09:00, 09:05, ..., 15:55).
+     * cron: 매 5분 30초 (예: 09:00:30, 09:05:30, ..., 15:55:30).
+     * 2026-06-15 REAL 1분 신호가 정각 0초에 KIS USER 경로를 쓰므로, reconcile BACKFILL은 30초로 분산한다.
      */
-    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "\${magicjar.reconcile.market-open-cron:30 */5 9-15 * * MON-FRI}", zone = "Asia/Seoul")
     fun runMarketOpenCron() {
         log.info("BalanceReconcileJob — 시장 OPEN cron fires")
         runForAllActiveUsers(ReconcileTriggerSource.CRON)

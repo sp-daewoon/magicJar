@@ -274,6 +274,11 @@ magicjar:
   risk:
     capital-stale-cache-ttl-minutes: ${MAGICJAR_RISK_CAPITAL_STALE_CACHE_TTL_MINUTES:5}
     capital-fresh-cache-reuse-seconds: ${MAGICJAR_RISK_CAPITAL_FRESH_CACHE_REUSE_SECONDS:90}
+    # KIS capital direct 조회 실패 직후 같은 endpoint 를 매분 재시도하지 않도록 짧게 식힌다. 0 이하면 비활성.
+    capital-direct-failure-cooldown-seconds: ${MAGICJAR_RISK_CAPITAL_DIRECT_FAILURE_COOLDOWN_SECONDS:120}
+  # 2026-06-15 REAL 장중: 1분 신호가 0초에 KIS USER 경로를 쓰므로 reconcile BACKFILL은 30초로 분산.
+  reconcile:
+    market-open-cron: "${MAGICJAR_RECONCILE_MARKET_OPEN_CRON:30 */5 9-15 * * MON-FRI}"
   # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
   yahoo:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}
