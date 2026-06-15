@@ -3,10 +3,10 @@ id: T-20260615-1333-kis-rate-limit-hotfix
 agent: market-data
 model: opus
 branch: agent/market-data/kis-rate-limit-hotfix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T13:33:24.397+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-15T14:03:21.645+09:00
+pr: #982
 parentPhase: ?
 ---
 
@@ -18,12 +18,12 @@ KIS EGW00201/EGW00215 rate-limit 잔불 진압: watchlist polling 호출량과 s
 - [x] scheduler 격리 보강
 - [x] watchlist polling 호출량 완화
 - [x] 회귀 테스트
-- [ ] 배포 검증
+- [x] 배포 검증
 
 ## 의존성
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-06-15T13:52:06.164+09:00 — post-deploy request failure 반복 확인 → watchlist request failure cooldown 보강
+2026-06-15T14:03:21.560+09:00 — PR #981/#982 merge + consumer deploy 후 realtime fresh, EGW00201/EGW00215 미재발, request failure cooldown 동작 확인
 
 ## 비고
