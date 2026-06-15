@@ -316,9 +316,17 @@ class MarketDailyNightlySnapshotService(
      * 멀티시세 quote → 대상 영업일 1d Candle 변환 (KIS-first 매핑 · ADR 0118 §2-C step 3).
      *   open=open · high=high · low=low · close=close · volume=accumulatedVolume.
      *
-     * 결손 graceful: OHLC 4필드 중 하나라도 null 이면 skip(mock 합성 0 — 부분 봉 적재 금지).
+     * 결손 graceful: OHLC 4필드 중 하나라도 null **또는 ≤0** 이면 skip(mock 합성 0 — 부분/손상 봉 적재 금지).
      *   volume 결손은 0 으로 적재(거래대금/전일종가는 검증 보강용이라 매핑 0 — Candle 도메인 미보유).
      *   adj 4필드는 null(수정주가 미적용 — 일반 raw 적재 컨벤션 정합).
+     *
+     * ## ★ 0값 가드 (2026-06-15 회귀 fix — 06-12 전종목 일봉 손상 root cause)
+     *   멀티시세 raw(`inter2_oprc/hgpr/lwpr`)가 "0" 문자열을 줄 때 [KisMultiPriceAdapter.decimalOrNull]은
+     *   `BigDecimal.ZERO`(non-null)로 변환하므로 직전 null-only 가드를 그대로 통과했다. 결과:
+     *   06-12 야간/장전 스냅이 OHL=0·close만 정상인 손상 봉을 전종목 upsert(DO UPDATE)로 적재
+     *   (open_raw=high_raw=low_raw=0·volume=0·close_raw 정상). 시가/고가/저가가 0인 일봉은 물리적으로
+     *   불가능(가격 > 0)하므로 null 결손과 동일하게 손상 봉으로 취급하여 skip 한다.
+     *   silent 금지(헌법 §11-2) — skip 사유를 WARN 으로 노출(0값은 정상 결손이 아닌 KIS 응답 이상 신호).
      */
     internal fun toTargetDateCandle(
         quote: MultiPriceQuote,
@@ -331,6 +339,20 @@ class MarketDailyNightlySnapshotService(
         if (open == null || high == null || low == null || close == null) {
             log.debug(
                 "MarketDailyNightlySnapshot quote OHLC 결손 — skip(부분 봉 적재 금지): code={} o={} h={} l={} c={}",
+                quote.code,
+                open,
+                high,
+                low,
+                close,
+            )
+            return null
+        }
+        // ★ 0/음수 가드 — 가격 ≤0 은 물리적으로 불가능(손상 봉). null 가드와 동일 취급(부분/손상 봉 적재 금지).
+        //   WARN 로 노출(silent 금지 §11-2) — 0값은 정상 무거래 결손이 아니라 멀티시세 응답 이상 신호.
+        if (open.signum() <= 0 || high.signum() <= 0 || low.signum() <= 0 || close.signum() <= 0) {
+            log.warn(
+                "MarketDailyNightlySnapshot quote OHLC 0/음수 — skip(손상 봉 적재 금지 · KIS 멀티시세 이상): " +
+                    "code={} o={} h={} l={} c={}",
                 quote.code,
                 open,
                 high,
