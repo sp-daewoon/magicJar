@@ -176,8 +176,9 @@ class KisRestPriceAdapter(
         } finally {
             if (!signalSent) {
                 log.warn(
-                    "[KisRateLimit] inquire-price acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={}",
+                    "[KisCallAccounting] inquire-price acquire 후 통계 시그널 미발행 — drift risk (caller 예외 추정): code={} priority={}",
                     code,
+                    priority,
                 )
             }
         }

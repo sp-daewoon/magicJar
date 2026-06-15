@@ -327,6 +327,7 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 - `WatchlistPollingWorker - polling fetch 실패`
 - `ConsumerKisBalanceQueryAdapter - consumer KIS 잔고조회 실패 ... EGW00215`
 - `WatchlistPollingWorker`와 `BalanceReconcileJob` 로그가 모두 `rt-status-1` thread에서 출력됨
+- 첫 배포 후 `EGW00201/EGW00215`는 멈췄지만 `Connection prematurely closed BEFORE response`가 watchlist polling에서 반복됨
 
 해석:
 
@@ -340,7 +341,8 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 - 기본 `@Scheduled`용 `taskScheduler` bean을 별도로 등록하고, realtime status publisher는 `realtimeStatusTaskScheduler`를 명시 사용하도록 격리했다.
 - watchlist 전용 `KisRestPriceAdapter.fetchPollingPrice(...)`를 추가해 현재가 polling을 `INGESTION` bucket으로 낮췄다.
 - `WatchlistPollingWorker`는 5초 tick마다 전체 pool 대신 round-robin slice(default 2종목)만 조회한다.
-- 종목 사이 기본 500ms delay를 두고, KIS rate-limit 응답 또는 local acquire timeout이 나면 남은 slice를 즉시 중단한 뒤 30초 cooldown 동안 polling을 skip한다.
+- 종목 사이 기본 500ms delay를 두고, KIS rate-limit 응답, local acquire timeout, KIS request failure가 나면 남은 slice를 즉시 중단한 뒤 30초 cooldown 동안 polling을 skip한다.
+- `KisRestPriceAdapter`의 acquire 후 통계 미발행 경고 라벨을 `[KisRateLimit]`에서 `[KisCallAccounting]`으로 바꿔 네트워크 실패가 rate-limit으로 오해되지 않게 했다.
 
 운영 trade-off:
 

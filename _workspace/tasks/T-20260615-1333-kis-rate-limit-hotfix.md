@@ -24,6 +24,6 @@ KIS EGW00201/EGW00215 rate-limit 잔불 진압: watchlist polling 호출량과 s
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-06-15T13:40:58.807+09:00 — consumer targeted/full check GREEN
+2026-06-15T13:52:06.164+09:00 — post-deploy request failure 반복 확인 → watchlist request failure cooldown 보강
 
 ## 비고
