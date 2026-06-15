@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 /**
@@ -44,7 +45,8 @@ import java.time.ZoneId
  *
  * ## 실행 시점 (장 마감 후/개장 전)
  * fixedDelay cron 30분 — 만료는 장 마감(15:30) 이후 발생하고 다음 개장(09:00) 전까지 정리되면 충분하므로
- * 빈번할 필요 없다(KIS rate limit 보호). 전일 이전 미종결 0건이면 즉시 종료(평상시 부담 0).
+ * 빈번할 필요 없다(KIS rate limit 보호). 장마감+grace 전에는 전일 이전 주문만, 이후에는 당일 장마감 전
+ * 미종결 주문까지 KIS 대조한다. 미종결 0건이면 즉시 종료(평상시 부담 0).
  *
  * ## ENV
  * `magicjar.order.day-order-expiry.enabled`(default true) — 본 hotfix 가 도입하는 유일한 신규 토글.
@@ -59,6 +61,8 @@ class ExpiredDayOrderSyncWorker(
     private val systemEventLogger: SystemEventLogger,
     @Value("\${magicjar.order.day-order-expiry.enabled:true}")
     private val enabled: Boolean = true,
+    @Value("\${magicjar.order.day-order-expiry.market-close-grace-minutes:20}")
+    private val marketCloseGraceMinutes: Long = 20,
     private val clock: Clock = Clock.systemDefaultZone(),
 ) {
     private val log = LoggerFactory.getLogger(ExpiredDayOrderSyncWorker::class.java)
@@ -72,8 +76,11 @@ class ExpiredDayOrderSyncWorker(
         /** 한 tick 처리 상한 — KIS rate limit 보호. */
         internal const val BATCH_LIMIT = 50
 
+        /** 정규장 day-order 만료 기준. grace 이후에는 당일 장마감 전 주문도 만료 대조 대상이다. */
+        private val REGULAR_MARKET_CLOSE: LocalTime = LocalTime.of(15, 30)
+
         private const val SYSTEM_EVENT_ACTOR = "ExpiredDayOrderSyncWorker"
-        private const val EXPIRE_REASON = "DAY_ORDER_EXPIRED:전일 day-order 장마감 만료 (KIS 일별체결 대조)"
+        private const val EXPIRE_REASON = "DAY_ORDER_EXPIRED:day-order 장마감 만료 (KIS 일별체결 대조)"
     }
 
     /**
@@ -93,24 +100,23 @@ class ExpiredDayOrderSyncWorker(
         }
 
         val now = Instant.now(clock)
-        // 오늘 0시(KST) 이전 requestedAt = 전일 이전 주문. 당일 주문은 아직 만료 대상 아님.
-        val todayStartKst = LocalDate.now(clock.withZone(KST)).atStartOfDay(KST).toInstant()
+        val staleCutoff = staleRequestedAtCutoff(now)
 
         val stale =
             STALE_STATUSES.flatMap { status ->
-                runCatching { repo.findByStatusAndRequestedAtBefore(status, todayStartKst, BATCH_LIMIT) }
-                    .onFailure { e -> log.warn("전일 미종결 day-order lookup 실패: status={} err={}", status, e.message) }
+                runCatching { repo.findByStatusAndRequestedAtBefore(status, staleCutoff, BATCH_LIMIT) }
+                    .onFailure { e -> log.warn("미종결 day-order lookup 실패: status={} err={}", status, e.message) }
                     .getOrDefault(emptyList())
             }
         if (stale.isEmpty()) {
-            log.debug("ExpiredDayOrderSyncWorker — 전일 미종결 day-order 0건 (cron skip)")
+            log.debug("ExpiredDayOrderSyncWorker — 미종결 day-order 0건 (cron skip): cutoff={}", staleCutoff)
             return
         }
 
         log.warn(
-            "ExpiredDayOrderSyncWorker tick — 전일 미종결 day-order {}건 KIS 대조(만료 동기화): cutoff={}",
+            "ExpiredDayOrderSyncWorker tick — 미종결 day-order {}건 KIS 대조(만료 동기화): cutoff={}",
             stale.size,
-            todayStartKst,
+            staleCutoff,
         )
         emitSystemEvent(
             severity = SystemEventSeverity.INFO,
@@ -167,7 +173,7 @@ class ExpiredDayOrderSyncWorker(
                 if (result.filledQty >= result.orderQty && result.orderQty > 0) {
                     // 전량 체결됐는데 DB 가 ACK 잔존 — FILLED 동기화(체결 row 흡수는 backfill worker 책임, 여기선 status 종결).
                     log.warn(
-                        "전일 day-order 전량 체결 확인 — FILLED 동기화: orderId={} userId={} ODNO={} filled={}/{}",
+                        "day-order 전량 체결 확인 — FILLED 동기화: orderId={} userId={} ODNO={} filled={}/{}",
                         orderId,
                         row.userId,
                         kisOrderNo,
@@ -179,7 +185,7 @@ class ExpiredDayOrderSyncWorker(
                 } else {
                     // 부분/미체결 — 장 마감으로 잔량 만료. CANCELLED 동기화(잔존 ACK 제거).
                     log.warn(
-                        "전일 day-order 부분/미체결 만료 — CANCELLED 동기화: orderId={} userId={} ODNO={} filled={}/{}",
+                        "day-order 부분/미체결 만료 — CANCELLED 동기화: orderId={} userId={} ODNO={} filled={}/{}",
                         orderId,
                         row.userId,
                         kisOrderNo,
@@ -191,7 +197,7 @@ class ExpiredDayOrderSyncWorker(
             }
             is OrderInquireResult.NotFound -> {
                 log.warn(
-                    "전일 day-order KIS 미존재 — 만료 CANCELLED 동기화: orderId={} userId={} ODNO={}",
+                    "day-order KIS 미존재 — 만료 CANCELLED 동기화: orderId={} userId={} ODNO={}",
                     orderId,
                     row.userId,
                     kisOrderNo,
@@ -201,7 +207,7 @@ class ExpiredDayOrderSyncWorker(
             is OrderInquireResult.Failed -> {
                 // KIS 응답 실패 — 다음 tick 재시도(상태 불변, 잘못된 CANCELLED 회피).
                 log.warn(
-                    "전일 day-order KIS 조회 실패(다음 tick 재시도): orderId={} userId={} ODNO={} cause={}",
+                    "day-order KIS 조회 실패(다음 tick 재시도): orderId={} userId={} ODNO={} cause={}",
                     orderId,
                     row.userId,
                     kisOrderNo,
@@ -209,6 +215,24 @@ class ExpiredDayOrderSyncWorker(
                 )
             }
         }
+    }
+
+    /**
+     * 조회 cutoff:
+     * - 장마감 grace 전: 오늘 0시 KST 이전만(기존 전일 잔류 정리).
+     * - 장마감 grace 이후: 오늘 정규장 day-order도 만료됐으므로 15:30+grace 이전 요청까지 정리.
+     */
+    private fun staleRequestedAtCutoff(now: Instant): Instant {
+        val nowKst = now.atZone(KST)
+        val today = nowKst.toLocalDate()
+        val todayStartKst = today.atStartOfDay(KST).toInstant()
+        val sameDayExpiryCutoff =
+            today
+                .atTime(REGULAR_MARKET_CLOSE)
+                .plusMinutes(marketCloseGraceMinutes.coerceAtLeast(0))
+                .atZone(KST)
+                .toInstant()
+        return if (now.isBefore(sameDayExpiryCutoff)) todayStartKst else sameDayExpiryCutoff
     }
 
     private fun expire(

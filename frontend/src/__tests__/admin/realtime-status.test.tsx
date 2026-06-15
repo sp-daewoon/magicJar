@@ -241,6 +241,27 @@ describe('RealtimeSubscriptionTable', () => {
     )
     expect(screen.getByText(/owner 없음/)).toBeInTheDocument()
   })
+
+  it('장운영 VI 구독은 한글 trId·owner 라벨과 미기록 시각으로 표시한다', () => {
+    renderWithRouter(
+      <RealtimeSubscriptionTable
+        subscriptions={[
+          {
+            trId: 'H0UNMKO0',
+            code: '005930',
+            codeName: '삼성전자',
+            owners: ['vi:held'],
+            since: null,
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('장운영/VI(통합)')).toBeInTheDocument()
+    expect(screen.getByText('H0UNMKO0')).toBeInTheDocument()
+    expect(screen.getAllByText('VI 보유 감시').length).toBeGreaterThan(0)
+    expect(screen.getByText('구독 시각 미기록')).toBeInTheDocument()
+    expect(screen.queryByText(/1970/)).not.toBeInTheDocument()
+  })
 })
 
 // ──────────────────────────────────────────────
