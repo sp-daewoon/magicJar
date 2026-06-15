@@ -151,6 +151,32 @@ class KisWsMessageParserTest {
         assertThat(parsed).isInstanceOf(KisWsMessageParser.ParsedMessage.SubscriptionResponse::class.java)
     }
 
+    // ----- 결함③: OPSP8997 invalid tr_type 감지 (진단 관측) -----
+
+    @Test
+    fun `OPSP8997 msg_cd → isOpsp8997InvalidTrType true`() {
+        val json = """{"header":{"tr_id":null},"body":{"rt_cd":"1","msg_cd":"OPSP8997","msg1":"invalid tr_type"}}"""
+        assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(json)).isTrue()
+        // 실패 응답이므로 success=false (진단 분기 진입 전제).
+        assertThat(KisWsMessageParser.isSubscriptionSuccess(json)).isFalse()
+    }
+
+    @Test
+    fun `msg1 invalid tr_type 문구만 있어도 대소문자 무시 감지`() {
+        val json = """{"body":{"rt_cd":"1","msg1":"Invalid TR_TYPE"}}"""
+        assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(json)).isTrue()
+    }
+
+    @Test
+    fun `정상 SUCCESS·OPSP8996·OPSP0008 응답은 OPSP8997로 오탐하지 않는다`() {
+        val success = """{"body":{"rt_cd":"0","msg_cd":"OPSP0000","msg1":"SUBSCRIBE SUCCESS"}}"""
+        val opsp8996 = """{"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val opsp0008 = """{"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
+        assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(success)).isFalse()
+        assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(opsp8996)).isFalse()
+        assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(opsp0008)).isFalse()
+    }
+
     /**
      * KIS WS 슬롯 한도 — ADR 0123 §1-3 KIS-first 정정 (41→40).
      *

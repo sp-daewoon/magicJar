@@ -345,6 +345,24 @@ object KisWsMessageParser {
         }
 
     /**
+     * 구독/해제 응답에서 OPSP8997 "invalid tr_type" 에러 감지 (결함③ 진단 관측 — 2026-06-15).
+     *
+     * DETAIL 종목 EXIT/15분 idle 해제 시 H0UNASP0(+H0UNCNT0) unsubscribe(tr_type "0")가 KIS
+     * `OPSP8997 invalid tr_type` 으로 거부된 사례(REAL 세션 3회 재현). 응답 header `tr_id=null` 이라
+     * 추적이 불가했다. 본 감지는 OPSP8997 분기에서 [KisWebSocketBridge] 가 최근 unsubscribe 이력을
+     * 상관관계 덤프하기 위한 관측 전용 hook 이다(부작용 0 — 코드 동작 변경 없음).
+     *
+     * KIS 응답 예시(추정 — 실측 시 본 KDoc 갱신): {"body":{"rt_cd":"1","msg_cd":"OPSP8997","msg1":"invalid tr_type"}}
+     * msg_cd "OPSP8997" 또는 msg1 "invalid tr_type"(대소문자 무시) 문자열 기반 감지. isSubscriptionSuccess=false 분기에서만 평가.
+     */
+    fun isOpsp8997InvalidTrType(rawJson: String): Boolean =
+        try {
+            rawJson.contains("OPSP8997") || rawJson.contains("invalid tr_type", ignoreCase = true)
+        } catch (e: Exception) {
+            false
+        }
+
+    /**
      * 구독 거부 응답에서 (trId, trKey) 채널 식별자 추출 (ADR 0123 R1 — 회계 보정용).
      *
      * KIS 거부 응답 header에 거부된 채널의 tr_id·tr_key가 담긴다:
