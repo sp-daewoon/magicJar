@@ -16,7 +16,7 @@
  */
 import { Link } from 'react-router-dom'
 import type { RealtimeSubscription } from '../../api/adminRealtime'
-import { trIdLabel } from '../../constants/kisTrId'
+import { trIdHasLabel, trIdLabel } from '../../constants/kisTrId'
 import { ownerView, OWNER_BADGE_CLASS, OWNER_LEGEND } from '../../constants/realtimeOwner'
 
 interface Props {
@@ -34,6 +34,13 @@ function OwnerBadge({ owner }: { owner: string }) {
       {view.label}
     </span>
   )
+}
+
+function formatSince(since: string | null): string | null {
+  if (!since) return null
+  const date = new Date(since)
+  if (Number.isNaN(date.getTime()) || date.getTime() <= 0) return null
+  return date.toLocaleString('ko-KR')
 }
 
 /**
@@ -101,42 +108,55 @@ export function RealtimeSubscriptionTable({ subscriptions }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((sub) => (
-                  <tr
-                    key={`${sub.trId}:${sub.code}`}
-                    className="border-b border-gray-800 transition-colors hover:bg-gray-900/60"
-                  >
-                    <td className="p-3">
-                      <span className="text-gray-200">{trIdLabel(sub.trId)}</span>
-                      <span className="ml-1.5 font-mono text-[11px] text-gray-500">
-                        {sub.trId}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <Link
-                        to={`/symbol/${sub.code}`}
-                        className="text-sm text-gray-100 hover:text-blue-300 hover:underline"
-                      >
-                        {sub.codeName}
-                        <span className="ml-2 font-mono text-xs text-blue-400">{sub.code}</span>
-                      </Link>
-                    </td>
-                    <td className="p-3">
-                      {sub.owners.length === 0 ? (
-                        <span className="text-xs italic text-gray-600">(owner 없음)</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {sub.owners.map((owner) => (
-                            <OwnerBadge key={owner} owner={owner} />
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3 text-xs text-gray-400">
-                      {new Date(sub.since).toLocaleString('ko-KR')}
-                    </td>
-                  </tr>
-                ))}
+                {sorted.map((sub) => {
+                  const hasTrIdLabel = trIdHasLabel(sub.trId)
+                  const sinceLabel = formatSince(sub.since)
+                  return (
+                    <tr
+                      key={`${sub.trId}:${sub.code}`}
+                      className="border-b border-gray-800 transition-colors hover:bg-gray-900/60"
+                    >
+                      <td className="p-3">
+                        <span className="text-gray-200">{trIdLabel(sub.trId)}</span>
+                        {hasTrIdLabel && (
+                          <span className="ml-1.5 font-mono text-[11px] text-gray-500">
+                            {sub.trId}
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <Link
+                          to={`/symbol/${sub.code}`}
+                          className="text-sm text-gray-100 hover:text-blue-300 hover:underline"
+                        >
+                          {sub.codeName}
+                          <span className="ml-2 font-mono text-xs text-blue-400">{sub.code}</span>
+                        </Link>
+                      </td>
+                      <td className="p-3">
+                        {sub.owners.length === 0 ? (
+                          <span className="text-xs italic text-gray-600">(owner 없음)</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {sub.owners.map((owner) => (
+                              <OwnerBadge key={owner} owner={owner} />
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 text-xs text-gray-400">
+                        {sinceLabel ?? (
+                          <span
+                            title="백엔드 스냅샷에 구독 시작 시각이 기록되지 않은 항목입니다."
+                            className="text-gray-500"
+                          >
+                            구독 시각 미기록
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

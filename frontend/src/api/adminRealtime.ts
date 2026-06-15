@@ -70,14 +70,14 @@ export interface RealtimeSlots {
  * - code: 종목 코드
  * - codeName: 종목명
  * - owners: 이 구독을 요구한 owner 목록 (strategy·detail 등 — 색 배지 분기)
- * - since: 구독 시작 시각 (ISO-8601)
+ * - since: 구독 시작 시각 (ISO-8601). 일부 런타임 합성 항목(H0UNMKO0 VI 감시 등)은 null 가능.
  */
 export interface RealtimeSubscription {
   trId: string
   code: string
   codeName: string
   owners: string[]
-  since: string
+  since: string | null
 }
 
 /**

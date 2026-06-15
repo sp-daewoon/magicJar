@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { RealtimeSlots } from '../../api/adminRealtime'
-import { trIdLabel } from '../../constants/kisTrId'
+import { trIdHasLabel, trIdLabel } from '../../constants/kisTrId'
 
 interface Props {
   slots: RealtimeSlots
@@ -96,6 +96,7 @@ export function RealtimeSlotGauge({ slots }: Props) {
               const channels = channelsByTrId?.[trId]
               const hasDrill = channelsByTrId != null // 신버전 스냅샷 여부
               const isOpen = !!expanded[trId]
+              const hasTrIdLabel = trIdHasLabel(trId)
               return (
                 <div
                   key={trId}
@@ -118,7 +119,9 @@ export function RealtimeSlotGauge({ slots }: Props) {
                         ▶
                       </span>
                       <span className="font-medium text-gray-200">{trIdLabel(trId)}</span>
-                      <span className="font-mono text-[11px] text-gray-500">{trId}</span>
+                      {hasTrIdLabel && (
+                        <span className="font-mono text-[11px] text-gray-500">{trId}</span>
+                      )}
                     </span>
                     <span className="rounded bg-gray-800 px-1.5 font-semibold text-gray-200 tabular-nums">
                       {count.toLocaleString('ko-KR')}채널

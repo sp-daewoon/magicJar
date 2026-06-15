@@ -14,11 +14,17 @@
 export const KIS_TR_ID_LABEL: Record<string, string> = {
   H0UNCNT0: '체결가(통합)',
   H0UNASP0: '호가(통합)',
+  H0UNMKO0: '장운영/VI(통합)',
   H0STCNT0: '체결가',
   H0NXCNT0: 'NXT 체결가',
   H0STOUP0: '시간외 단일가',
   H0STCNI0: '체결통보(실전)',
   H0STCNI9: '체결통보(모의)',
+}
+
+/** 등록된 trId 라벨인지 여부. 미지 trId 코드 중복 표기를 막는 UI 분기용. */
+export function trIdHasLabel(trId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KIS_TR_ID_LABEL, trId)
 }
 
 /**
