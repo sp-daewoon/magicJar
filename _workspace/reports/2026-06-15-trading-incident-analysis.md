@@ -314,3 +314,35 @@
 
 - 현재 status에서 `subscriptions`와 `slots.codesByTrId`가 서로 다르게 보이는 문제는 WS slot ledger/unsubscribe 정합 이슈와도 연결된다.
 - 이 부분은 `H0UNMKO0/H0UNASP0 invalid_tr_type` 및 slot ledger 정리 작업과 함께 추가 추적이 필요하다.
+
+---
+
+## 11. 추가 검증 — KIS rate-limit 잔불
+
+canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 KIS rate-limit 잔불이 남아 있었다.
+
+관측 로그:
+
+- `KisRestPriceAdapter - KIS inquire-price 실패 ... EGW00201`
+- `WatchlistPollingWorker - polling fetch 실패`
+- `ConsumerKisBalanceQueryAdapter - consumer KIS 잔고조회 실패 ... EGW00215`
+- `WatchlistPollingWorker`와 `BalanceReconcileJob` 로그가 모두 `rt-status-1` thread에서 출력됨
+
+해석:
+
+- `realtimeStatusTaskScheduler`가 유일한 `TaskScheduler` bean 이라 Spring이 이를 모든 `@Scheduled`의 기본 scheduler로도 사용했다.
+- 그 결과 status 전용으로 분리하려던 `rt-status-1` thread에 watchlist polling, balance reconcile까지 올라와 격리가 깨졌다.
+- watchlist polling은 화면 보조 경로인데 `KisRestPriceAdapter.fetchPrice(... USER_PATH)`를 통해 주문/잔고와 같은 USER bucket을 사용했다.
+- 전체 watchlist pool을 5초마다 한꺼번에 조회하면서 `EGW00201`이 반복됐고, 같은 시간대 잔고/자본 조회가 `EGW00215`로 밀릴 수 있는 조건을 만들었다.
+
+보강:
+
+- 기본 `@Scheduled`용 `taskScheduler` bean을 별도로 등록하고, realtime status publisher는 `realtimeStatusTaskScheduler`를 명시 사용하도록 격리했다.
+- watchlist 전용 `KisRestPriceAdapter.fetchPollingPrice(...)`를 추가해 현재가 polling을 `INGESTION` bucket으로 낮췄다.
+- `WatchlistPollingWorker`는 5초 tick마다 전체 pool 대신 round-robin slice(default 2종목)만 조회한다.
+- 종목 사이 기본 500ms delay를 두고, KIS rate-limit 응답 또는 local acquire timeout이 나면 남은 slice를 즉시 중단한 뒤 30초 cooldown 동안 polling을 skip한다.
+
+운영 trade-off:
+
+- watchlist 화면용 quote freshness는 낮아진다. 예를 들어 pool 10종목이면 기본값 기준 한 종목이 다시 polling되기까지 약 25초가 걸릴 수 있다.
+- 대신 주문, 잔고, 자본 조회에 필요한 USER bucket을 보호하고, realtime status scheduler가 다시 status 발행만 담당하도록 되돌린다.

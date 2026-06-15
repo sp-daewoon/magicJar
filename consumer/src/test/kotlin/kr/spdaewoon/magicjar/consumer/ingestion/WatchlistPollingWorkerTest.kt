@@ -9,11 +9,16 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisRestPriceAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.http.HttpStatus
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
+import java.nio.charset.StandardCharsets
 
 /**
  * WatchlistPollingWorker 단위 테스트 (결함④ fix · 2026-06-15).
@@ -61,6 +66,7 @@ class WatchlistPollingWorkerTest {
                 redisQuoteCacheAdapter = redisQuoteCacheAdapter,
                 kisRestPriceAdapter = kisRestPriceAdapter,
                 credentialRepository = credentialRepository,
+                interCallDelayMs = 0,
             )
         worker.add("005930")
         worker.start()
@@ -70,13 +76,13 @@ class WatchlistPollingWorkerTest {
     fun `polling tick 시 현재가 fetch + Redis quote cache 갱신`() {
         // given
         every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPrice("user001", "005930") } returns tickEvent()
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
 
         // when
         worker.tick()
 
         // then — 현재가 endpoint 호출 + Redis 갱신
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPrice("user001", "005930") }
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
         verify(exactly = 1) {
             redisQuoteCacheAdapter.putQuote(
                 code = "005930",
@@ -96,7 +102,7 @@ class WatchlistPollingWorkerTest {
         worker.tick()
 
         // then — fetch 자체 미진입
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPrice(any(), any()) }
+        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice(any(), any()) }
         verify(exactly = 0) { redisQuoteCacheAdapter.putQuote(any(), any(), any(), any()) }
     }
 
@@ -116,7 +122,7 @@ class WatchlistPollingWorkerTest {
         worker.tick()
 
         // then
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPrice(any(), any()) }
+        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice(any(), any()) }
     }
 
     @Test
@@ -130,4 +136,68 @@ class WatchlistPollingWorkerTest {
         // then — credential 조회조차 안 함
         verify(exactly = 0) { credentialRepository.findAllByAccountType(any()) }
     }
+
+    @Test
+    fun `polling tick 은 max-codes-per-tick 만큼 round-robin 으로 조회한다`() {
+        // given
+        worker.add("000660")
+        worker.add("035420")
+        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } returns tickEvent(code = "000660")
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent(code = "005930")
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "035420") } returns tickEvent(code = "035420")
+
+        // when — sorted pool: 000660, 005930, 035420. default max=2.
+        worker.tick()
+        worker.tick()
+
+        // then — 첫 tick 2개, 둘째 tick 다음 2개(순환)만 조회.
+        verify(exactly = 2) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "035420") }
+    }
+
+    @Test
+    fun `KIS rate-limit 응답 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
+        // given
+        worker.add("000660")
+        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws rateLimitException()
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
+
+        // when
+        worker.tick()
+        worker.tick()
+
+        // then — 첫 tick 에 000660 rate-limit 감지 후 005930 미호출, 둘째 tick 은 cooldown 으로 전체 skip.
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
+        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
+    }
+
+    @Test
+    fun `local rate-limit acquire timeout 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
+        // given
+        worker.add("000660")
+        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws
+            KisRateLimitTimeoutException(KisCallPriority.INGESTION, timeoutMillis = 3000L)
+        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
+
+        // when
+        worker.tick()
+        worker.tick()
+
+        // then — local limiter timeout 도 KIS quota 압박으로 보고 slice 중단 + cooldown.
+        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
+        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
+    }
+
+    private fun rateLimitException(): WebClientResponseException =
+        WebClientResponseException.create(
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            "Internal Server Error",
+            org.springframework.http.HttpHeaders.EMPTY,
+            """{"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다."}""".toByteArray(),
+            StandardCharsets.UTF_8,
+        )
 }

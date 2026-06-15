@@ -92,6 +92,24 @@ class KisRestPriceAdapter(
     override fun fetchPrice(
         userId: String,
         code: String,
+    ): TickEvent = fetchPriceInternal(userId = userId, code = code, priority = KisCallPriority.USER_PATH)
+
+    /**
+     * Watchlist polling 전용 현재가 조회.
+     *
+     * 관심종목 polling 은 사용자 주문/잔고 hot path 가 아니므로 USER_PATH 버킷을 쓰지 않는다. 2026-06-15 REAL
+     * 세션에서 watchlist polling 이 USER bucket 을 소모해 주문경로 잔고조회(EGW00215)와 경합한 것을 확인했다.
+     * ADR 0116 3-tier 의도대로 INGESTION bucket(shared/bg)으로 낮춰 자본 경로 USER bucket 을 보호한다.
+     */
+    fun fetchPollingPrice(
+        userId: String,
+        code: String,
+    ): TickEvent = fetchPriceInternal(userId = userId, code = code, priority = KisCallPriority.INGESTION)
+
+    private fun fetchPriceInternal(
+        userId: String,
+        code: String,
+        priority: KisCallPriority,
     ): TickEvent {
         val accountType = AccountType.REAL
         val baseUrl = kisBaseProd
@@ -103,9 +121,8 @@ class KisRestPriceAdapter(
         //   기존 결함: acquire 후 OOM/interrupt/parse error 등 예외 시 통계 0 → drift.
         var signalSent = false
         return try {
-            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority)
-            // 현재가 polling은 사용자 path 즉시 응답 path
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = "FHKST01010100")
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK). 사용자 조회는 USER_PATH, watchlist polling 은 INGESTION.
+            kisRateLimiterPort.acquire(priority, timeoutMillis = 3000L, trId = "FHKST01010100")
 
             @Suppress("UNCHECKED_CAST")
             val response =

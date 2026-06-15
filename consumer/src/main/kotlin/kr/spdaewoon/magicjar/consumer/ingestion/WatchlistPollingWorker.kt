@@ -3,10 +3,15 @@ package kr.spdaewoon.magicjar.consumer.ingestion
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisRestPriceAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
+import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -17,11 +22,15 @@ import java.util.concurrent.ConcurrentHashMap
  * pool에는 watchlist 종목 전체가 들어온다(부팅 reconcile·ADDED 시 add, REMOVED 시 remove).
  *
  * ## KIS Rate Limit 가드 (docs/architecture/external-api-policy.md — 초당 10 TPS, INGESTION 버킷)
- * - 각 fetch 는 [KisRestCandleAdapter] 내부에서 `KisRateLimiterPort.acquire(INGESTION)` 를 거친다 →
- *   limiter 가 초당 10건 절대 한도를 강제(우회 0). pool 이 커도 한도는 limiter 가 막는다.
+ * - 각 fetch 는 [KisRestPriceAdapter.fetchPollingPrice] 내부에서 `KisRateLimiterPort.acquire(INGESTION)` 를 거친다.
+ *   관심종목 polling 은 주문/잔고 hot path 가 아니므로 USER_PATH 버킷을 쓰지 않는다.
+ * - **round-robin slice**: 5초 tick 마다 전체 pool 이 아니라 `max-codes-per-tick` 개만 순환 조회한다. REAL 세션
+ *   실측상 10종목 전량/5초 polling 은 KIS `EGW00201` 을 지속 유발했고, USER bucket 과 경합해 잔고조회
+ *   `EGW00215` 까지 밀었다. watchlist 는 매매 WS 경로가 아니므로 신선도보다 KIS quota 보호가 우선이다.
+ * - **rate-limit cooldown**: KIS 가 rate-limit 를 응답하거나 로컬 limiter acquire 가 timeout 되면 즉시 남은
+ *   slice 를 중단하고 짧은 cooldown 동안 skip 한다. 이미 초과 상태인 KIS 에 재시도 폭탄을 더 얹지 않는다.
  * - **주기 자동 완화**: `@Scheduled(fixedDelay)` — 이전 tick 완료 후 5초 대기. pool 이 커서 한 tick 처리가
- *   5초를 넘겨도 다음 tick 이 겹치지 않고 자연히 밀린다(스케줄 폭주 방지). 종목당 100ms sleep + REST 지연
- *   누적으로 cadence 가 늘어나면 실효 polling 주기가 자동 완화된다(현 watchlist ~14종목은 5초 내 완료).
+ *   5초를 넘겨도 다음 tick 이 겹치지 않고 자연히 밀린다(스케줄 폭주 방지).
  * - pool 이 [POOL_WARN_THRESHOLD] 초과 시 1회 WARN — 운영자가 watchlist 비대화를 인지하도록.
  *
  * - running=false 이면 스케줄 루프 skip (graceful stop)
@@ -34,7 +43,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 만료 → 관리자 화면 "실시간 경로 비정상" 빨간 배너(false positive)가 떴다.
  *
  * fix: 코드 주석에 예고돼 있던 대로(L97 "PR-9b KisRestPriceAdapter 머지 후 교체 예정") 현재가 단건
- * endpoint [KisRestPriceAdapter.fetchPrice] (FHKST01010100 inquire-price · USER_PATH 버킷 · 3s timeout ·
+ * endpoint [KisRestPriceAdapter.fetchPollingPrice] (FHKST01010100 inquire-price · INGESTION 버킷 · 3s timeout ·
  * 1 call/종목) 로 교체한다. tick 의 본 책임(실시간 시세 Redis quote cache 공급)만 수행한다.
  *
  * **candle DB upsert 제거**: 기존 hotfix 의 일봉 upsert 는 진행 중(오늘) stub 1d 봉을 적재하던 부가
@@ -50,11 +59,23 @@ class WatchlistPollingWorker(
     private val redisQuoteCacheAdapter: RedisQuoteCacheAdapter,
     private val kisRestPriceAdapter: KisRestPriceAdapter,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    @Value("\${magicjar.kis.ws.watchlist-polling.max-codes-per-tick:2}")
+    private val maxCodesPerTick: Int = 2,
+    @Value("\${magicjar.kis.ws.watchlist-polling.inter-call-delay-ms:500}")
+    private val interCallDelayMs: Long = 500,
+    @Value("\${magicjar.kis.ws.watchlist-polling.rate-limit-cooldown-ms:30000}")
+    private val rateLimitCooldownMs: Long = 30_000,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistPollingWorker::class.java)
 
     /** thread-safe polling pool */
     private val pool: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    @Volatile
+    private var cursor: Int = 0
+
+    @Volatile
+    private var rateLimitCooldownUntilMs: Long = 0L
 
     @Volatile
     private var _running: Boolean = false
@@ -94,7 +115,15 @@ class WatchlistPollingWorker(
     @Scheduled(fixedDelay = 5000)
     fun tick() {
         if (!running || pool.isEmpty()) return
-        val codes = pool.toSet()
+        val nowMs = System.currentTimeMillis()
+        if (nowMs < rateLimitCooldownUntilMs) {
+            log.debug(
+                "watchlist polling cooldown — skip this tick remainingMs={}",
+                rateLimitCooldownUntilMs - nowMs,
+            )
+            return
+        }
+        val codes = pool.toList().sorted()
         if (codes.size > POOL_WARN_THRESHOLD) {
             log.warn(
                 "watchlist polling pool 비대화: size={} (>{}). 5초 polling 실효 주기 자동 완화 + KIS INGESTION 버킷 경합 가능 — watchlist 정리 권장.",
@@ -102,7 +131,8 @@ class WatchlistPollingWorker(
                 POOL_WARN_THRESHOLD,
             )
         }
-        log.debug("polling tick: codes={}건", codes.size)
+        val selectedCodes = selectCodesForTick(codes)
+        log.debug("polling tick: pool={} selected={} maxPerTick={}", codes.size, selectedCodes.size, effectiveMaxCodesPerTick())
         // KIS 현재가 단건 endpoint(FHKST01010100)는 userId(REAL 자격증명)로 토큰을 조회한다.
         // tick 단위로 1회 resolve(전 종목 동일 system userId 재사용) — 종목당 재조회 회피.
         val userId = resolveSystemUserId()
@@ -110,23 +140,31 @@ class WatchlistPollingWorker(
             log.warn("watchlist polling: REAL 자격증명 없음 — 현재가 fetch skip (poolSize={})", codes.size)
             return
         }
-        for (code in codes) {
+        selectedCodes.forEachIndexed { index, code ->
             try {
-                // 현재가 단건 fetch (FHKST01010100 inquire-price · USER_PATH 버킷 · 3s timeout · 1 call).
+                // 현재가 단건 fetch (FHKST01010100 inquire-price · INGESTION 버킷 · 3s timeout · 1 call).
                 // 결함④ fix: 기존 fetchCandles(ONE_DAY, 1) 은 count 무시 → 50페이지 5,000봉 폭주로
                 // 단일 스케줄러 스레드를 점유해 status 발행을 굶겼다. 본 책임(시세 quote cache)만 수행.
-                val tick = kisRestPriceAdapter.fetchPrice(userId, code)
+                val tick = kisRestPriceAdapter.fetchPollingPrice(userId, code)
                 redisQuoteCacheAdapter.putQuote(
                     code = code,
                     price = tick.price,
                     volume = tick.volume,
                     source = "polling",
                 )
-                // Rate Limit 마진 (ADR 0037 대비 — 종목 간 100ms sleep)
-                Thread.sleep(100)
+                sleepBetweenCalls(index, selectedCodes.size)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
-                break
+                return
+            } catch (e: WebClientResponseException) {
+                if (isRateLimit(e)) {
+                    enterRateLimitCooldown(code)
+                    return
+                }
+                log.warn("polling fetch 실패: code={} err={}", code, e.message)
+            } catch (e: KisRateLimitTimeoutException) {
+                enterRateLimitCooldown(code)
+                return
             } catch (e: Exception) {
                 log.warn("polling fetch 실패: code={} err={}", code, e.message)
             }
@@ -146,6 +184,42 @@ class WatchlistPollingWorker(
             ?.id
             ?.userId
             ?.takeIf { it.isNotBlank() }
+
+    @Synchronized
+    private fun selectCodesForTick(codes: List<String>): List<String> {
+        if (codes.isEmpty()) return emptyList()
+        val limit = effectiveMaxCodesPerTick().coerceAtMost(codes.size)
+        val start = cursor.floorMod(codes.size)
+        val selected = (0 until limit).map { offset -> codes[(start + offset).floorMod(codes.size)] }
+        cursor = (start + limit).floorMod(codes.size)
+        return selected
+    }
+
+    private fun effectiveMaxCodesPerTick(): Int = maxCodesPerTick.coerceAtLeast(1)
+
+    private fun sleepBetweenCalls(
+        index: Int,
+        total: Int,
+    ) {
+        if (index >= total - 1 || interCallDelayMs <= 0) return
+        Thread.sleep(interCallDelayMs)
+    }
+
+    private fun isRateLimit(e: WebClientResponseException): Boolean =
+        classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit
+
+    private fun enterRateLimitCooldown(code: String) {
+        val cooldownMs = rateLimitCooldownMs.coerceAtLeast(0)
+        rateLimitCooldownUntilMs = System.currentTimeMillis() + cooldownMs
+        log.warn(
+            "watchlist polling KIS rate-limit/acquire-timeout — remaining slice 중단 + cooldown: code={} cooldownMs={} poolSize={}",
+            code,
+            cooldownMs,
+            pool.size,
+        )
+    }
+
+    private fun Int.floorMod(mod: Int): Int = Math.floorMod(this, mod)
 
     private companion object {
         /**
