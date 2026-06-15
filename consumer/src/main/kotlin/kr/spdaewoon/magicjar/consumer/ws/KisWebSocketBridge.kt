@@ -115,6 +115,20 @@ class KisWebSocketBridge(
     @Value("\${magicjar.kis.ws.polling-fallback-timeout-seconds:30}")
     private val pollingFallbackTimeoutSeconds: Long = 30L,
     /**
+     * 종목별 무tick watchdog 임계(초) — SUBSCRIBE SUCCESS 후 이 시간 동안 H0UNCNT0 체결 tick이
+     * 0건이면 WARN(silent 누락 차단 §11-2). 0 이하면 watchdog 비활성(롤백 toggle).
+     *
+     * ### 사유 (2026-06-15 REAL canary 결함 ② — 403870 H0UNCNT0 silent 누락)
+     * ACTIVE 전략 구독 7종목 중 403870만 실시간 tick 0(나머지 6종목 정상). 구독은 SUBSCRIBE SUCCESS를
+     * 받았으나 H0UNCNT0 체결 프레임이 0건이고, ADR 0091/0124의 빈응답 WARN 가드(=프레임이 *오긴 왔는데*
+     * 비어있는 경우)도 발화 안 함 — KIS가 해당 종목에 대해 프레임 자체를 0건 보내는 경우는 기존 가드 사각.
+     * 본 watchdog는 "구독 SUCCESS 후 N초간 프레임 0"을 정규장 세션 중에 주기 점검해 관측 가능하게 한다.
+     *
+     * default 120s — 활발히 거래되는 종목은 보통 수 초 내 첫 tick. 저유동 종목 오탐 완화 위해 보수적으로 길게.
+     */
+    @Value("\${magicjar.kis.ws.no-tick-watchdog-seconds:120}")
+    private val noTickWatchdogSeconds: Long = 120L,
+    /**
      * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
      *
      * ObjectProvider 사용 사유 (graceful 합류):
@@ -280,6 +294,25 @@ class KisWebSocketBridge(
     private var sendSink: Sinks.Many<String>? = null
     private var wsDisposable: Disposable? = null
     private var heartbeatWatchdog: ScheduledFuture<*>? = null
+    private var noTickWatchdog: ScheduledFuture<*>? = null
+
+    /**
+     * 종목별 마지막 체결 tick 수신 시각(epoch ms) — 무tick watchdog 기준선 (결함 ② — 403870 silent 누락).
+     *
+     * - subscribe(신규 논리 구독) 시 "구독 발사 시각"으로 seed → watchdog 윈도우가 구독 시점부터 시작
+     *   (seed 0이면 부팅 직후 전종목이 즉시 stale 오탐).
+     * - [handleUnifiedTickData]·[handleOvertimeSinglePriceTickData] tick 수신마다 갱신.
+     * - unsubscribe·shutdown 시 제거.
+     *
+     * ConcurrentHashMap: Reactor 수신 thread(put) + watchdog scheduler thread(read) 다중 접근 — thread-safe 의무.
+     */
+    private val lastTickAtMsByCode = ConcurrentHashMap<String, Long>()
+
+    /**
+     * 무tick WARN 이미 발화한 종목 set — 같은 stale 윈도우에서 매 watchdog cycle 중복 WARN 스팸 차단.
+     * tick이 다시 들어오면([recordTickReceived]) 제거 → 재무장(다음 stale 시 1회 다시 WARN).
+     */
+    private val noTickWarned: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     @Volatile
     private var pollingFallbackActive = AtomicBoolean(false)
@@ -449,6 +482,9 @@ class KisWebSocketBridge(
             if (newLogicalSubscription) {
                 seedTodayCandle(code)
                 slotLedger()?.register(trId = TR_ID_UNIFIED_TICK, code = code)
+                // 무tick watchdog 윈도우 seed — 구독 발사 시각 기준(첫 tick 도착 전까지 stale 카운트 시작점).
+                lastTickAtMsByCode[code] = System.currentTimeMillis()
+                noTickWarned.remove(code)
                 if (live) {
                     sendTickSubscribe(approvalKey, code, trType = "1")
                     log.info("KIS WS subscribe: code={} trId={}", code, TR_ID_UNIFIED_TICK)
@@ -471,6 +507,8 @@ class KisWebSocketBridge(
                 codes.forEach { code ->
                     session.subscribedCodes.remove(code)
                     slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
+                    lastTickAtMsByCode.remove(code)
+                    noTickWarned.remove(code)
                 }
                 return
             }
@@ -479,6 +517,8 @@ class KisWebSocketBridge(
                 sendTickSubscribe(approvalKey, code, trType = "0")
                 slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
                 session.subscribedCodes.remove(code)
+                lastTickAtMsByCode.remove(code)
+                noTickWarned.remove(code)
                 log.info("KIS WS unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_TICK)
             }
         }
@@ -798,6 +838,7 @@ class KisWebSocketBridge(
                     onPollingFallbackStop?.invoke()
                     log.info("KIS WS 연결 성공 — approval_key 발급 완료")
                     startHeartbeatWatchdog()
+                    startNoTickWatchdog()
 
                     // ★ SystemEvent emit point #5 (P1 spec §6.1) — WS_CONNECTED·WS_RECONNECTED
                     // currentDisconnectCorrelationId.getAndSet(null) — UUID 있으면 disconnect↔reconnect 1쌍 그룹화
@@ -863,9 +904,13 @@ class KisWebSocketBridge(
                     // 기존 구독 종목 재구독 (H0UNCNT0 통합 체결가)
                     val existingCodes = session.subscribedCodes.toList()
                     if (existingCodes.isNotEmpty()) {
+                        val reconnectMs = System.currentTimeMillis()
                         existingCodes.forEach { code ->
                             val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_TICK)
                             sink.tryEmitNext(msg)
+                            // 무tick watchdog 윈도우 재seed — 재구독 시점부터 stale 카운트 시작(이전 stale 흔적 reset).
+                            lastTickAtMsByCode[code] = reconnectMs
+                            noTickWarned.remove(code)
                         }
                         log.info("KIS WS 재구독 완료: 종목 {}건 trId={}", existingCodes.size, TR_ID_UNIFIED_TICK)
                     }
@@ -906,6 +951,7 @@ class KisWebSocketBridge(
                     connectInFlight.set(false) // ★ in-flight guard 해제 (유령 루프 fix) — terminal 시 다음 attempt 허용
                     session.onDisconnected()
                     stopHeartbeatWatchdog()
+                    stopNoTickWatchdog()
                     log.warn("KIS WS 연결 종료: signal={}", signal)
 
                     // ★ SystemEvent emit point #4 (P1 spec §6.1) — WS_DISCONNECTED
@@ -1160,9 +1206,20 @@ class KisWebSocketBridge(
         val tick = KisWsMessageParser.parseH0Uncnt0(rawData) ?: return
         log.debug("KIS WS unified tick: code={} price={} vol={} source={}", tick.code, tick.price, tick.volume, tick.source)
 
+        recordTickReceived(tick.code)
         writeToRedis(tick)
         updateLiveCandles(tick)
         publishTickEvent(tick)
+    }
+
+    /**
+     * 종목별 tick 수신 기록 — 무tick watchdog 기준선 갱신 + WARN 재무장 (결함 ② — 403870 silent 누락).
+     *
+     * tick이 다시 들어오면 noTickWarned에서 제거해 다음 stale 윈도우에 1회 다시 WARN 가능(stale→복구→재stale 추적).
+     */
+    private fun recordTickReceived(code: String) {
+        lastTickAtMsByCode[code] = System.currentTimeMillis()
+        noTickWarned.remove(code)
     }
 
     /**
@@ -1186,6 +1243,7 @@ class KisWebSocketBridge(
             tick.source,
         )
         // 동일 처리 흐름 — Redis update + candle 갱신 + Kafka publish
+        recordTickReceived(tick.code)
         writeToRedis(tick)
         updateLiveCandles(tick)
         publishTickEvent(tick)
@@ -1880,6 +1938,80 @@ class KisWebSocketBridge(
     }
 
     /**
+     * 종목별 무tick watchdog (결함 ② — 403870 H0UNCNT0 silent 누락 가드, 헌법 §11-2).
+     *
+     * heartbeat watchdog는 **세션 전체** 무신호(PINGPONG/모든 tick 0)를 보지만, 일부 종목만 SUBSCRIBE
+     * SUCCESS 후 프레임 0건인 경우(403870)는 다른 종목 tick이 흐르므로 heartbeat가 살아있어 감지 사각이다.
+     * 본 watchdog는 **종목 단위**로 "구독 SUCCESS 후 [noTickWatchdogSeconds]초간 체결 프레임 0"을 정규장
+     * 세션(08:00~20:00 KST · [CandleSession.isInIntegratedSession]) 중에만 주기 점검해 WARN으로 노출한다.
+     *
+     * - 정규장 외(야간·주말)는 자연 무거래이므로 점검 skip(오탐 방지).
+     * - 종목별 1 stale 윈도우당 WARN 1회([noTickWarned] 차단) — tick 복구 시 재무장.
+     * - 본 watchdog는 **관측 전용**(재구독·dispose 등 부작용 0) — silent 누락을 "보이게" 만드는 것이 1차 목적.
+     *   복구 액션(재구독/polling 전환)은 운영자 판단 또는 후속 사이클의 별도 결정 사항(보수적 회귀 보강).
+     *
+     * 점검 주기 = max(10s, noTickWatchdogSeconds/4) — 임계의 1/4 빈도(과도한 wakeup 방지). 0 이하면 비활성.
+     */
+    private fun startNoTickWatchdog() {
+        stopNoTickWatchdog()
+        if (noTickWatchdogSeconds <= 0L) {
+            log.info("KIS WS 무tick watchdog 비활성 (noTickWatchdogSeconds={})", noTickWatchdogSeconds)
+            return
+        }
+        val periodSec = (noTickWatchdogSeconds / 4).coerceAtLeast(10L)
+        noTickWatchdog =
+            scheduler.scheduleAtFixedRate({
+                runCatching { runNoTickWatchdogCheck() }
+                    .onFailure { e -> log.warn("KIS WS 무tick watchdog 점검 실패(graceful): err={}", e.message) }
+            }, periodSec, periodSec, TimeUnit.SECONDS)
+        log.info(
+            "KIS WS 무tick watchdog 시동: 임계={}s 점검주기={}s (정규장 세션 한정)",
+            noTickWatchdogSeconds,
+            periodSec,
+        )
+    }
+
+    private fun stopNoTickWatchdog() {
+        noTickWatchdog?.cancel(false)
+        noTickWatchdog = null
+    }
+
+    /**
+     * 무tick watchdog 1회 점검 — 구독 종목 중 [noTickWatchdogSeconds] 초과 무tick 종목 WARN.
+     *
+     * internal: 단위 테스트에서 시각 의존 없이 직접 호출해 분기(정규장 게이트·임계 초과·중복 차단) 검증.
+     */
+    internal fun runNoTickWatchdogCheck() {
+        if (!session.connected || session.shuttingDown) return
+        if (noTickWatchdogSeconds <= 0L) return
+        // 정규장(통합 세션 08:00~20:00 KST) 외에는 자연 무거래 → 오탐 방지로 점검 skip.
+        val nowKst = Instant.now().atZone(kstZone)
+        val minOfDay = nowKst.hour * 60 + nowKst.minute
+        if (!CandleSession.isInIntegratedSession(minOfDay)) return
+
+        val nowMs = System.currentTimeMillis()
+        val thresholdMs = noTickWatchdogSeconds * 1000L
+        val subscribed = session.subscribedCodes.toList()
+        for (code in subscribed) {
+            val lastMs = lastTickAtMsByCode[code] ?: continue
+            val ageMs = nowMs - lastMs
+            if (ageMs >= thresholdMs) {
+                // 종목별 1 윈도우당 1회만 WARN(중복 스팸 차단). tick 복구 시 recordTickReceived가 재무장.
+                if (noTickWarned.add(code)) {
+                    log.warn(
+                        "KIS WS 무tick 감지 — 구독 SUCCESS 후 {}초간 H0UNCNT0 체결 프레임 0건 (silent 누락 의심 · §11-2): " +
+                            "code={} trId={} ageSeconds={}",
+                        noTickWatchdogSeconds,
+                        code,
+                        TR_ID_UNIFIED_TICK,
+                        ageMs / 1000L,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
      * KIS 키 변경 시 graceful reconnect (ADR 0074 §2-2-3 + ADR 0048 §3 정합).
      *
      * 흐름:
@@ -1903,6 +2035,7 @@ class KisWebSocketBridge(
         // 1. 기존 연결 종료 (shuttingDown은 false 유지)
         reconnecting.set(false) // graceful reconnect는 독립 경로 — watchdog guard 초기화
         stopHeartbeatWatchdog()
+        stopNoTickWatchdog()
         gracefulReconnectSuppressUntilEpochMillis.set(System.currentTimeMillis() + 2000L)
         wsDisposable?.dispose()
         sendSink?.tryEmitComplete()
@@ -2078,6 +2211,7 @@ class KisWebSocketBridge(
         log.info("KIS WS graceful shutdown 시작")
         session.shuttingDown = true
         stopHeartbeatWatchdog()
+        stopNoTickWatchdog()
 
         // 모든 종목 unsubscribe (H0UNCNT0 체결가 + H0UNASP0/H0UNMKO0/H0STOUP0)
         val codes = session.subscribedCodes.toList()
