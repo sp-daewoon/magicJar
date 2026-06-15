@@ -387,3 +387,11 @@ PR #985 배포 후 관찰:
 - 해제 직후 H0UNCNT0/H0UNMKO0 unsubscribe 원문에 `tr_type:"0"`이 포함되어 KIS가 `OPSP8997 JSON PARSING ERROR : invalid tr_type`을 반환했다.
 - 로컬 status는 `stale=false`, `wsConnected=true`, `subscriptions=0`으로 정리됐지만, KIS가 unsubscribe를 거절한 이상 원격 구독 잔류 가능성이 남는다.
 - 보강: 일반 unsubscribe와 graceful shutdown unsubscribe를 모두 `TR_TYPE_UNSUBSCRIBE="2"`로 통일하고, 원문 진단 로그도 실제 trType을 출력한다.
+
+PR #987 배포 후 관찰:
+
+- consumer 재배포는 일반 drain guard로 통과했다. 배포 직전 in-flight 주문은 0건이었다.
+- `/actuator/health=UP`, `/api/admin/realtime-status`는 `stale=false`, `wsConnected=true`, `slotsUsed=0`, `subscriptions=0`, `executionNotice.subscribed=true`.
+- DB 기준 전략 #86은 `PAUSED`, `strategy_position(093370)`과 계좌 `position(093370)`은 모두 0으로 정리됐다. 열린 주문도 0건이다.
+- 배포 후 관찰 창에서 `OPSP8997`, `invalid_tr_type`, `EGW00201`, `EGW00215`, `잔고조회 실패`는 재발하지 않았다.
+- 다만 배포 후에는 active holding/detail subscription이 없어 실제 live unsubscribe 이벤트가 새로 발생하지 않았다. payload 형식은 회귀 테스트에서 raw JSON `tr_type:"2"`로 잠갔다.
