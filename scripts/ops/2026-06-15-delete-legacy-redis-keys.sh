@@ -29,6 +29,7 @@ should_skip_standard_key() {
   local key="$1"
   case "${key}" in
     account:availability:user:*|\
+    account:balance:user:*|\
     instrument:list:market:*|\
     screener:daytrade:preset:*|\
     news:dedup:url:sha256:*|\
