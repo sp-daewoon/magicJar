@@ -18,7 +18,10 @@ import org.springframework.stereotype.Component
  * 1. **분봉 gap-fill** — H0UNCNT0(체결가) 거부 시
  *    `SymbolDetailMinuteGapFillService.submitIfNeeded(code)` 호출로 WS 미수신 구간 1m 분봉을 KIS REST로 보완.
  *    호가(H0UNASP0)·시간외(H0STOUP0) 거부는 분봉 영향 없어 skip.
- * 2. **quote polling** — `WatchlistPollingWorker.add(code)`로 5s 현재가 polling 전환 (시세 degraded 명시).
+ * 2. **watchlist pool 등록** — `WatchlistPollingWorker.add(code)` (pool 추적만).
+ *    ★ 2026-06-15 ADR 0124 amend: watchlist 시세 5초 REST polling 은 KIS quota 보호를 위해 폐지됐다.
+ *    따라서 WS 거부 시 시세 polling 전환은 더 이상 일어나지 않는다(pool 등록은 무해 NOOP). 분봉 연속성은
+ *    위 gap-fill 이 단독 보장한다.
  *
  * ## 헌법 §6 + onReconnect 패턴 정합
  * KisWebSocketBridge가 reconciliation/polling 컴포넌트를 직접 의존하지 않도록(헌법 §6 ObjectProvider) 콜백으로 분리.
@@ -55,10 +58,10 @@ class KisWsRejectFallbackWiring(
             if (isTickReject) {
                 gapFillServiceProvider.ifAvailable?.submitIfNeeded(code = code, reason = "ws-opsp0008-reject")
             }
-            // 모든 거부 → quote polling 전환 (시세 degraded 명시 — 헌법 §11 silent 금지).
+            // watchlist pool 등록(추적용). ADR 0124 amend(2026-06-15): 시세 5초 polling 폐지로 NOOP.
             pollingWorkerProvider.ifAvailable?.add(code)
             log.info(
-                "ADR 0123 R1 — OPSP0008 거부 fallback 적용: code={} trId={} (gap-fill={} polling=add)",
+                "ADR 0123 R1 — OPSP0008 거부 fallback 적용: code={} trId={} (gap-fill={} polling=폐지·pool-add)",
                 code,
                 trId,
                 isTickReject,
