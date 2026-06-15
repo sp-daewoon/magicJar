@@ -29,6 +29,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventReposito
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderIdempotencyGuard
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
+import kr.spdaewoon.magicjar.domain.risk.port.TradeFrequencyGuard
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
 import kr.spdaewoon.magicjar.domain.user.AccountType
@@ -106,6 +107,8 @@ class OrderRouterKafkaListener(
     private val sellRejectAutoPauseTracker: SellRejectAutoPauseTracker,
     // WS_PREINSERT race 병합 시 누락된 strategy_position 재생. 부재 환경은 기존 주문 흐름 유지.
     private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
+    // signal.generated.v1 단계에서 주문 intent 발행 직후 누적한 거래빈도 record 를 gate reject 시 회수한다.
+    private val tradeFrequencyGuardProvider: ObjectProvider<TradeFrequencyGuard>? = null,
     // ADR 0122 §6 GAP-0 hotfix — intent.strategyId → strategy.origin 조회(페이퍼 MOCK 강제 판정).
     // ObjectProvider graceful — 부재 시 REAL fail-closed / MOCK ERROR 로그 + 진행 (헌법 §11-2).
     private val consumerStrategyJpaRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>? = null,
@@ -1074,6 +1077,7 @@ class OrderRouterKafkaListener(
             mapOf("reason" to reason, "source" to intent.source.name),
         )
         orderRejectedKafkaProducer.publish(saved, reason)
+        reclaimTradeFrequencyRecordIfGateRejected(intent, reason)
         // ADR 0115 §P2-2 — gate SELL 거부도 누적 추적(임계 도달 시 자동 정지 + 1회 알림).
         sellRejectAutoPauseTracker.onOrderRejected(saved)
         // Polling → STOMP push (2026-05-20) — gate REJECTED (TradingModeGate · KillSwitch).
@@ -1092,6 +1096,34 @@ class OrderRouterKafkaListener(
             intent.source,
             reason,
         )
+    }
+
+    private fun reclaimTradeFrequencyRecordIfGateRejected(
+        intent: OrderIntent,
+        reason: String,
+    ) {
+        if (intent.source != OrderSource.AUTO || intent.signalId <= 0L || intent.strategyId <= 0L) return
+        val guard = tradeFrequencyGuardProvider?.getIfAvailable() ?: return
+
+        try {
+            guard.removeRecord(intent.strategyId, intent.userId, intent.signalId)
+            log.info(
+                "trade-frequency record reclaimed after pre-submit reject: userId={} strategyId={} signalId={} reason={}",
+                intent.userId,
+                intent.strategyId,
+                intent.signalId,
+                reason,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "trade-frequency record reclaim 실패 (reject 흐름은 유지): userId={} strategyId={} signalId={} reason={} err={}",
+                intent.userId,
+                intent.strategyId,
+                intent.signalId,
+                reason,
+                e.message,
+            )
+        }
     }
 
     /**

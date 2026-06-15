@@ -111,6 +111,37 @@ class TradeFrequencyRedisGuard(
         }
     }
 
+    override fun removeRecord(
+        strategyId: Long,
+        userId: String,
+        signalId: Long,
+    ) {
+        try {
+            val member = signalId.toString()
+            val zops = redisTemplate.opsForZSet()
+            val minuteKey = buildKey(strategyId, userId, "minute")
+            val dayKey = buildKey(strategyId, userId, "day")
+
+            zops.remove(minuteKey, member)
+            zops.remove(dayKey, member)
+
+            log.debug(
+                "TradeFrequencyRedisGuard removeRecord: strategyId={} userId={} signalId={}",
+                strategyId,
+                userId,
+                signalId,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "TradeFrequencyRedisGuard removeRecord 실패 (fail-open): strategyId={} userId={} signalId={} err={}",
+                strategyId,
+                userId,
+                signalId,
+                e.message,
+            )
+        }
+    }
+
     /**
      * ZSET sliding window count. [floorEpoch] 지정 시 `from = max(now - windowSec, floorEpoch)` —
      * day 카운트의 당일(KST) 경계 하한(hotfix #3). 미지정 시 순수 롤링 윈도(minute).

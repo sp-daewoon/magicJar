@@ -29,6 +29,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventReposito
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderIdempotencyGuard
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
+import kr.spdaewoon.magicjar.domain.risk.port.TradeFrequencyGuard
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.assertj.core.api.Assertions.assertThat
@@ -67,6 +68,7 @@ class OrderRouterKafkaListenerTest {
     private val accountBalanceChangedProducer = mockk<AccountBalanceChangedKafkaProducer>(relaxed = true)
     private val executionBackfillService = mockk<KisExecutionBackfillService>(relaxed = true)
     private val killSwitchJpaRepository = mockk<KillSwitchJpaRepository>(relaxed = true)
+    private val tradeFrequencyGuard = mockk<TradeFrequencyGuard>(relaxed = true)
     private val objectMapper = ObjectMapper()
 
     private val orderRepoProvider =
@@ -107,6 +109,10 @@ class OrderRouterKafkaListenerTest {
     private val killSwitchJpaRepositoryProvider =
         mockk<ObjectProvider<KillSwitchJpaRepository>>().also {
             every { it.getIfAvailable() } returns killSwitchJpaRepository
+        }
+    private val tradeFrequencyGuardProvider =
+        mockk<ObjectProvider<TradeFrequencyGuard>>().also {
+            every { it.getIfAvailable() } returns tradeFrequencyGuard
         }
     private val marketSessionResolver = SimpleMarketSessionResolver()
     private val businessDayCalendar =
@@ -1014,10 +1020,52 @@ class OrderRouterKafkaListenerTest {
         verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
     }
 
+    @Test
+    fun `(canary-10) cap gate REJECTED 는 signal 단계 거래빈도 record 를 회수한다`() {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678", false) } returns OrderResult.Right(TradingMode.REAL)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 77L) }
+        every { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.REAL) } returns
+            KisExecutionSyncResult(
+                userId = "12345678",
+                accountType = AccountType.REAL,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = Instant.parse("2026-06-15T03:21:00Z"),
+            )
+        val userDslStrategyRepo =
+            mockk<ConsumerStrategyJpaRepository>().also { repo ->
+                every { repo.findById(100L) } returns
+                    Optional.of(mockk<ConsumerStrategyJpaEntity>().also { every { it.origin } returns "USER_DSL" })
+            }
+        val strategyRepoProvider =
+            mockk<ObjectProvider<ConsumerStrategyJpaRepository>>().also {
+                every { it.getIfAvailable() } returns userDslStrategyRepo
+            }
+        val listener =
+            canaryListener(
+                qty = 1,
+                mode = "REAL",
+                strategyRepoProvider = strategyRepoProvider,
+            )
+
+        listener.onOrderIntent(buildRecord(payloadWithQuantity(17)), mockk<Acknowledgment>(relaxed = true))
+
+        verify(exactly = 1) { rejectedProducer.publish(any(), match { it.startsWith("CANARY_QTY_CAP") }) }
+        verify(exactly = 1) { tradeFrequencyGuard.removeRecord(100L, "12345678", 42L) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+    }
+
     private fun canaryListener(
         qty: Int = 0,
         notional: Long = 0,
         perDay: Int = 0,
+        mode: String = "MOCK",
+        strategyRepoProvider: ObjectProvider<ConsumerStrategyJpaRepository>? = null,
     ): OrderRouterKafkaListener =
         OrderRouterKafkaListener(
             orderRequestRepositoryProvider = orderRepoProvider,
@@ -1036,6 +1084,9 @@ class OrderRouterKafkaListenerTest {
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            tradeFrequencyGuardProvider = tradeFrequencyGuardProvider,
+            consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
+            magicjarMode = mode,
             marketHoursGateEnabled = false,
             canaryMaxOrderQty = qty,
             canaryMaxOrderNotionalKrw = notional,

@@ -28,4 +28,10 @@ interface TradeFrequencyGuard {
         signalId: Long,
         now: Instant,
     )
+
+    fun removeRecord(
+        strategyId: Long,
+        userId: String,
+        signalId: Long,
+    )
 }

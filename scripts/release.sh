@@ -46,10 +46,25 @@ find_prev_tag() {
   echo "${prev:-}"
 }
 
+changelog_sources() {
+  echo "CHANGELOG.md"
+  find _workspace/changelog -maxdepth 1 -type f -name 'CHANGELOG-*.md' 2>/dev/null | sort -r || true
+}
+
 # CHANGELOG row 추출 (Hero 후보)
 extract_changelog_row() {
   local version="$1"
-  grep -E "release: ${version}\b" CHANGELOG.md | head -1 | sed 's/^| [0-9-]\{10\} | //; s/ | release | .*$//' || echo ""
+  local source
+  while IFS= read -r source; do
+    [[ -f "$source" ]] || continue
+    local row
+    row=$(grep -E "release: ${version}\b" "$source" | head -1 | sed 's/^| [0-9-]\{10\} | //; s/ | release | .*$//' || true)
+    if [[ -n "$row" ]]; then
+      echo "$row"
+      return
+    fi
+  done < <(changelog_sources)
+  echo ""
 }
 
 # PR 시계열 — git log <prev>..<this> --oneline (PR # 추출)
