@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisBalanceRateLimitedException
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalOutcome
@@ -59,6 +60,7 @@ import java.util.concurrent.ConcurrentHashMap
 @Component
 class KisCapitalSnapshotProviderAdapter(
     private val balanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>? = null,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // F10 — 최근 성공 capital snapshot 유효 시간(분). 이 시간 내면 조회 실패 시 직전 성공값(stale)을 재사용.
@@ -103,6 +105,46 @@ class KisCapitalSnapshotProviderAdapter(
      * KIS 가 성공적으로 0 을 반환한 경우에만 발생(그 경우만 정상 POSITION_LIMIT 평가 대상).
      */
     override fun capitalOutcome(userId: String): CapitalOutcome {
+        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        accountSnapshotCoordinatorProvider?.getIfAvailable()?.let { coordinator ->
+            return try {
+                val snapshot =
+                    coordinator.getSnapshot(
+                        userId = userId,
+                        accountType = accountType,
+                        reason = "RISK_CAPITAL",
+                    )
+                val netAsset = snapshot.balance.netAssetValue
+                recentCapital[userId] = CapitalSnapshot(netAsset, clock())
+                recentFailures.remove(userId)
+                val ageSeconds = Duration.between(snapshot.fetchedAt, clock()).seconds
+                log.info(
+                    "KisCapitalSnapshotProvider account snapshot 사용 — netAsset={} cacheAgeSec={} (userId={} type={})",
+                    netAsset,
+                    ageSeconds,
+                    maskUserId(userId),
+                    accountType.name,
+                )
+                CapitalOutcome.Available(capital = netAsset, stale = false)
+            } catch (e: KisBalanceRateLimitedException) {
+                log.warn(
+                    "KisCapitalSnapshotProvider account snapshot rate limit — stale-cache 시도(userId={})",
+                    maskUserId(userId),
+                )
+                markFailure(userId, "KIS_RATE_LIMIT")
+                staleCacheOr(userId, reason = "KIS_RATE_LIMIT")
+            } catch (e: Exception) {
+                val reason = "KIS_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}"
+                log.warn(
+                    "KisCapitalSnapshotProvider account snapshot 조회 실패 — stale-cache 시도(userId={} err={})",
+                    maskUserId(userId),
+                    e.message,
+                )
+                markFailure(userId, reason)
+                staleCacheOr(userId, reason = reason)
+            }
+        }
+
         freshCacheOrNull(userId)?.let { return it }
         failureCooldownOrNull(userId)?.let { return it }
 
@@ -115,7 +157,6 @@ class KisCapitalSnapshotProviderAdapter(
             return staleCacheOr(userId, reason = "PROVIDER_UNAVAILABLE")
         }
 
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         return try {
             // 캐시 우회 — 주문 수량/한도 산정에 stale 잔고 금지(ADR 0116 R1-3). USER_PATH acquire 는 port 구현이 보장.
             // rate limit backoff 재시도(default 2회)도 port 구현이 캡슐화 — 소진 시 KisBalanceRateLimitedException.

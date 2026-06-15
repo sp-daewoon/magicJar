@@ -89,7 +89,7 @@ data class AccountHolding(
  * KIS inquire-balance 1회 호출 결과 — output1(보유 종목 리스트) + output2(잔고 합계) 통합.
  *
  * spec §4-2 옵션 A 채택 — 동일 endpoint 1회 호출로 두 응답 부분 동시 흡수.
- * Redis cache `account:balance:{userId}` TTL 30s 키 1건에 본 객체 직렬화 (spec §4-1 LOCK).
+ * Redis cache `account:balance:{userId}:{accountType}` 키 1건에 본 객체 직렬화 (spec §4-1 LOCK).
  */
 data class KisAccountBalance(
     val userId: String,

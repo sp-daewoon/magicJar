@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
@@ -97,6 +98,7 @@ class KisExecutionWsListener(
     private val externalOrderAccountResolver: ExternalOrderAccountResolver,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     private val objectMapper: ObjectMapper,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
     private val log = LoggerFactory.getLogger(KisExecutionWsListener::class.java)
@@ -473,6 +475,21 @@ class KisExecutionWsListener(
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 
+    private fun invalidateAccountSnapshot(
+        order: OrderRequest,
+        reason: String,
+        kisOrderNo: String?,
+    ) {
+        accountSnapshotCoordinatorProvider
+            ?.getIfAvailable()
+            ?.invalidate(
+                userId = order.userId,
+                mode = order.mode,
+                reason = reason,
+                triggerKisOrderNo = kisOrderNo,
+            )
+    }
+
     /**
      * P2-4-3 진보 페르소나 가드 (ADR 0087, 2026-05-19).
      *
@@ -526,6 +543,7 @@ class KisExecutionWsListener(
             )
         }
 
+        invalidateAccountSnapshot(updated, reason = "WS_REJECTED", kisOrderNo = msg.odno)
         orderRejectedKafkaProducer.publish(updated, reason)
         log.warn("KisExecutionWsListener REJECTED: orderId={} odno={}", requestId, msg.odno)
     }
@@ -582,6 +600,7 @@ class KisExecutionWsListener(
             )
         }
         orderCancelledKafkaProducer.publish(updated)
+        invalidateAccountSnapshot(updated, reason = "WS_CANCELLED", kisOrderNo = msg.odno)
         // Polling → STOMP push (2026-05-20) — 잔고 변경 trigger (취소도 예약 cash 회복).
         accountBalanceChangedKafkaProducer.publish(
             userId = updated.userId,
@@ -704,6 +723,7 @@ class KisExecutionWsListener(
                     )
                 }
                 orderFilledKafkaProducer.publish(partial, execution, partial = true)
+                invalidateAccountSnapshot(partial, reason = "WS_PARTIALLY_FILLED", kisOrderNo = msg.odno)
                 // Polling → STOMP push (2026-05-20) — 부분 체결도 잔고 변경 (현금·평가금액 즉시 변동).
                 accountBalanceChangedKafkaProducer.publish(
                     userId = partial.userId,
@@ -740,6 +760,7 @@ class KisExecutionWsListener(
                     )
                 }
                 orderFilledKafkaProducer.publish(filled, execution, partial = false)
+                invalidateAccountSnapshot(filled, reason = "WS_FILLED", kisOrderNo = msg.odno)
                 // Polling → STOMP push (2026-05-20) — 전체 체결 → 잔고 즉시 invalidate trigger.
                 accountBalanceChangedKafkaProducer.publish(
                     userId = filled.userId,

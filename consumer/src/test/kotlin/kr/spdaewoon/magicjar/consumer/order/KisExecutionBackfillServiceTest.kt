@@ -248,6 +248,19 @@ class KisExecutionBackfillServiceTest {
     }
 
     @Test
+    fun `신호 경로 체결 동기화는 짧은 fresh window 안에서 KIS REST 결과를 공유한다`() {
+        val service = newService(magicjarMode = "MOCK")
+        every { kisAdapter.fetchTodayExecutions("USER_SYNC", AccountType.MOCK) } returns emptyList()
+
+        val first = service.syncUserTodayExecutions("USER_SYNC", AccountType.MOCK, verifyCredential = false)
+        val second = service.syncUserTodayExecutions("USER_SYNC", AccountType.MOCK, verifyCredential = false)
+
+        assertThat(first.isComplete).isTrue()
+        assertThat(second.isComplete).isTrue()
+        verify(exactly = 1) { kisAdapter.fetchTodayExecutions("USER_SYNC", AccountType.MOCK) }
+    }
+
+    @Test
     fun `(j) backlog 82-1 — 이미 FILLED + 합계일치 주문 backfill skip 재진입 시 재마킹·audit·completed_at 불변`() {
         val service = newService()
         val cred = stubCred(userId = "USER_FILLED", accountType = "REAL")

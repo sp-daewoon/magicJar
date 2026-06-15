@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshotPort
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -26,6 +27,7 @@ class AccountAvailabilityRefreshService(
     private val balanceQueryAdapter: ConsumerKisBalanceQueryAdapter,
     private val snapshotPort: AccountAvailabilitySnapshotPort,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     @Value("\${magicjar.kis.account-availability.refresh-enabled:false}")
     private val refreshEnabled: Boolean = false,
     @Value("\${magicjar.kis.account-availability.refresh-debounce-ms:2000}")
@@ -87,7 +89,16 @@ class AccountAvailabilityRefreshService(
         }
         val accountType = AccountType.valueOf(key.mode.name)
         try {
-            val balance = balanceQueryAdapter.fetchFullBalanceForAvailabilityRefresh(key.userId, accountType)
+            val balance =
+                accountSnapshotCoordinatorProvider
+                    ?.getIfAvailable()
+                    ?.getSnapshot(
+                        userId = key.userId,
+                        accountType = accountType,
+                        reason = "ACCOUNT_AVAILABILITY_REFRESH:${pendingRefresh.reason}",
+                        path = AccountSnapshotCoordinator.QueryPath.BACKGROUND_REFRESH,
+                    )
+                    ?: balanceQueryAdapter.fetchFullBalanceForAvailabilityRefresh(key.userId, accountType)
             val refreshedAt = Instant.now(clock)
             val snapshot =
                 AccountAvailabilitySnapshot.from(

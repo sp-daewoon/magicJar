@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.order.AccountBalanceChangedKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component
 class AccountAvailabilityRefreshListener(
     private val objectMapper: ObjectMapper,
     private val refreshService: AccountAvailabilityRefreshService,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
 ) {
     private val log = LoggerFactory.getLogger(AccountAvailabilityRefreshListener::class.java)
 
@@ -48,10 +50,18 @@ class AccountAvailabilityRefreshListener(
             log.warn("account availability refresh event invalid — skip: offset={} payload={}", record.offset(), payload)
             return
         }
+        val reason = payload["reason"]?.toString() ?: "ACCOUNT_BALANCE_CHANGED"
+        val triggerKisOrderNo = payload["triggerKisOrderNo"]?.toString()
+        accountSnapshotCoordinatorProvider?.getIfAvailable()?.invalidate(
+            userId = userId,
+            mode = mode,
+            reason = "ACCOUNT_BALANCE_CHANGED:$reason",
+            triggerKisOrderNo = triggerKisOrderNo,
+        )
         refreshService.requestRefresh(
             userId = userId,
             mode = mode,
-            reason = payload["reason"]?.toString() ?: "ACCOUNT_BALANCE_CHANGED",
+            reason = reason,
         )
     }
 }

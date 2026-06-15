@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshot
@@ -114,6 +115,7 @@ class OrderRouterKafkaListener(
     private val consumerStrategyJpaRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>? = null,
     // v3.13.1 — 주문 hot path 는 계좌 availability Redis snapshot read 만 수행. KIS REST 호출은 refresh worker 전용.
     private val accountAvailabilitySnapshotPortProvider: ObjectProvider<AccountAvailabilitySnapshotPort>? = null,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -357,6 +359,7 @@ class OrderRouterKafkaListener(
 
             // Step 6: Kafka order.requested.v1 publish (STOMP notify는 Phase 2 backend-core가 listen)
             orderRequestedKafkaProducer.publish(saved)
+            invalidateAccountSnapshot(saved, reason = "ORDER_REQUESTED")
 
             // Step 7: KIS REST submit (5xx 1회 retry)
             val kisResult =
@@ -423,6 +426,7 @@ class OrderRouterKafkaListener(
                     // ADR 0082 T-MAN B-2-extended — DB 컬럼 + JSON 마커 이중 정합
                     payload = mapOf("reason" to rejectReason, "source" to intent.source.name),
                 )
+                invalidateAccountSnapshot(transitioned, reason = targetStatus.name, kisOrderNo = transitioned.kisOrderNo)
 
                 if (isPendingReconcile) {
                     // PENDING_RECONCILE은 Kafka order.rejected.v1 미발행 — REJECTED 확정 전.
@@ -485,6 +489,12 @@ class OrderRouterKafkaListener(
                         "KRX_FWDG_ORD_ORGNO" to ackData.kisFwdgOrgno,
                         "source" to intent.source.name,
                     ),
+            )
+            invalidateAccountSnapshot(
+                userId = saved.userId,
+                mode = mode,
+                reason = "ORDER_ACKED",
+                kisOrderNo = ackData.kisOrderNo,
             )
 
             log.info(
@@ -1078,6 +1088,7 @@ class OrderRouterKafkaListener(
         )
         orderRejectedKafkaProducer.publish(saved, reason)
         reclaimTradeFrequencyRecordIfGateRejected(intent, reason)
+        invalidateAccountSnapshot(saved, reason = "ORDER_REJECTED", kisOrderNo = saved.kisOrderNo)
         // ADR 0115 §P2-2 — gate SELL 거부도 누적 추적(임계 도달 시 자동 정지 + 1회 알림).
         sellRejectAutoPauseTracker.onOrderRejected(saved)
         // Polling → STOMP push (2026-05-20) — gate REJECTED (TradingModeGate · KillSwitch).
@@ -1295,6 +1306,28 @@ class OrderRouterKafkaListener(
                 e,
             )
         }
+    }
+
+    private fun invalidateAccountSnapshot(
+        order: OrderRequest,
+        reason: String,
+        kisOrderNo: String? = order.kisOrderNo,
+    ) = invalidateAccountSnapshot(order.userId, order.mode, reason, kisOrderNo)
+
+    private fun invalidateAccountSnapshot(
+        userId: String,
+        mode: TradingMode,
+        reason: String,
+        kisOrderNo: String?,
+    ) {
+        accountSnapshotCoordinatorProvider
+            ?.getIfAvailable()
+            ?.invalidate(
+                userId = userId,
+                mode = mode,
+                reason = reason,
+                triggerKisOrderNo = kisOrderNo,
+            )
     }
 
     /**

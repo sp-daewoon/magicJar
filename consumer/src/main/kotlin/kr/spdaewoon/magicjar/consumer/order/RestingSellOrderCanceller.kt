@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.order
 
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -8,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import java.time.Instant
 
@@ -39,6 +41,7 @@ import java.time.Instant
 class RestingSellOrderCanceller(
     private val kisOrderPort: KisOrderPort,
     private val orderCancelledKafkaProducer: OrderCancelledKafkaProducer,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
 ) {
     private val log = LoggerFactory.getLogger(RestingSellOrderCanceller::class.java)
 
@@ -128,17 +131,24 @@ class RestingSellOrderCanceller(
         order: OrderRequest,
     ) {
         val orderId = order.id
-        val cancelled =
-            (
-                if (orderId != null) {
-                    runCatching { orderRepo.markCompleted(orderId, Instant.now(), OrderStatus.CANCELLED) }
-                        .onFailure { e -> log.error("resting SELL cancel markCompleted 실패: orderId={} err={}", orderId, e.message) }
-                        .getOrNull()
-                } else {
-                    null
-                }
-            ) ?: order.copy(status = OrderStatus.CANCELLED, completedAt = Instant.now())
+        val marked =
+            if (orderId != null) {
+                runCatching { orderRepo.markCompleted(orderId, Instant.now(), OrderStatus.CANCELLED) }
+                    .onFailure { e -> log.error("resting SELL cancel markCompleted 실패: orderId={} err={}", orderId, e.message) }
+                    .getOrNull()
+            } else {
+                null
+            }
+        val cancelled = marked ?: order.copy(status = OrderStatus.CANCELLED, completedAt = Instant.now())
         orderCancelledKafkaProducer.publish(cancelled)
+        accountSnapshotCoordinatorProvider
+            ?.getIfAvailable()
+            ?.invalidate(
+                userId = cancelled.userId,
+                mode = cancelled.mode,
+                reason = "RESTING_SELL_CANCELLED",
+                triggerKisOrderNo = cancelled.kisOrderNo,
+            )
     }
 
     /**

@@ -31,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException
  * - `GET /api/account/positions?userId=...&accountType=REAL` → `List<[AccountHoldingResponse]>`
  * - `GET /api/account/summary?userId=...&accountType=REAL`   → [AccountSummaryResponse]
  *
- * 모두 동일 KIS `inquire-balance` 호출 결과를 Redis cache `account:balance:{userId}` TTL 30s에 공유.
+ * 모두 동일 KIS `inquire-balance` 호출 결과를 Redis cache `account:balance:{userId}:{accountType}` TTL 5분에 공유.
  *
  * ### Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합)
  * - 컨트롤러: @Tag
@@ -68,7 +68,7 @@ class AccountController(
         summary = "계좌 잔고(예수금·평가금·평가손익) 조회",
         description =
             "KIS inquire-balance output2 11 필드를 반환합니다 (예수금 D+1·D+2·총 평가금액·순자산·매입합계·평가합계·평가손익 등). " +
-                "Redis cache `account:balance:{userId}` TTL 30s — 30s 내 재호출은 cache hit. " +
+                "Redis cache `account:balance:{userId}:{accountType}` TTL 5분 — 주문 이벤트 발생 시 backend가 즉시 무효화합니다. " +
                 "사용자 메모리 feedback_kis_key_realonly_for_data 정합 — 정보 수집은 모두 실전 키 우선. " +
                 "mock 합성 0 LOCK — KIS 실패 시 502 발행.",
     )
@@ -109,7 +109,7 @@ class AccountController(
         description =
             "KIS inquire-balance output1 — 보유 종목별 평균가·현재가·평가금·손익을 반환합니다. " +
                 "DB `position` 테이블 조회(`/api/positions`)와 달리 KIS 실시간 시세 포함. " +
-                "동일 Redis cache `account:balance:{userId}` TTL 30s 재사용 (KIS 호출 0 추가).",
+                "동일 Redis cache `account:balance:{userId}:{accountType}` TTL 5분 재사용 (KIS 호출 0 추가).",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "보유 종목 조회 성공 (0건이면 빈 배열)"),
