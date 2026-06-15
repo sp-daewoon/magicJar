@@ -28,6 +28,7 @@ import java.time.Instant
  * 5. provider bean 부재 → Unavailable(skip)
  * 6. KIS fresh 0 netAssetValue(실제 0 잔고) → Available(0) — 진짜 0 은 정상값
  * 7. 직전 성공 90초 내 재호출 → KIS 직접 조회 없이 fresh-cache 재사용(EGW00215 자가압박 완화)
+ * 8. 직접 조회 실패 직후 cooldown → 캐시가 없어도 매분 KIS 재시도 폭주 없이 Unavailable(skip)
  *
  * mock 합성 0 LOCK (feedback_no_mock_data): 본 테스트는 fixture (테스트 fixture 면제).
  * AI 호출 0 LOCK (룰 5 + ADR 0023 §2-4): LLM provider import 0.
@@ -149,6 +150,21 @@ class KisCapitalSnapshotProviderAdapterTest {
 
         assertThat(outcome).isInstanceOf(CapitalOutcome.Unavailable::class.java)
         assertThat((outcome as CapitalOutcome.Unavailable).reason).isEqualTo("KIS_RATE_LIMIT")
+    }
+
+    @Test
+    fun `직접 조회 실패 직후 cooldown 중 재호출은 KIS 직접 조회 없이 skip한다`() {
+        every { portProvider.getIfAvailable() } returns balanceQueryPort
+        every { balanceQueryPort.fetchFullBalance(userId, AccountType.MOCK) } throws RuntimeException("upstream 5xx")
+
+        val first = sut.capitalOutcome(userId)
+        nowRef = nowRef.plusSeconds(60)
+        val second = sut.capitalOutcome(userId)
+
+        assertThat(first).isInstanceOf(CapitalOutcome.Unavailable::class.java)
+        assertThat(second).isInstanceOf(CapitalOutcome.Unavailable::class.java)
+        assertThat((second as CapitalOutcome.Unavailable).reason).contains("KIS_LOOKUP_COOLDOWN")
+        verify(exactly = 1) { balanceQueryPort.fetchFullBalance(userId, AccountType.MOCK) }
     }
 
     @Test

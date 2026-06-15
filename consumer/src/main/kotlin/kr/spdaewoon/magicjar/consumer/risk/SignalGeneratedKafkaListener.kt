@@ -161,6 +161,22 @@ class SignalGeneratedKafkaListener(
                 return
             }
 
+            val riskConfigRepoBlocked = ensureRealRiskConfigRepositoryBeforeKisCalls(signal)
+            if (riskConfigRepoBlocked != null) {
+                handleBlocked(signal, riskConfigRepoBlocked)
+                ack.acknowledge()
+                return
+            }
+
+            try {
+                ensureCapitalReadyBeforeKisSyncIfBuy(signal)
+            } catch (e: SignalSkippedCapitalUnavailableException) {
+                // 2026-06-15 hotfix — BUY capital 이 없으면 체결 backfill KIS TR 도 태우지 않는다.
+                handleCapitalUnavailableSkip(signal, e.reason)
+                ack.acknowledge()
+                return
+            }
+
             val syncBlocked = ensureKisExecutionSync(signal)
             if (syncBlocked != null) {
                 handleBlocked(signal, syncBlocked)
@@ -197,6 +213,57 @@ class SignalGeneratedKafkaListener(
                 e.message,
                 e,
             )
+        }
+    }
+
+    /**
+     * REAL risk config 배선 오류는 KIS REST 호출 전에 fail-fast 한다.
+     *
+     * [buildContext]도 같은 fail-fast를 갖지만, 2026-06-15 hotfix로 capital preflight가 체결 backfill보다 앞서면서
+     * 배선 오류가 capital skip으로 보일 수 있다. REAL에서 사용자 risk_config를 못 읽는 상태는 자본 안전 결함이므로
+     * KIS 호출을 태우기 전에 기존 reason code로 차단한다.
+     */
+    private fun ensureRealRiskConfigRepositoryBeforeKisCalls(signal: Signal): RiskGatewayResult.Blocked? {
+        if (!RuntimeModeParser.isRealMode(magicjarMode)) return null
+        if (riskConfigRepositoryProvider.getIfAvailable() != null) return null
+        log.error(
+            "RiskConfigRepository 빈 부재 — REAL 모드 fail-fast (signalId={} userId={}). " +
+                "persistence-shared scan 경로/빈 배선 확인 필요.",
+            signal.id,
+            signal.userId,
+        )
+        return syncBlocked(signal, "RISK_CONFIG_REPO_UNAVAILABLE")
+    }
+
+    /**
+     * BUY capital 선조회.
+     *
+     * 기존 순서는 KIS 체결 backfill(inquire-daily-ccld) → capital 잔고조회였다. 2026-06-15 REAL 1분 신호에서는
+     * 재기동 직후 capital cache miss 상태에서 backfill 과 잔고조회가 같은 초에 겹치며 EGW00215를 증폭했다.
+     * BUY는 capital 없이는 어차피 skip 이므로, 체결 backfill 전에 capital 을 먼저 확인한다. 성공하면 provider의
+     * fresh-cache가 즉시 채워져 [buildContext]의 두 번째 조회는 KIS REST 없이 통과한다.
+     */
+    private fun ensureCapitalReadyBeforeKisSyncIfBuy(signal: Signal) {
+        if (signal.side != SignalSide.BUY) return
+        if (lookupStrategyOrNull(signal)?.isPaperDiscovery() == true) return
+
+        val outcome =
+            try {
+                capitalSnapshotProvider.capitalOutcome(signal.userId)
+            } catch (e: Exception) {
+                throw SignalSkippedCapitalUnavailableException("CAPITAL_PREFLIGHT_EXCEPTION:${e.message ?: "UNKNOWN"}")
+            }
+
+        when (outcome) {
+            is CapitalOutcome.Available ->
+                log.info(
+                    "BUY capital preflight PASS: signalId={} userId={} stale={}",
+                    signal.id,
+                    signal.userId,
+                    outcome.stale,
+                )
+            is CapitalOutcome.Unavailable ->
+                throw SignalSkippedCapitalUnavailableException(outcome.reason)
         }
     }
 

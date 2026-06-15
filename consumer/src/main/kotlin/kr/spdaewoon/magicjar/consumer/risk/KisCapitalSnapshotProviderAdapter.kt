@@ -24,7 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
  * (사용자 지시 — 주문 관련 캐시 제거) Redis 표시용 cache를 **우회하고 KIS [KisBalanceQueryPort]로 직접 조회**한다.
  * 단, 2026-06-15 REAL 장중에서 1분 신호가 직전 성공 잔고 직후에도 매번 KIS 잔고를 직접 조회해 `EGW00215`
  * 를 재유발했다. 그래서 아주 짧은 fresh-cache reuse window(default 90초)를 둔다. 이 창 안의 직전 성공
- * snapshot 은 KIS 원장 TPS 보호를 위해 재사용한다(0이면 비활성).
+ * snapshot 은 KIS 원장 TPS 보호를 위해 재사용한다(0이면 비활성). 직접 조회가 실패한 직후에는
+ * cooldown(default 120초) 동안 같은 endpoint 재시도를 생략해 cache miss 상태의 매분 재시도 폭주도 막는다.
  *
  * ### F10 — 조회 실패 시 0 fabricate 폐기 → 재시도 → stale-cache → skip (2026-06-12 최고 관리자 결재)
  * 14:12 라이브 incident: 잔고조회가 rate limit(EGW00215)로 실패하자 **capital=0 을 fabricate** →
@@ -65,15 +66,23 @@ class KisCapitalSnapshotProviderAdapter(
     private val staleCacheTtlMinutes: Long = 5,
     @Value("\${magicjar.risk.capital-fresh-cache-reuse-seconds:90}")
     private val freshCacheReuseSeconds: Long = 90,
+    @Value("\${magicjar.risk.capital-direct-failure-cooldown-seconds:120}")
+    private val directFailureCooldownSeconds: Long = 120,
     private val clock: () -> Instant = Instant::now,
 ) : CapitalSnapshotProvider {
     private val log = LoggerFactory.getLogger(KisCapitalSnapshotProviderAdapter::class.java)
 
     /** key=userId → 최근 성공 capital snapshot(값 + 시각). 같은 partition(userId) 단일 consumer thread 처리 — in-memory 충분. */
     private val recentCapital = ConcurrentHashMap<String, CapitalSnapshot>()
+    private val recentFailures = ConcurrentHashMap<String, CapitalFailure>()
 
     private data class CapitalSnapshot(
         val capital: BigDecimal,
+        val at: Instant,
+    )
+
+    private data class CapitalFailure(
+        val reason: String,
         val at: Instant,
     )
 
@@ -95,6 +104,7 @@ class KisCapitalSnapshotProviderAdapter(
      */
     override fun capitalOutcome(userId: String): CapitalOutcome {
         freshCacheOrNull(userId)?.let { return it }
+        failureCooldownOrNull(userId)?.let { return it }
 
         val port = balanceQueryPortProvider?.getIfAvailable()
         if (port == null) {
@@ -112,6 +122,7 @@ class KisCapitalSnapshotProviderAdapter(
             val snapshot = port.fetchFullBalance(userId, accountType)
             val netAsset = snapshot.balance.netAssetValue
             recentCapital[userId] = CapitalSnapshot(netAsset, clock())
+            recentFailures.remove(userId)
             log.info(
                 "KisCapitalSnapshotProvider KIS fresh 조회 — netAsset={} (userId={} type={}, 캐시 우회 — 주문경로)",
                 netAsset,
@@ -125,14 +136,17 @@ class KisCapitalSnapshotProviderAdapter(
                 "KisCapitalSnapshotProvider 잔고 rate limit 재시도 소진 — stale-cache 시도(userId={})",
                 maskUserId(userId),
             )
+            markFailure(userId, "KIS_RATE_LIMIT")
             staleCacheOr(userId, reason = "KIS_RATE_LIMIT")
         } catch (e: Exception) {
+            val reason = "KIS_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}"
             log.warn(
                 "KisCapitalSnapshotProvider KIS 직접 조회 실패 — stale-cache 시도(userId={} err={})",
                 maskUserId(userId),
                 e.message,
             )
-            staleCacheOr(userId, reason = "KIS_LOOKUP_FAILED:${e.message ?: "UNKNOWN"}")
+            markFailure(userId, reason)
+            staleCacheOr(userId, reason = reason)
         }
     }
 
@@ -195,6 +209,38 @@ class KisCapitalSnapshotProviderAdapter(
             return CapitalOutcome.Available(capital = cached.capital, stale = true)
         }
         return null
+    }
+
+    /**
+     * 직전 KIS 직접 조회가 실패했으면 짧은 cooldown 동안 같은 실패를 반복하지 않는다.
+     *
+     * 2026-06-15 REAL 1분 신호에서는 재기동 직후 cache miss 상태에서 매분 잔고조회가 재시도되며
+     * EGW00215를 증폭했다. cooldown 중에는 직전 성공 stale-cache가 있으면 그 값을, 없으면 skip을 반환한다.
+     */
+    private fun failureCooldownOrNull(userId: String): CapitalOutcome? {
+        val cooldownSeconds = directFailureCooldownSeconds.coerceAtLeast(0)
+        if (cooldownSeconds <= 0) return null
+        val failure = recentFailures[userId] ?: return null
+        val ageSeconds = Duration.between(failure.at, clock()).seconds
+        if (ageSeconds in 0..cooldownSeconds) {
+            log.info(
+                "KisCapitalSnapshotProvider KIS 직접 조회 cooldown — direct lookup skip: ageSec={} cooldownSec={} reason={} (userId={})",
+                ageSeconds,
+                cooldownSeconds,
+                failure.reason,
+                maskUserId(userId),
+            )
+            return staleCacheOr(userId, reason = "KIS_LOOKUP_COOLDOWN:${failure.reason}")
+        }
+        recentFailures.remove(userId, failure)
+        return null
+    }
+
+    private fun markFailure(
+        userId: String,
+        reason: String,
+    ) {
+        recentFailures[userId] = CapitalFailure(reason = reason, at = clock())
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

@@ -361,3 +361,13 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 - 14:04 KST 전략 #86 BUY 17주가 실제 체결됐다. 이는 코드의 canary cap 우회가 아니라 운영 `.env`에서 `MAGICJAR_CANARY_MAX_ORDER_QTY=0`, `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW=0`, `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY=0`으로 전용 cap이 비활성화된 결과다. `.env` 주석도 "금액 cap 35만원으로 통일" 결재 상태를 가리킨다.
 - 14:05 KST 다음 BUY 신호는 `POSITION_LIMIT`으로 차단됐지만, 그 전에 KIS 잔고조회가 `EGW00215`를 다시 맞았다. 직전 14:04 성공 잔고가 있었는데도 1분 뒤 KIS 원장을 다시 직접 조회해 USER 경로 압박을 만든 것이다.
 - 보강: `KisCapitalSnapshotProviderAdapter`에 90초 fresh-cache reuse window를 추가한다. 직전 성공 잔고가 이 창 안이면 KIS 직접 조회를 생략하고 stale=true Available로 재사용해 1분 신호 반복의 원장 TPS 자가압박을 줄인다.
+
+추가 배포 관찰:
+
+- PR #984 merge 후 열린 실매도 ACK 1건 때문에 일반 배포 drain guard가 중단됐다. consumer 부팅 backfill이 체결 복원 경로를 갖고 있어 `SKIP_DRAIN_CHECK=1`로 consumer만 재배포했다.
+- 배포 직후 `/api/admin/realtime-status`는 `stale=false`, `wsConnected=true`, `executionNotice.subscribed=true`로 fresh였다.
+- 그러나 첫 1분 신호(14:15 KST)에서 `EGW00215`가 재발했다. 원인은 PR #984의 fresh-cache가 in-memory라 consumer 재기동 직후 cache miss였고, 같은 정각 0초에 `BalanceReconcileService` 시장 OPEN cron과 BUY risk path가 모두 KIS 잔고조회 endpoint를 건드린 점이다.
+- 같은 로그에서 `KisCapitalSnapshotProvider stale-cache 없음 — 시그널 skip`이 확인되어 0 fabricate/POSITION_LIMIT false violation은 재발하지 않았다. 남은 문제는 거래 허용 여부가 아니라 KIS 원장 호출 압박이었다.
+- 추가 보강: BUY는 체결 backfill 전 capital preflight를 먼저 수행한다. capital unavailable이면 KIS 체결조회도 태우지 않고 `SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE`로 끝낸다.
+- 추가 보강: capital 직접 조회 실패 직후 기본 120초 cooldown 동안 같은 KIS 잔고조회를 재시도하지 않는다. 직전 성공값이 있으면 stale-cache, 없으면 Unavailable(skip)으로 반환한다.
+- 추가 보강: `BalanceReconcileJob` 시장 OPEN cron 기본 초를 0초에서 30초로 옮겨 1분봉 신호 정각 호출과 분산한다.

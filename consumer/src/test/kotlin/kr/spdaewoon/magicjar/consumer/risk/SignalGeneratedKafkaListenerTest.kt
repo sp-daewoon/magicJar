@@ -129,6 +129,8 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 0) { signalRiskStatusUpdater.markBlocked(any(), any(), any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
         verify(exactly = 0) { signalRiskStatusUpdater.markAllowed(any()) }
+        // capital 이 없으면 어차피 BUY skip 이므로 KIS 체결 backfill 도 태우지 않는다.
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
     }
 
     @Test
@@ -620,6 +622,7 @@ class SignalGeneratedKafkaListenerTest {
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
         // canary D2 hotfix #5 — 공짜 룰 선차단이 KIS sync 보다 먼저 돌므로 KillSwitch 는 off 여야 sync 차단까지 도달.
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
         every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
@@ -693,6 +696,7 @@ class SignalGeneratedKafkaListenerTest {
         every { riskEventRepository.save(any()) } answers { firstArg<RiskEvent>() }
         // 공짜 룰 선차단(hotfix #5) 통과 위해 KillSwitch off + config/positions/freq stub.
         every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
         every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0

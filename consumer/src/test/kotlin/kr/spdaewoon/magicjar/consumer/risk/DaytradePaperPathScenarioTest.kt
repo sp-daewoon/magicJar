@@ -218,7 +218,8 @@ class DaytradePaperPathScenarioTest {
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.MARKET, null) }
         // zero-regression — USER_DSL은 실 capital provider만 쓰고 페이퍼 provider는 건드리지 않는다.
         // F10 — 주문경로 capital 산출은 capitalOutcome 경로(0 fabricate 금지).
-        verify(exactly = 1) { realCapitalProvider.capitalOutcome("user-A") }
+        // 2026-06-15 hotfix — BUY capital preflight + buildContext fresh-cache 경로로 2회 호출된다.
+        verify(exactly = 2) { realCapitalProvider.capitalOutcome("user-A") }
         verify(exactly = 0) { paperCapitalProvider.getCapital(any()) }
         // 파생 키("user-A:paper") config 조회 0 — 실 키만.
         verify(exactly = 0) { riskConfigRepository.getOrDefault("user-A:paper", any()) }
