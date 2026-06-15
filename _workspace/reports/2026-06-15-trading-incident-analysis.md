@@ -371,3 +371,12 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 - 추가 보강: BUY는 체결 backfill 전 capital preflight를 먼저 수행한다. capital unavailable이면 KIS 체결조회도 태우지 않고 `SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE`로 끝낸다.
 - 추가 보강: capital 직접 조회 실패 직후 기본 120초 cooldown 동안 같은 KIS 잔고조회를 재시도하지 않는다. 직전 성공값이 있으면 stale-cache, 없으면 Unavailable(skip)으로 반환한다.
 - 추가 보강: `BalanceReconcileJob` 시장 OPEN cron 기본 초를 0초에서 30초로 옮겨 1분봉 신호 정각 호출과 분산한다.
+
+PR #985 배포 후 관찰:
+
+- consumer 재배포 완료. 열린 실매도 ACK 1건 때문에 drain guard는 계속 대기하므로 `SKIP_DRAIN_CHECK=1`로 배포했다.
+- `/actuator/health=UP`, `/api/admin/realtime-status`는 `stale=false`, `wsConnected=true`, `executionNotice.subscribed=true`.
+- `BalanceReconcileJob`은 14:25:30 KST에 실행되어 기존 정각 0초 충돌에서 벗어난 것을 확인했다.
+- 배포 후 관찰 창에서 `EGW00201`, `EGW00215`, `잔고조회 실패`는 재발하지 않았다.
+- watchlist polling의 `Connection prematurely closed BEFORE response`는 계속 간헐 발생하지만 `watchlist polling KIS failure ... reason=request-failure ... cooldownMs=30000`로 남은 slice 중단 + cooldown 처리된다.
+- DB 기준 전략 #86은 `PAUSED`, 현재 실보유는 후성 17주(avg 19,570원), 열린 주문은 auto take-profit SELL ACK 1건(`ODNO=0027188000`, 17주, 19,760원)이다. 이 주문 때문에 배포 drain guard의 in-flight 1건은 계속 남는다.
