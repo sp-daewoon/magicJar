@@ -108,7 +108,10 @@ class ConsumerExecutionStrategyPositionAdapter(
             next.executedExitStages,
         )
 
-        reconcileDrift(request.userId, request.code, request.mode.name)
+        // 체결 직후 경로 — postExecution=true. 이 시점 position(원장) 권위는 아직 이 체결을 반영하지 않았을
+        // 수 있다(원장은 BalanceReconcile 주기에 뒤늦게 채워짐 — 실측 15:10 체결 vs 15:51 원장 반영). 따라서
+        // "원장 0 + 방금 귀속한 leg 양수"를 초과로 깎으면 정상 물량을 즉시 파괴한다(아래 reconcileDrift 가드).
+        reconcileDrift(request.userId, request.code, request.mode.name, postExecution = true)
     }
 
     /**
@@ -127,7 +130,9 @@ class ConsumerExecutionStrategyPositionAdapter(
         code: String,
         modeName: String,
     ) {
-        reconcileDrift(userId, code, modeName)
+        // 주기 reconcile 경로 — postExecution=false. position(원장)은 BalanceReconcile 가 이미 채운 뒤이므로
+        // "원장 0 = 진짜 미보유"로 신뢰할 수 있다 → 초과(legs 양수 vs 권위 0) 정상 정정 대상.
+        reconcileDrift(userId, code, modeName, postExecution = false)
     }
 
     /**
@@ -419,11 +424,24 @@ class ConsumerExecutionStrategyPositionAdapter(
      * - [DriftCorrectionResult.NoChange]/[DriftCorrectionResult.Disabled]: 무동작(Disabled 는 ENV off → 현행 WARN-only fallback).
      *
      * 모드 무관(REAL/MOCK 동일 — position 권위 공통, ADR 0115 §P1-1). 실주문 액션 게이트는 본 경로와 무관(수량 정렬만).
+     *
+     * ## 체결 직후 빈틈 보존 가드 (2026-06-15 — strategy_position drift 근본 fix)
+     * 운영 실측(005930·전략 88, 15:10:01 매수 333주 체결인데 strategy_position 88 이 0 으로 잔존):
+     *   applyExecution → applyBuy(+1) → reconcileDrift 즉시 호출 → **체결 직후라 position(원장) quantity 가 아직 0**
+     *   (원장은 BalanceReconcile 주기에 뒤늦게 채워짐 — 실측 15:51 에야 1) → legs(1) > authority(0) = 초과 판정
+     *   → Adjust 로 방금 더한 1주를 즉시 삭제.
+     * 기존 가드(authorityRow==null)는 "행 부재"만 막아서, 행이 **존재하지만 quantity=0**(체결 직후) 인 경우는 뚫렸다.
+     *
+     * fix: [postExecution]=true(체결 직후 경로)면 "권위 0(원장 미반영 가능) + legs 양수" 도 초과 Adjust 보류 + WARN
+     *   (다음 정합 주기에 회복 — 부족 방향 WARN-only 와 동일 철학으로 정상 물량 보존). 주기 reconcile
+     *   ([reconcileStrategyPositionDrift], postExecution=false)는 원장이 이미 채워진 뒤이므로 권위 0=진짜 미보유로
+     *   신뢰 → 정상 정정(미체결·미보유 케이스와 구분).
      */
     private fun reconcileDrift(
         userId: String,
         code: String,
         modeName: String,
+        postExecution: Boolean,
     ) {
         val legs =
             try {
@@ -450,22 +468,34 @@ class ConsumerExecutionStrategyPositionAdapter(
                 return
             }
 
+        val positionQty = authorityRow?.quantity ?: 0
+        val hasPositiveLeg = legs.any { it.quantity > 0 }
+
         // hotfix 2026-06-11 (D1): 이 source(REAL/MOCK) 의 position 행 자체가 **부재**면 "확정 0 보유"가 아니다.
         // 첫 REAL 체결 직후 권위 행이 아직 없거나, 잘못된 source 로 조회됐을 수 있다. 이때 authority=0 으로 간주해
         // 초과 내림(Adjust)을 적용하면 방금 정상 귀속된 leg 를 즉시 삭제한다(13:31:01.963 strategySum=1->0 라이브 결함).
-        // 행이 부재한데 strategy_position leg 가 양수면 보정하지 않고 skip — drift 는 권위 행이 생긴 다음 주기에 회복한다
-        // (없는 0 으로 정상 물량을 파괴하지 않는 보수 가드 — 부족 방향 WARN-only 와 동일 철학).
-        if (authorityRow == null && legs.any { it.quantity > 0 }) {
+        //
+        // 2026-06-15 확장(strategy_position drift 근본 fix): 행 부재(authorityRow==null) 뿐 아니라, 행이
+        // **존재하지만 quantity=0** 인 경우도 **체결 직후 경로(postExecution=true)** 에서는 "확정 0 보유"로 믿을 수 없다.
+        // 원장은 BalanceReconcile 주기에 뒤늦게 채워지므로(005930·전략88 실측: 15:10 체결 vs 15:51 원장 반영),
+        // 체결 직후 reconcile 은 권위 0 + 방금 귀속한 leg 양수를 초과로 깎으면 정상 물량을 즉시 파괴한다.
+        // → 보정하지 않고 skip(다음 정합 주기에 회복). 주기 reconcile(postExecution=false)은 원장이 채워진 뒤이므로
+        //   권위 0=진짜 미보유로 신뢰 → 가드 없이 정상 정정(미체결·미보유와 구분).
+        val authorityUnreliableZero = authorityRow == null || (postExecution && positionQty == 0)
+        if (authorityUnreliableZero && hasPositiveLeg) {
             log.warn(
-                "strategy_position drift skip(권위 행 부재 — 확정 0 아님): userId={} code={} source={} legSum={} (다음 정합 주기 회복)",
+                "strategy_position drift skip(권위 0 신뢰불가 — 확정 0 아님): userId={} code={} source={} " +
+                    "authorityRowPresent={} positionQty={} postExecution={} legSum={} (다음 정합 주기 회복)",
                 maskUserId(userId),
                 code,
                 modeName,
+                authorityRow != null,
+                positionQty,
+                postExecution,
                 legs.sumOf { it.quantity },
             )
             return
         }
-        val positionQty = authorityRow?.quantity ?: 0
 
         val result =
             PositionDriftCorrection.evaluate(
