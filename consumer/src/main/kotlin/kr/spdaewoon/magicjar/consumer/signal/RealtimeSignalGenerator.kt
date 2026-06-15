@@ -323,7 +323,9 @@ class RealtimeSignalGenerator(
         val side = decision.side
         val evalResult = decision.result
         // ADR 0114 §3-3·§5 — SELL 청산 가격 유형/LIMIT를 contextJson에 실어 listener(SignalGeneratedKafkaListener)가 라우팅.
-        val exitContextJson = buildExitContextJson(decision)
+        // + 사후 audit 보강(2026-06-15) — 평가값(trigger·lhs/rhs·lhsValue/rhsValue·익절 profitPct 등)을 BUY/SELL 모두 실어
+        //   "왜 이 신호가 났나"를 캔들 추정 없이 검증한다. exitPriceType/exitLimitPrice 키는 그대로 보존(listener 라우팅 무영향).
+        val exitContextJson = buildSignalContextJson(decision)
 
         // 4. HOLD는 영속 0 (ADR 0066 §9-2 noise 회피)
         if (side == SignalSide.HOLD) {
@@ -823,24 +825,62 @@ class RealtimeSignalGenerator(
         position?.let { mapOf("avgPrice" to it.avgPrice.toPlainString()) } ?: emptyMap()
 
     /**
-     * SELL 청산 가격 라우팅을 contextJson에 직렬화 (ADR 0114 §3-3·§5).
+     * 시그널 contextJson 직렬화 — ① SELL 청산 가격 라우팅(ADR 0114 §3-3·§5) + ② 평가값 audit 보강(2026-06-15).
      *
+     * ### ① 청산 라우팅 (기존 계약 LOCK)
      * listener([SignalGeneratedKafkaListener.handleAllowed])가 `exitPriceType`(MARKET 손절 / LIMIT 익절) + `exitLimitPrice`를
-     * 읽어 OrderIntent 가격 유형을 분기한다. BUY·HOLD 또는 exit 정보 미산정 시 null(현행 MARKET 경로 보존 — 하위호환).
-     * 계산은 모두 [EntryPricePolicy.takeProfitLimitPrice](R1 단일 출처)에서 끝났고 여기선 전달만 한다(중복 0).
+     * 읽어 OrderIntent 가격 유형을 분기한다. 계산은 [EntryPricePolicy.takeProfitLimitPrice](R1 단일 출처)에서 끝났고 여기선 전달만 한다.
+     *
+     * ### ② audit 보강 (신규 — #86 사후 검증 공백 해소)
+     * 기존엔 SELL 청산(exitPriceType 有)만 contextJson을 채워, DSL SELL·BUY 신호는 `context_json`이 비어 "왜 이 신호가 났나"를
+     * 캔들로 추정할 수밖에 없었다(운영 #86 분석 교훈). 본 보강은 [StrategyEvalResult.reason](trigger·lhs/rhs·lhsValue/rhsValue·
+     * profitPct·avgPrice·currentPrice 등 평가 당시 값)을 **BUY/SELL 모두** `eval.*` 네임스페이스로 직렬화한다.
+     * BigDecimal·열거형은 `toString` 평탄화(JSON 직렬화 안전). exitPriceType/exitLimitPrice 키는 충돌 없이 공존하므로
+     * listener 라우팅은 **무영향**(추가 키 무시) — 하위호환 LOCK.
+     *
+     * exit 정보·audit 둘 다 비면 null(현행 MARKET 경로 + 빈 context 보존).
      */
-    private fun buildExitContextJson(decision: SignalDecision): String? {
-        if (decision.side != SignalSide.SELL || decision.exitPriceType == null) return null
+    private fun buildSignalContextJson(decision: SignalDecision): String? {
+        val auditEval = flattenReasonForAudit(decision.result.reason)
+        val hasExitRouting = decision.side == SignalSide.SELL && decision.exitPriceType != null
+        if (!hasExitRouting && auditEval.isEmpty()) return null
         return runCatching {
             objectMapper.writeValueAsString(
-                buildMap {
-                    put("exitPriceType", decision.exitPriceType.name)
-                    decision.exitLimitPrice?.let { put("exitLimitPrice", it.toPlainString()) }
+                buildMap<String, Any> {
+                    if (hasExitRouting) {
+                        put("exitPriceType", decision.exitPriceType!!.name)
+                        decision.exitLimitPrice?.let { put("exitLimitPrice", it.toPlainString()) }
+                    }
+                    if (auditEval.isNotEmpty()) {
+                        put("eval", auditEval)
+                    }
                 },
             )
-        }.onFailure { e -> log.warn("exit contextJson 직렬화 실패 — null fallback(MARKET 경로): err={}", e.message) }
+        }.onFailure { e -> log.warn("signal contextJson 직렬화 실패 — null fallback(MARKET 경로): err={}", e.message) }
             .getOrNull()
     }
+
+    /**
+     * 평가 reason Map을 audit-safe(JSON 직렬화 가능) 평탄 Map으로 변환.
+     *
+     * [StrategyEvalResult.reason]은 BigDecimal·중첩 Map(COMPOSITE의 left/right) 등 임의 값을 담는다. audit 기록은
+     * 사람이 읽는 검증 용도이므로, 스칼라는 그대로·BigDecimal/열거형/기타 객체는 `toString` 평탄화한다(중첩 Map은 재귀 평탄화).
+     * 빈 reason(또는 변환 실패)이면 빈 Map — 호출부가 null context로 처리.
+     */
+    private fun flattenReasonForAudit(reason: Map<String, Any>): Map<String, Any> =
+        runCatching {
+            reason.mapValues { (_, v) -> flattenValueForAudit(v) }
+        }.getOrElse { emptyMap() }
+
+    private fun flattenValueForAudit(v: Any?): Any =
+        when (v) {
+            null -> ""
+            is String, is Int, is Long, is Boolean, is Double -> v
+            is BigDecimal -> v.toPlainString()
+            is Map<*, *> -> v.entries.associate { (k, vv) -> k.toString() to flattenValueForAudit(vv) }
+            is Collection<*> -> v.map { flattenValueForAudit(it) }
+            else -> v.toString()
+        }
 
     private fun sellSignal(
         baseResult: StrategyEvalResult,
