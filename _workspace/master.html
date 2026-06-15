@@ -70,7 +70,7 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.13.4</div>
+      <div class="value">v3.13.5</div>
       <div class="sub">2026-06-15</div>
     </div>
     <div class="banner-card cycle">
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>release: v3.13.4 — 실시간 토픽 명명규칙 전면 이식 패치 + CHANGELO</div>
+    <div>release: v3.13.5 — REAL canary 3일차 운영 정비 패치 → chore(backend-core): centralize Redis key registry → chore(orchestrator): archive redis registry task → chore(orchestrator): archive completed task files → fix(redis): cut over runtime keys to standard nami → chore(redis): archive cutover task cleanup</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">628 lines · 갱신 2026-06-14</div>
+        <div class="card-meta">629 lines · 갱신 2026-06-15</div>
       </div>
     
       <div class="card">
@@ -2155,6 +2155,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.13.5</div>
+          <div class="adr-title">v3.13.5 — REAL canary 3일차 운영 정비 패치</div>
+          <div class="adr-meta">2026-06-15</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.13.4</div>
           <div class="adr-title">v3.13.4 — 실시간 토픽 명명규칙 전면 이식 패치 (Kafka·STOMP·KIS)</div>
           <div class="adr-meta">2026-06-14</div>
@@ -2178,17 +2184,13 @@
           <div class="adr-meta">2026-06-12</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.13.0</div>
-          <div class="adr-title">v3.13.0 — REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화</div>
-          <div class="adr-meta">2026-06-12</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.5">v3.13.5</a></td><td>2026-06-15</td><td>v3.13.5 — REAL canary 3일차 운영 정비 패치</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.4">v3.13.4</a></td><td>2026-06-14</td><td>v3.13.4 — 실시간 토픽 명명규칙 전면 이식 패치 (Kafka·STOMP·KIS)</td></tr>
         
@@ -2248,8 +2250,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.9">v3.6.9</a></td><td>2026-05-15</td><td>v3.6.9 — v3.6.9 릴리즈</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.8">v3.6.8</a></td><td>2026-05-15</td><td>v3.6.8 — v3.6.8 릴리즈</td></tr>
-        
       </tbody>
     </table>
   
@@ -2257,63 +2257,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 513건 · status별 분포</h3>
+    <h3>전체 522건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">513건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">522건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
+          <div class="card-title">T-20260615-1959-redis-standard-key-cutover.md</div>
+          <div class="card-meta">DONE · backend-core </div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1937-redis-key-registry-migration.md</div>
+          <div class="card-meta">DONE · backend-core · PR #995</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1740-watchlist-polling-and-strategy-drift.md</div>
+          <div class="card-meta">DONE · backend-core · PR #992</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1454-canary-strategies-2.md</div>
+          <div class="card-meta">DONE · strategy · PR #989</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1433-kis-ws-unsubscribe-trtype-hotfix.md</div>
+          <div class="card-meta">DONE · market-data · PR #987</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1407-capital-fresh-cache-hotfix.md</div>
+          <div class="card-meta">DONE · market-data · PR #985</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1333-kis-rate-limit-hotfix.md</div>
+          <div class="card-meta">DONE · market-data · PR #982</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1258-canary-risk-frequency-cleanup.md</div>
+          <div class="card-meta">DONE · strategy-engine </div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260615-1142-daily-repair-date.md</div>
+          <div class="card-meta">DONE · market-data · PR #979</div>
+        </div>
+      
+        <div class="card">
           <div class="card-title">T-20260615-0247-adr-0125-topic-naming.md</div>
           <div class="card-meta">DONE · architect · PR #970</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-0246-worktree-agent-af627515eb68322b1.md</div>
-          <div class="card-meta">DONE · frontend </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-0244-worktree-agent-a299f5612a15b6881.md</div>
-          <div class="card-meta">DONE · backend-core </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-0214-worktree-agent-a1acae323231364e3.md</div>
-          <div class="card-meta">DONE · backend-core </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-0159-worktree-agent-a66bc3206bb892ab2.md</div>
-          <div class="card-meta">DONE · frontend · PR #966</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-0159-kafka-topic-registry.md</div>
-          <div class="card-meta">DONE · market-data · PR #967</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260613-1219-candle-freshness-readability.md</div>
-          <div class="card-meta">DONE · frontend </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260613-0251-remove-dual-tick-legacy.md</div>
-          <div class="card-meta">DONE · market-data </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260613-0251-adr-cleanup-dual-tick-docs.md</div>
-          <div class="card-meta">DONE · architect </div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260613-0116-ws-demand-consolidation.md</div>
-          <div class="card-meta">DONE · market-data </div>
         </div>
       
     </div>

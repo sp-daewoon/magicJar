@@ -548,21 +548,22 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
-| **v3.13.4** | 2026-06-15 | 실시간 토픽 명명규칙 전면 이식 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.4) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
-| **v3.13.3** | 2026-06-13 | 실시간 구독 상태 관측 마감 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.3) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
-| **v3.13.2** | 2026-06-13 | 실시간 구독 관측 정합 + KIS WS 수요 재편 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.2) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
-| **v3.13.1** | 2026-06-12 | KIS API/MCP 채용 카탈로그 + 주문 availability snapshot + read-only KIS 보강 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.1) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
-| **v3.13.0** | 2026-06-12 | REAL canary 진입 마일스톤 + 롱 온리 정책 + 키 사슬 무결성 + WS 슬롯 R1 회계 + 관리자 가시화 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.0) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.5** | 2026-06-15 | REAL canary 3일차 운영 정비 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.5) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.4** | 2026-06-15 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.4) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.3** | 2026-06-13 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.3) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.2** | 2026-06-13 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.2) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.1** | 2026-06-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.1) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
+| **v3.13.0** | 2026-06-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.0) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.12.5** | 2026-06-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.5) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.4** | 2026-06-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.4) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.3** | 2026-06-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.3) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.2** | 2026-06-10 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.2) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
-| **v3.12.1** | 2026-06-09 | 포지션 정합 안전화 + KIS Rate Limit Phase 2 + 관측 스택 운영 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.1) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
+| **v3.12.1** | 2026-06-09 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.1) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.12.0** | 2026-06-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.12.0) | [📊](_workspace/baseline/v3.12.0/html/index.html) |
 | **v3.11.0** | 2026-06-03 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.11.0) | — |
-| **v3.10.1** | 2026-06-01 | 자동매매 RiskPlan·캔들 reconciliation 운영 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.1) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
-| **v3.10.0** | 2026-05-31 | 캔들/오더블럭 후보 스크리닝 minor | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.0) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
-| **v3.9.1** | 2026-05-30 | 자동매매 dogfooding patch | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.1) | [📊](_workspace/baseline/v3.9.0/html/index.html) |
+| **v3.10.1** | 2026-06-01 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.1) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
+| **v3.10.0** | 2026-05-31 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.10.0) | [📊](_workspace/baseline/v3.10.0/html/index.html) |
+| **v3.9.1** | 2026-05-30 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.1) | [📊](_workspace/baseline/v3.9.0/html/index.html) |
 | **v3.9.0** | 2026-05-24 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.9.0) | [📊](_workspace/baseline/v3.9.0/html/index.html) |
 | **v3.8.1** | 2026-05-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.1) | [📊](_workspace/baseline/v3.8.0/html/index.html) |
 | **v3.8.0** | 2026-05-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.8.0) | [📊](_workspace/baseline/v3.8.0/html/index.html) |
@@ -585,13 +586,13 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 | **v3.6.3** | 2026-05-14 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.3) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.2** | 2026-05-14 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.2) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.1** | 2026-05-13 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.1) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
-| **v3.6.0** | 2026-05-13 | T-O W3 네 번째 트랙 마감 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.0) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
-| **v3.5.0** | 2026-05-12 | T-RISK W3 세 번째 트랙 마감 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0) | [📊](_workspace/baseline/v3.5.0/html/index.html) |
-| **v3.4.0** | 2026-05-12 | T-SIG W3 두 번째 트랙 마감 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0) | [📊](_workspace/baseline/v3.4.0/html/index.html) |
-| **v3.3.1** | 2026-05-12 | T-BT W3 트랙 마감 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
-| **v3.3.0** | 2026-05-12 | 실시간 boundary fanout 미러스톤 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
-| **v3.2.3** | 2026-05-11 | ADR 0019·0028·0029 §2 매트릭스 NXT/합산 5종 보강 + KIS 500 retry 3회 exponential backoff | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
-| **v3.2.2** | 2026-05-11 | KIS-only 데이터 정책 + NXT/통합거래 cover + 분봉 합산 가공 트랙 가동 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
+| **v3.6.0** | 2026-05-13 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.0) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
+| **v3.5.0** | 2026-05-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.5.0) | [📊](_workspace/baseline/v3.5.0/html/index.html) |
+| **v3.4.0** | 2026-05-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.4.0) | [📊](_workspace/baseline/v3.4.0/html/index.html) |
+| **v3.3.1** | 2026-05-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.1) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
+| **v3.3.0** | 2026-05-12 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.3.0) | [📊](_workspace/baseline/v3.3.0/html/index.html) |
+| **v3.2.3** | 2026-05-11 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.3) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
+| **v3.2.2** | 2026-05-11 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.2) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
 | **v3.2.1** | 2026-05-11 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.2.1) | [📊](_workspace/baseline/v3.2.0/html/index.html) |
 | **v3.1.1** | 2026-05-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.1) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
 | **v3.1.0** | 2026-05-08 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.1.0) | [📊](_workspace/baseline/v3.1.0/html/index.html) |
