@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.api.controller.CandlesResponseDto
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.TodayCandleSeedWindow
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -115,8 +116,8 @@ class CandleQueryService(
         // Redis current 합류 (장중 마지막 미확정 bar)
         val redisCandle =
             listOfNotNull(
-                "candle:current:$code:$effectiveInterval",
-                if (effectiveInterval == "1d") "candle:today:$code:1d" else null,
+                RedisKeyRegistry.Market.candleCurrent(code, effectiveInterval),
+                if (effectiveInterval == "1d") RedisKeyRegistry.Market.candleToday1d(code) else null,
             ).asSequence()
                 .mapNotNull { key -> readRedisCandleHash(key)?.let { key to it } }
                 .firstOrNull { (key, candle) -> isTrustedRedisCandle(effectiveInterval, key, candle) }
@@ -302,7 +303,7 @@ class CandleQueryService(
     private fun readQuoteLast(code: String): Map<String, Any?> {
         val quoteJson =
             try {
-                redisTemplate.opsForValue().get("quote:last:$code")
+                redisTemplate.opsForValue().get(RedisKeyRegistry.Market.quoteLast(code))
             } catch (e: Exception) {
                 log.debug("quote:last 조회 실패: code={} err={}", code, e.message)
                 null

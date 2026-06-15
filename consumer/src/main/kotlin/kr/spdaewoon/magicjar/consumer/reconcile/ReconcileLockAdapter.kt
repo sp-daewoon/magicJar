@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.reconcile
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -25,8 +26,6 @@ class ReconcileLockAdapter(
     private val log = LoggerFactory.getLogger(ReconcileLockAdapter::class.java)
 
     companion object {
-        private const val LOCK_PREFIX = "reconcile:lock:"
-        private const val LASTRUN_PREFIX = "reconcile:lastrun:"
         private val LOCK_TTL: Duration = Duration.ofMinutes(5)
         private val LASTRUN_TTL: Duration = Duration.ofMinutes(5)
     }
@@ -40,7 +39,7 @@ class ReconcileLockAdapter(
         try {
             redisTemplate
                 .opsForValue()
-                .setIfAbsent("$LOCK_PREFIX$userId", "1", LOCK_TTL)
+                .setIfAbsent(RedisKeyRegistry.Reconcile.lock(userId), "1", LOCK_TTL)
                 ?: false
         } catch (e: Exception) {
             log.warn(
@@ -57,7 +56,7 @@ class ReconcileLockAdapter(
      */
     fun releaseLock(userId: String) {
         try {
-            redisTemplate.delete("$LOCK_PREFIX$userId")
+            redisTemplate.delete(RedisKeyRegistry.Reconcile.lock(userId))
         } catch (e: Exception) {
             log.warn("reconcile:lock 해제 실패 (TTL fallback): userId={} err={}", userId, e.message)
         }
@@ -70,7 +69,7 @@ class ReconcileLockAdapter(
      */
     fun lookupLastRun(userId: String): String? =
         try {
-            redisTemplate.opsForValue().get("$LASTRUN_PREFIX$userId")
+            redisTemplate.opsForValue().get(RedisKeyRegistry.Reconcile.lastRun(userId))
         } catch (e: Exception) {
             log.warn("reconcile:lastrun lookup 실패: userId={} err={}", userId, e.message)
             null
@@ -83,7 +82,7 @@ class ReconcileLockAdapter(
         try {
             redisTemplate
                 .opsForValue()
-                .set("$LASTRUN_PREFIX$userId", runId.toString(), LASTRUN_TTL)
+                .set(RedisKeyRegistry.Reconcile.lastRun(userId), runId.toString(), LASTRUN_TTL)
         } catch (e: Exception) {
             log.warn("reconcile:lastrun cache 실패: userId={} runId={} err={}", userId, runId, e.message)
         }

@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.api.controller.runtime.RealtimeStatusResponse
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.api.service.CandleHealthService
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
@@ -37,7 +38,7 @@ class RealtimeStatusService(
 
     companion object {
         /** consumer RealtimeStatusSnapshotPublisher.REDIS_KEY 계약 (모듈 경계로 직접 import 불가 — 리터럴 LOCK). */
-        const val REDIS_KEY = "admin:realtime-status"
+        val REDIS_KEY: String = RedisKeyRegistry.Ops.realtimeStatus()
 
         /** stale 판정 임계 — 스냅샷 updatedAt이 본 임계보다 오래되면 consumer 발행 정지로 간주. */
         private val STALE_THRESHOLD: Duration = Duration.ofSeconds(15)

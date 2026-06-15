@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPriceMetricsPort
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -125,7 +126,7 @@ class SymbolMetaService(
 
         // 2. Redis quote:last:{code} — 장중 실시간 변동 (NXT 오염 검사 LOCK)
         //    source ∈ {"live", "live-unified", "ws", "tick", ...} 정규장 출처만 허용. "nxt-*" 등 NXT 오염 source는 무시.
-        val quoteJson = redisTemplate.opsForValue().get("quote:last:$code")
+        val quoteJson = redisTemplate.opsForValue().get(RedisKeyRegistry.Market.quoteLast(code))
         val quoteMap: Map<String, Any?> =
             if (quoteJson != null) {
                 try {
@@ -152,7 +153,7 @@ class SymbolMetaService(
         val quoteTs = rawQuoteTs.takeIf { quoteFresh }
 
         // 2. Redis meta:{code} 5분 cache — PER·PBR·시총 등
-        val metaJson = redisTemplate.opsForValue().get("meta:$code")
+        val metaJson = redisTemplate.opsForValue().get(RedisKeyRegistry.Market.symbolMeta(code))
         val metrics: PriceMetrics? =
             if (metaJson != null) {
                 try {
@@ -176,7 +177,7 @@ class SymbolMetaService(
                         // Redis meta cache 저장 (5분 TTL)
                         try {
                             redisTemplate.opsForValue().set(
-                                "meta:$code",
+                                RedisKeyRegistry.Market.symbolMeta(code),
                                 objectMapper.writeValueAsString(fresh),
                                 metaCacheTtl,
                             )

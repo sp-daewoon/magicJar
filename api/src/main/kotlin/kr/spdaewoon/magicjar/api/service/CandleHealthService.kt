@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.service
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
@@ -217,7 +218,7 @@ class CandleHealthService(
         interval: String,
     ): Instant? =
         try {
-            val v = redisTemplate.opsForHash<String, String>().get("candle:current:$code:$interval", "updatedAt")
+            val v = redisTemplate.opsForHash<String, String>().get(RedisKeyRegistry.Market.candleCurrent(code, interval), "updatedAt")
             v?.let { runCatching { Instant.parse(it) }.getOrNull() }
         } catch (e: Exception) {
             log.debug("candle-health current updatedAt 조회 실패: code={} err={}", code, e.message)
@@ -322,7 +323,7 @@ class CandleHealthService(
     private fun isWsSubscribed(code: String): Boolean {
         // a. watchlist:source:{userId} hash 에 code=live 가 하나라도 있으면 구독으로 간주
         try {
-            val keys = redisTemplate.keys("watchlist:source:*")
+            val keys = redisTemplate.keys(RedisKeyRegistry.Ops.watchlistSourcePattern())
             for (key in keys) {
                 val source = redisTemplate.opsForHash<String, String>().get(key, code)
                 if (source == "live") return true
@@ -336,7 +337,7 @@ class CandleHealthService(
 
     private fun quoteSourceIsWs(code: String): Boolean =
         try {
-            val json = redisTemplate.opsForValue().get("quote:last:$code")
+            val json = redisTemplate.opsForValue().get(RedisKeyRegistry.Market.quoteLast(code))
             // 단순 substring 판정 — ObjectMapper 의존 회피(읽기 fallback). polling 명시면 false.
             json != null && !json.contains("\"source\":\"polling\"")
         } catch (e: Exception) {

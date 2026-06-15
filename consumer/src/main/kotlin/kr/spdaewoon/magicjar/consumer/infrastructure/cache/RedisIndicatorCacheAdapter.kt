@@ -5,6 +5,7 @@ import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorPoint
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorResult
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -30,7 +31,6 @@ class RedisIndicatorCacheAdapter(
     private val log = LoggerFactory.getLogger(RedisIndicatorCacheAdapter::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "indicator:cache"
         private val INTRADAY_INTERVALS = setOf("1m", "2m", "3m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "12h")
         private val INTRADAY_TTL = Duration.ofSeconds(300)
         private val DAILY_TTL = Duration.ofSeconds(86400)
@@ -40,7 +40,7 @@ class RedisIndicatorCacheAdapter(
         code: String,
         interval: String,
         spec: IndicatorSpec,
-    ): String = "$KEY_PREFIX:$code:$interval:${spec.name}:${spec.paramsHash()}"
+    ): String = RedisKeyRegistry.Indicator.result(code, interval, spec.name, spec.paramsHash())
 
     fun get(
         code: String,

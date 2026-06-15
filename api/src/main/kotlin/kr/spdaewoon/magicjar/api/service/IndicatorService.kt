@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.indicator.IndicatorException
 import kr.spdaewoon.magicjar.domain.indicator.IndicatorSpec
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -249,7 +250,7 @@ class IndicatorService(
         from: String?,
         to: String?,
         adjusted: Boolean,
-    ): String = "indicator:cache:$code:$interval:$name:$paramsHash:${rangeHash(from, to, adjusted)}"
+    ): String = RedisKeyRegistry.Indicator.resultWithRange(code, interval, name, paramsHash, rangeHash(from, to, adjusted))
 
     private fun rangeHash(
         from: String?,

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshot
 import kr.spdaewoon.magicjar.domain.account.port.AccountAvailabilitySnapshotPort
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -29,8 +30,6 @@ class RedisAccountAvailabilitySnapshotAdapter(
     private val log = LoggerFactory.getLogger(RedisAccountAvailabilitySnapshotAdapter::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "account:availability"
-
         private val PUT_IF_NEWER_SCRIPT =
             DefaultRedisScript<Long>().apply {
                 setScriptText(
@@ -95,7 +94,7 @@ class RedisAccountAvailabilitySnapshotAdapter(
     internal fun key(
         mode: TradingMode,
         userId: String,
-    ): String = "$KEY_PREFIX:${mode.name}:$userId"
+    ): String = RedisKeyRegistry.Account.availability(mode.name, userId)
 
     private fun maskKey(key: String): String =
         key

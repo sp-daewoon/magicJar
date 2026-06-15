@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.bootstrap
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerWatchlistJpaRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -33,11 +34,6 @@ class RedisCandleTodayResetRunner(
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(RedisCandleTodayResetRunner::class.java)
 
-    companion object {
-        /** Redis key prefix — KisWebSocketBridge.updateCandleToday 와 동일 패턴 */
-        private const val KEY_PATTERN = "candle:today:%s:1d"
-    }
-
     override fun run(args: ApplicationArguments) {
         val entries = watchlistJpaRepository.findAllByOrderByPriorityAscCreatedAtDesc()
         if (entries.isEmpty()) {
@@ -47,7 +43,7 @@ class RedisCandleTodayResetRunner(
 
         var deleted = 0
         for (entry in entries) {
-            val key = KEY_PATTERN.format(entry.code)
+            val key = RedisKeyRegistry.Market.candleToday1d(entry.code)
             try {
                 val removed = redisTemplate.delete(key)
                 if (removed == true) {

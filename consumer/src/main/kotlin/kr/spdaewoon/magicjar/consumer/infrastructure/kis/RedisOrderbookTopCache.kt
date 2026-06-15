@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.port.EntryQuote
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -30,7 +31,7 @@ class RedisOrderbookTopCache(
     fun read(code: String): EntryQuote? {
         val raw =
             try {
-                redisTemplate.opsForValue().get("orderbook:top:$code")
+                redisTemplate.opsForValue().get(RedisKeyRegistry.Market.orderbookTop(code))
             } catch (e: Exception) {
                 log.warn("orderbook:top Redis 조회 실패: code={} error={}", code, e.message)
                 return null

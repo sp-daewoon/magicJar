@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.kis.ConsumerKisBalanceQuery
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -249,12 +250,12 @@ class AccountSnapshotCoordinator(
     private fun cacheKey(
         userId: String,
         accountType: AccountType,
-    ): String = "$CACHE_KEY_PREFIX:$userId:${accountType.name}"
+    ): String = RedisKeyRegistry.Account.balance(userId, accountType)
 
     private fun lockKey(
         userId: String,
         accountType: AccountType,
-    ): String = "$LOAD_LOCK_KEY_PREFIX:$userId:${accountType.name}"
+    ): String = RedisKeyRegistry.Account.balanceLock(userId, accountType)
 
     private fun TradingMode.toAccountType(): AccountType = if (this == TradingMode.REAL) AccountType.REAL else AccountType.MOCK
 
@@ -269,9 +270,4 @@ class AccountSnapshotCoordinator(
         val snapshot: KisAccountBalance,
         val cachedAt: Instant,
     )
-
-    private companion object {
-        const val CACHE_KEY_PREFIX = "account:balance"
-        const val LOAD_LOCK_KEY_PREFIX = "account:balance:lock"
-    }
 }

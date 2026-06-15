@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.ingestion
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -45,7 +46,7 @@ class RealtimeStatusSnapshotPublisher(
 
     companion object {
         /** api·frontend 계약 LOCK — 관리자 실시간 상태 스냅샷 Redis 키. */
-        const val REDIS_KEY = "admin:realtime-status"
+        val REDIS_KEY: String = RedisKeyRegistry.Ops.realtimeStatus()
 
         /** 키 TTL — 발행 정지(consumer down) 시 stale 키 자동 만료 → api가 부재로 인지. */
         private val TTL: Duration = Duration.ofSeconds(60)

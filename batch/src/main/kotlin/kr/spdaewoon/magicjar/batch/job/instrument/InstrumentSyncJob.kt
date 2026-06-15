@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.batch.persistence.BatchInstrumentStatusHistoryJpaRe
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentStatus
 import kr.spdaewoon.magicjar.domain.instrument.port.KisInstrumentMasterPort
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -57,8 +58,8 @@ class InstrumentSyncJob(
     private val log = LoggerFactory.getLogger(InstrumentSyncJob::class.java)
 
     companion object {
-        private const val SYNC_LOCK_KEY = "instrument:sync:running"
-        private const val SYNC_LAST_AT_KEY = "instrument:sync:lastAt"
+        private val SYNC_LOCK_KEY = RedisKeyRegistry.Instrument.syncRunning()
+        private val SYNC_LAST_AT_KEY = RedisKeyRegistry.Instrument.syncLastAt()
         private const val SYNC_LOCK_TTL_SECONDS = 600L
         private const val KAFKA_TOPIC = KafkaTopics.Data.INSTRUMENT_UPDATED
     }
@@ -457,14 +458,14 @@ class InstrumentSyncJob(
 
     private fun invalidateRedis(changedCodes: List<String>) {
         try {
-            val listKeys = redisTemplate.keys("instrument:list:*") ?: emptySet()
+            val listKeys = redisTemplate.keys(RedisKeyRegistry.Instrument.listPattern()) ?: emptySet()
             if (listKeys.isNotEmpty()) redisTemplate.delete(listKeys)
 
-            val searchKeys = redisTemplate.keys("instrument:search:*") ?: emptySet()
+            val searchKeys = redisTemplate.keys(RedisKeyRegistry.Instrument.searchPrefixPattern()) ?: emptySet()
             if (searchKeys.isNotEmpty()) redisTemplate.delete(searchKeys)
 
             for (code in changedCodes) {
-                redisTemplate.delete("instrument:by-code:$code")
+                redisTemplate.delete(RedisKeyRegistry.Instrument.byCode(code))
             }
             log.debug("[instrument-sync] Redis invalidate 완료 — codes={}", changedCodes.size)
         } catch (e: Exception) {

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.risk
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.risk.port.TradeFrequencyGuard
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -37,7 +38,6 @@ class TradeFrequencyRedisGuard(
     private val log = LoggerFactory.getLogger(TradeFrequencyRedisGuard::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "risk:trade-freq:"
         private const val MINUTE_WINDOW_SEC = 60L
         private const val DAY_WINDOW_SEC = 86400L
 
@@ -167,5 +167,5 @@ class TradeFrequencyRedisGuard(
         strategyId: Long,
         userId: String,
         window: String,
-    ): String = "$KEY_PREFIX$strategyId:$userId:$window"
+    ): String = RedisKeyRegistry.Risk.tradeFrequency(strategyId, userId, window)
 }

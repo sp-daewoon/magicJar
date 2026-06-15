@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.infrastructure.naver
 
 import kr.spdaewoon.magicjar.api.persistence.NewsArticleJpaEntity
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -48,8 +49,6 @@ class NewsKafkaProducer(
     companion object {
         const val TOPIC = KafkaTopics.Data.NEWS_COLLECTED
 
-        /** Redis dedup 키 — ADR 0075 §4-1 */
-        private const val DEDUP_KEY_PREFIX = "news:dedup:url:"
         private val DEDUP_TTL = Duration.ofHours(24)
 
         private val KST = ZoneId.of("Asia/Seoul")
@@ -64,7 +63,7 @@ class NewsKafkaProducer(
      * @param entity 방금 DB에 저장된 NewsArticleJpaEntity
      */
     fun publish(entity: NewsArticleJpaEntity) {
-        val dedupKey = "$DEDUP_KEY_PREFIX${entity.urlHash}"
+        val dedupKey = RedisKeyRegistry.News.urlDedup(entity.urlHash)
 
         // Redis SETNX 24h — 이미 발행된 url_hash면 skip
         val acquired = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", DEDUP_TTL) ?: false

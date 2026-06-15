@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -93,7 +94,7 @@ class TickToMinuteAggregator(
         closingTs: Instant,
         nowMinute: Instant,
     ) {
-        val liveKey = "candle:current:$code:1m"
+        val liveKey = RedisKeyRegistry.Market.candleCurrent(code, "1m")
         val snapshotKey = "candle:closing:$code:1m:${closingTs.epochSecond}"
 
         // 원자 스냅샷: live → 임시 키 RENAME. RENAME 후 신규 tick 은 빈 live 키에 누적(유실 0).

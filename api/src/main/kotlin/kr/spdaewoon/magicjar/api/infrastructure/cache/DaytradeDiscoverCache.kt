@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.infrastructure.cache
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.api.controller.screener.DaytradeDiscoverResultDto
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -92,7 +93,7 @@ class DaytradeDiscoverCache(
     ): String {
         val preset = presetKey ?: "DEFAULT_DAYTRADE_UNION"
         val filterHash = crc32(filterFingerprint)
-        return "$KEY_PREFIX:$preset:$filterHash:$interval:$limit:$tradingDay"
+        return RedisKeyRegistry.Screener.daytrade(preset, filterHash, interval, limit, tradingDay.toString())
     }
 
     private fun crc32(value: String): String {
@@ -102,7 +103,6 @@ class DaytradeDiscoverCache(
     }
 
     private companion object {
-        const val KEY_PREFIX = "screener:daytrade"
         val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
     }
 }

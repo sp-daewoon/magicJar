@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.signal
 
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -41,7 +42,6 @@ class SignalDedupeGuard(
     private val log = LoggerFactory.getLogger(SignalDedupeGuard::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "signal:dedupe:"
         private val TTL = Duration.ofSeconds(30)
     }
 
@@ -91,5 +91,5 @@ class SignalDedupeGuard(
         code: String,
         interval: CandleInterval,
         ts: Instant,
-    ): String = "$KEY_PREFIX$strategyId:$code:${interval.code}:${ts.epochSeconds}"
+    ): String = RedisKeyRegistry.Signal.dedupe(strategyId, code, interval.code, ts.epochSeconds)
 }

@@ -6,6 +6,7 @@ import kotlinx.datetime.toLocalDateTime
 import kr.spdaewoon.magicjar.domain.market.session.MarketSession
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.market.session.port.MarketCalendarRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -40,7 +41,7 @@ class KrxMarketSessionResolver(
     private val log = LoggerFactory.getLogger(KrxMarketSessionResolver::class.java)
 
     companion object {
-        private const val SESSION_CACHE_KEY = "session:cache:current"
+        private val SESSION_CACHE_KEY = RedisKeyRegistry.Market.sessionCurrent()
         private val SESSION_CACHE_TTL = Duration.ofSeconds(60)
         private val KST = TimeZone.of("Asia/Seoul")
         private val KST_ZONE = ZoneId.of("Asia/Seoul")

@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -76,17 +77,6 @@ class AccountQueryService(
     private val lastRefreshAt = ConcurrentHashMap<String, Instant>()
 
     companion object {
-        const val CACHE_KEY_PREFIX = "account:balance"
-
-        /**
-         * 잔고 KIS 조회 분산 single-flight 락 prefix — cache stampede 완화 (TPS 완화 hotfix 2026-06-08).
-         *
-         * 기존 in-JVM `synchronized(lock)` 코얼레싱은 **단일 인스턴스 내부**만 보호한다.
-         * api 모듈이 다중 인스턴스로 확장되면 인스턴스 수 N = KIS `inquire-balance` 동시 호출 N → KIS rate limit(EGW00201/500).
-         * KisTokenCacheHelper(ADR 0038) 분산락 패턴을 잔고 조회에도 적용해 **클러스터 전역 1 호출**로 수렴한다.
-         */
-        const val LOAD_LOCK_KEY_PREFIX = "account:balance:lock"
-
         /**
          * Account 잔고 cache TTL — KIS 조회 cache-aside singleflight (2026-06-15, 10s → 5m).
          *
@@ -130,7 +120,7 @@ class AccountQueryService(
         fun loadLockKey(
             userId: String,
             accountType: AccountType,
-        ): String = "$LOAD_LOCK_KEY_PREFIX:$userId:${accountType.name}"
+        ): String = RedisKeyRegistry.Account.balanceLock(userId, accountType)
     }
 
     private data class LoadFailure(
@@ -209,7 +199,7 @@ class AccountQueryService(
         // 사용자 dogfooding evidence: 기존 "$prefix:$userId" 단일 key → REAL/MOCK fetch 시 cache 충돌
         //   → cache miss 폭주 → KIS 호출 burst → EGW00201 "초당 거래건수 초과" 지속 발생.
         // fix: "$prefix:$userId:${accountType}" 분리 → REAL/MOCK 독립 cache → 충돌 해소.
-        val cacheKey = "$CACHE_KEY_PREFIX:$userId:${accountType.name}"
+        val cacheKey = RedisKeyRegistry.Account.balance(userId, accountType)
 
         // 1. Redis cache hit
         val cached = if (refresh) null else redisTemplate.opsForValue().get(cacheKey)

@@ -1,0 +1,1401 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>magicJar Redis Usage Inventory</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5b6876;
+      --line: #d9e0e7;
+      --panel: #ffffff;
+      --page: #f6f8fa;
+      --navy: #1f3a5f;
+      --teal: #087f8c;
+      --green: #2f7d52;
+      --amber: #a86500;
+      --red: #bb3e3e;
+      --violet: #6c4fb3;
+      --blue-soft: #e8f1fb;
+      --teal-soft: #e4f4f3;
+      --green-soft: #e9f6ee;
+      --amber-soft: #fff2da;
+      --red-soft: #fde8e7;
+      --violet-soft: #efeafd;
+      --shadow: 0 10px 28px rgba(31, 58, 95, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--page);
+      line-height: 1.55;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+      gap: 28px;
+      padding: 34px 0 26px;
+      align-items: end;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 4vw, 52px);
+      line-height: 1.06;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 23px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.93em;
+      background: #eef2f7;
+      border: 1px solid #dce3eb;
+      border-radius: 6px;
+      padding: 1px 5px;
+      white-space: nowrap;
+    }
+
+    .lede {
+      max-width: 980px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .pill.strong {
+      background: var(--navy);
+      border-color: var(--navy);
+      color: #fff;
+    }
+
+    .summary-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    .summary-panel dl {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 9px 14px;
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .summary-panel dt {
+      color: var(--muted);
+    }
+
+    .summary-panel dd {
+      margin: 0;
+      font-weight: 750;
+      color: var(--ink);
+      text-align: right;
+    }
+
+    main {
+      padding: 28px 0 60px;
+    }
+
+    section {
+      margin: 0 0 26px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      min-height: 124px;
+      box-shadow: var(--shadow);
+    }
+
+    .stat b {
+      display: block;
+      margin: 6px 0 4px;
+      font-size: 30px;
+      line-height: 1;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .band {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(330px, 0.72fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .flow .node {
+      min-height: 126px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfe;
+    }
+
+    .node small {
+      display: block;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .domain-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .domain {
+      border-left: 5px solid var(--teal);
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      min-height: 230px;
+    }
+
+    .domain:nth-child(2) { border-left-color: var(--green); }
+    .domain:nth-child(3) { border-left-color: var(--navy); }
+    .domain:nth-child(4) { border-left-color: var(--violet); }
+    .domain:nth-child(5) { border-left-color: var(--amber); }
+
+    .domain ul,
+    .plain-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .domain li,
+    .plain-list li {
+      margin: 6px 0;
+    }
+
+    .bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 126px minmax(120px, 1fr) 72px;
+      gap: 10px;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .track {
+      height: 14px;
+      border-radius: 999px;
+      background: #eef2f7;
+      overflow: hidden;
+      border: 1px solid #dfe6ee;
+    }
+
+    .fill {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .fill.news { background: var(--navy); }
+    .fill.candle { background: var(--teal); }
+    .fill.quote { background: var(--green); }
+    .fill.ops { background: var(--amber); }
+
+    .note {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 14px 16px;
+      background: #fbfcfe;
+      color: var(--muted);
+    }
+
+    .note.urgent {
+      background: var(--red-soft);
+      border-color: #f2b5b1;
+      color: #7f2424;
+    }
+
+    .note strong {
+      color: var(--ink);
+    }
+
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .rule {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfe;
+    }
+
+    .rule b {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: minmax(240px, 420px) 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0 14px;
+    }
+
+    input[type="search"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      background: #fff;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    button.filter {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #fff;
+      color: #334155;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.filter.active {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy);
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    table {
+      border-collapse: collapse;
+      min-width: 1500px;
+      width: 100%;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e6ebf0;
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f8fafc;
+      color: #344054;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td.key {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #263341;
+      min-width: 250px;
+    }
+
+    td.reco {
+      min-width: 290px;
+    }
+
+    .badge {
+      display: inline-flex;
+      border-radius: 999px;
+      padding: 3px 8px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .badge.keep {
+      background: var(--green-soft);
+      color: var(--green);
+      border-color: #bee4cc;
+    }
+
+    .badge.rename {
+      background: var(--blue-soft);
+      color: var(--navy);
+      border-color: #c7d9ed;
+    }
+
+    .badge.alias {
+      background: var(--amber-soft);
+      color: var(--amber);
+      border-color: #f2d5a8;
+    }
+
+    .badge.urgent {
+      background: var(--red-soft);
+      color: var(--red);
+      border-color: #f1b8b3;
+    }
+
+    .badge.doc {
+      background: var(--violet-soft);
+      color: var(--violet);
+      border-color: #d8cef7;
+    }
+
+    .migration {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      counter-reset: phase;
+    }
+
+    .phase {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px 14px 14px;
+      background: #fff;
+      min-height: 190px;
+    }
+
+    .phase::before {
+      counter-increment: phase;
+      content: counter(phase);
+      display: inline-flex;
+      width: 26px;
+      height: 26px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 10px;
+      border-radius: 50%;
+      background: var(--navy);
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .safe-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .safe {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 15px;
+    }
+
+    .safe.ok { border-top: 4px solid var(--green); }
+    .safe.warn { border-top: 4px solid var(--amber); }
+    .safe.stop { border-top: 4px solid var(--red); }
+
+    footer {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 20px 0 0;
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 1180px) {
+      .hero,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      .stats,
+      .domain-grid,
+      .migration,
+      .safe-grid,
+      .rules,
+      .flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      .count {
+        white-space: normal;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .wrap {
+        width: min(100vw - 24px, 1480px);
+      }
+
+      .stats,
+      .domain-grid,
+      .migration,
+      .safe-grid,
+      .rules,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .bar-row {
+        grid-template-columns: 96px 1fr 58px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>Redis Usage Inventory & Naming Proposal</h1>
+        <p class="lede">
+          운영 중 Redis 키를 코드 기준과 라이브 Redis 샘플 기준으로 합쳐 정리했다. 목적은 Redis를 더 직관적으로 만들되,
+          주문/계좌/리스크처럼 정합성에 직접 영향을 주는 키는 rename 자체가 장애가 될 수 있으므로 문서화, alias, 단계적 전환으로 나누는 것이다.
+        </p>
+        <div class="meta">
+          <span class="pill strong">기준: main / origin/main 848ab8f8</span>
+          <span class="pill">작성: 2026-06-15 18:05 KST</span>
+          <span class="pill">라이브 Redis 샘플 포함</span>
+          <span class="pill">코드 변경 전 인벤토리</span>
+        </div>
+      </div>
+      <aside class="summary-panel" aria-label="요약">
+        <dl>
+          <dt>Redis DB size</dt>
+          <dd>2,606 keys</dd>
+          <dt>Memory</dt>
+          <dd>2.28 MB</dd>
+          <dt>Largest live family</dt>
+          <dd>news:dedup 2,268</dd>
+          <dt>High-risk families</dt>
+          <dd>account / order / risk / KIS</dd>
+          <dt>즉시 점검</dt>
+          <dd>quote TTL anomaly</dd>
+        </dl>
+      </aside>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="grid stats" aria-label="핵심 숫자">
+      <div class="stat">
+        <span>라이브 Redis 키 수</span>
+        <b>2,606</b>
+        <span>대부분 뉴스 dedup과 실시간 캔들/시세 계열</span>
+      </div>
+      <div class="stat">
+        <span>확인된 Redis key family</span>
+        <b>40+</b>
+        <span>API, consumer, batch, pattern-engine에 분산</span>
+      </div>
+      <div class="stat">
+        <span>운영 중 위험도가 높은 계열</span>
+        <b>9</b>
+        <span>토큰, 계좌, 주문 idempotency, 리스크 제한, 체결 투영</span>
+      </div>
+      <div class="stat">
+        <span>1차 정리 방식</span>
+        <b>Registry</b>
+        <span>공유 키부터 중앙 패턴화, wire rename은 단계적으로</span>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>전체 사용 구조</h2>
+      <p class="note">
+        Redis는 단순 캐시만이 아니라 KIS 인증 토큰, rate limit bucket, account snapshot singleflight, 실시간 quote/candle write-through,
+        주문 idempotency, 리스크 빈도 제한, dedup, 운영 상태 스냅샷까지 담당한다. 그래서 이름 정리는 “보기 좋게 바꾸기”가 아니라
+        장애 대응 시 어떤 키를 봐야 하는지 바로 찾게 만드는 작업으로 접근해야 한다.
+      </p>
+      <div class="flow" aria-label="Redis 사용 흐름">
+        <div class="node">
+          <h3>API</h3>
+          <strong>조회/관리 화면</strong>
+          <small>계좌 조회, 캔들/시세 조회, 전략 조회, 스크리너, 성과, 실시간 상태 읽기</small>
+        </div>
+        <div class="node">
+          <h3>Consumer</h3>
+          <strong>실시간/자동매매</strong>
+          <small>KIS WS, quote/candle write-through, 주문/체결 hook, risk guard, dedup</small>
+        </div>
+        <div class="node">
+          <h3>Batch</h3>
+          <strong>정기 보정</strong>
+          <small>종목 sync, 성과 집계 invalidation, corp action 후 indicator 삭제</small>
+        </div>
+        <div class="node">
+          <h3>Redis</h3>
+          <strong>공유 상태/캐시</strong>
+          <small>TTL 기반 캐시, SETNX lock, ZSET window, HASH candle, singleflight barrier</small>
+        </div>
+        <div class="node">
+          <h3>KIS / UI</h3>
+          <strong>외부 호출 압력 완화</strong>
+          <small>토큰 재사용, 계좌 snapshot coalescing, 실시간 상태/시세 빠른 응답</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="two-col">
+      <div class="band">
+        <h2>라이브 Redis Prefix 분포</h2>
+        <div class="bars" aria-label="라이브 키 분포">
+          <div class="bar-row"><strong>news</strong><div class="track"><span class="fill news" style="width:100%"></span></div><span>2,269</span></div>
+          <div class="bar-row"><strong>candle</strong><div class="track"><span class="fill candle" style="width:12.7%"></span></div><span>288</span></div>
+          <div class="bar-row"><strong>quote</strong><div class="track"><span class="fill quote" style="width:1.7%"></span></div><span>37</span></div>
+          <div class="bar-row"><strong>risk</strong><div class="track"><span class="fill ops" style="width:0.3%"></span></div><span>3</span></div>
+          <div class="bar-row"><strong>kis</strong><div class="track"><span class="fill ops" style="width:0.3%"></span></div><span>3</span></div>
+          <div class="bar-row"><strong>single</strong><div class="track"><span class="fill ops" style="width:0.2%"></span></div><span>6</span></div>
+        </div>
+      </div>
+      <div class="band">
+        <h2>즉시 눈에 띈 이상 징후</h2>
+        <p class="note urgent">
+          <strong><code>quote:last:*</code> TTL 불일치.</strong>
+          코드상 quote cache는 5분 TTL 성격인데 라이브 샘플에서 일부 종목 TTL이 70,000초에서 242,000초대로 관측됐다.
+          일부 키는 정상 300초였다. 과거 writer 잔재 또는 다른 writer가 긴 TTL로 저장하는 경로가 남아 있을 가능성이 높다.
+        </p>
+        <ul class="plain-list">
+          <li>현재 실시간/차트 증상과 직접 연결될 수 있어 <code>quote:last</code> writer 전수 점검이 1순위다.</li>
+          <li>뉴스 dedup이 2,268개로 대부분이지만 TTL성 dedup이라 메모리 위험은 낮다.</li>
+          <li>운영 계좌 키는 소수지만 삭제/rename의 영향이 크므로 배포 중 wire 변경은 피해야 한다.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>권장 Naming Convention</h2>
+      <p>
+        기존 Redis 키는 prefix가 기능별로 제각각이다. 신규/개편 키는 아래 규칙을 기준으로 맞추고,
+        기존 운영 키는 위험도별로 “문서화만”, “dual-read/write”, “장 마감 후 cutover”로 분리하는 것을 권장한다.
+      </p>
+      <div class="rules">
+        <div class="rule">
+          <b>기본형</b>
+          <code>{domain}:{resource}:{purpose}:{dimensions}</code>
+          <p>Redis 자체가 저장소이므로 모든 키에 <code>redis:</code>를 붙이지는 않는다. 대신 domain을 명확히 둔다.</p>
+        </div>
+        <div class="rule">
+          <b>Dimension 순서</b>
+          <code>user:{userId}:account:{REAL|MOCK}:code:{code}:interval:{interval}</code>
+          <p>사용자 스코프 키는 user를 먼저 둔다. 종목/전략/날짜/윈도우는 명시 label을 붙인다.</p>
+        </div>
+        <div class="rule">
+          <b>Lock/Dedup/Rate limit</b>
+          <code>...:lock</code>, <code>...:dedup</code>, <code>...:bucket</code>
+          <p>상태와 목적이 root prefix로 흩어지지 않게 같은 domain 아래 둔다.</p>
+        </div>
+      </div>
+      <p class="note" style="margin-top:14px">
+        선택지로 <code>mj:</code> namespace를 앞에 붙이는 방법도 있다. 다만 현재 DB가 단일 서비스 전용이면
+        <code>mj:</code>보다 domain 정렬이 더 실용적이다. 다른 서비스와 Redis를 공유하게 되면 <code>mj:{domain}:...</code>로 확장한다.
+      </p>
+    </section>
+
+    <section class="grid domain-grid" aria-label="도메인 요약">
+      <div class="domain">
+        <h3>KIS / Auth</h3>
+        <p>토큰, approval key, key changed lock, global rate limit.</p>
+        <ul>
+          <li><code>kis:token</code>, <code>kis:approval</code></li>
+          <li><code>kis-rate-limit:global:*</code></li>
+          <li>장애 시 외부 API 폭주와 직결</li>
+        </ul>
+      </div>
+      <div class="domain">
+        <h3>Account / Order / Risk</h3>
+        <p>계좌 snapshot singleflight, 주문 idempotency, 일/분 거래 빈도 제한.</p>
+        <ul>
+          <li><code>account:balance</code>, <code>account:availability</code></li>
+          <li><code>risk:trade-freq</code>, <code>idem:order</code></li>
+          <li>rename보다 정합성 hook이 우선</li>
+        </ul>
+      </div>
+      <div class="domain">
+        <h3>Market / Candle</h3>
+        <p>실시간 quote, orderbook top, live candle, backfill guard.</p>
+        <ul>
+          <li><code>quote:last</code>, <code>orderbook:top</code></li>
+          <li><code>candle:current</code>, <code>candle:today</code></li>
+          <li>TTL/interval 표준화 필요</li>
+        </ul>
+      </div>
+      <div class="domain">
+        <h3>Strategy / Analysis</h3>
+        <p>전략 active cache, signal dedupe, indicator/pattern/AI prompt cache.</p>
+        <ul>
+          <li><code>strategy:active</code>, <code>signal:dedupe</code></li>
+          <li><code>indicator:cache</code>, <code>pattern:cache</code></li>
+          <li>hash segment 의미 명확화 필요</li>
+        </ul>
+      </div>
+      <div class="domain">
+        <h3>Ops / Discovery</h3>
+        <p>뉴스/공시 dedup, realtime status, source tracker, instrument sync.</p>
+        <ul>
+          <li><code>admin:realtime-status</code></li>
+          <li><code>news:dedup</code>, <code>instrument:sync</code></li>
+          <li>운영 조회용 prefix 정돈 여지 큼</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Redis Key Inventory</h2>
+      <div class="controls">
+        <input id="search" type="search" placeholder="key, owner, purpose, recommendation 검색">
+        <div class="filters" aria-label="필터">
+          <button class="filter active" data-filter="all" type="button">전체</button>
+          <button class="filter" data-filter="urgent" type="button">즉시 점검</button>
+          <button class="filter" data-filter="alias" type="button">단계 전환</button>
+          <button class="filter" data-filter="rename" type="button">이름 개선</button>
+          <button class="filter" data-filter="keep" type="button">유지/문서화</button>
+        </div>
+        <span class="count" id="rowCount"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Current key pattern</th>
+              <th>Type / TTL</th>
+              <th>Owner / Path</th>
+              <th>How it is used</th>
+              <th>Risk</th>
+              <th>Recommendation</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="inventoryRows">
+            <tr data-status="alias urgent">
+              <td>KIS Auth</td>
+              <td class="key">kis:token:{userId}:{accountType}</td>
+              <td>String / 약 23h 또는 expires_in 기반</td>
+              <td>API KisTokenCacheHelper, Consumer KisAuthAdapter, Batch index resolver</td>
+              <td>KIS access token 공유 캐시. 미스 시 KIS OAuth 호출, lock으로 singleflight.</td>
+              <td>삭제 시 토큰 재발급 폭주 가능. stale 토큰은 인증 장애로 연결.</td>
+              <td class="reco"><code>kis:oauth:token:user:{userId}:account:{type}</code>로 문서화 후 장 마감 dual-read 후보.</td>
+              <td><span class="badge alias">단계 전환</span></td>
+            </tr>
+            <tr data-status="alias">
+              <td>KIS Auth</td>
+              <td class="key">kis:token:lock:{userId}:{accountType}</td>
+              <td>String SETNX / 30s</td>
+              <td>API KisTokenCacheHelper, Consumer KisAuthAdapter</td>
+              <td>토큰 발급 중복을 막는 distributed lock.</td>
+              <td>lock 키 충돌/TTL 누락 시 토큰 발급 지연.</td>
+              <td class="reco"><code>kis:oauth:token:user:{userId}:account:{type}:lock</code>. token key와 같은 base를 쓰는 방식 권장.</td>
+              <td><span class="badge alias">단계 전환</span></td>
+            </tr>
+            <tr data-status="alias">
+              <td>KIS WS</td>
+              <td class="key">kis:approval:{userId}:{accountType}</td>
+              <td>String / 23h</td>
+              <td>Consumer KisApprovalAdapter</td>
+              <td>KIS WebSocket approval_key 캐시. WS 재연결/구독 bootstrap에서 사용.</td>
+              <td>만료/오염 시 구독 경로 이상, reconnect 증가.</td>
+              <td class="reco"><code>kis:ws:approval:user:{userId}:account:{type}</code>. token과 분리해 WS 목적을 명확화.</td>
+              <td><span class="badge alias">단계 전환</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>KIS Rate Limit</td>
+              <td class="key">kis-rate-limit:global:{user|shared|bg}</td>
+              <td>Bucket4j Redis backend</td>
+              <td>api/consumer/batch KisRateLimiter</td>
+              <td>KIS REST 호출을 user/shared/bg lane으로 나눠 초당 호출 압력을 제한.</td>
+              <td>flush 시 순간 호출 burst 가능. 이름 변경은 Bucket4j 설정과 함께 해야 함.</td>
+              <td class="reco">단기 유지. 문서명은 <code>kis:ratelimit:bucket:{lane}</code>로 잡고 config 변경 시 같이 전환.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>KIS Key Change</td>
+              <td class="key">kis:key-changed-lock:{userId}:{accountType}</td>
+              <td>String / 5s</td>
+              <td>API KisCacheInvalidator</td>
+              <td>KIS credential 변경 직후 짧은 보호 구간 표시. token/approval legacy key 삭제와 함께 사용.</td>
+              <td>짧은 TTL이라 rename 영향은 작지만 auth 흐름과 밀접.</td>
+              <td class="reco"><code>kis:credential:changed:user:{userId}:account:{type}</code>를 신규 표준으로 문서화.</td>
+              <td><span class="badge keep">문서화</span></td>
+            </tr>
+            <tr data-status="urgent alias">
+              <td>Account</td>
+              <td class="key">account:balance:{userId}:{accountType}</td>
+              <td>String JSON / 5m</td>
+              <td>API AccountQueryService, Consumer AccountSnapshotCoordinator</td>
+              <td>잔고/예수금 조회 cache-aside. lock으로 동시 전략 조회를 KIS 1회로 합침.</td>
+              <td>주문/체결 hook invalidation이 누락되면 잘못된 매수 가능금액/보유수량 판단.</td>
+              <td class="reco">이름은 나쁘지 않음. <code>account:balance:user:{userId}:account:{type}</code>는 추후 alias. 지금은 hook 정합성 우선.</td>
+              <td><span class="badge urgent">정합성 우선</span></td>
+            </tr>
+            <tr data-status="alias">
+              <td>Account</td>
+              <td class="key">account:balance:lock:{userId}:{accountType}</td>
+              <td>String SETNX / 8s API, 12s Consumer</td>
+              <td>API AccountQueryService, Consumer AccountSnapshotCoordinator</td>
+              <td>account balance KIS 조회 singleflight lock.</td>
+              <td>TTL이 너무 길면 refresh 지연, 너무 짧으면 중복 KIS 호출.</td>
+              <td class="reco"><code>account:balance:user:{userId}:account:{type}:lock</code>. base key와 lock key를 붙여 추적성 개선.</td>
+              <td><span class="badge alias">단계 전환</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Account</td>
+              <td class="key">account:availability:{mode}:{userId}</td>
+              <td>String JSON / 900s</td>
+              <td>Consumer RedisAccountAvailabilitySnapshotAdapter</td>
+              <td>주문 hot path에서 매수 가능금액/매도 가능수량 snapshot을 빠르게 읽음.</td>
+              <td>mode가 user 앞이라 scan/운영 조회가 직관적이지 않음.</td>
+              <td class="reco"><code>account:availability:user:{userId}:mode:{mode}</code>. 주문 projection/reservation 설계와 같이 정리.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="alias urgent">
+              <td>Position</td>
+              <td class="key">position:current:{userId}</td>
+              <td>String JSON / 24h</td>
+              <td>Consumer RedisPositionCacheAdapter, PositionBootstrapRunner</td>
+              <td>현재 보유종목 캐시. 자동매매 보유 판단과 bootstrap에 사용.</td>
+              <td>체결 직후 drift가 있으면 보유하지 않는 종목을 보유로 보는 문제와 연결.</td>
+              <td class="reco"><code>account:position:current:user:{userId}</code>. rename보다 체결/원장 projection 일관화가 선행.</td>
+              <td><span class="badge urgent">정합성 우선</span></td>
+            </tr>
+            <tr data-status="urgent">
+              <td>Risk</td>
+              <td class="key">risk:trade-freq:{strategyId}:{userId}:minute</td>
+              <td>ZSET / 5m</td>
+              <td>Consumer TradeFrequencyRedisGuard</td>
+              <td>분당 거래 빈도 제한. score는 epoch seconds, member는 signalId.</td>
+              <td>member 기준이 매수/매도/신호 중 무엇인지 운영자가 즉시 알기 어려움.</td>
+              <td class="reco"><code>risk:trade-frequency:user:{userId}:strategy:{strategyId}:window:minute</code>. 제한 기준 설명도 config에 명시.</td>
+              <td><span class="badge urgent">로직 점검</span></td>
+            </tr>
+            <tr data-status="urgent">
+              <td>Risk</td>
+              <td class="key">risk:trade-freq:{strategyId}:{userId}:day</td>
+              <td>ZSET / 25h</td>
+              <td>Consumer TradeFrequencyRedisGuard</td>
+              <td>일별 거래 빈도 제한. KST midnight 기준 cleanup.</td>
+              <td>후성 전략의 “7회 도달” 알림처럼 체감과 count 기준이 어긋나면 신뢰 하락.</td>
+              <td class="reco">이름 개선보다 “주문 시도/접수/체결/왕복” 중 무엇을 세는지 정책 명확화가 우선.</td>
+              <td><span class="badge urgent">로직 점검</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Risk</td>
+              <td class="key">daily_pnl:{userId}:{kstDate}</td>
+              <td>String Decimal / KST 자정까지</td>
+              <td>Consumer DailyPnlCalculator</td>
+              <td>MOCK 일일 손익 계산 보조 캐시.</td>
+              <td>underscore prefix가 나머지 colon convention과 다름.</td>
+              <td class="reco"><code>risk:daily-pnl:user:{userId}:date:{yyyy-mm-dd}</code>. low-risk rename 후보.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="urgent alias">
+              <td>Order</td>
+              <td class="key">idem:order:{signalId}:{userId}</td>
+              <td>String SETNX / caller TTL</td>
+              <td>Consumer OrderIdempotencyGuardImpl, OrderRouterKafkaListener</td>
+              <td>동일 신호/주문 중복 접수를 막는 idempotency guard.</td>
+              <td>삭제/rename 실수는 중복 주문으로 바로 이어질 수 있음.</td>
+              <td class="reco"><code>order:idempotency:signal:{signalId}:user:{userId}</code>. 장중 rename 금지, dual-read도 신중.</td>
+              <td><span class="badge urgent">고위험</span></td>
+            </tr>
+            <tr data-status="alias">
+              <td>Order</td>
+              <td class="key">auto-tp:{digest}, auto-sl:{digest}, auto-vi:{digest}, auto-tpt:{digest}</td>
+              <td>Idempotency key material</td>
+              <td>Consumer AutoOrderIdempotencyKeys</td>
+              <td>자동 익절/손절/VI/trailing take-profit 주문 idempotency 입력.</td>
+              <td>prefix만 보면 order 도메인인지 알기 어렵고 운영 scan에서 흩어짐.</td>
+              <td class="reco"><code>order:idem:auto-tp:{digest}</code> 등으로 신규 key material 표준화.</td>
+              <td><span class="badge alias">단계 전환</span></td>
+            </tr>
+            <tr data-status="urgent">
+              <td>Market Quote</td>
+              <td class="key">quote:last:{code}</td>
+              <td>String JSON / 의도 5m, 라이브 일부 장기 TTL</td>
+              <td>Consumer KisWebSocketBridge, RedisQuoteCacheAdapter; API CandleQueryService, SymbolMetaService</td>
+              <td>마지막 체결가/거래량/등락률 write-through. 차트 최신값과 종목 meta 보강에 사용.</td>
+              <td>TTL 불일치가 이미 관측됨. stale price가 매매 판단/화면 표시를 오염시킬 수 있음.</td>
+              <td class="reco"><code>market:quote:last:code:{code}</code>로 장기 전환. 먼저 모든 writer TTL 300s 강제 확인.</td>
+              <td><span class="badge urgent">즉시 점검</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Market Orderbook</td>
+              <td class="key">orderbook:top:{code}</td>
+              <td>String JSON / 짧은 TTL</td>
+              <td>Consumer KisWebSocketBridge, RedisOrderbookTopCache</td>
+              <td>매수 진입가 산정용 1호가 ask/bid snapshot.</td>
+              <td>TTL이 짧아 stale 방어는 있으나 market namespace와 분리되어 있음.</td>
+              <td class="reco"><code>market:orderbook:top:code:{code}</code>. low-risk alias 후보.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Candle</td>
+              <td class="key">candle:current:{code}:{interval}</td>
+              <td>HASH / interval별 TTL</td>
+              <td>Consumer RedisCandleCache, KisWebSocketBridge, BoundaryAggregator; API CandleQueryService</td>
+              <td>진행 중 봉 open/high/low/close/volume snapshot.</td>
+              <td>interval 추가 시 writer/reader 지원 범위가 어긋나면 0원 캔들 같은 증상으로 번질 수 있음.</td>
+              <td class="reco"><code>market:candle:current:code:{code}:interval:{interval}</code>. 우선 interval registry와 source field 표준화.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Candle</td>
+              <td class="key">candle:today:{code}:1d</td>
+              <td>HASH / 24h</td>
+              <td>Consumer RedisCandleTodayResetRunner, KisWebSocketBridge</td>
+              <td>당일 일봉 seed/legacy path. bootstrap reset 대상.</td>
+              <td><code>candle:current</code>와 역할 경계가 모호해 운영자가 헷갈릴 수 있음.</td>
+              <td class="reco"><code>market:candle:session:code:{code}:interval:1d</code> 또는 current로 흡수 검토.</td>
+              <td><span class="badge rename">정리 후보</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Candle Universe</td>
+              <td class="key">candle:universe:detail-recent</td>
+              <td>ZSET / 24h + 5m</td>
+              <td>Consumer ManagedCandleUniverseCache</td>
+              <td>종목 상세 등 비전략 수요가 최근 본 코드를 boot reconciliation 대상으로 보존.</td>
+              <td>삭제 시 재시작 후 일부 관심 종목 복구가 늦어질 수 있음.</td>
+              <td class="reco"><code>market:candle:universe:detail-recent</code>. 기능명은 괜찮으나 market 아래로 이동 권장.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Candle Universe</td>
+              <td class="key">candle:universe:strategy-candidates</td>
+              <td>ZSET / 30m + 5m</td>
+              <td>Consumer ManagedCandleUniverseCache</td>
+              <td>전략 후보 종목을 candle reconciliation 대상으로 단기 유지.</td>
+              <td>TTL 기반이라 메모리 위험은 낮음.</td>
+              <td class="reco"><code>market:candle:universe:strategy-candidates</code>. registry 등록.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Backfill Guard</td>
+              <td class="key">candle:backfill:guard:miss:{code}:{interval}</td>
+              <td>String counter / config hours</td>
+              <td>Consumer BackfillGapGuardStore, API CandleHealth</td>
+              <td>반복 backfill miss를 세서 재시도 폭주를 막음.</td>
+              <td>삭제 시 동일 gap 재시도가 늘어날 수 있음.</td>
+              <td class="reco"><code>market:candle:backfill:miss:code:{code}:interval:{interval}</code>. 운영 조회 label 명확화.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Backfill Guard</td>
+              <td class="key">candle:backfill:guard:unrecoverable:{code}:{interval}</td>
+              <td>String reason / config hours</td>
+              <td>Consumer BackfillGapGuardStore, API CandleHealth</td>
+              <td>복구 불가 gap reason 보관.</td>
+              <td>삭제 시 health가 원인을 잃고 재시도 판단이 흔들릴 수 있음.</td>
+              <td class="reco"><code>market:candle:backfill:unrecoverable:code:{code}:interval:{interval}</code>.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Market Meta</td>
+              <td class="key">meta:{code}</td>
+              <td>String JSON / 5m</td>
+              <td>API SymbolMetaService</td>
+              <td>종목 상세용 price metrics cache. quote:last를 보강 입력으로 사용.</td>
+              <td>prefix가 너무 일반적이라 다른 meta와 충돌 가능.</td>
+              <td class="reco"><code>market:symbol:meta:code:{code}</code>. low-risk rename 후보.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Market Session</td>
+              <td class="key">session:cache:current</td>
+              <td>String / 60s</td>
+              <td>API KrxMarketSessionResolver</td>
+              <td>장 상태 계산 결과 캐시.</td>
+              <td>짧은 TTL, 영향 낮음.</td>
+              <td class="reco"><code>market:session:current</code>가 더 명확하나 우선순위 낮음.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Strategy</td>
+              <td class="key">strategy:active:by_code:{code}:{interval}</td>
+              <td>String JSON / 5m</td>
+              <td>API RedisStrategyCache, StrategyLookupJpaAdapter</td>
+              <td>종목/interval별 active strategy id 목록 캐시.</td>
+              <td><code>by_code</code>가 segment label이 아니라 문장처럼 들어가 검색성이 떨어짐.</td>
+              <td class="reco"><code>strategy:active:code:{code}:interval:{interval}</code>. status 변경 invalidation과 함께 전환.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Signal</td>
+              <td class="key">signal:dedupe:{strategyId}:{code}:{interval}:{tsEpochSeconds}</td>
+              <td>String SETNX / 30s</td>
+              <td>Consumer SignalDedupeGuard</td>
+              <td>동일 봉/동일 전략 신호 중복 발행 방지. 실패 시 DB unique에 의존.</td>
+              <td>TTL이 짧고 fail-open이라 rename 영향은 중간.</td>
+              <td class="reco"><code>signal:dedupe:strategy:{strategyId}:code:{code}:interval:{interval}:ts:{epoch}</code>.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Indicator</td>
+              <td class="key">indicator:cache:{code}:{interval}:{name}:{paramsHash}</td>
+              <td>String JSON / intraday 5m, daily 1d</td>
+              <td>Consumer RedisIndicatorCacheAdapter</td>
+              <td>전략/분석용 indicator 결과 캐시.</td>
+              <td>hash가 무엇을 의미하는지 key만 보고 알기 어려움.</td>
+              <td class="reco"><code>indicator:result:code:{code}:interval:{interval}:name:{name}:params:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Indicator</td>
+              <td class="key">indicator:cache:{code}:{interval}:{name}:{paramsHash}:{rangeHash}</td>
+              <td>String JSON / intraday 5m, daily 1d</td>
+              <td>API IndicatorService</td>
+              <td>조회 range/from/to/adjusted까지 반영한 indicator 캐시.</td>
+              <td>consumer와 API key shape이 달라 운영자가 혼동 가능.</td>
+              <td class="reco"><code>indicator:result:code:{code}:interval:{interval}:name:{name}:params:{hash}:range:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Pattern</td>
+              <td class="key">pattern:cache:{code}:{interval}:{patternsHash}</td>
+              <td>String JSON / intraday 5m, daily 1d</td>
+              <td>Pattern-engine RedisPatternCacheAdapter</td>
+              <td>차트 패턴 탐지 결과 캐시. API와 consumer가 공유.</td>
+              <td>hash 의미가 key에 드러나지 않음.</td>
+              <td class="reco"><code>pattern:result:code:{code}:interval:{interval}:set:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>AI</td>
+              <td class="key">ai:prompt:cache:{templateHash}</td>
+              <td>String JSON / 5m</td>
+              <td>Consumer RedisAiPromptCacheAdapter</td>
+              <td>동일 final prompt의 LLM 응답을 재사용. hit 시 새 requestId로 wrap.</td>
+              <td>user-agnostic 캐시라 prompt에 개인정보가 포함되면 hash로 자연 분리되지만 정책 설명이 필요.</td>
+              <td class="reco"><code>ai:comment:prompt-cache:hash:{sha16}</code>. 현재도 충분히 명확해 우선 문서화.</td>
+              <td><span class="badge keep">문서화</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Instrument</td>
+              <td class="key">instrument:search:prefix:{prefix}</td>
+              <td>ZSET / 1d</td>
+              <td>API InstrumentSearchIndexAdapter</td>
+              <td>종목 검색 prefix index.</td>
+              <td>위험 낮음.</td>
+              <td class="reco">현행 유지 가능. registry에 TTL과 value 구조 문서화.</td>
+              <td><span class="badge rename">정리 후보</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Instrument</td>
+              <td class="key">instrument:by-code:{code}</td>
+              <td>String JSON / 1d</td>
+              <td>API InstrumentSearchIndexAdapter, Batch InstrumentSyncJob</td>
+              <td>종목 code별 summary cache.</td>
+              <td><code>by-code</code> 표기가 다른 dimension convention과 다름.</td>
+              <td class="reco"><code>instrument:summary:code:{code}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Instrument</td>
+              <td class="key">instrument:list:{market}</td>
+              <td>String JSON / 1d</td>
+              <td>API InstrumentSearchIndexAdapter, Batch InstrumentSyncJob</td>
+              <td>시장별 종목 목록 cache.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>instrument:list:market:{market}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Instrument Sync</td>
+              <td class="key">instrument:sync:running, instrument:sync:lastAt</td>
+              <td>String lock 600s, String 1d</td>
+              <td>Batch InstrumentSyncJob</td>
+              <td>종목 sync 중복 실행 방지와 마지막 실행 시각 기록.</td>
+              <td>위험 낮음. 현재 라이브에는 lastAt만 관측.</td>
+              <td class="reco"><code>instrument:sync:lock</code>, <code>instrument:sync:last-at</code>.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Performance</td>
+              <td class="key">perf:summary:{userId}:{period}:{periodStart}:{periodEnd}</td>
+              <td>String JSON / 1h</td>
+              <td>API RedisPerformanceCacheAdapter, Batch DailyPerformanceJob</td>
+              <td>성과 요약 조회 캐시. batch 집계 후 user별 invalidation.</td>
+              <td>기간 dimension label이 없어 운영자가 날짜 의미를 추측해야 함.</td>
+              <td class="reco"><code>performance:summary:user:{userId}:period:{period}:from:{start}:to:{end}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Performance</td>
+              <td class="key">perf:equity:{userId}:{from}:{to}</td>
+              <td>String JSON / 1h</td>
+              <td>API RedisPerformanceCacheAdapter</td>
+              <td>equity curve 조회 캐시.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>performance:equity:user:{userId}:from:{from}:to:{to}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Screener</td>
+              <td class="key">screener:cache:{dslHash}:{universeFilterHash}</td>
+              <td>String JSON / 30m</td>
+              <td>API RedisScreenerCacheAdapter</td>
+              <td>DSL screener 결과 캐시.</td>
+              <td>hash 의미가 모호함.</td>
+              <td class="reco"><code>screener:result:dsl:{hash}:universe:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Screener</td>
+              <td class="key">screener:lock:{userId}:{strategyId}</td>
+              <td>String SETNX / 1m</td>
+              <td>API RedisScreenerCacheAdapter</td>
+              <td>사용자/전략 단위 screener 중복 실행 방지.</td>
+              <td>TTL 짧아 위험 낮음.</td>
+              <td class="reco"><code>screener:run:user:{userId}:strategy:{strategyId}:lock</code>.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Daytrade Discovery</td>
+              <td class="key">screener:daytrade:{presetKey}:{filterHash}:{interval}:{limit}:{tradingDay}</td>
+              <td>String JSON / config 60m</td>
+              <td>API DaytradeDiscoverCache</td>
+              <td>당일매매 발굴 preset 결과 캐시.</td>
+              <td>dimension label이 부족함.</td>
+              <td class="reco"><code>screener:daytrade:preset:{preset}:filter:{hash}:interval:{interval}:limit:{n}:date:{day}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>News</td>
+              <td class="key">news:ratelimit:naver</td>
+              <td>ZSET / 120s</td>
+              <td>API NaverNewsRateLimiter</td>
+              <td>Naver 뉴스 API 17/min 제한.</td>
+              <td>삭제 시 순간 호출 증가 가능하지만 TTL 짧음.</td>
+              <td class="reco"><code>news:ratelimit:provider:naver</code> 또는 현행 유지.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>News</td>
+              <td class="key">news:dedup:url:{sha256}</td>
+              <td>String / TTL성 dedup</td>
+              <td>API NewsKafkaProducer 계열</td>
+              <td>동일 뉴스 URL 중복 발행 방지. 라이브 Redis 대부분을 차지.</td>
+              <td>메모리는 낮지만 count가 많아 prefix 분포를 지배.</td>
+              <td class="reco"><code>news:dedup:url:sha256:{hash}</code>. 현행 유지 가능, TTL registry 필요.</td>
+              <td><span class="badge keep">문서화</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Disclosure</td>
+              <td class="key">news:dedup:rcept:{rcept_no}</td>
+              <td>String SETNX / 24h</td>
+              <td>API DisclosureKafkaProducer</td>
+              <td>DART 공시 접수번호 dedup.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>disclosure:dedup:rcept:{rceptNo}</code>로 domain 분리 검토. 현재는 news 아래 혼재.</td>
+              <td><span class="badge keep">문서화</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Notification</td>
+              <td class="key">notification:dedup:{eventId}</td>
+              <td>String SETNX / 24h</td>
+              <td>Consumer NotificationDedupAdapter</td>
+              <td>동일 event 알림 중복 방지.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>notification:dedup:event:{eventId}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Notification</td>
+              <td class="key">notification:dedup:order:{userId}:{orderId}</td>
+              <td>String SETNX / 24h</td>
+              <td>Consumer NotificationDedupAdapter</td>
+              <td>주문 알림 중복 방지.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>notification:dedup:order:user:{userId}:order:{orderId}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Notification</td>
+              <td class="key">notification:ratelimit:{userId}:{topicHash}</td>
+              <td>ZSET / window + 5m</td>
+              <td>Consumer NotificationRateLimiter</td>
+              <td>사용자/토픽별 알림 빈도 제한.</td>
+              <td>topicHash 의미가 key만 보고 불명확.</td>
+              <td class="reco"><code>notification:ratelimit:user:{userId}:topic:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="rename">
+              <td>Notification</td>
+              <td class="key">notification:once:{userId}:{topicHash}</td>
+              <td>String / window</td>
+              <td>Consumer NotificationRateLimiter</td>
+              <td>window 내 once 알림 guard.</td>
+              <td>위험 낮음.</td>
+              <td class="reco"><code>notification:once:user:{userId}:topic:{hash}</code>.</td>
+              <td><span class="badge rename">이름 개선</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Realtime Ops</td>
+              <td class="key">admin:realtime-status</td>
+              <td>String JSON / 60s</td>
+              <td>Consumer RealtimeStatusSnapshotPublisher, API RealtimeStatusService</td>
+              <td>실시간 구독/WS 상태 snapshot. consumer가 5초마다 publish, API는 15초 이상 stale 감지.</td>
+              <td>현재 사용자가 체감하는 구독 이상 표시와 직접 연결.</td>
+              <td class="reco"><code>ops:realtime:status</code>. 우선 payload 내 trId/topic/source naming 일관화.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="rename urgent">
+              <td>Watchlist Source</td>
+              <td class="key">watchlist:source:{userId}</td>
+              <td>HASH / 24h</td>
+              <td>Consumer RedisSourceTrackerAdapter, API CandleHealth</td>
+              <td>종목별 source live/polling/idle 기록. 실시간 경로 이상 진단에 사용.</td>
+              <td>live/polling 전환 잔재가 남으면 상태판이 실제와 어긋날 수 있음.</td>
+              <td class="reco"><code>ops:watchlist:source:user:{userId}</code>. source enum과 topic naming convention 연결.</td>
+              <td><span class="badge urgent">운영 점검</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Reconcile</td>
+              <td class="key">reconcile:lock:{userId}</td>
+              <td>String SETNX / 5m</td>
+              <td>Consumer ReconcileLockAdapter, API ReconcileManualTriggerService</td>
+              <td>사용자별 수동/자동 reconcile 중복 실행 방지.</td>
+              <td>삭제 시 중복 reconcile 가능.</td>
+              <td class="reco"><code>reconcile:user:{userId}:lock</code>. 현행 유지 가능.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+            <tr data-status="keep">
+              <td>Reconcile</td>
+              <td class="key">reconcile:lastrun:{userId}</td>
+              <td>String / 5m</td>
+              <td>Consumer ReconcileLockAdapter, API ReconcileManualTriggerService</td>
+              <td>최근 reconcile run id/시각 보조 상태.</td>
+              <td>영향 낮음.</td>
+              <td class="reco"><code>reconcile:user:{userId}:last-run</code>.</td>
+              <td><span class="badge keep">유지</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Migration Proposal</h2>
+      <div class="migration">
+        <div class="phase">
+          <h3>Inventory & Registry</h3>
+          <p>wire key 변경 없이 Redis key registry를 만든다. 공유 키는 공통 registry, 모듈 내부 전용 키는 owner 패키지에 object로 고정한다.</p>
+          <p><strong>대상:</strong> account, KIS, quote, candle, ops status.</p>
+        </div>
+        <div class="phase">
+          <h3>Low-risk Alias</h3>
+          <p>indicator, pattern, perf, meta, screener처럼 재계산 가능한 캐시부터 v2 write + v1 fallback read를 적용한다.</p>
+          <p><strong>원칙:</strong> TTL 만료로 v1 자연 소멸.</p>
+        </div>
+        <div class="phase">
+          <h3>Critical Dual-run</h3>
+          <p>account/order/risk/KIS는 장 마감, in-flight 주문 0, WS 안정 상태에서만 dual-read를 검토한다.</p>
+          <p><strong>금지:</strong> 장중 idempotency/risk key rename.</p>
+        </div>
+        <div class="phase">
+          <h3>Cutover & Cleanup</h3>
+          <p>운영 대시보드가 v2 key를 읽고, dozzle/metric 알림도 v2 기준으로 바뀐 뒤 v1 cleanup을 진행한다.</p>
+          <p><strong>검증:</strong> key count, TTL, stale ratio, KIS call count.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>우선순위 추천안</h2>
+      <ol class="plain-list">
+        <li><strong><code>quote:last:*</code> TTL anomaly 먼저 제거.</strong> 모든 writer를 찾아 TTL 300초가 아닌 경로를 차단하고, stale quote가 매매/화면에 들어가지 않게 age check를 강화한다.</li>
+        <li><strong>RedisKeyRegistry 도입.</strong> account/KIS/market/ops 공유 키부터 문자열 literal을 상수 함수로 모으고, 테스트에서 key pattern을 고정한다.</li>
+        <li><strong>계좌 snapshot 계열은 rename보다 hook 정합성.</strong> 주문 접수, 거부, 취소, 부분/전체 체결, 수동 체결 감지, WS 불확실 상태의 invalidate/refresh 규칙을 registry와 함께 문서화한다.</li>
+        <li><strong>order/risk key는 정책 이름까지 포함.</strong> 일별 최대 거래가 “주문 시도 수”인지 “매수 체결 수”인지 “왕복 거래 수”인지 key/report/config에 드러나야 한다.</li>
+        <li><strong>market key는 <code>market:</code> 아래로 모으기.</strong> quote, orderbook, meta, session, candle을 같은 도메인으로 묶으면 장애 시 Redis scan이 쉬워진다.</li>
+        <li><strong>저위험 캐시부터 v2 naming 전환.</strong> indicator, pattern, perf, screener, AI prompt는 재생성 가능하므로 가장 먼저 이름 정리 실험을 하기 좋다.</li>
+      </ol>
+    </section>
+
+    <section class="safe-grid" aria-label="운영 삭제 가이드">
+      <div class="safe ok">
+        <h2>비교적 안전</h2>
+        <p>재계산 가능한 조회 캐시. 삭제 시 성능 저하 또는 일시 miss 정도가 주 영향이다.</p>
+        <ul class="plain-list">
+          <li><code>indicator:cache:*</code>, <code>pattern:cache:*</code></li>
+          <li><code>screener:cache:*</code>, <code>perf:*</code></li>
+          <li><code>meta:*</code>, 단 quote TTL 정상 확인 후</li>
+        </ul>
+      </div>
+      <div class="safe warn">
+        <h2>주의 필요</h2>
+        <p>삭제가 외부 호출 증가나 화면 상태 흔들림으로 이어질 수 있다.</p>
+        <ul class="plain-list">
+          <li><code>kis:token:*</code>, <code>kis:approval:*</code></li>
+          <li><code>account:balance:*</code>, <code>quote:last:*</code></li>
+          <li><code>admin:realtime-status</code>, <code>watchlist:source:*</code></li>
+        </ul>
+      </div>
+      <div class="safe stop">
+        <h2>장중 삭제 금지</h2>
+        <p>중복 주문, 리스크 우회, 복구 폭주를 만들 수 있다.</p>
+        <ul class="plain-list">
+          <li><code>idem:order:*</code>, <code>auto-*</code></li>
+          <li><code>risk:trade-freq:*</code></li>
+          <li><code>account:availability:*</code> projection 적용 후</li>
+          <li><code>candle:backfill:guard:*</code> 대량 삭제</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Evidence: source scan from API/consumer/batch/pattern-engine, ADR 0125 topic naming convention 참고,
+        live Redis snapshot at 2026-06-15 18:05 KST. 이 문서는 코드 수정 전 인벤토리이며,
+        rename 작업은 별도 PR에서 test/dual-read/runbook과 함께 진행해야 한다.
+      </p>
+    </footer>
+  </main>
+
+  <script>
+    const rows = Array.from(document.querySelectorAll("#inventoryRows tr"));
+    const search = document.querySelector("#search");
+    const buttons = Array.from(document.querySelectorAll("button.filter"));
+    const rowCount = document.querySelector("#rowCount");
+    let activeFilter = "all";
+
+    function applyFilters() {
+      const q = search.value.trim().toLowerCase();
+      let visible = 0;
+      for (const row of rows) {
+        const text = row.innerText.toLowerCase();
+        const statuses = row.dataset.status.split(/\s+/);
+        const matchesFilter = activeFilter === "all" || statuses.includes(activeFilter);
+        const matchesSearch = q === "" || text.includes(q);
+        const show = matchesFilter && matchesSearch;
+        row.style.display = show ? "" : "none";
+        if (show) visible += 1;
+      }
+      rowCount.textContent = `${visible} / ${rows.length} rows`;
+    }
+
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        for (const b of buttons) b.classList.toggle("active", b === button);
+        applyFilters();
+      });
+    }
+
+    search.addEventListener("input", applyFilters);
+    applyFilters();
+  </script>
+</body>
+</html>

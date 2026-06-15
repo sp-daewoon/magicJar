@@ -18,6 +18,7 @@ import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
 import kr.spdaewoon.magicjar.domain.market.port.TodayCandleSeedPort
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -1432,7 +1433,7 @@ class KisWebSocketBridge(
             redisTemplate
                 .opsForValue()
                 .set(
-                    "quote:last:${tick.code}",
+                    RedisKeyRegistry.Market.quoteLast(tick.code),
                     json,
                     java.time.Duration.ofMinutes(5),
                 )
@@ -1475,7 +1476,7 @@ class KisWebSocketBridge(
             redisTemplate
                 .opsForValue()
                 .set(
-                    "orderbook:top:${snapshot.code}",
+                    RedisKeyRegistry.Market.orderbookTop(snapshot.code),
                     objectMapper.writeValueAsString(data),
                     ORDERBOOK_TOP_TTL,
                 )
@@ -1489,7 +1490,7 @@ class KisWebSocketBridge(
             LIVE_CANDLE_INTERVALS.forEach { interval ->
                 val start = liveCandleStart(tick, interval)
                 updateLiveCandleHash(
-                    key = "candle:current:${tick.code}:$interval",
+                    key = RedisKeyRegistry.Market.candleCurrent(tick.code, interval),
                     interval = interval,
                     start = start,
                     tick = tick,
@@ -1499,7 +1500,7 @@ class KisWebSocketBridge(
                 // 기존 API/운영 키 호환. 신규 경로는 candle:current:{code}:1d를 우선 사용한다.
                 if (interval == "1d") {
                     updateLiveCandleHash(
-                        key = "candle:today:${tick.code}:1d",
+                        key = RedisKeyRegistry.Market.candleToday1d(tick.code),
                         interval = interval,
                         start = start,
                         tick = tick,
@@ -1682,8 +1683,17 @@ class KisWebSocketBridge(
                     .atStartOfDay(kstZone)
                     .toInstant()
                     .toString()
-            writeSeedHash("candle:today:$code:1d", startTs, open, high, low, close, acmlVol ?: 0L, Duration.ofHours(24))
-            writeSeedHash("candle:current:$code:1d", startTs, open, high, low, close, acmlVol ?: 0L, liveCandleTtl("1d"))
+            writeSeedHash(RedisKeyRegistry.Market.candleToday1d(code), startTs, open, high, low, close, acmlVol ?: 0L, Duration.ofHours(24))
+            writeSeedHash(
+                RedisKeyRegistry.Market.candleCurrent(code, "1d"),
+                startTs,
+                open,
+                high,
+                low,
+                close,
+                acmlVol ?: 0L,
+                liveCandleTtl("1d"),
+            )
             log.info(
                 "[TodayCandleSeed] 공식 KIS 당일값 시드: code={} open={} high={} low={} close={} acmlVol={}",
                 code,
@@ -1774,7 +1784,7 @@ class KisWebSocketBridge(
                 .atStartOfDay(kstZone)
                 .toInstant()
                 .toString()
-        for (key in listOf("candle:today:$code:1d", "candle:current:$code:1d")) {
+        for (key in listOf(RedisKeyRegistry.Market.candleToday1d(code), RedisKeyRegistry.Market.candleCurrent(code, "1d"))) {
             val h = redisTemplate.opsForHash<String, String>().entries(key)
             if (h.isEmpty()) continue
             val startTs = h["startTs"] ?: h["ts"]

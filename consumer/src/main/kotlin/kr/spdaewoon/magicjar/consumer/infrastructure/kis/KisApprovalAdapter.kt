@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -85,8 +86,8 @@ class KisApprovalAdapter(
         userId: String,
         accountType: AccountType,
     ): String {
-        val cacheKey = "kis:approval:$userId:${accountType.name}"
-        val lockKey = "kis:approval:lock:$userId:${accountType.name}"
+        val cacheKey = RedisKeyRegistry.Kis.approval(userId, accountType)
+        val lockKey = RedisKeyRegistry.Kis.approvalLock(userId, accountType)
 
         // 1. Redis cache hit — 락 없이 fast path
         redisTemplate.opsForValue().get(cacheKey)?.let { return it }
@@ -240,7 +241,7 @@ class KisApprovalAdapter(
         userId: String,
         accountType: AccountType,
     ) {
-        val cacheKey = "kis:approval:$userId:${accountType.name}"
+        val cacheKey = RedisKeyRegistry.Kis.approval(userId, accountType)
         val deleted = redisTemplate.delete(cacheKey)
         log.info(
             "KIS approval_key cache 무효화 (재연결 전): user={} type={} deleted={}",

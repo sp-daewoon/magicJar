@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.domain.position.Position
 import kr.spdaewoon.magicjar.domain.position.port.KisHolding
 import kr.spdaewoon.magicjar.domain.position.port.PositionCachePort
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -26,7 +27,6 @@ class RedisPositionCacheAdapter(
     private val log = LoggerFactory.getLogger(RedisPositionCacheAdapter::class.java)
 
     companion object {
-        private const val CACHE_KEY_PREFIX = "position:current:"
         private val DEFAULT_TTL = Duration.ofHours(24)
     }
 
@@ -38,7 +38,7 @@ class RedisPositionCacheAdapter(
         holdings: List<KisHolding>,
         ttl: Duration = DEFAULT_TTL,
     ) {
-        val key = "$CACHE_KEY_PREFIX$userId"
+        val key = RedisKeyRegistry.Account.currentPosition(userId)
         val json = objectMapper.writeValueAsString(holdings)
         redisTemplate.opsForValue().set(key, json, ttl)
         log.debug("Redis 포지션 캐시 저장: user={} holdings={}건 ttl={}", maskUserId(userId), holdings.size, ttl)
@@ -47,7 +47,7 @@ class RedisPositionCacheAdapter(
     // ── PositionCachePort 구현 ─────────────────────────────────────────────
 
     override fun getAll(userId: String): List<Position> {
-        val key = "$CACHE_KEY_PREFIX$userId"
+        val key = RedisKeyRegistry.Account.currentPosition(userId)
         val json = redisTemplate.opsForValue().get(key) ?: return emptyList()
         return try {
             val holdings: List<CachedHolding> = objectMapper.readValue(json)
@@ -70,7 +70,7 @@ class RedisPositionCacheAdapter(
 
     override fun put(position: Position) {
         // 단건 put은 putHoldings로 위임 (T-W2에서 체결 통보 시 refresh)
-        val key = "$CACHE_KEY_PREFIX${position.userId}"
+        val key = RedisKeyRegistry.Account.currentPosition(position.userId)
         val current = getAll(position.userId).toMutableList()
         val idx = current.indexOfFirst { it.code == position.code }
         if (idx >= 0) current[idx] = position else current.add(position)

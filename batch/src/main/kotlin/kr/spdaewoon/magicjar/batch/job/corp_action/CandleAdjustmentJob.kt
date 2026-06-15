@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpAction
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.CorpActionType
 import kr.spdaewoon.magicjar.domain.instrument.corpaction.port.CorpActionRepository
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.annotation.KafkaListener
@@ -121,7 +122,7 @@ class CandleAdjustmentJob(
             )
 
         // Redis 지표 캐시 무효화 (strategy-engine 재계산 트리거)
-        val keys = redisTemplate.keys("indicator:cache:${action.instrumentCode}:*")
+        val keys = redisTemplate.keys(RedisKeyRegistry.Indicator.resultPattern(action.instrumentCode))
         if (!keys.isNullOrEmpty()) {
             redisTemplate.delete(keys)
             log.debug("[CandleAdj] Redis 지표 캐시 삭제 — keys=${keys.size}건")

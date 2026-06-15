@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.cache
 
 import kr.spdaewoon.magicjar.domain.market.port.SourceTracker
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -20,7 +21,6 @@ class RedisSourceTrackerAdapter(
     private val log = LoggerFactory.getLogger(RedisSourceTrackerAdapter::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "watchlist:source:"
         private val SOURCE_TTL = Duration.ofHours(24)
     }
 
@@ -29,7 +29,7 @@ class RedisSourceTrackerAdapter(
         code: String,
         source: String,
     ) {
-        val key = "$KEY_PREFIX$userId"
+        val key = RedisKeyRegistry.Ops.watchlistSource(userId)
         redisTemplate.opsForHash<String, String>().put(key, code, source)
         redisTemplate.expire(key, SOURCE_TTL)
         log.debug("source tracker set: userId={} code={} source={}", maskUserId(userId), code, source)
@@ -38,20 +38,20 @@ class RedisSourceTrackerAdapter(
     override fun get(
         userId: String,
         code: String,
-    ): String? = redisTemplate.opsForHash<String, String>().get("$KEY_PREFIX$userId", code)
+    ): String? = redisTemplate.opsForHash<String, String>().get(RedisKeyRegistry.Ops.watchlistSource(userId), code)
 
     override fun remove(
         userId: String,
         code: String,
     ) {
-        redisTemplate.opsForHash<String, String>().delete("$KEY_PREFIX$userId", code)
+        redisTemplate.opsForHash<String, String>().delete(RedisKeyRegistry.Ops.watchlistSource(userId), code)
         log.debug("source tracker remove: userId={} code={}", maskUserId(userId), code)
     }
 
     override fun listForUser(userId: String): Map<String, String> =
         redisTemplate
             .opsForHash<String, String>()
-            .entries("$KEY_PREFIX$userId")
+            .entries(RedisKeyRegistry.Ops.watchlistSource(userId))
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 }

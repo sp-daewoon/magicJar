@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.batch.infrastructure.kis.index
 
 import kr.spdaewoon.magicjar.batch.persistence.BatchUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -195,9 +196,9 @@ class KisIndexRealCredentialResolver(
             ?.let(Duration::ofSeconds)
             ?: FALLBACK_TTL
 
-    private fun tokenKey(userId: String): String = "kis:token:$userId:${AccountType.REAL.name}"
+    private fun tokenKey(userId: String): String = RedisKeyRegistry.Kis.token(userId, AccountType.REAL)
 
-    private fun tokenLockKey(userId: String): String = "kis:token:lock:$userId:${AccountType.REAL.name}"
+    private fun tokenLockKey(userId: String): String = RedisKeyRegistry.Kis.tokenLock(userId, AccountType.REAL)
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"
 

@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -54,8 +55,6 @@ class DailyCloseFinalizer(
     private val log = LoggerFactory.getLogger(DailyCloseFinalizer::class.java)
 
     companion object {
-        private const val CANDLE_TODAY_PREFIX = "candle:today:"
-        private const val CANDLE_TODAY_SUFFIX = ":1d"
         private const val INTERVAL_1D = "1d"
         private const val SOURCE_FINALIZER = "KIS_DAILY_CLOSE"
         private val KST = ZoneId.of("Asia/Seoul")
@@ -89,7 +88,7 @@ class DailyCloseFinalizer(
         val startTs = Instant.now()
 
         // Redis scan: candle:today:*:1d 패턴
-        val pattern = "$CANDLE_TODAY_PREFIX*$CANDLE_TODAY_SUFFIX"
+        val pattern = RedisKeyRegistry.Market.candleToday1dPattern()
         val keys = redisTemplate.keys(pattern)
 
         var flushed = 0
@@ -101,10 +100,11 @@ class DailyCloseFinalizer(
             for (key in keys) {
                 try {
                     // key 예: candle:today:005930:1d → code = "005930"
-                    val code =
-                        key
-                            .removePrefix(CANDLE_TODAY_PREFIX)
-                            .removeSuffix(CANDLE_TODAY_SUFFIX)
+                    val code = RedisKeyRegistry.Market.codeFromCandleToday1dKey(key)
+                    if (code == null) {
+                        log.warn("DailyCloseFinalizer: 예상 밖 Redis key skip — key={}", key)
+                        continue
+                    }
 
                     // FIX(dogfooding): candle:today:{code}:1d 는 KisWebSocketBridge.updateCandleToday()가
                     // opsForHash(HMSET)로 저장. 기존 opsForValue().get() 호출은 WRONGTYPE 에러 → null 반환

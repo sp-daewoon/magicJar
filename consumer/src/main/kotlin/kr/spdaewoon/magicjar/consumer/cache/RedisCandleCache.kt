@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.cache
 
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -36,7 +37,6 @@ class RedisCandleCache(
     private val log = LoggerFactory.getLogger(RedisCandleCache::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "candle:current:"
         private val TTL = Duration.ofHours(25)
 
         private val SUPPORTED_INTERVALS =
@@ -143,7 +143,7 @@ class RedisCandleCache(
     private fun buildKey(
         code: String,
         interval: CandleInterval,
-    ): String = "$KEY_PREFIX$code:${interval.code}"
+    ): String = RedisKeyRegistry.Market.candleCurrent(code, interval.code)
 
     /** Redis hash → Candle 도메인 변환. */
     private fun parseHash(
