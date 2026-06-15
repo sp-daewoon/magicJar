@@ -75,16 +75,16 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
 
     @Test
     fun `초과분 전량 보정으로 0 도달 — avgPrice·filledLots·executedExitStages reset`() {
+        // 2026-06-15 fix: "권위 0 + leg 양수 → 0 reset" 보정은 **주기 reconcile**(원장이 BalanceReconcile 로
+        // 채워진 뒤 = 진짜 미보유) 경로에서만 일어난다. 체결 직후(applyExecution, postExecution=true) 경로는
+        // 원장 0 이 "미반영 빈틈" 일 수 있어 깎지 않는다(아래 별도 테스트). 따라서 reset 검증은 주기 reconcile 로 한다.
         port.legs =
             listOf(leg(strategyId = 100L, quantity = 3, realizedPnl = "5000", avgPrice = "10000", filledLots = 2, stages = setOf(0)))
         whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))
             .thenReturn(positionEntity(quantity = 0))
 
         port.preset = port.legs.first()
-        adapter(enabled = true).applyExecution(
-            request(side = OrderSide.SELL, strategyId = 100L),
-            execution(quantity = 1, price = "10000"),
-        )
+        adapter(enabled = true).reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
 
         val corrected = port.lastUpsert!!
         assertThat(corrected.quantity).isEqualTo(0)
@@ -93,6 +93,28 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
         assertThat(corrected.executedExitStages).isEmpty()
         // realized_pnl 은 reset 대상 아님(보정은 수량 정렬).
         assertThat(corrected.realizedPnl).isEqualByComparingTo(BigDecimal("5000"))
+    }
+
+    @Test
+    fun `체결 직후 권위 0(행 존재) + leg 양수 — 초과 삭제 보류(2026-06-15 drift 근본 fix)`() {
+        // 005930·전략 88 실측: 15:10 매수 체결 직후 reconcileDrift 시점에 원장 행은 존재하나 quantity=0
+        // (원장 반영은 15:51) → 기존엔 legs > authority(0) 초과로 방금 귀속한 물량을 즉시 삭제했다.
+        // fix: postExecution=true + 권위 0(행 존재) + leg 양수면 깎지 않고 보존(다음 주기 회복).
+        port.legs = listOf(leg(strategyId = 88L, quantity = 1, realizedPnl = "0", avgPrice = "75000"))
+        whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))
+            .thenReturn(positionEntity(quantity = 0))
+
+        // 첫 진입 — applyBuy(+1) 후 같은 transaction 에서 reconcileDrift(postExecution=true).
+        port.preset = null
+        adapter(enabled = true).applyExecution(
+            request(side = OrderSide.BUY, strategyId = 88L),
+            execution(quantity = 1, price = "75000"),
+        )
+
+        // 방금 귀속한 1주가 보존(drift 가 0 으로 깎지 않음).
+        val saved = port.lastUpsert!!
+        assertThat(saved.strategyId).isEqualTo(88L)
+        assertThat(saved.quantity).isEqualTo(1)
     }
 
     @Test
