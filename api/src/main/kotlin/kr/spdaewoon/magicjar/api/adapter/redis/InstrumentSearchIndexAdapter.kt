@@ -16,8 +16,8 @@ import java.time.Duration
  * 키 매트릭스 (dispatch-spec §5-5 LOCK):
  * - `instrument:search:prefix:{2자prefix}` — sorted set (member=code, score=0.0)
  *   → lex-order: member 형식 = "{name_norm}\t{code}" (이름 정렬 + code로 GET)
- * - `instrument:by-code:{code}` — JSON (1일 TTL)
- * - `instrument:list:{market}` — JSON List<code> (1일 TTL)
+ * - `instrument:summary:code:{code}` — JSON (1일 TTL)
+ * - `instrument:list:market:{market}` — JSON List<code> (1일 TTL)
  *
  * rebuild: 부팅 + sync 후 재구성. invalidate: sync 전 전체 DEL.
  * 2자 prefix bucket: 이름 앞 2자 + code 앞 2자 (한글·영문·숫자 모두 처리).
@@ -117,7 +117,7 @@ class InstrumentSearchIndexAdapter(
         log.info("[instrument-index] rebuild 완료: instruments={} buckets={} elapsed={}ms", instruments.size, prefixBuckets.size, elapsed)
     }
 
-    /** Redis `instrument:search:*` + `instrument:list:*` + `instrument:by-code:*` 전체 DEL. */
+    /** Redis `instrument:search:*` + `instrument:list:market:*` + `instrument:summary:code:*` 전체 DEL. */
     override fun invalidate() {
         val patterns =
             listOf(

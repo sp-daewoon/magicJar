@@ -297,7 +297,7 @@ class CandleHealthService(
         interval: String,
     ): Boolean =
         try {
-            redisTemplate.hasKey("candle:backfill:guard:unrecoverable:$code:$interval")
+            redisTemplate.hasKey(RedisKeyRegistry.Market.candleBackfillUnrecoverable(code, interval))
         } catch (e: Exception) {
             log.debug("candle-health unrecoverable 조회 실패 — false: code={} err={}", code, e.message)
             false
@@ -308,7 +308,7 @@ class CandleHealthService(
         interval: String,
     ): Long? =
         try {
-            redisTemplate.opsForValue().get("candle:backfill:guard:miss:$code:$interval")?.toLongOrNull()
+            redisTemplate.opsForValue().get(RedisKeyRegistry.Market.candleBackfillMiss(code, interval))?.toLongOrNull()
         } catch (e: Exception) {
             log.debug("candle-health miss counter 조회 실패: code={} err={}", code, e.message)
             null

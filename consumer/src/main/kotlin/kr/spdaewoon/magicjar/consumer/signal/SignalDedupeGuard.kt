@@ -16,7 +16,7 @@ import java.time.Duration
  *
  * ### 동작
  * Redis SETNX(`set if not exists`) 30초 TTL:
- *   key = `signal:dedupe:{strategyId}:{code}:{interval}:{ts}`
+ *   key = `signal:dedupe:strategy:{strategyId}:code:{code}:interval:{interval}:ts:{ts}`
  *   value = "1"
  *   TTL = 30s
  *
@@ -85,7 +85,7 @@ class SignalDedupeGuard(
         }
     }
 
-    /** `signal:dedupe:{strategyId}:{code}:{interval}:{ts.epochSeconds}` */
+    /** `signal:dedupe:strategy:{strategyId}:code:{code}:interval:{interval}:ts:{ts.epochSeconds}` */
     private fun buildKey(
         strategyId: Long,
         code: String,

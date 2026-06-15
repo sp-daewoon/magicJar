@@ -13,7 +13,7 @@ import org.springframework.web.reactive.function.client.WebClient
  * KisAuthAdapter 빈 userId 차단 — P0 hotfix 2026-05-20 (backend-core).
  *
  * Root cause:
- *   - Redis `kis:token::REAL` `kis:token::MOCK` 같은 빈 userId 키 발견 (사용자 dogfooding evidence)
+ *   - Redis token cache에 빈 userId 키 발견 (사용자 dogfooding evidence)
  *   - caller 중 누군가 빈 userId 흘려 cache pollution + cross-user 토큰 leak risk
  *   - 입구에서 fail-fast 강제 → 호출자 결함 발견 즉시 노출
  *
@@ -40,7 +40,7 @@ class KisAuthAdapterEmptyUserIdTest {
         assertThatThrownBy { sut.getAccessToken(userId = "", accountType = AccountType.REAL) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("userId 빈 문자열 차단")
-            .hasMessageContaining("kis:token::REAL")
+            .hasMessageContaining("kis:oauth:token:user::account:REAL")
     }
 
     @Test
@@ -48,6 +48,6 @@ class KisAuthAdapterEmptyUserIdTest {
         assertThatThrownBy { sut.getAccessToken(userId = "   ", accountType = AccountType.MOCK) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("userId 빈 문자열 차단")
-            .hasMessageContaining("kis:token::MOCK")
+            .hasMessageContaining("kis:oauth:token:user::account:MOCK")
     }
 }

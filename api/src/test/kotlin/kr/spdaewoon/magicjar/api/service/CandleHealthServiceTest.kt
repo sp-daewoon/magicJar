@@ -59,23 +59,23 @@ class CandleHealthServiceTest {
 
         whenever(repo.findMaxTsByCodeAndInterval(any(), any())).thenReturn(dbLastTs)
 
-        // candle:current updatedAt
+        // market:candle:current updatedAt
         whenever(hashOps.get(any(), any())).thenReturn(null)
-        whenever(hashOps.get("candle:current:005930:1m", "updatedAt")).thenReturn(currentUpdatedAt)
+        whenever(hashOps.get("market:candle:current:code:005930:interval:1m", "updatedAt")).thenReturn(currentUpdatedAt)
 
         // unrecoverable + miss counter
         whenever(redis.hasKey(any())).thenReturn(false)
-        whenever(redis.hasKey("candle:backfill:guard:unrecoverable:005930:1m")).thenReturn(unrecoverable)
+        whenever(redis.hasKey("market:candle:backfill:unrecoverable:code:005930:interval:1m")).thenReturn(unrecoverable)
         whenever(valueOps.get(any())).thenReturn(null)
-        whenever(valueOps.get("candle:backfill:guard:miss:005930:1m")).thenReturn(missCount)
-        whenever(valueOps.get("quote:last:005930")).thenReturn(quoteLastJson)
+        whenever(valueOps.get("market:candle:backfill:miss:code:005930:interval:1m")).thenReturn(missCount)
+        whenever(valueOps.get("market:quote:last:code:005930")).thenReturn(quoteLastJson)
 
-        // watchlist:source:* 스캔
+        // ops:watchlist:source:user:* 스캔
         if (sourceLive) {
-            whenever(redis.keys("watchlist:source:*")).thenReturn(setOf("watchlist:source:u1"))
-            whenever(hashOps.get("watchlist:source:u1", "005930")).thenReturn("live")
+            whenever(redis.keys("ops:watchlist:source:user:*")).thenReturn(setOf("ops:watchlist:source:user:u1"))
+            whenever(hashOps.get("ops:watchlist:source:user:u1", "005930")).thenReturn("live")
         } else {
-            whenever(redis.keys("watchlist:source:*")).thenReturn(emptySet())
+            whenever(redis.keys("ops:watchlist:source:user:*")).thenReturn(emptySet())
         }
 
         whenever(resolver.resolve(any<KxInstant>())).thenReturn(session)

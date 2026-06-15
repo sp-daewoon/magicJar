@@ -30,18 +30,18 @@ class ReconcileLockAdapterTest {
 
     @Test
     fun `(a) acquireLock 신규 — SETNX 통과 시 true`() {
-        every { valueOps.setIfAbsent("reconcile:lock:U1", "1", Duration.ofMinutes(5)) } returns true
+        every { valueOps.setIfAbsent("reconcile:user:U1:lock", "1", Duration.ofMinutes(5)) } returns true
         val adapter = ReconcileLockAdapter(redisTemplate)
 
         val result = adapter.acquireLock("U1")
 
         assertThat(result).isTrue()
-        verify { valueOps.setIfAbsent("reconcile:lock:U1", "1", Duration.ofMinutes(5)) }
+        verify { valueOps.setIfAbsent("reconcile:user:U1:lock", "1", Duration.ofMinutes(5)) }
     }
 
     @Test
     fun `(b) acquireLock 중복 — SETNX false 시 false (다른 인스턴스 처리 중)`() {
-        every { valueOps.setIfAbsent("reconcile:lock:U1", "1", Duration.ofMinutes(5)) } returns false
+        every { valueOps.setIfAbsent("reconcile:user:U1:lock", "1", Duration.ofMinutes(5)) } returns false
         val adapter = ReconcileLockAdapter(redisTemplate)
 
         val result = adapter.acquireLock("U1")
@@ -51,7 +51,7 @@ class ReconcileLockAdapterTest {
 
     @Test
     fun `(c) acquireLock Redis 장애 — fail-open true 반환 (Rate Limit + cache로 회피)`() {
-        every { valueOps.setIfAbsent("reconcile:lock:U1", "1", Duration.ofMinutes(5)) } throws
+        every { valueOps.setIfAbsent("reconcile:user:U1:lock", "1", Duration.ofMinutes(5)) } throws
             RedisConnectionFailureException("redis down")
         val adapter = ReconcileLockAdapter(redisTemplate)
 

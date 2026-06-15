@@ -68,7 +68,7 @@ class LiveCandleMergerTest {
                 dbCandle(todayKstMidnight, close = "70000"),
             )
         // Redis live today bar — close=71200 (장중 갱신 후)
-        every { hashOps.entries("candle:today:$code:1d") } returns
+        every { hashOps.entries("market:candle:session:code:$code:interval:1d") } returns
             mapOf(
                 "ts" to todayKstMidnight.toString(),
                 "open" to "70000",
@@ -106,7 +106,7 @@ class LiveCandleMergerTest {
                 dbCandle(todayKstMidnight, close = "70000"),
             )
         // Redis 부재 (KIS WS 연결 끊김 또는 미 갱신 상태)
-        every { hashOps.entries("candle:today:$code:1d") } returns emptyMap()
+        every { hashOps.entries("market:candle:session:code:$code:interval:1d") } returns emptyMap()
         val merger = LiveCandleMerger(redisTemplate)
 
         // when
@@ -125,7 +125,7 @@ class LiveCandleMergerTest {
                 dbCandle(yesterdayKstMidnight, close = "69500"),
             )
         // Redis live today bar 존재 — 장중
-        every { hashOps.entries("candle:today:$code:1d") } returns
+        every { hashOps.entries("market:candle:session:code:$code:interval:1d") } returns
             mapOf(
                 "ts" to todayKstMidnight.toString(),
                 "open" to "70000",
@@ -157,7 +157,7 @@ class LiveCandleMergerTest {
             listOf(
                 dbCandle(yesterdayKstMidnight, close = "69500"),
             )
-        every { hashOps.entries("candle:today:$code:1d") } returns
+        every { hashOps.entries("market:candle:session:code:$code:interval:1d") } returns
             mapOf(
                 "ts" to todayKstMidnight.toString(),
                 "open" to "71200",

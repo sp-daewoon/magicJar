@@ -33,7 +33,7 @@ import java.time.format.DateTimeFormatter
  * root cause(늦은/간헐 구독 시 WS 틱만으로는 open=첫 틱·고저·거래량 누락) fix 검증:
  *  - seed 후 open=공식 9시 시가 LOCK, 고/저=공식 baseline 위 확장만, volume=공식 ACML_VOL + WS CNTG_VOL 델타(이중계상 0).
  *
- * 화면(CandleQueryService)·전략(LiveCandleMerger)은 동일 `candle:today:{code}:1d` Hash를 읽으므로
+ * 화면(CandleQueryService)·전략(LiveCandleMerger)은 동일 `market:candle:session:code:{code}:interval:1d` Hash를 읽으므로
  * 이 Hash 정합이 곧 양쪽 정합이다.
  */
 class TodayCandleSeedTest {
@@ -51,9 +51,9 @@ class TodayCandleSeedTest {
     private lateinit var bridge: KisWebSocketBridge
 
     private val code = "005930"
-    private val todayKey = "candle:today:$code:1d"
-    private val currentDayKey = "candle:current:$code:1d"
-    private val oneMinuteKey = "candle:current:$code:1m"
+    private val todayKey = "market:candle:session:code:$code:interval:1d"
+    private val currentDayKey = "market:candle:current:code:$code:interval:1d"
+    private val oneMinuteKey = "market:candle:current:code:$code:interval:1m"
 
     /** KIS 영업일자 가드 비교 기준 — 오늘 KST(yyyyMMdd). 장중 happy path 기본값. */
     private val todayBsop: String = LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE)
@@ -313,8 +313,8 @@ class TodayCandleSeedTest {
         bridge.seedTodayCandle(code)
 
         // 시드 skip — 새 값으로 덮어쓰지 않음 + 오늘로 위장한 유령 키는 purge되어 사라진다.
-        assertEquals(null, store[todayKey], "영업일자 != 오늘 → candle:today 유령 키 purge")
-        assertEquals(null, store[currentDayKey], "영업일자 != 오늘 → candle:current 유령 키 purge")
+        assertEquals(null, store[todayKey], "영업일자 != 오늘 → session 1d 유령 키 purge")
+        assertEquals(null, store[currentDayKey], "영업일자 != 오늘 → current 1d 유령 키 purge")
     }
 
     @Test

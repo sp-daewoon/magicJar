@@ -63,7 +63,7 @@ class RedisPerformanceCacheAdapterTest {
         val ttlCaptor = argumentCaptor<Duration>()
         verify(valueOps).set(keyCaptor.capture(), any<String>(), ttlCaptor.capture())
 
-        assertThat(keyCaptor.firstValue).startsWith("perf:summary:$userId")
+        assertThat(keyCaptor.firstValue).startsWith("performance:summary:user:$userId")
         assertThat(ttlCaptor.firstValue).isEqualTo(Duration.ofHours(1))
     }
 
@@ -89,7 +89,7 @@ class RedisPerformanceCacheAdapterTest {
         sut.invalidateUser(userId)
 
         val patterns = keysCaptor.allValues
-        assertThat(patterns).anyMatch { it.startsWith("perf:summary:$userId") }
-        assertThat(patterns).anyMatch { it.startsWith("perf:equity:$userId") }
+        assertThat(patterns).anyMatch { it.startsWith("performance:summary:user:$userId") }
+        assertThat(patterns).anyMatch { it.startsWith("performance:equity:user:$userId") }
     }
 }

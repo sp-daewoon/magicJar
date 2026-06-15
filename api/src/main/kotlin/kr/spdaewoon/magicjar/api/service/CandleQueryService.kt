@@ -24,8 +24,8 @@ import java.time.temporal.TemporalAdjusters
  *
  * 인터벌별 source:
  * - 1m·3m·5m·15m·30m·90m·1h·4h·12h·1d·1wk·1mo·1y:
- *   DB candle + Redis candle:current:{code}:{interval} (장중 마지막 미확정 bar)
- * - 1d legacy fallback: Redis candle:today:{code}:1d
+ *   DB candle + Redis market:candle:current:code:{code}:interval:{interval} (장중 마지막 미확정 bar)
+ * - 1d seeded session: Redis market:candle:session:code:{code}:interval:1d
  *
  * 페이지네이션: before(ISO8601) cursor 기반 — before 이전 ts DESC LIMIT limit.
  * 응답: ts ASC 정렬 (LWC v4 setData() 기대).

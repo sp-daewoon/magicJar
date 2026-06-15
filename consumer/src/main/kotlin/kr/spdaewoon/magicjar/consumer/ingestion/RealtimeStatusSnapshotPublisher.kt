@@ -15,7 +15,7 @@ import java.time.Instant
  * 관리자 실시간 구독 상태 스냅샷 발행기 (read-only — 구독·매매 로직 변경 0).
  *
  * ## 책임
- * KIS WS 세션·슬롯 회계·체결가/호가 구독 owner·체결통보 상태를 모아 Redis `admin:realtime-status`에
+ * KIS WS 세션·슬롯 회계·체결가/호가 구독 owner·체결통보 상태를 모아 Redis `ops:realtime:status`에
  * **5초 주기**로 직렬화 발행한다. api 모듈 `RealtimeStatusController`가 본 키를 read → 종목명 join +
  * stale 판정 + ACTIVE 전략 종목 1m 캔들 신선도를 덧붙여 관리자 화면에 반환한다.
  *
@@ -58,7 +58,7 @@ class RealtimeStatusSnapshotPublisher(
      * 결함④ fix(2026-06-15): `scheduler` 를 [RealtimeStatusSchedulerConfiguration.REALTIME_STATUS_SCHEDULER]
      * 전용 단일 스레드로 격리한다. 기본 `scheduling-1` 단일 스레드에서는 무거운 polling/backfill(과거
      * `WatchlistPollingWorker` 시세 polling 등 — ADR 0124 amend 로 폐지) 이 스레드를 점유하는 동안 본 발행이
-     * 밀려 `admin:realtime-status` TTL(60s) 만료 → 빨간 배너 false positive 가 발생했다. 전용 스케줄러
+     * 밀려 `ops:realtime:status` TTL(60s) 만료 → 빨간 배너 false positive 가 발생했다. 전용 스케줄러
      * 격리로 어떤 polling 이 오래 걸려도 5초 cadence 가 유지된다.
      */
     @Scheduled(
@@ -80,7 +80,7 @@ class RealtimeStatusSnapshotPublisher(
             val json = objectMapper.writeValueAsString(snapshot)
             redisTemplate.opsForValue().set(REDIS_KEY, json, TTL)
         }.onFailure { e ->
-            log.debug("admin:realtime-status 발행 실패(관측 레이어 — 흐름 무영향): err={}", e.message)
+            log.debug("ops:realtime:status 발행 실패(관측 레이어 — 흐름 무영향): err={}", e.message)
         }
     }
 

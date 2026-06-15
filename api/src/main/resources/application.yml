@@ -84,13 +84,6 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
-  # Redis key naming convention migration. Default OFF + dry-run to avoid boot-time Redis writes.
-  # When explicitly enabled, only legacy keys with no TTL (TTL == -1) are copy-only migrated; legacy keys are never deleted.
-  redis-key-migration:
-    enabled: ${MAGICJAR_REDIS_KEY_MIGRATION_ENABLED:false}
-    dry-run: ${MAGICJAR_REDIS_KEY_MIGRATION_DRY_RUN:true}
-    scan-count: ${MAGICJAR_REDIS_KEY_MIGRATION_SCAN_COUNT:500}
-    max-copy-candidates: ${MAGICJAR_REDIS_KEY_MIGRATION_MAX_COPY_CANDIDATES:1000}
   # 시스템 이벤트 운영 대시보드 source table retention.
   # Kafka kafka.shared.evt.system.event.v1 은 이미 7d 이며, DB system_event 도 같은 보존 기간으로 맞춘다.
   system-event:

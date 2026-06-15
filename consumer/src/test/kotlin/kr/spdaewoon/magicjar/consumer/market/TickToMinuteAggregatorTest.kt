@@ -95,7 +95,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `정상 분 마감 — 닫힌 분 bar 1회 INSERT 및 publish`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
         every { hashOps.entries(snapKey) } returns
@@ -117,7 +117,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `같은 ts 이중 발행 차단 — UPSERT rows 0이면 publish skip`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
         every { hashOps.entries(snapKey) } returns
@@ -135,7 +135,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `tick 없는 분 — RENAME 실패 시 발행 0 (mock 합성 없음)`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         // source 키 없음 → renameIfAbsent 예외 (Spring RENAMENX no such key)
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } throws RuntimeException("ERR no such key")
@@ -148,7 +148,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `분 경계 race — 미래 분 bar 스냅샷 시 직전 분 오염 0 및 live 복원 (유실 0)`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         // 경계 직전 새 분(05:23) tick 이 live 키를 rotate → 스냅샷이 미래 분 bar 를 담음
         val futureBar = barHash(nowMinute, "200", "205", "198", "201", 50L)
@@ -171,7 +171,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `분 경계 race — 신규 tick 이 이미 live 채운 경우 복원하지 않음 (OHLC 충돌 회피)`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         val futureBar = barHash(nowMinute, "200", "205", "198", "201", 50L)
         every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
@@ -188,7 +188,7 @@ class TickToMinuteAggregatorTest {
 
     @Test
     fun `과거 분 bar — 해당 분의 실제 ts 로 발행 (분 누락 보정)`() {
-        val liveKey = "candle:current:005930:1m"
+        val liveKey = "market:candle:current:code:005930:interval:1m"
         val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
         // 직전 사이클에 발행 못 한 과거 분(05:21) bar 가 스냅샷에 남음
         val pastTs = Instant.parse("2026-06-04T05:21:00Z")

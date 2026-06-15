@@ -118,7 +118,7 @@ class KisCredentialChangeServiceTest {
 
         // Redis invalidate 호출 검증
         verify(kisCacheInvalidator).deleteAccessToken(TEST_USER_ID, "REAL")
-        verify(kisCacheInvalidator).deleteApprovalKey(TEST_USER_ID)
+        verify(kisCacheInvalidator).deleteApprovalKey(TEST_USER_ID, "REAL")
         verify(kisCacheInvalidator).setKeyChangedLock(TEST_USER_ID, "REAL")
 
         // Kafka publish 호출 검증 (REAL이므로 publish)
@@ -156,7 +156,7 @@ class KisCredentialChangeServiceTest {
 
         // Redis DEL 미호출
         verify(kisCacheInvalidator, never()).deleteAccessToken(anyString(), anyString())
-        verify(kisCacheInvalidator, never()).deleteApprovalKey(anyString())
+        verify(kisCacheInvalidator, never()).deleteApprovalKey(anyString(), anyString())
 
         // Kafka publish 미호출
         verify(kisKeyChangedProducer, never()).publish(anyString(), anyString())
@@ -185,7 +185,7 @@ class KisCredentialChangeServiceTest {
         // then: MOCK은 WS 미사용 — Kafka publish 호출 없음
         verify(kisKeyChangedProducer, never()).publish(anyString(), anyString())
         // approval_key DEL도 미호출 (REAL만 대상)
-        verify(kisCacheInvalidator, never()).deleteApprovalKey(anyString())
+        verify(kisCacheInvalidator, never()).deleteApprovalKey(anyString(), anyString())
     }
 
     // ─── deleteKisCredential 테스트 ──────────────────────────────────────────────

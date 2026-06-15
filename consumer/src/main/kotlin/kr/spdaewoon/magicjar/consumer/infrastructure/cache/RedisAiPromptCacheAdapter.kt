@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.infrastructure.cache
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.ai.AiCommentResponse
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -32,7 +33,6 @@ class RedisAiPromptCacheAdapter(
     private val log = LoggerFactory.getLogger(RedisAiPromptCacheAdapter::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "ai:prompt:cache:"
         private val TTL = Duration.ofMinutes(5)
     }
 
@@ -81,6 +81,6 @@ class RedisAiPromptCacheAdapter(
     private fun cacheKey(prompt: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(prompt.toByteArray())
         val hex = digest.joinToString("") { "%02x".format(it) }.substring(0, 16)
-        return "$KEY_PREFIX$hex"
+        return RedisKeyRegistry.Ai.promptCache(hex)
     }
 }

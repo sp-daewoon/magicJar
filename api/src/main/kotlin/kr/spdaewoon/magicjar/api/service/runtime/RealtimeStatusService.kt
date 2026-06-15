@@ -17,7 +17,7 @@ import java.time.Instant
  * 관리자 실시간 구독 상태 조립 서비스 (read-only — Redis 스냅샷 + 종목명 + 캔들 신선도 합성).
  *
  * ## 데이터 흐름
- * 1. consumer가 5초 주기로 Redis `admin:realtime-status`에 발행한 스냅샷 JSON read.
+ * 1. consumer가 5초 주기로 Redis `ops:realtime:status`에 발행한 스냅샷 JSON read.
  * 2. updatedAt 기반 stale 판정([STALE_THRESHOLD] 초과 시 stale=true — consumer 발행 정지·장애 신호).
  * 3. subscriptions code → instrument 테이블 종목명 join (배치 조회 1회).
  * 4. ACTIVE 전략이 사용하는 종목 집합 → 1m 캔들 신선도([CandleHealthService.assess]) 부착.
@@ -123,11 +123,11 @@ class RealtimeStatusService(
             try {
                 redisTemplate.opsForValue().get(REDIS_KEY)
             } catch (e: Exception) {
-                log.warn("admin:realtime-status Redis read 실패: err={}", e.message)
+                log.warn("ops:realtime:status Redis read 실패: err={}", e.message)
                 null
             } ?: return null
         return runCatching { objectMapper.readValue(json, RawSnapshot::class.java) }
-            .onFailure { log.warn("admin:realtime-status 파싱 실패: err={}", it.message) }
+            .onFailure { log.warn("ops:realtime:status 파싱 실패: err={}", it.message) }
             .getOrNull()
     }
 

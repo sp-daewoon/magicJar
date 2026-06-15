@@ -16,7 +16,7 @@ import org.springframework.data.redis.core.ValueOperations
 import java.time.Duration
 
 /**
- * RealtimeStatusSnapshotPublisher 단위 테스트 — Redis `admin:realtime-status` 직렬화 정합.
+ * RealtimeStatusSnapshotPublisher 단위 테스트 — Redis `ops:realtime:status` 직렬화 정합.
  *
  * 검증:
  * - WS·슬롯·체결가/호가 구독·체결통보 스냅샷이 단일 페이로드로 합성된다.
@@ -36,7 +36,7 @@ class RealtimeStatusSnapshotPublisherTest {
         val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
         every { redis.opsForValue() } returns valueOps
         val jsonSlot = slot<String>()
-        every { valueOps.set("admin:realtime-status", capture(jsonSlot), any<Duration>()) } returns Unit
+        every { valueOps.set("ops:realtime:status", capture(jsonSlot), any<Duration>()) } returns Unit
 
         val bridge =
             mockk<KisWebSocketBridge> {
@@ -88,7 +88,7 @@ class RealtimeStatusSnapshotPublisherTest {
 
         publisher.publishNow()
 
-        verify { valueOps.set("admin:realtime-status", any(), any<Duration>()) }
+        verify { valueOps.set("ops:realtime:status", any(), any<Duration>()) }
         val payload = objectMapper.readValue(jsonSlot.captured, RealtimeStatusSnapshot::class.java)
         assertThat(payload.ws.connected).isTrue()
         assertThat(payload.ws.reconnects24h).isEqualTo(3)

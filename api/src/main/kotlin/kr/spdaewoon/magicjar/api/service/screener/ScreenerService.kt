@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentType
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.screener.ScreenerCriteria
 import kr.spdaewoon.magicjar.domain.screener.ScreenerFilter
 import kr.spdaewoon.magicjar.domain.screener.ScreenerMatch
@@ -69,7 +70,7 @@ class ScreenerService(
         val interval = parseInterval(request.interval)
         val dslHash = sha256Short("strategy:${request.strategyId}:interval:${interval.code}")
         val filterHash = buildFilterHash(filter)
-        val cacheKey = "screener:cache:$dslHash:$filterHash"
+        val cacheKey = RedisKeyRegistry.Screener.result(dslHash, filterHash)
 
         // 1. 분산락 SETNX
         val locked = screenerCachePort.tryLock(request.userId, request.strategyId)

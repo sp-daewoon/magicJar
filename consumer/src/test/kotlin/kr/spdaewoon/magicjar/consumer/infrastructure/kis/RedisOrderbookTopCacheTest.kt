@@ -30,7 +30,7 @@ class RedisOrderbookTopCacheTest {
         json: String?,
     ) {
         every { redisTemplate.opsForValue() } returns valueOps
-        every { valueOps.get("orderbook:top:$code") } returns json
+        every { valueOps.get("market:orderbook:top:code:$code") } returns json
     }
 
     @Test

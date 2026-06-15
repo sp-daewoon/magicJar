@@ -68,8 +68,8 @@ class SystemKisKeyChangedListenerTest {
 
         // then
         // Redis cache invalidate — tokenP + approval_key 2건 DEL 의무
-        verify { redisTemplate.delete("kis:token:user001:REAL") }
-        verify { redisTemplate.delete("kis:approval:user001:REAL") }
+        verify { redisTemplate.delete("kis:oauth:token:user:user001:account:REAL") }
+        verify { redisTemplate.delete("kis:ws:approval:user:user001:account:REAL") }
         // WS reconnect 호출 의무
         verify { kisWebSocketBridge.reconnectGracefully("user001") }
         // ack 처리 의무
@@ -96,8 +96,8 @@ class SystemKisKeyChangedListenerTest {
 
         // then
         // Redis cache invalidate — MOCK tokenP + approval_key 2건 DEL
-        verify { redisTemplate.delete("kis:token:user001:MOCK") }
-        verify { redisTemplate.delete("kis:approval:user001:MOCK") }
+        verify { redisTemplate.delete("kis:oauth:token:user:user001:account:MOCK") }
+        verify { redisTemplate.delete("kis:ws:approval:user:user001:account:MOCK") }
         // MOCK은 WS 미사용 — reconnectGracefully 호출 금지
         verify(exactly = 0) { kisWebSocketBridge.reconnectGracefully(any()) }
         // ack 처리 의무

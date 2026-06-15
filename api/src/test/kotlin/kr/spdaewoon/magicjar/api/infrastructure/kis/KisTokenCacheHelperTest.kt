@@ -46,20 +46,20 @@ class KisTokenCacheHelperTest {
     @Test
     fun `T-1 단일 prefix LOCK — tokenKey는 kis_token prefix`() {
         val key = KisTokenCacheHelper.tokenKey("u-001", AccountType.REAL)
-        assertThat(key).isEqualTo("kis:token:u-001:REAL")
+        assertThat(key).isEqualTo("kis:oauth:token:user:u-001:account:REAL")
         assertThat(key).doesNotStartWith("access_token")
     }
 
     @Test
     fun `T-1 단일 prefix LOCK — MOCK accountType 도 동일 prefix`() {
         val key = KisTokenCacheHelper.tokenKey("u-001", AccountType.MOCK)
-        assertThat(key).isEqualTo("kis:token:u-001:MOCK")
+        assertThat(key).isEqualTo("kis:oauth:token:user:u-001:account:MOCK")
     }
 
     @Test
     fun `T-1 lockKey 는 kis_token_lock prefix`() {
         val lockKey = KisTokenCacheHelper.lockKey("u-001", AccountType.REAL)
-        assertThat(lockKey).isEqualTo("kis:token:lock:u-001:REAL")
+        assertThat(lockKey).isEqualTo("kis:oauth:token:user:u-001:account:REAL:lock")
     }
 
     @Test
@@ -128,7 +128,7 @@ class KisTokenCacheHelperTest {
         assertThatThrownBy { sut.getAccessToken(userId = "", accountType = AccountType.REAL) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("userId 빈 문자열 차단")
-            .hasMessageContaining("kis:token::REAL")
+            .hasMessageContaining("kis:oauth:token:user::account:REAL")
     }
 
     @Test
@@ -136,7 +136,7 @@ class KisTokenCacheHelperTest {
         assertThatThrownBy { sut.getAccessToken(userId = "   ", accountType = AccountType.MOCK) }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("userId 빈 문자열 차단")
-            .hasMessageContaining("kis:token::MOCK")
+            .hasMessageContaining("kis:oauth:token:user::account:MOCK")
     }
 
     @Test
@@ -155,14 +155,14 @@ class KisTokenCacheHelperTest {
 
         sut.evictToken(userId = "u-001", accountType = AccountType.REAL)
 
-        verify(redis).delete("kis:token:u-001:REAL")
+        verify(redis).delete("kis:oauth:token:user:u-001:account:REAL")
     }
 
     @Test
     fun `EGW00123 self-heal — evictToken MOCK accountType 도 동일 prefix delete`() {
         sut.evictToken(userId = "u-001", accountType = AccountType.MOCK)
 
-        verify(redis).delete("kis:token:u-001:MOCK")
+        verify(redis).delete("kis:oauth:token:user:u-001:account:MOCK")
     }
 
     @Test
@@ -179,7 +179,7 @@ class KisTokenCacheHelperTest {
         // 예외 흡수 — 호출자에 throw 하면 self-heal 자체가 실패해 의미 상실
         sut.evictToken(userId = "u-001", accountType = AccountType.REAL)
 
-        verify(redis).delete("kis:token:u-001:REAL")
+        verify(redis).delete("kis:oauth:token:user:u-001:account:REAL")
     }
 
     @Test

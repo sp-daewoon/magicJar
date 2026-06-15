@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 /**
- * `orderbook:top:{code}` 1호가 Redis 캐시 read — ADR 0114 §10-3 R2-C1 진입 호가 **1차 source**.
+ * `market:orderbook:top:code:{code}` 1호가 Redis 캐시 read — ADR 0114 §10-3 R2-C1 진입 호가 **1차 source**.
  *
  * 쓰기(write-through)는 `KisWebSocketBridge.writeOrderbookTopToRedis`(H0UNASP0 수신 경로)가 담당하고,
  * 본 클래스는 **읽기만** 한다. 호가 WS 미구독 종목은 키가 없어 miss가 정상이다
@@ -26,14 +26,14 @@ class RedisOrderbookTopCache(
     private val log = LoggerFactory.getLogger(RedisOrderbookTopCache::class.java)
 
     /**
-     * `orderbook:top:{code}` 조회. 캐시 hit이고 ask1/bid1 유효(>0)면 [EntryQuote], 그 외 null(miss/파싱 실패).
+     * `market:orderbook:top:code:{code}` 조회. 캐시 hit이고 ask1/bid1 유효(>0)면 [EntryQuote], 그 외 null(miss/파싱 실패).
      */
     fun read(code: String): EntryQuote? {
         val raw =
             try {
                 redisTemplate.opsForValue().get(RedisKeyRegistry.Market.orderbookTop(code))
             } catch (e: Exception) {
-                log.warn("orderbook:top Redis 조회 실패: code={} error={}", code, e.message)
+                log.warn("market:orderbook:top Redis 조회 실패: code={} error={}", code, e.message)
                 return null
             } ?: return null
 
@@ -49,7 +49,7 @@ class RedisOrderbookTopCache(
             val ts = (map["ts"] as? String)?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return null
             EntryQuote(ask1 = ask1, bid1 = bid1, askQty1 = askQty1, asOf = ts)
         } catch (e: Exception) {
-            log.warn("orderbook:top 파싱 실패: code={} raw={} error={}", code, raw.take(120), e.message)
+            log.warn("market:orderbook:top 파싱 실패: code={} raw={} error={}", code, raw.take(120), e.message)
             null
         }
     }
