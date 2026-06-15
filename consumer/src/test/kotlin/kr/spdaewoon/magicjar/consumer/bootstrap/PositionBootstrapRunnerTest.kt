@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisPositionCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisBalanceAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
@@ -13,10 +14,14 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEn
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
+import kr.spdaewoon.magicjar.domain.account.AccountBalance
+import kr.spdaewoon.magicjar.domain.account.AccountHolding
+import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.position.port.KisBalance
 import kr.spdaewoon.magicjar.domain.position.port.KisHolding
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.DefaultApplicationArguments
 import org.springframework.http.HttpStatus
 import org.springframework.web.reactive.function.client.WebClientResponseException
@@ -52,6 +57,7 @@ class PositionBootstrapRunnerTest {
         mode: String,
         allowReal: Boolean,
         bootstrapOnStartup: Boolean,
+        accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     ): PositionBootstrapRunner =
         PositionBootstrapRunner(
             credentialRepository = credentialRepository,
@@ -64,6 +70,7 @@ class PositionBootstrapRunnerTest {
             magicjarMode = mode,
             magicjarAllowReal = allowReal,
             bootstrapOnStartup = bootstrapOnStartup,
+            accountSnapshotCoordinatorProvider = accountSnapshotCoordinatorProvider,
         )
 
     private val args = DefaultApplicationArguments()
@@ -204,6 +211,86 @@ class PositionBootstrapRunnerTest {
             appKeyEnc = ByteArray(0),
             secretKeyEnc = ByteArray(0),
         )
+
+    private fun accountSnapshot(
+        userId: String,
+        holdingCode: String = "005930",
+        quantity: Int = 7,
+        avgPrice: BigDecimal = BigDecimal("70000"),
+    ): KisAccountBalance {
+        val now = Instant.now()
+        return KisAccountBalance(
+            userId = userId,
+            accountType = AccountType.REAL,
+            balance =
+                AccountBalance(
+                    cashBalance = BigDecimal.ZERO,
+                    cashD1 = BigDecimal.ZERO,
+                    cashD2 = BigDecimal.ZERO,
+                    totalEvaluation = BigDecimal.ZERO,
+                    netAssetValue = BigDecimal.ZERO,
+                    totalPurchaseAmount = BigDecimal.ZERO,
+                    totalHoldingEvaluation = BigDecimal.ZERO,
+                    totalProfitLoss = BigDecimal.ZERO,
+                    fetchedAt = now,
+                ),
+            holdings =
+                listOf(
+                    AccountHolding(
+                        code = holdingCode,
+                        name = "삼성전자",
+                        quantity = quantity,
+                        avgPrice = avgPrice,
+                        currentPrice = BigDecimal.ZERO,
+                        evaluationAmount = BigDecimal.ZERO,
+                        profitLoss = BigDecimal.ZERO,
+                        profitLossRate = BigDecimal.ZERO,
+                    ),
+                ),
+            fetchedAt = now,
+        )
+    }
+
+    @Test
+    fun `공통 계좌 snapshot coordinator가 있으면 Bootstrap 잔고 조회도 공통 관문을 사용한다`() {
+        val cred = activeCred("66666666")
+        val coordinator = mockk<AccountSnapshotCoordinator>()
+        val coordinatorProvider = mockk<ObjectProvider<AccountSnapshotCoordinator>>()
+        every { credentialRepository.findAllByAccountType("REAL") } returns listOf(cred)
+        every { coordinatorProvider.getIfAvailable() } returns coordinator
+        every {
+            coordinator.getSnapshot(
+                "66666666",
+                AccountType.REAL,
+                "POSITION_BOOTSTRAP",
+                false,
+                AccountSnapshotCoordinator.QueryPath.USER_PATH,
+            )
+        } returns accountSnapshot("66666666")
+        justRun { instrumentJpaRepository.upsertStub(any()) }
+        justRun { positionJpaRepository.upsert(any(), any(), any(), any()) }
+        justRun { redisPositionCacheAdapter.putHoldings(any(), any(), any()) }
+        every { auditTrailJpaRepository.save(any()) } answers { firstArg() }
+
+        newRunner(
+            mode = "REAL",
+            allowReal = true,
+            bootstrapOnStartup = true,
+            accountSnapshotCoordinatorProvider = coordinatorProvider,
+        ).run(args)
+
+        verify(exactly = 1) {
+            coordinator.getSnapshot(
+                "66666666",
+                AccountType.REAL,
+                "POSITION_BOOTSTRAP",
+                false,
+                AccountSnapshotCoordinator.QueryPath.USER_PATH,
+            )
+        }
+        verify(exactly = 0) { kisBalanceAdapter.fetchBalance(any(), any()) }
+        verify(exactly = 1) { positionJpaRepository.upsert("66666666", "005930", 7, BigDecimal("70000")) }
+    }
 
     @Test
     fun `B 의제 — KIS 500 1회 실패 + 2회째 성공 → Bootstrap 성공 (KillSwitch 0)`() {

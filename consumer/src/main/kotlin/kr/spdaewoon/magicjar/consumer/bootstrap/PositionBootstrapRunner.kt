@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.bootstrap
 
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisPositionCacheAdapter
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisBalanceAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
@@ -8,9 +9,12 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerInstrumentJpaRepositor
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
+import kr.spdaewoon.magicjar.domain.position.port.KisBalance
+import kr.spdaewoon.magicjar.domain.position.port.KisHolding
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -84,6 +88,7 @@ class PositionBootstrapRunner(
     private val magicjarAllowReal: Boolean,
     @Value("\${magicjar.bootstrap.position-on-startup:true}")
     private val bootstrapOnStartup: Boolean,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(PositionBootstrapRunner::class.java)
 
@@ -267,7 +272,29 @@ class PositionBootstrapRunner(
             maskUserId(userId),
             accountType.name,
         )
-        val kisBalance = kisBalanceAdapter.fetchBalance(userId, accountType)
+        val kisBalance =
+            accountSnapshotCoordinatorProvider
+                ?.getIfAvailable()
+                ?.getSnapshot(
+                    userId = userId,
+                    accountType = accountType,
+                    reason = "POSITION_BOOTSTRAP",
+                    path = AccountSnapshotCoordinator.QueryPath.USER_PATH,
+                )?.let { snapshot ->
+                    KisBalance(
+                        userId = snapshot.userId,
+                        accountType = snapshot.accountType,
+                        holdings =
+                            snapshot.holdings.map { holding ->
+                                KisHolding(
+                                    code = holding.code,
+                                    quantity = holding.quantity,
+                                    avgPrice = holding.avgPrice,
+                                )
+                            },
+                        fetchedAt = snapshot.fetchedAt,
+                    )
+                } ?: kisBalanceAdapter.fetchBalance(userId, accountType)
 
         log.info(
             "STAGE 0-2 DB position upsert: user={} holdings={}건",
