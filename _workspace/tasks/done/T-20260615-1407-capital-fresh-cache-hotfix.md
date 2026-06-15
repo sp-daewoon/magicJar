@@ -3,10 +3,10 @@ id: T-20260615-1407-capital-fresh-cache-hotfix
 agent: market-data
 model: opus
 branch: agent/market-data/kis-capital-pressure-hotfix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T14:07:30.224+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-15T14:28:59.826+09:00
+pr: #985
 parentPhase: ?
 ---
 
@@ -21,13 +21,12 @@ KIS EGW00215 잔고조회 자가압박 완화: capital fresh-cache short reuse +
 - [x] BUY capital preflight 로 체결 backfill 선호출 회피
 - [x] BalanceReconcileJob 시장 OPEN cron 30초 분산
 - [x] 회귀 테스트
-- [ ] 추가 PR merge + 배포 검증
+- [x] 추가 PR merge + 배포 검증
 
 ## 의존성
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-06-15T14:10:03.484+09:00 — capital fresh-cache 90s 보강 + consumer targeted/full check GREEN
-2026-06-15T14:29:00+09:00 — PR #984 배포 후 14:15 KST EGW00215 재발 확인, capital cooldown/preflight + reconcile 30s 분산 보강
+2026-06-15T14:28:59.747+09:00 — PR #985 merge + consumer deploy 완료, realtime fresh/EGW 미재발 확인, 열린 SELL ACK 1건 운영 주의 기록
 
 ## 비고
