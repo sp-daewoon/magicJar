@@ -3,10 +3,10 @@ id: T-20260615-1142-daily-repair-date
 agent: market-data
 model: opus
 branch: agent/market-data/daily-repair-date
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T11:42:34.575+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-15T11:51:54.034+09:00
+pr: #979
 parentPhase: ?
 ---
 
