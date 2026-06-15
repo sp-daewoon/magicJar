@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일일 운영 보고 #2 — 2026-06-15</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 1080px; margin: 0 auto; padding: 24px; color: #1a1a2e; line-height: 1.6; background: #fafafc; }
+  h1 { font-size: 1.7em; border-bottom: 3px solid #16213e; padding-bottom: 8px; }
+  h2 { font-size: 1.25em; margin-top: 32px; background: #16213e; color: #fff; padding: 6px 12px; border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9em; }
+  th, td { border: 1px solid #ccd; padding: 6px 10px; text-align: left; }
+  th { background: #e8e8f4; }
+  .banner { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+  .card { flex: 1; min-width: 160px; background: #fff; border: 1px solid #ddd; border-left: 5px solid #16213e; border-radius: 8px; padding: 12px 16px; }
+  .card .num { font-size: 1.8em; font-weight: 700; color: #16213e; }
+  .green { color: #1a7f37; font-weight: 600; }
+  .red { color: #cf222e; font-weight: 600; }
+  .amber { color: #bf8700; font-weight: 600; }
+  code { background: #f0f0f5; padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
+  .note { background: #fff8e6; border-left: 4px solid #bf8700; padding: 8px 14px; margin: 10px 0; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>📒 일일 운영 보고 #2 — 2026-06-15 (월) · REAL canary 3일차 + 대규모 정비</h1>
+<p><strong>요약 한 줄</strong>: 장중 전체 다운→재기동 복구로 시작해, 시스템 레벨 결함 7건을 발굴·수선하고, canary cap 3종 해제(canary=실운영 동일)·테스트 전략 2종 신설·strategy_position drift 근본 규명까지 진행한 정비 집중일. 자본 손실 0(005930 1주 오버나잇 보유).</p>
+
+<h2>① 요약 배너</h2>
+<div class="banner">
+  <div class="card"><div>REAL 체결(BUY/SELL)</div><div class="num">6 / 5</div><div>net 88전략 +1주 오버나잇</div></div>
+  <div class="card"><div>실현손익(canary)</div><div class="num green">+α</div><div>85·86 소액 net0~익절 / 88 미실현 1주</div></div>
+  <div class="card"><div>결함 발견 / 해소</div><div class="num">7 / 5</div><div>2건 배포 대기(drift·watchlist)</div></div>
+  <div class="card"><div>자본 피해</div><div class="num green">0</div><div>원장·KIS 정합 유지</div></div>
+</div>
+<div class="note"><strong>오늘의 메타 교훈</strong>: 최고 관리자 지적 — "펑션 단위가 아니라 서비스 전반(공유자원·정합·라이프사이클) 레벨로 보라". 7개로 보이던 증상이 사실 <strong>"KIS rate limit 예산"이라는 단일 공유자원이 무너지는 한 사슬</strong>이었음. 모니터링도 선행지표 능동점검으로 전환 필요(메모리 <code>feedback_system_level_review</code> 기록).</div>
+
+<h2>② 거래 전수 + 체인 무결성</h2>
+<table>
+<tr><th>전략</th><th>종목</th><th>BUY 체결</th><th>SELL 체결</th><th>REJECTED</th><th>net</th><th>비고</th></tr>
+<tr><td>85 canary_1m_ma10</td><td>005930</td><td>3</td><td>3</td><td>0</td><td>0</td><td>정상 회전(BUY→SELL)</td></tr>
+<tr><td>86 canary_1m_ma10</td><td>093370</td><td>2</td><td>2</td><td><span class="red">21</span></td><td>0</td><td>오전 CANARY_QTY_CAP:18&gt;1 다발(cap 해제 후 해소)</td></tr>
+<tr><td>88 canary_donchian(신규)</td><td>005930</td><td>1</td><td>0</td><td>0</td><td><span class="amber">+1</span></td><td>SELL 익절(345,000) 미도달→미체결→오버나잇 1주</td></tr>
+<tr><td>0 MANUAL</td><td>005930</td><td>-</td><td>0</td><td>1</td><td>-</td><td>사용자 수동매도 — strategy_position 0 drift로 REJECTED</td></tr>
+</table>
+<p><strong>체인 무결성</strong>: 시그널→주문→체결→원장→알림 1:1 대체로 일치. <span class="red">단 88 005930: SELL(334) ACK인데 미체결 + strategy_position 0 = drift</span>(원인 §⑤-⑦). 88 1주는 KIS·원장(position) 1주로 실재, strategy_position만 0이었음 → 데이터 정정 완료.</p>
+
+<h2>③ 알람 전수 분류 (outbox)</h2>
+<table>
+<tr><th>이벤트</th><th>세부</th><th>건수</th><th>판정</th></tr>
+<tr><td>RISK_VIOLATION</td><td>TRADE_FREQUENCY_DAY</td><td>27</td><td><span class="amber">오탐성</span> — cap REJECTED가 빈도카운트 오염(Codex fix)</td></tr>
+<tr><td>ORDER_REJECTED</td><td>(CANARY_QTY_CAP 등)</td><td>22</td><td>cap 가드 정상(해제 전) + 수동매도 1</td></tr>
+<tr><td>ORDER_FILLED</td><td>—</td><td>11</td><td>정상 체결</td></tr>
+<tr><td>RISK_VIOLATION</td><td>SELL_QUANTITY_UNAVAILABLE</td><td>4</td><td>보유0 매도시도 차단(정상)</td></tr>
+<tr><td>SYSTEM_EVENT</td><td>STRATEGY_POSITION_DRIFT</td><td>4</td><td><span class="red">실결함</span> — 005930 88 drift(§⑤-⑦)</td></tr>
+<tr><td>RISK_VIOLATION</td><td>POSITION_LIMIT</td><td>3</td><td>정상 가드</td></tr>
+<tr><td>SYSTEM_EVENT</td><td>STRATEGY_POSITION_DRIFT_CORRECTED</td><td>1</td><td>일부 자동정정</td></tr>
+</table>
+<p>미지의 알람 0건. 단 TRADE_FREQUENCY_DAY·STRATEGY_POSITION_DRIFT는 실결함 신호로 §⑤에서 처리.</p>
+
+<h2>④ ERROR 분류</h2>
+<p>장 마감 후 다수 재배포로 consumer 로그 리셋(현재 24h ERROR 0). 세션 중 관측·처리한 ERROR 기록:</p>
+<table>
+<tr><th>ERROR</th><th>정체</th><th>처리</th></tr>
+<tr><td>EGW00201(초당 거래건수 초과)</td><td>watchlist polling 10종목 5초 조회 폭주</td><td>watchlist polling 제거(배포 대기 §⑤-④)</td></tr>
+<tr><td>rate limit acquire timeout(BACKFILL)</td><td>장중 06-12 복구(2516 fetch)가 global 예산 독식 → reconcile·체결조회 timeout</td><td>복구 완료로 해소(일시)</td></tr>
+<tr><td>EGW00104(AppSecret 누락)</td><td>호가 REST fallback 자격증명 단발</td><td>무해(단발)·주문경로 정상</td></tr>
+<tr><td>OPSP8997 invalid tr_type</td><td>H0UNMKO0(통합 장운영) 구독해제 거부</td><td>Codex <code>fcfac808</code> tr_type 2 적용(검증 필요)</td></tr>
+</table>
+
+<h2>⑤ 발견 결함 · 조치 · PR 매트릭스</h2>
+<table>
+<tr><th>#</th><th>결함</th><th>근본 원인</th><th>조치 / PR</th><th>상태</th></tr>
+<tr><td>①</td><td>06-12 일봉 전종목 OHLV 손상(2516건)</td><td>멀티시세 OHL=0을 null-only 가드가 통과</td><td>0값 가드 PR#975 + 날짜타겟 복구 PR#979(2026 교정/490 잔여)</td><td class="green">배포완료</td></tr>
+<tr><td>②</td><td>403870 H0UNCNT0 tick 0(silent)</td><td>KIS측 per-symbol 프레임 0건(코드 회귀 아님)</td><td>무tick watchdog 관측 PR#976</td><td class="green">배포완료</td></tr>
+<tr><td>③</td><td>H0UNMKO0 구독해제 invalid tr_type</td><td>장운영 채널 해제 규약</td><td>Codex <code>fcfac808</code> tr_type 2</td><td class="amber">배포·검증중</td></tr>
+<tr><td>④</td><td>빨간배너(실시간 비정상) false positive</td><td>watchlist polling 50p가 scheduling 스레드 점유→status 굶김</td><td>price 교체+status 전용스레드 PR#977 / <strong>polling 제거</strong> 진행중</td><td class="amber">①배포완료 ②제거 배포대기</td></tr>
+<tr><td>⑤</td><td>canary cap reject가 거래빈도 한도 오염</td><td>order.intent 발행 시 record, gate reject 시 미회수</td><td>Codex 거래빈도 회수 fix</td><td class="green">배포완료</td></tr>
+<tr><td>⑥</td><td>좀비 ACK(334 SELL 체결無·status ACK)</td><td>익절지정가 미도달 미체결 + status 잔류</td><td>장마감 취소·SKIP_DRAIN 배포</td><td class="green">해소</td></tr>
+<tr><td>⑦</td><td>strategy_position drift(005930 88=0)</td><td><strong>체결 직후 원장 미반영(0) 빈틈에 reconcileDrift가 방금 산 1주를 초과 오인 삭제</strong> + 가드가 "행존재+0" 미보호</td><td>88 데이터 1주 정정(완료) + reconcileDrift 가드확장 진행중</td><td class="amber">데이터정정완료 / 근본수정 배포대기</td></tr>
+</table>
+<div class="note"><strong>정책 변경</strong>: canary cap 3종(<code>MAX_ORDER_QTY/NOTIONAL/ORDERS_PER_DAY</code>) 전부 0=비활성 → <strong>canary=실운영 동일</strong>(최고 관리자 결재). 자본 노출은 사이징 자체가 종목당 ~33만원이라 폭증 없음(실측). <br><strong>신규 전략 2종</strong>(PR#989): 88 <code>donchian_bounce</code>(1m/005930/TP2.2%) PAUSED·89 <code>donchian_trend</code>(5m/000660/TP3.0%) PAUSED. 백테스트상 #86 대비 진동청산 1597→14건·익절률 6→48%. context_json(신호 평가값 audit) 보강 포함.</div>
+
+<h2>⑥ 인프라 상태</h2>
+<ul>
+<li><strong>장중 전체 다운→복구</strong>: 10:04 graceful shutdown(Docker Desktop 재시작 추정, restart policy=no)→10:23 수동 재기동. 다운 중 보유 0이라 자본 위험 0.</li>
+<li><strong>배포 다수</strong>: 본 세션 + Codex 병행으로 consumer 10+회 재배포. 매회 healthy·체결통보 재구독·캔들 재개 확인.</li>
+<li><strong>Codex 협업</strong>: 거래빈도 회수·HOLDING refresh·unsubscribe tr_type·잔고읽기 등 정합 영역 병행 수정(origin 9218286c까지).</li>
+<li><strong>WS</strong>: H0UNCNT0 통합 체결가 단일채널 정상(ADR 0124). 단발 단절은 grace 내 회복.</li>
+</ul>
+
+<h2>⑦ 익일 인계</h2>
+<ul>
+<li><strong class="amber">005930 1주 오버나잇 보유</strong>(88전략, 매수 338,000). strategy_position 1주 정정 완료 → 내일 매도 가능. 88은 PAUSED 상태.</li>
+<li><strong>배포 대기 2건</strong>: ④watchlist polling 제거(+ADR 0124 amend) / ⑦strategy_position drift 근본수정(reconcileDrift 가드확장) — backend-core 한 PR·커밋2개 진행중. 머지·푸시·배포 예정.</li>
+<li><strong>전략 활성화 결정</strong>: 88·89 PAUSED. 사용자가 cap·종목 점검 후 ACTIVE 결정.</li>
+<li><strong>검증 필요</strong>: ③ H0UNMKO0 tr_type 2(Codex) 익일 장중 구독해제 정상 동작 확인. ④ watchlist polling 제거 후 EGW00201 0 확인.</li>
+<li><strong>잔여 점검</strong>: 06-12 일봉 490종목 미복구(MIGRATE 또는 repair-date 재실행). rebuildTotal=2(reconcile 재구축 교차검산) 별도 확인.</li>
+<li><strong>관측 보강 후보</strong>: 전략 status 변경 audit 부재(누가 ACTIVE/PAUSE 했는지 추적 불가) — 88 ACTIVE 변경 추적 불가했음.</li>
+</ul>
+
+<hr>
+<p style="font-size:0.85em;color:#888">생성: 오케스트레이터 운영 세션 · 2026-06-15 장 마감 후 · 권위 ref: 헌법 §12·§13 / ADR 0115·0124</p>
+</body>
+</html>
