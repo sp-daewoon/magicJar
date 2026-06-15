@@ -1,16 +1,12 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
-import kr.spdaewoon.magicjar.domain.market.candle.Candle
-import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
-import kr.spdaewoon.magicjar.domain.market.candle.TodayCandleSeedWindow
-import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
-import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
+import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisRestPriceAdapter
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import java.time.Instant
-import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -30,14 +26,30 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * - running=false 이면 스케줄 루프 skip (graceful stop)
  *
- * hotfix: tick 시 Redis quote cache 갱신 외 DB candle upsert 추가 (ON CONFLICT DO NOTHING — 멱등성).
- * KIS WS 끊김 시 REST fallback 경로도 candle 영속을 보장.
+ * ## 현재가 단건 fetch 전환 (결함④ fix · 2026-06-15)
+ * 기존 tick 은 `kisRestPort.fetchCandles(code, ONE_DAY, 1)` 로 "최신 1건" 을 의도했으나, KIS candle
+ * adapter 는 `count` 를 무시하고 1d max page(50페이지)까지 페이지네이션 → **종목당 최대 5,000봉** 을
+ * 매 tick 마다 받아오며 단일 스케줄러 스레드(`scheduling-1`)를 점유했다. 그 결과 같은 스레드에서 순차
+ * 실행되는 [RealtimeStatusSnapshotPublisher] 의 5초 발행이 밀려 `admin:realtime-status` TTL(60s) 이
+ * 만료 → 관리자 화면 "실시간 경로 비정상" 빨간 배너(false positive)가 떴다.
+ *
+ * fix: 코드 주석에 예고돼 있던 대로(L97 "PR-9b KisRestPriceAdapter 머지 후 교체 예정") 현재가 단건
+ * endpoint [KisRestPriceAdapter.fetchPrice] (FHKST01010100 inquire-price · USER_PATH 버킷 · 3s timeout ·
+ * 1 call/종목) 로 교체한다. tick 의 본 책임(실시간 시세 Redis quote cache 공급)만 수행한다.
+ *
+ * **candle DB upsert 제거**: 기존 hotfix 의 일봉 upsert 는 진행 중(오늘) stub 1d 봉을 적재하던 부가
+ * 경로였고, fetchPrice 는 candle 이 아닌 현재가(stck_prpr)만 반환한다. 일봉 영속은
+ * MarketDailyNightlySnapshotService(R2 야간 23:00 KIS 공식 마감값 upsert)·MarketDailyBackfillCampaign·
+ * CandleBackfillWorker 가 권위로 담당하므로 polling 경로의 incidental upsert 제거는 데이터 손실이 없다.
+ *
+ * ## KIS-first raw 출처 (헌법 §3)
+ * FHKST01010100 inquire-price: docs/operations/kis-api-reference.md §3 #1 — 구현은 [KisRestPriceAdapter].
  */
 @Component
 class WatchlistPollingWorker(
     private val redisQuoteCacheAdapter: RedisQuoteCacheAdapter,
-    private val kisRestPort: KisRestPort,
-    private val candleRepository: CandleRepository,
+    private val kisRestPriceAdapter: KisRestPriceAdapter,
+    private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(WatchlistPollingWorker::class.java)
 
@@ -91,40 +103,26 @@ class WatchlistPollingWorker(
             )
         }
         log.debug("polling tick: codes={}건", codes.size)
+        // KIS 현재가 단건 endpoint(FHKST01010100)는 userId(REAL 자격증명)로 토큰을 조회한다.
+        // tick 단위로 1회 resolve(전 종목 동일 system userId 재사용) — 종목당 재조회 회피.
+        val userId = resolveSystemUserId()
+        if (userId == null) {
+            log.warn("watchlist polling: REAL 자격증명 없음 — 현재가 fetch skip (poolSize={})", codes.size)
+            return
+        }
         for (code in codes) {
             try {
-                // 1차 MVP: KIS REST candle 1건으로 최신 가격 fetch (1d interval 마지막 close)
-                // PR-9b KisRestPriceAdapter(FHKST01010100) 머지 후 교체 예정
-                val candles = kisRestPort.fetchCandles(code, CandleInterval.ONE_DAY, 1)
-                if (candles.isNotEmpty()) {
-                    val latest = candles.maxByOrNull { it.ts.epochSeconds }!!
-                    // Redis quote cache 갱신 (실시간 시세 공급)
-                    redisQuoteCacheAdapter.putQuote(
-                        code = code,
-                        price = latest.closeRaw,
-                        volume = latest.volume,
-                        source = "polling",
-                    )
-                    // DB candle upsert — ON CONFLICT DO NOTHING (멱등성 보장, hotfix)
-                    // candleRepository.saveAll → ConsumerCandleRepositoryAdapter.saveAll → insertIgnore
-                    //
-                    // 개장 전 today stub 가드 (2026-06-11 hotfix): KIS daily-itemchart는 개장 전
-                    // "오늘 날짜" stub 행(시=고=저=종=전일종가·volume=0)을 줄 수 있다. ON CONFLICT DO NOTHING
-                    // 때문에 이 stub가 먼저 들어가면 장중 실데이터 insert가 막힌다. DB 적재 직전에 제외한다.
-                    // (과거 날짜 행은 그대로 적재 — 거래정지 이력 보존)
-                    val now = Instant.now()
-                    val persistable = candles.filterNot { shouldSkipTodayStub(it, now) }
-                    val inserted =
-                        if (persistable.isNotEmpty()) candleRepository.saveAll(persistable) else 0
-                    log.debug(
-                        "polling DB upsert: code={} fetched={} persistable={} inserted={}",
-                        code,
-                        candles.size,
-                        persistable.size,
-                        inserted,
-                    )
-                }
-                // Rate Limit 마진 (ADR 0037 대비 — 1차 MVP: 100ms sleep)
+                // 현재가 단건 fetch (FHKST01010100 inquire-price · USER_PATH 버킷 · 3s timeout · 1 call).
+                // 결함④ fix: 기존 fetchCandles(ONE_DAY, 1) 은 count 무시 → 50페이지 5,000봉 폭주로
+                // 단일 스케줄러 스레드를 점유해 status 발행을 굶겼다. 본 책임(시세 quote cache)만 수행.
+                val tick = kisRestPriceAdapter.fetchPrice(userId, code)
+                redisQuoteCacheAdapter.putQuote(
+                    code = code,
+                    price = tick.price,
+                    volume = tick.volume,
+                    source = "polling",
+                )
+                // Rate Limit 마진 (ADR 0037 대비 — 종목 간 100ms sleep)
                 Thread.sleep(100)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
@@ -136,47 +134,20 @@ class WatchlistPollingWorker(
     }
 
     /**
-     * today stub 일봉 적재 가드 (2026-06-11 hotfix).
+     * system userId resolve — 첫 REAL 자격증명의 userId (WatchlistIngestionWorker 동일 패턴).
      *
-     * 두 조건을 OR 로 판정해 skip 한다 (둘 다 today 행에만 적용 — 과거 행은 항상 적재):
-     *  (1) 시간 가드: ts 의 KST 날짜 == 오늘 && 개장 전(주말 + 08:00 NXT 통합 개장 전).
-     *      판정은 도메인 [TodayCandleSeedWindow.shouldSkipRedisCandle] 재사용 (신규 시간 상수 금지).
-     *  (2) 시그니처 가드: ts == 오늘 && volume == 0 && open == close (KIS 가 개장 직후에도 잠깐
-     *      stub 을 줄 가능성 방어 — 시간 가드와 독립).
+     * 정보 수집(시세·캔들·호가)은 모두 REAL 키(사용자 메모리 feedback_kis_key_realonly_for_data). 빈 문자열
+     * userId 는 DB 결함 방어로 null 취급(KisRestPriceAdapter 내부도 토큰 cache pollution 방어).
      */
-    private fun shouldSkipTodayStub(
-        candle: Candle,
-        now: Instant,
-    ): Boolean {
-        val candleTsJava = Instant.ofEpochSecond(candle.ts.epochSeconds)
-        val isToday = candleTsJava.atZone(KST).toLocalDate() == now.atZone(KST).toLocalDate()
-        if (!isToday) return false
-
-        // (1) 개장 전 시간 가드 — 도메인 재사용
-        if (TodayCandleSeedWindow.shouldSkipRedisCandle(now, candleTsJava, KST)) {
-            log.debug(
-                "polling skip today stub (pre-open): code={} ts={}",
-                candle.code,
-                candle.ts,
-            )
-            return true
-        }
-
-        // (2) stub 시그니처 가드 (장중 잠깐 stub 방어)
-        if (candle.volume == 0L && candle.openRaw.compareTo(candle.closeRaw) == 0) {
-            log.debug(
-                "polling skip today stub (signature vol=0 open==close): code={} ts={}",
-                candle.code,
-                candle.ts,
-            )
-            return true
-        }
-        return false
-    }
+    private fun resolveSystemUserId(): String? =
+        credentialRepository
+            .findAllByAccountType(AccountType.REAL.name)
+            .firstOrNull()
+            ?.id
+            ?.userId
+            ?.takeIf { it.isNotBlank() }
 
     private companion object {
-        private val KST: ZoneId = ZoneId.of("Asia/Seoul")
-
         /**
          * polling pool 비대화 WARN 임계 (ADR 0124).
          * 종목당 100ms sleep + REST 지연 누적으로 5초 주기 내 안전 처리 가능 규모를 넘어서면 WARN.
