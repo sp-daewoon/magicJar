@@ -10,12 +10,23 @@ import java.util.concurrent.TimeUnit
  * RealtimeStatusSchedulerConfiguration 단위 테스트 (결함④ fix · 2026-06-15).
  *
  * 검증:
- * 1. status 발행 전용 스케줄러는 별도 단일 스레드 풀(`rt-status-*`)이다 — 기본 `scheduling-1` 과 격리.
- * 2. 한 작업이 스레드를 오래 점유해도 전용 스케줄러에 제출된 다른 작업이 정상 동작(격리 핵심).
+ * 1. 기본 @Scheduled 스케줄러(`taskScheduler`)와 status 발행 전용 스케줄러(`rt-status-*`)가 물리 분리된다.
+ * 2. 한 작업이 기본 스케줄러를 오래 점유해도 status 전용 스케줄러는 별도 thread에서 동작한다(격리 핵심).
  *    → "watchlist 폴링이 오래 걸려도 status 5초 발행 유지" 시나리오의 스레드 격리 근거.
  */
 class RealtimeStatusSchedulerConfigurationTest {
     private val config = RealtimeStatusSchedulerConfiguration()
+
+    @Test
+    fun `기본 스케줄러는 taskScheduler bean 으로 별도 등록된다`() {
+        val scheduler = config.defaultTaskScheduler() as ThreadPoolTaskScheduler
+        try {
+            assertThat(scheduler.scheduledThreadPoolExecutor.corePoolSize).isEqualTo(1)
+            assertThat(scheduler.threadNamePrefix).isEqualTo("scheduler-")
+        } finally {
+            scheduler.shutdown()
+        }
+    }
 
     @Test
     fun `status 전용 스케줄러는 rt-status 단일 스레드 풀이다`() {
