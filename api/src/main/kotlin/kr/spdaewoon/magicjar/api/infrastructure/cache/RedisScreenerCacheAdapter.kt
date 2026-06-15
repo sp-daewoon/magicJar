@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.infrastructure.cache
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.screener.ScreenerRunResult
 import kr.spdaewoon.magicjar.domain.screener.port.ScreenerCachePort
 import org.slf4j.LoggerFactory
@@ -33,7 +34,6 @@ class RedisScreenerCacheAdapter(
     private val log = LoggerFactory.getLogger(RedisScreenerCacheAdapter::class.java)
 
     companion object {
-        private const val LOCK_KEY_PREFIX = "screener:lock"
         private const val LOCK_VALUE = "1"
     }
 
@@ -105,5 +105,5 @@ class RedisScreenerCacheAdapter(
     private fun buildLockKey(
         userId: Long,
         strategyId: Long,
-    ): String = "$LOCK_KEY_PREFIX:$userId:$strategyId"
+    ): String = RedisKeyRegistry.Screener.lock(userId.toString(), strategyId)
 }

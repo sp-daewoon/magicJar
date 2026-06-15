@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.batch.persistence.performance.BatchPerformanceSumma
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchPerformanceSummaryJpaRepository
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchPnlDailyJpaEntity
 import kr.spdaewoon.magicjar.batch.persistence.performance.BatchPnlDailyJpaRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -407,7 +408,10 @@ class DailyPerformanceJob(
 
     private fun invalidateRedisCache(userId: String) {
         runCatching {
-            listOf("perf:summary:$userId:*", "perf:equity:$userId:*").forEach { pattern ->
+            listOf(
+                RedisKeyRegistry.Performance.summaryPattern(userId),
+                RedisKeyRegistry.Performance.equityPattern(userId),
+            ).forEach { pattern ->
                 val keys = redis.keys(pattern)
                 if (!keys.isNullOrEmpty()) redis.delete(keys)
             }

@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.notification
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -39,7 +40,7 @@ class NotificationDedupAdapter(
      * @return true = 처음 처리 (발송 허용), false = 중복 (skip)
      */
     fun isFirstOccurrence(eventId: UUID): Boolean {
-        val key = "notification:dedup:$eventId"
+        val key = RedisKeyRegistry.Notification.eventDedup(eventId.toString())
         return try {
             val acquired = redisTemplate.opsForValue().setIfAbsent(key, "1", DEDUP_TTL) ?: false
             if (!acquired) {
@@ -64,7 +65,7 @@ class NotificationDedupAdapter(
         orderId: Any?,
     ): Boolean {
         if (orderId == null) return true
-        val key = "notification:dedup:order:$userId:$orderId"
+        val key = RedisKeyRegistry.Notification.orderDedup(userId, orderId.toString())
         return try {
             val acquired = redisTemplate.opsForValue().setIfAbsent(key, "1", DEDUP_TTL) ?: false
             if (!acquired) {

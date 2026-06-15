@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.infrastructure.dart
 
 import kr.spdaewoon.magicjar.api.persistence.DisclosureJpaEntity
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
@@ -49,8 +50,6 @@ class DisclosureKafkaProducer(
     companion object {
         const val TOPIC = KafkaTopics.Data.DISCLOSURE_NEW
 
-        // Redis dedup 키 — ADR 0075 §4-1
-        private const val DEDUP_KEY_PREFIX = "news:dedup:rcept:"
         private val DEDUP_TTL = Duration.ofHours(24)
     }
 
@@ -63,7 +62,7 @@ class DisclosureKafkaProducer(
      * @param entity 방금 DB에 저장된 DisclosureJpaEntity
      */
     fun publish(entity: DisclosureJpaEntity) {
-        val dedupKey = "$DEDUP_KEY_PREFIX${entity.rceptNo}"
+        val dedupKey = RedisKeyRegistry.News.disclosureDedup(entity.rceptNo)
 
         // Redis SETNX 24h — 이미 발행된 rcept_no면 skip
         val acquired = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", DEDUP_TTL) ?: false

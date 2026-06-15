@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.application.indicator
 
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -82,7 +83,7 @@ class LiveCandleMerger(
      * 파싱 실패·Redis 미응답 시 null (graceful fallback).
      */
     private fun readCandleToday(code: String): Candle? {
-        val key = "candle:today:$code:1d"
+        val key = RedisKeyRegistry.Market.candleToday1d(code)
         return try {
             val hash = redisTemplate.opsForHash<String, String>().entries(key)
             if (hash.isEmpty()) return null

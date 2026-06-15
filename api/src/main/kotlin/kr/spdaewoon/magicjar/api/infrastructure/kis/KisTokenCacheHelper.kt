@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.infrastructure.kis
 
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.UserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -62,9 +63,6 @@ class KisTokenCacheHelper(
     private val log = LoggerFactory.getLogger(KisTokenCacheHelper::class.java)
 
     companion object {
-        const val TOKEN_KEY_PREFIX = "kis:token"
-        const val TOKEN_LOCK_KEY_PREFIX = "kis:token:lock"
-
         /** TTL fallback — KIS expires_in 누락 시 23h (24h - 1h safety margin). */
         private val FALLBACK_TTL: Duration = Duration.ofHours(23)
 
@@ -83,12 +81,12 @@ class KisTokenCacheHelper(
         fun tokenKey(
             userId: String,
             accountType: AccountType,
-        ): String = "$TOKEN_KEY_PREFIX:$userId:${accountType.name}"
+        ): String = RedisKeyRegistry.Kis.token(userId, accountType)
 
         fun lockKey(
             userId: String,
             accountType: AccountType,
-        ): String = "$TOKEN_LOCK_KEY_PREFIX:$userId:${accountType.name}"
+        ): String = RedisKeyRegistry.Kis.tokenLock(userId, accountType)
     }
 
     /** in-process 락 맵 — userId:accountType 별 ReentrantLock. */

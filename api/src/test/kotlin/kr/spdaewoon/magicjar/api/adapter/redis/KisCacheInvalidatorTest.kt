@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.adapter.redis
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
@@ -16,20 +17,20 @@ import java.time.Duration
  *
  * 핵심 회귀 가드:
  * - deleteAccessToken 호출 시 신규 표준 `kis:token:` + 결함 `access_token:` **둘 다** DEL
- * - prefix 상수가 의도와 일치 (T-1·T-2 LOCK)
+ * - RedisKeyRegistry가 T-1·T-2 wire key를 단일 생성한다
  */
 class KisCacheInvalidatorTest {
     private val redis: StringRedisTemplate = mock()
     private val sut = KisCacheInvalidator(redis)
 
     @Test
-    fun `T-1 prefix 상수 — TOKEN_KEY_PREFIX 는 kis_token`() {
-        assertThat(KisCacheInvalidator.TOKEN_KEY_PREFIX).isEqualTo("kis:token")
+    fun `T-1 registry — KIS token key 는 kis_token wire format`() {
+        assertThat(RedisKeyRegistry.Kis.token("u-001", "REAL")).isEqualTo("kis:token:u-001:REAL")
     }
 
     @Test
-    fun `T-2 전환기 안전망 — LEGACY_TOKEN_KEY_PREFIX 는 access_token`() {
-        assertThat(KisCacheInvalidator.LEGACY_TOKEN_KEY_PREFIX).isEqualTo("access_token")
+    fun `T-2 registry — legacy access token key 는 access_token wire format`() {
+        assertThat(RedisKeyRegistry.Kis.legacyAccessToken("u-001", "REAL")).isEqualTo("access_token:u-001:REAL")
     }
 
     @Test

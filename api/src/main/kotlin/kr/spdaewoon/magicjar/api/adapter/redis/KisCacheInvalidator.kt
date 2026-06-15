@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.adapter.redis
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -28,14 +29,6 @@ class KisCacheInvalidator(
     private val log = LoggerFactory.getLogger(KisCacheInvalidator::class.java)
 
     companion object {
-        /** T-1 신규 표준 prefix — consumer KisAuthAdapter + api KisTokenCacheHelper 공통. */
-        const val TOKEN_KEY_PREFIX = "kis:token"
-
-        /** T-2 전환기 안전망 — 기존 운영 환경에 남아 있을 수 있는 결함 prefix. */
-        const val LEGACY_TOKEN_KEY_PREFIX = "access_token"
-
-        private const val APPROVAL_KEY_PREFIX = "kis:approval"
-        private const val KEY_CHANGED_LOCK_PREFIX = "kis:key-changed-lock"
         private val KEY_CHANGED_LOCK_TTL = Duration.ofSeconds(5)
     }
 
@@ -49,8 +42,8 @@ class KisCacheInvalidator(
         userId: String,
         accountType: String,
     ) {
-        val primaryKey = "$TOKEN_KEY_PREFIX:$userId:$accountType"
-        val legacyKey = "$LEGACY_TOKEN_KEY_PREFIX:$userId:$accountType"
+        val primaryKey = RedisKeyRegistry.Kis.token(userId, accountType)
+        val legacyKey = RedisKeyRegistry.Kis.legacyAccessToken(userId, accountType)
         val primaryDeleted = redisTemplate.delete(primaryKey)
         val legacyDeleted = redisTemplate.delete(legacyKey)
         log.info(
@@ -67,7 +60,7 @@ class KisCacheInvalidator(
      * KIS WS approval_key 캐시 무효화 (accountType=REAL 시만 호출).
      */
     fun deleteApprovalKey(userId: String) {
-        val key = "$APPROVAL_KEY_PREFIX:$userId"
+        val key = RedisKeyRegistry.Kis.approvalLegacyUserOnly(userId)
         val deleted = redisTemplate.delete(key)
         log.info(
             "Redis approval_key DEL — userId={}**** deleted={}",
@@ -84,7 +77,7 @@ class KisCacheInvalidator(
         userId: String,
         accountType: String,
     ) {
-        val key = "$KEY_CHANGED_LOCK_PREFIX:$userId:$accountType"
+        val key = RedisKeyRegistry.Kis.keyChangedLock(userId, accountType)
         redisTemplate.opsForValue().set(key, "1", KEY_CHANGED_LOCK_TTL)
         log.info(
             "Redis key-changed-lock SET 5s — userId={}**** accountType={}",
@@ -101,7 +94,7 @@ class KisCacheInvalidator(
         userId: String,
         accountType: String,
     ): Boolean {
-        val key = "$KEY_CHANGED_LOCK_PREFIX:$userId:$accountType"
+        val key = RedisKeyRegistry.Kis.keyChangedLock(userId, accountType)
         return redisTemplate.hasKey(key) == true
     }
 }

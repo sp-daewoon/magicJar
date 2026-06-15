@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.notification
 
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationRateLimiterPort
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -37,7 +38,7 @@ class NotificationRateLimiter(
         threshold: Int,
         windowMin: Int,
     ): Boolean {
-        val key = "notification:ratelimit:$userId:$topicHash"
+        val key = RedisKeyRegistry.Notification.rateLimit(userId, topicHash)
         val nowMs = Instant.now().toEpochMilli()
         val windowMs = windowMin * 60 * 1000L
         val windowStartMs = nowMs - windowMs
@@ -77,7 +78,7 @@ class NotificationRateLimiter(
         topicHash: String,
         windowMin: Int,
     ): Boolean {
-        val key = "notification:once:$userId:$topicHash"
+        val key = RedisKeyRegistry.Notification.once(userId, topicHash)
         return try {
             val acquired =
                 redisTemplate

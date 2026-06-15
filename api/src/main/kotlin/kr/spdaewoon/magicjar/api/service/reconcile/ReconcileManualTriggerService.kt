@@ -3,13 +3,13 @@ package kr.spdaewoon.magicjar.api.service.reconcile
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.reconcile.ReconcileRun
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
-import java.time.Duration
 import java.util.UUID
 
 /**
@@ -38,9 +38,6 @@ class ReconcileManualTriggerService(
 
     companion object {
         private const val TOPIC_MANUAL_TRIGGER = KafkaTopics.Reconcile.MANUAL_TRIGGER
-        private const val REDIS_LASTRUN_PREFIX = "reconcile:lastrun:"
-        private const val REDIS_LOCK_PREFIX = "reconcile:lock:"
-        private val IDEMPOTENCY_TTL = Duration.ofMinutes(5)
     }
 
     /**
@@ -56,7 +53,8 @@ class ReconcileManualTriggerService(
         )
 
         // 1. idempotency 캐시 hit 확인
-        val lastRunId = redisTemplate.opsForValue().get("$REDIS_LASTRUN_PREFIX$userId")
+        val userIdKey = userId.toString()
+        val lastRunId = redisTemplate.opsForValue().get(RedisKeyRegistry.Reconcile.lastRun(userIdKey))
         if (lastRunId != null) {
             val runIdLong = lastRunId.toLongOrNull()
             log.info(
@@ -72,7 +70,7 @@ class ReconcileManualTriggerService(
         }
 
         // 2. 분산락 확인 (cron 또는 다른 manual 실행 중)
-        val lockExists = redisTemplate.hasKey("$REDIS_LOCK_PREFIX$userId")
+        val lockExists = redisTemplate.hasKey(RedisKeyRegistry.Reconcile.lock(userIdKey))
         if (lockExists) {
             log.warn(
                 "trigger — lock busy: userId={}**** (cron 또는 다른 manual 실행 중)",

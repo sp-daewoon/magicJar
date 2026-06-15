@@ -9,6 +9,7 @@ import kotlinx.datetime.atTime
 import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.risk.port.DailyPnlProvider
 import kr.spdaewoon.magicjar.domain.risk.port.RiskPositionPort
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
@@ -41,7 +42,6 @@ class DailyPnlCalculator(
     private val log = LoggerFactory.getLogger(DailyPnlCalculator::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "daily_pnl:"
         private val KST = TimeZone.of("Asia/Seoul")
     }
 
@@ -50,7 +50,7 @@ class DailyPnlCalculator(
         kstNow: Instant,
     ): BigDecimal {
         val kstDate = kstNow.toLocalDateTime(KST).date
-        val key = "$KEY_PREFIX$userId:$kstDate"
+        val key = RedisKeyRegistry.Risk.dailyPnl(userId, kstDate.toString())
 
         val realMode = RuntimeModeParser.isRealMode(magicjarMode)
         if (!realMode) {

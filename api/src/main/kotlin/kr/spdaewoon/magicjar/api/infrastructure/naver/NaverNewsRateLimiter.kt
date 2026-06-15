@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.api.infrastructure.naver
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -32,7 +33,7 @@ class NaverNewsRateLimiter(
 
     companion object {
         /** Redis ZSET 키 (ADR 0075 §4-1) */
-        const val RATE_LIMIT_KEY = "news:ratelimit:naver"
+        val RATE_LIMIT_KEY: String = RedisKeyRegistry.News.naverRateLimit()
 
         /** Naver 한도: 분당 17건 (25K/일 ÷ 1440 — 0건 마진 hard limit) */
         const val LIMIT_PER_MINUTE = 17

@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.domain.instrument.Instrument
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentMarket
 import kr.spdaewoon.magicjar.domain.instrument.InstrumentSearchResult
 import kr.spdaewoon.magicjar.domain.instrument.port.InstrumentSearchIndex
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -31,9 +32,6 @@ class InstrumentSearchIndexAdapter(
 
     companion object {
         private val SEARCH_KEY_TTL = Duration.ofDays(1)
-        private const val SEARCH_KEY_PREFIX = "instrument:search:prefix:"
-        private const val BY_CODE_KEY_PREFIX = "instrument:by-code:"
-        private const val LIST_KEY_PREFIX = "instrument:list:"
         private const val MAX_RESULTS = 50
     }
 
@@ -97,12 +95,12 @@ class InstrumentSearchIndexAdapter(
             val json = """{"code":"${instrument.code}","name":"${escapeJson(
                 instrument.name,
             )}","market":"${instrument.market.name}","sector":"${instrument.sector ?: ""}","active":${instrument.active}}"""
-            valueOps.set("$BY_CODE_KEY_PREFIX${instrument.code}", json, SEARCH_KEY_TTL)
+            valueOps.set(RedisKeyRegistry.Instrument.byCode(instrument.code), json, SEARCH_KEY_TTL)
         }
 
         // 버킷별 zadd
         prefixBuckets.forEach { (prefix, tuples) ->
-            val key = "$SEARCH_KEY_PREFIX$prefix"
+            val key = RedisKeyRegistry.Instrument.searchPrefix(prefix)
             zSetOps.add(key, tuples)
             redisTemplate.expire(key, SEARCH_KEY_TTL)
         }
@@ -112,7 +110,7 @@ class InstrumentSearchIndexAdapter(
         byMarket.forEach { (market, list) ->
             val codes = list.map { it.code }
             val json = codes.joinToString(",", "[", "]") { "\"$it\"" }
-            valueOps.set("$LIST_KEY_PREFIX$market", json, SEARCH_KEY_TTL)
+            valueOps.set(RedisKeyRegistry.Instrument.list(market), json, SEARCH_KEY_TTL)
         }
 
         val elapsed = System.currentTimeMillis() - start
@@ -123,9 +121,9 @@ class InstrumentSearchIndexAdapter(
     override fun invalidate() {
         val patterns =
             listOf(
-                "$SEARCH_KEY_PREFIX*",
-                "$LIST_KEY_PREFIX*",
-                "$BY_CODE_KEY_PREFIX*",
+                RedisKeyRegistry.Instrument.searchPrefixPattern(),
+                RedisKeyRegistry.Instrument.listPattern(),
+                RedisKeyRegistry.Instrument.byCodePattern(),
             )
         var deleted = 0L
         patterns.forEach { pattern ->
@@ -155,16 +153,18 @@ class InstrumentSearchIndexAdapter(
         val valueOps = redisTemplate.opsForValue()
 
         // 1. 이름 prefix 버킷 검색
-        val nameKey = "$SEARCH_KEY_PREFIX$prefix"
+        val nameKey = RedisKeyRegistry.Instrument.searchPrefix(prefix)
         val codeQuery = normalizedQuery
         val codeKey =
-            "$SEARCH_KEY_PREFIX" + "code:${
-                if (codeQuery.length >= 2) {
-                    codeQuery.take(2)
-                } else {
-                    codeQuery
-                }
-            }"
+            RedisKeyRegistry.Instrument.searchPrefix(
+                "code:${
+                    if (codeQuery.length >= 2) {
+                        codeQuery.take(2)
+                    } else {
+                        codeQuery
+                    }
+                }",
+            )
 
         val candidates = mutableListOf<Pair<String, Double>>() // code, score
 
@@ -222,7 +222,7 @@ class InstrumentSearchIndexAdapter(
             .sortedByDescending { it.second }
             .take(maxOf(limit, MAX_RESULTS))
             .forEach { (code, score) ->
-                val json = valueOps.get("$BY_CODE_KEY_PREFIX$code") ?: return@forEach
+                val json = valueOps.get(RedisKeyRegistry.Instrument.byCode(code)) ?: return@forEach
                 val result = parseByCodeJson(json, score) ?: return@forEach
                 if (market == null || result.market == market) {
                     results.add(result)

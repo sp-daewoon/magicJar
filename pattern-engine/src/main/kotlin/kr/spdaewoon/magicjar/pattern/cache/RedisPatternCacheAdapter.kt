@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.pattern.cache
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -28,7 +29,6 @@ class RedisPatternCacheAdapter(
     private val log = LoggerFactory.getLogger(RedisPatternCacheAdapter::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "pattern:cache"
         private val INTRADAY_INTERVALS = setOf("1m", "2m", "5m", "15m", "30m", "90m", "1h")
         private val INTRADAY_TTL = Duration.ofSeconds(300)
         private val DAILY_TTL = Duration.ofSeconds(86400)
@@ -58,7 +58,7 @@ class RedisPatternCacheAdapter(
         patterns: Set<String>,
         from: String?,
         to: String?,
-    ): String = "$KEY_PREFIX:$code:$interval:${patternsHash(patterns, from, to)}"
+    ): String = RedisKeyRegistry.Pattern.result(code, interval, patternsHash(patterns, from, to))
 
     /** JSON 값 조회 (miss 시 null) */
     fun get(

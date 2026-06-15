@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.infrastructure.cache
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -83,8 +84,8 @@ class RedisPerformanceCacheAdapter(
      * ADR 0072 §5 Redis invalidation 패턴 정합.
      */
     fun invalidateUser(userId: String) {
-        deleteByPattern("perf:summary:$userId:*")
-        deleteByPattern("perf:equity:$userId:*")
+        deleteByPattern(RedisKeyRegistry.Performance.summaryPattern(userId))
+        deleteByPattern(RedisKeyRegistry.Performance.equityPattern(userId))
     }
 
     // ─── private helpers ───────────────────────────────────────────────
@@ -94,13 +95,13 @@ class RedisPerformanceCacheAdapter(
         period: String,
         periodStart: LocalDate,
         periodEnd: LocalDate,
-    ): String = "perf:summary:$userId:$period:$periodStart:$periodEnd"
+    ): String = RedisKeyRegistry.Performance.summary(userId, period, periodStart.toString(), periodEnd.toString())
 
     private fun equityKey(
         userId: String,
         from: LocalDate,
         to: LocalDate,
-    ): String = "perf:equity:$userId:$from:$to"
+    ): String = RedisKeyRegistry.Performance.equity(userId, from.toString(), to.toString())
 
     private fun deleteByPattern(pattern: String) {
         runCatching {

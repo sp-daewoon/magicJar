@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.infrastructure.kis
 
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
@@ -79,8 +80,8 @@ class KisAuthAdapter(
             "KIS getAccessToken userId 빈 문자열 차단 — caller 결함 " +
                 "(cache key 'kis:token::${accountType.name}' pollution + cross-user leak risk · P0 hotfix 2026-05-20)"
         }
-        val cacheKey = "kis:token:$userId:${accountType.name}"
-        val lockKey = "kis:token:lock:$userId:${accountType.name}"
+        val cacheKey = RedisKeyRegistry.Kis.token(userId, accountType)
+        val lockKey = RedisKeyRegistry.Kis.tokenLock(userId, accountType)
 
         // 1. Redis cache hit — 락 없이 fast path
         redisTemplate.opsForValue().get(cacheKey)?.let { return it }

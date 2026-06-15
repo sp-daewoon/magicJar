@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -71,7 +72,7 @@ class SystemKisKeyChangedListener(
 
         try {
             // 1. 5초 잠금 확인 (존재 여부만 확인 — lock 없어도 진행, idempotent)
-            val lockKey = "kis:key-changed-lock:${event.userId}:${event.accountType}"
+            val lockKey = RedisKeyRegistry.Kis.keyChangedLock(event.userId, event.accountType)
             val lockExists = redisTemplate.hasKey(lockKey)
             if (lockExists) {
                 log.debug("[KisKeyChanged] 5초 잠금 확인됨 — Phase 1 성공 신호: key={}", lockKey)
@@ -123,12 +124,12 @@ class SystemKisKeyChangedListener(
         }
 
         // KIS OAuth tokenP cache (KisAuthAdapter Redis 키)
-        val tokenKey = "kis:token:$userId:$accountType"
+        val tokenKey = RedisKeyRegistry.Kis.token(userId, accountType)
         val tokenDeleted = redisTemplate.delete(tokenKey)
         log.debug("[KisKeyChanged] Redis DEL: key={} deleted={}", tokenKey, tokenDeleted)
 
         // WS approval_key cache (KisApprovalAdapter Redis 키)
-        val approvalKey = "kis:approval:$userId:$accountType"
+        val approvalKey = RedisKeyRegistry.Kis.approval(userId, accountType)
         val approvalDeleted = redisTemplate.delete(approvalKey)
         log.debug("[KisKeyChanged] Redis DEL: key={} deleted={}", approvalKey, approvalDeleted)
     }

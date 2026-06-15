@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.cache
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -33,7 +34,6 @@ class RedisStrategyCache(
     private val log = LoggerFactory.getLogger(RedisStrategyCache::class.java)
 
     companion object {
-        private const val KEY_PREFIX = "strategy:active:by_code"
         private val TTL = Duration.ofMinutes(5)
         private val ID_LIST_TYPE = object : TypeReference<List<Long>>() {}
     }
@@ -91,7 +91,7 @@ class RedisStrategyCache(
      * 주의: keys는 keyspace 크기에 따라 부하 발생 가능 — 사용자 액션(낮은 빈도)에서만 호출.
      */
     fun invalidateAll() {
-        val pattern = "$KEY_PREFIX:*"
+        val pattern = RedisKeyRegistry.Strategy.activeByCodePattern()
         val keys = redisTemplate.keys(pattern)
         val count = if (keys.isNullOrEmpty()) 0L else redisTemplate.delete(keys).toLong()
         log.info("cache invalidateAll: {}개 키 삭제", count)
@@ -102,5 +102,5 @@ class RedisStrategyCache(
     private fun buildKey(
         code: String,
         interval: String,
-    ): String = "$KEY_PREFIX:$code:$interval"
+    ): String = RedisKeyRegistry.Strategy.activeByCode(code, interval)
 }
