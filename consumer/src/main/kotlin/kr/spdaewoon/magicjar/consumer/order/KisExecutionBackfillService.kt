@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.order
 
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisDailyCcldExecution
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisOrderInquireCcldHttpAdapter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -25,8 +26,10 @@ import org.springframework.stereotype.Component
 import reactor.core.scheduler.Schedulers
 import java.math.BigDecimal
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -81,6 +84,7 @@ class KisExecutionBackfillService(
     private val executionPersistenceService: ExecutionPersistenceService,
     private val webSocketBridge: KisWebSocketBridge,
     private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.order.ws-backfill.enabled:true}")
@@ -89,10 +93,27 @@ class KisExecutionBackfillService(
     private val backfillMinIntervalSeconds: Long = 60L,
     @Value("\${magicjar.order.cancelled-fill-reconcile.enabled:true}")
     private val cancelledFillReconcileEnabled: Boolean = true,
+    @Value("\${magicjar.kis.execution-sync.fresh-window-seconds:30}")
+    private val executionSyncFreshWindowSeconds: Long = 30L,
+    @Value("\${magicjar.kis.execution-sync.failure-cooldown-seconds:10}")
+    private val executionSyncFailureCooldownSeconds: Long = 10L,
     private val clock: Clock = Clock.system(ZoneId.of("Asia/Seoul")),
 ) {
     private val log = LoggerFactory.getLogger(KisExecutionBackfillService::class.java)
     private val lastBackfillAtMs = AtomicLong(0L)
+    private val syncLocks = ConcurrentHashMap<SyncKey, Any>()
+    private val recentSyncResults = ConcurrentHashMap<SyncKey, CachedSyncResult>()
+
+    private data class SyncKey(
+        val userId: String,
+        val accountType: AccountType,
+        val verifyCredential: Boolean,
+    )
+
+    private data class CachedSyncResult(
+        val result: KisExecutionSyncResult,
+        val syncedAt: Instant,
+    )
 
     companion object {
         /** ADR 0084 P0-3 — REST backfill eventId namespace prefix. */
@@ -215,6 +236,23 @@ class KisExecutionBackfillService(
         accountType: AccountType,
         verifyCredential: Boolean = true,
     ): KisExecutionSyncResult {
+        val key = SyncKey(userId, accountType, verifyCredential)
+        cachedSyncResultOrNull(key)?.let { return it }
+
+        val lock = syncLocks.computeIfAbsent(key) { Any() }
+        return synchronized(lock) {
+            cachedSyncResultOrNull(key)?.let { return@synchronized it }
+            val result = syncUserTodayExecutionsUncached(userId, accountType, verifyCredential)
+            recentSyncResults[key] = CachedSyncResult(result, Instant.now(clock))
+            result
+        }
+    }
+
+    private fun syncUserTodayExecutionsUncached(
+        userId: String,
+        accountType: AccountType,
+        verifyCredential: Boolean = true,
+    ): KisExecutionSyncResult {
         val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
         val execRepo = orderExecutionRepositoryProvider.getIfAvailable()
         if (orderRepo == null || execRepo == null) {
@@ -288,6 +326,30 @@ class KisExecutionBackfillService(
             )
         }
         return result
+    }
+
+    private fun cachedSyncResultOrNull(key: SyncKey): KisExecutionSyncResult? {
+        val cached = recentSyncResults[key] ?: return null
+        val ageSeconds = Duration.between(cached.syncedAt, Instant.now(clock)).seconds
+        val ttlSeconds =
+            if (cached.result.isComplete) {
+                executionSyncFreshWindowSeconds
+            } else {
+                executionSyncFailureCooldownSeconds
+            }.coerceAtLeast(0)
+        if (ttlSeconds <= 0 || ageSeconds > ttlSeconds) {
+            recentSyncResults.remove(key, cached)
+            return null
+        }
+        log.info(
+            "KIS execution sync singleflight cache HIT: userId={} accountType={} complete={} ageSec={} ttlSec={}",
+            maskUserId(key.userId),
+            key.accountType.name,
+            cached.result.isComplete,
+            ageSeconds,
+            ttlSeconds,
+        )
+        return cached.result
     }
 
     /**
@@ -447,6 +509,7 @@ class KisExecutionBackfillService(
             exec.avgPrice.toPlainString(),
             saved.id,
         )
+        invalidateAccountSnapshot(request, reason = "REST_BACKFILL_FILLED", kisOrderNo = exec.kisOrderNo)
         syncOrderStatusAfterBackfill(
             orderRepo,
             execRepo,
@@ -473,6 +536,21 @@ class KisExecutionBackfillService(
                     e.message,
                 )
             }
+    }
+
+    private fun invalidateAccountSnapshot(
+        request: OrderRequest,
+        reason: String,
+        kisOrderNo: String?,
+    ) {
+        accountSnapshotCoordinatorProvider
+            ?.getIfAvailable()
+            ?.invalidate(
+                userId = request.userId,
+                mode = request.mode,
+                reason = reason,
+                triggerKisOrderNo = kisOrderNo,
+            )
     }
 
     private fun syncOrderStatusAfterBackfill(

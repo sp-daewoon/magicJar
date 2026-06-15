@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.risk
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
@@ -103,6 +104,7 @@ class SignalGeneratedKafkaListener(
     private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
     private val strategyLookupPortProvider: ObjectProvider<StrategyLookupPort>,
     private val kisBalanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>,
+    private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
     private val executionBackfillServiceProvider: ObjectProvider<KisExecutionBackfillService>,
     // ADR 0114 §3-1 — BUY marketable limit 가격 산정 배선.
     private val entryOrderPriceResolver: EntryOrderPriceResolver,
@@ -648,13 +650,28 @@ class SignalGeneratedKafkaListener(
         context: RiskContext,
     ): RiskGatewayResult.Blocked? {
         if (signal.side != SignalSide.SELL) return null
-        val port =
-            kisBalanceQueryPortProvider.getIfAvailable()
-                ?: return kisSellQuantityBlocked(signal, requestedQuantity, 0, 0, "KIS_BALANCE_LOOKUP_UNAVAILABLE")
         val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val snapshot =
             try {
-                port.fetchFullBalance(signal.userId, accountType)
+                accountSnapshotCoordinatorProvider
+                    ?.getIfAvailable()
+                    ?.getSnapshot(
+                        userId = signal.userId,
+                        accountType = accountType,
+                        reason = "SELL_HOLDING_GUARD",
+                    )
+                    ?: run {
+                        val port =
+                            kisBalanceQueryPortProvider.getIfAvailable()
+                                ?: return kisSellQuantityBlocked(
+                                    signal,
+                                    requestedQuantity,
+                                    0,
+                                    0,
+                                    "KIS_BALANCE_LOOKUP_UNAVAILABLE",
+                                )
+                        port.fetchFullBalance(signal.userId, accountType)
+                    }
             } catch (e: Exception) {
                 log.warn("KIS SELL 잔고 검증 실패: userId={} code={} err={}", signal.userId, signal.code, e.message)
                 return kisSellQuantityBlocked(

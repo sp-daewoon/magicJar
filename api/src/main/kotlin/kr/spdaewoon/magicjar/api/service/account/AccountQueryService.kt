@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 계좌 잔고 쿼리 서비스 — T-ACCT Phase 2 (ADR 0081 §2-1 + spec §4-1 LOCK).
  *
  * ### 책임
- * - Redis `account:balance:{userId}` cache lookup (TTL 5s — C-2 자본 시각화 정합, 2026-05-20)
+ * - Redis `account:balance:{userId}:{accountType}` cache lookup (TTL 5분 — KIS 호출 압박 완화, 주문 이벤트 dirty)
  * - cache miss → [KisBalanceQueryPort] 1회 호출 (output1 + output2 동시 흡수)
  * - 응답 cache write + 3 endpoint별 응답 매핑
  *
@@ -40,8 +40,8 @@ import java.util.concurrent.ConcurrentHashMap
  * ### KIS 호출 빈도 (ADR 0037 정합)
  * - cache hit = KIS 0 호출
  * - cache miss = KIS 1 호출 (`inquire-balance` 1건만 — 추가 endpoint 0)
- * - frontend auto-refresh 30s = KIS 최대 1회 / 5s (사용자 trigger 시 즉시성)
- * - 자본 시각화 즉시성 우선 — 30s → 5s 단축 (frontend 30s 자동 갱신 vs Dashboard 토글·새로고침 시 신선도 차이 해소)
+ * - frontend auto-refresh fallback은 cache hit가 기본이며, 주문 이벤트가 Redis key를 dirty 처리하면 다음 요청이 fresh load
+ * - 자본 시각화 즉시성은 STOMP invalidate + backend Redis dirty 조합으로 보존한다.
  *
  * ### mock 합성 0 LOCK (feedback_no_mock_data)
  * - KIS upstream 실패 → [KisBalanceQueryPort]가 IllegalStateException 또는 WebClientResponseException 발행
@@ -88,18 +88,19 @@ class AccountQueryService(
         const val LOAD_LOCK_KEY_PREFIX = "account:balance:lock"
 
         /**
-         * Account 잔고 cache TTL — EGW00201 burst hotfix (2026-05-20, 5s → 10s 재조정).
+         * Account 잔고 cache TTL — KIS 조회 cache-aside singleflight (2026-06-15, 10s → 5m).
          *
          * 변경 이력:
          *   - 1차: 30s default
          *   - 2차 (PR #594 C-2): 30s → 5s "돈 관련 실시간" dogfooding
-         *   - 3차 (본 hotfix): 5s → 10s — EGW00201 "초당 거래건수 초과" burst 흡수
+         *   - 3차: 5s → 10s — EGW00201 "초당 거래건수 초과" burst 흡수
          *     * 사용자 evidence 2026-05-20: REAL+MOCK 동시 polling 5s + schedule worker + Bootstrap
          *       → KIS 호출 burst → EGW00201 → 500/502 반복
-         *     * 10s 는 frontend 5s polling 중 2번에 1번만 cache miss → KIS 호출 빈도 절반
-         *     * 신선도 손실은 사용자 toggle 시 invalidateQueries 가 즉시 refetch trigger 로 흡수
+         *   - 4차: 10s → 5m — 자동매매 consumer와 같은 account:balance key 공유.
+         *     * 주문/체결/취소/거부 이벤트가 consumer AccountSnapshotCoordinator에서 즉시 key delete.
+         *     * frontend는 STOMP invalidateQueries, backend는 Redis dirty로 2중 무효화.
          */
-        val CACHE_TTL: Duration = Duration.ofSeconds(10)
+        val CACHE_TTL: Duration = Duration.ofMinutes(5)
         private val RATE_LIMIT_FAILURE_TTL: Duration = Duration.ofSeconds(2)
 
         /**
@@ -392,7 +393,7 @@ class AccountQueryService(
             snapshot.balance.netAssetValue,
         )
 
-        // 3. cache write (TTL 30s)
+        // 3. cache write (TTL 5m, 주문 이벤트 dirty)
         runCatching {
             val json = objectMapper.writeValueAsString(snapshot)
             redisTemplate.opsForValue().set(cacheKey, json, CACHE_TTL)

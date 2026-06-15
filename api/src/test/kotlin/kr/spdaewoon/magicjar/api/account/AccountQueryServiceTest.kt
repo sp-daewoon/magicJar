@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *
 
  * 시나리오:
- * 1. cache miss → KIS 호출 + cache write TTL 5s (C-2 2026-05-20 자본 시각화 정합 — 30s에서 단축)
+ * 1. cache miss → KIS 호출 + cache write TTL 5분 (주문 이벤트 dirty + singleflight 공유)
  * 2. cache hit → KIS 호출 0
  * 3. summary 응답 수익률 계산 (totalProfitLoss / totalPurchaseAmount × 100)
  * 4. positions 응답 매핑 (output1 향상판)
@@ -130,7 +130,7 @@ class AccountQueryServiceTest {
         )
 
     @Test
-    fun `cache miss — KIS 호출 1회 + cache SETEX TTL 10s (EGW00201 burst hotfix 정합)`() {
+    fun `cache miss — KIS 호출 1회 + cache SETEX TTL 5분 (singleflight cache-aside 정합)`() {
         whenever(redis.opsForValue()).thenReturn(valueOps)
         stubLockAcquired()
         whenever(valueOps.get(eq(cacheKey))).thenReturn(null)
@@ -143,19 +143,19 @@ class AccountQueryServiceTest {
         assertThat(response.totalProfitLoss).isEqualByComparingTo("100000.00")
         assertThat(response.fetchedAt).isEqualTo("2026-05-18T05:30:00Z")
 
-        // cache write TTL 10s 검증 (2026-05-20 hotfix: 30s → 5s → 10s 재조정 — EGW00201 burst 흡수)
+        // cache write TTL 5분 검증 — 주문/체결/취소/거부 이벤트 dirty 로 신선도 보존.
         val keyCap = argumentCaptor<String>()
         val ttlCap = argumentCaptor<Duration>()
         verify(valueOps).set(keyCap.capture(), any<String>(), ttlCap.capture())
         assertThat(keyCap.firstValue).isEqualTo(cacheKey)
-        assertThat(ttlCap.firstValue).isEqualTo(Duration.ofSeconds(10))
+        assertThat(ttlCap.firstValue).isEqualTo(Duration.ofMinutes(5))
 
         verify(kisPort).fetchFullBalance(userId, accountType)
     }
 
     @Test
-    fun `EGW00201 hotfix — CACHE_TTL companion 상수 10s LOCK (KIS rate limit burst 흡수)`() {
-        assertThat(AccountQueryService.CACHE_TTL).isEqualTo(Duration.ofSeconds(10))
+    fun `KIS account snapshot — CACHE_TTL companion 상수 5분 LOCK`() {
+        assertThat(AccountQueryService.CACHE_TTL).isEqualTo(Duration.ofMinutes(5))
     }
 
     @Test
@@ -221,7 +221,7 @@ class AccountQueryServiceTest {
         assertThat(positions[0].quantity).isEqualTo(12)
         verify(valueOps, never()).get(eq(cacheKey))
         verify(kisPort).fetchFullBalance(userId, accountType)
-        verify(valueOps).set(eq(cacheKey), any<String>(), eq(Duration.ofSeconds(10)))
+        verify(valueOps).set(eq(cacheKey), any<String>(), eq(Duration.ofMinutes(5)))
     }
 
     /**

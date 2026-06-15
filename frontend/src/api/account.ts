@@ -144,7 +144,7 @@ export const accountApi = {
    * GET /api/account/balance?userId=&accountType=
    * KIS inquire-balance output2 11 필드 — 예수금·평가금·평가손익 등 계좌 합계.
    *
-   * Redis cache `account:balance:{userId}` TTL 30s 공유 (서버 측).
+   * Redis cache `account:balance:{userId}:{accountType}` TTL 5m 공유, 주문 이벤트 시 서버에서 즉시 무효화.
    * mock 합성 0 LOCK — 실패 시 412(자격증명 부재) 또는 502(KIS upstream).
    */
   getBalance: async (
