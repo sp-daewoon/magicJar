@@ -426,6 +426,29 @@ class KisWebSocketBridgeReconnectTest {
         assertThat(KisWsMessageParser.isUnsubscribeAck(opsp8996)).isFalse()
     }
 
+    @Test
+    fun `unsubscribe emit helper는 tr_type 2로 해제 메시지를 만든다`() {
+        val method =
+            KisWebSocketBridge::class.java.getDeclaredMethod(
+                "emitUnsubscribeMessage",
+                String::class.java,
+                String::class.java,
+                String::class.java,
+            )
+        method.isAccessible = true
+
+        method.invoke(bridge, "approval-test", "093370", "H0UNCNT0")
+
+        val tracesField = KisWebSocketBridge::class.java.getDeclaredField("recentUnsubscribes")
+        tracesField.isAccessible = true
+        val traces = tracesField.get(bridge) as java.util.concurrent.ConcurrentLinkedDeque<*>
+        val lastTrace = traces.peekLast()
+        val rawJsonField = lastTrace!!::class.java.getDeclaredField("rawJson")
+        rawJsonField.isAccessible = true
+
+        assertThat(rawJsonField.get(lastTrace).toString()).contains(""""tr_type":"2"""")
+    }
+
     /**
      * [ADR 0076 E-1] destroy() 시 구독 종목 없으면 ACK 대기 없이 즉시 종료.
      *

@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory
  *
  * KIS-first 출처: open-trading-api `domestic_stock_functions_ws.py` `market_status_total()`
  * - tr_id = H0UNMKO0
- * - tr_type "1" 구독 / "0" 해제
+ * - tr_type "1" 구독 / "2" 해제
  * - 공식 컬럼표: TRHT_YN, TR_SUSP_REAS_CNTT, MKOP_CLS_CODE, ANTC_MKOP_CLS_CODE,
  *   MRKT_TRTM_CLS_CODE, DIVI_APP_CLS_CODE, ISCD_STAT_CLS_CODE, VI_CLS_CODE,
  *   OVTM_VI_CLS_CODE, EXCH_CLS_CODE

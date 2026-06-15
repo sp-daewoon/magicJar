@@ -380,3 +380,10 @@ PR #985 배포 후 관찰:
 - 배포 후 관찰 창에서 `EGW00201`, `EGW00215`, `잔고조회 실패`는 재발하지 않았다.
 - watchlist polling의 `Connection prematurely closed BEFORE response`는 계속 간헐 발생하지만 `watchlist polling KIS failure ... reason=request-failure ... cooldownMs=30000`로 남은 slice 중단 + cooldown 처리된다.
 - DB 기준 전략 #86은 `PAUSED`, 현재 실보유는 후성 17주(avg 19,570원), 열린 주문은 auto take-profit SELL ACK 1건(`ODNO=0027188000`, 17주, 19,760원)이다. 이 주문 때문에 배포 drain guard의 in-flight 1건은 계속 남는다.
+
+추가 잔불 — WS unsubscribe invalid_tr_type:
+
+- 14:29 KST 열린 후성 SELL ACK가 체결되며 position/strategy_position이 0으로 정리됐고, HOLDING/VI demand가 해제됐다.
+- 해제 직후 H0UNCNT0/H0UNMKO0 unsubscribe 원문에 `tr_type:"0"`이 포함되어 KIS가 `OPSP8997 JSON PARSING ERROR : invalid tr_type`을 반환했다.
+- 로컬 status는 `stale=false`, `wsConnected=true`, `subscriptions=0`으로 정리됐지만, KIS가 unsubscribe를 거절한 이상 원격 구독 잔류 가능성이 남는다.
+- 보강: 일반 unsubscribe와 graceful shutdown unsubscribe를 모두 `TR_TYPE_UNSUBSCRIBE="2"`로 통일하고, 원문 진단 로그도 실제 trType을 출력한다.
