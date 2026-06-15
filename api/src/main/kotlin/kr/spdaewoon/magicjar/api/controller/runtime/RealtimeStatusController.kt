@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController
  *
  * "구독 중인 모든 토픽·내부 상태까지 한 화면에서 보고 장애를 처리한다"는 요구를 위해, consumer가
  * Redis `admin:realtime-status`에 5초 주기로 발행한 KIS WS 세션·슬롯 회계·구독 owner·체결통보 상태를
- * read → 종목명 join + stale 판정 + ACTIVE 전략 종목 1m 캔들 신선도를 덧붙여 반환한다(read-only 진단).
+ * read → 종목명 join + stale 판정 + ACTIVE 전략/실시간 체결 구독 종목 1m 캔들 신선도를 덧붙여 반환한다(read-only 진단).
  *
  * Swagger 4단 어노테이션 (사용자 메모리 feedback_swagger_pattern 정합).
  *
@@ -42,8 +42,8 @@ class RealtimeStatusController(
             "현재 KIS WebSocket 세션·구독 슬롯 회계·체결가(H0UNCNT0)/호가(H0UNASP0) 구독 owner·체결통보(H0STCNI0/9) " +
                 "상태를 한 번에 반환합니다. consumer가 Redis `admin:realtime-status`에 5초 주기로 발행한 스냅샷을 read하며, " +
                 "스냅샷이 15초 이상 미갱신이면 `stale=true`(consumer 발행 정지·장애 신호)로 표시합니다. " +
-                "subscriptions의 각 종목은 instrument 테이블로 종목명을 join하고, ACTIVE 전략이 사용하는 종목은 " +
-                "1m 캔들 신선도(candleFreshness)를 함께 반영합니다. " +
+                "subscriptions의 각 종목은 instrument 테이블로 종목명을 join하고, ACTIVE 전략 종목과 " +
+                "체결가(H0UNCNT0) 구독 종목은 1m 캔들 신선도(candleFreshness)를 함께 반영합니다. " +
                 "본 응답은 관측 전용 — 구독·매매 로직을 변경하지 않습니다.",
     )
     @ApiResponses(
@@ -86,6 +86,6 @@ data class RealtimeStatusResponse(
     val subscriptions: List<SubscriptionStatusDto>,
     @field:Schema(description = "체결통보 구독 상태")
     val executionNotice: ExecutionNoticeDto,
-    @field:Schema(description = "ACTIVE 전략 종목 1m 캔들 신선도")
+    @field:Schema(description = "ACTIVE 전략 + 체결가(H0UNCNT0) 구독 종목 1m 캔들 신선도")
     val candleFreshness: List<CandleFreshnessDto>,
 )
