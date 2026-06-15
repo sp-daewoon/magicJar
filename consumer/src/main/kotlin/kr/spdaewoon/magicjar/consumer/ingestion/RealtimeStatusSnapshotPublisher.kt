@@ -55,9 +55,10 @@ class RealtimeStatusSnapshotPublisher(
      * 5초 주기 발행 (계약 LOCK — api stale 판정 임계 15초보다 충분히 촘촘).
      *
      * 결함④ fix(2026-06-15): `scheduler` 를 [RealtimeStatusSchedulerConfiguration.REALTIME_STATUS_SCHEDULER]
-     * 전용 단일 스레드로 격리한다. 기본 `scheduling-1` 단일 스레드에서는 [WatchlistPollingWorker] 등 무거운
-     * polling 이 스레드를 점유하는 동안 본 발행이 밀려 `admin:realtime-status` TTL(60s) 만료 → 빨간 배너
-     * false positive 가 발생했다. 전용 스케줄러 격리로 어떤 polling 이 오래 걸려도 5초 cadence 가 유지된다.
+     * 전용 단일 스레드로 격리한다. 기본 `scheduling-1` 단일 스레드에서는 무거운 polling/backfill(과거
+     * `WatchlistPollingWorker` 시세 polling 등 — ADR 0124 amend 로 폐지) 이 스레드를 점유하는 동안 본 발행이
+     * 밀려 `admin:realtime-status` TTL(60s) 만료 → 빨간 배너 false positive 가 발생했다. 전용 스케줄러
+     * 격리로 어떤 polling 이 오래 걸려도 5초 cadence 가 유지된다.
      */
     @Scheduled(
         fixedDelayString = "\${magicjar.kis.ws.admin-status.publish-interval-ms:5000}",

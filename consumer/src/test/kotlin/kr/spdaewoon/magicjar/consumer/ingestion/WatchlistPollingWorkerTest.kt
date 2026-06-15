@@ -1,232 +1,77 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
-import kotlinx.datetime.Clock
-import kr.spdaewoon.magicjar.consumer.infrastructure.cache.RedisQuoteCacheAdapter
-import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisRestPriceAdapter
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
-import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
-import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
-import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
-import kr.spdaewoon.magicjar.domain.user.AccountType
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.springframework.http.HttpHeaders
-import org.springframework.http.HttpMethod
-import org.springframework.http.HttpStatus
-import org.springframework.web.reactive.function.client.WebClientRequestException
-import org.springframework.web.reactive.function.client.WebClientResponseException
-import java.math.BigDecimal
-import java.net.URI
-import java.nio.charset.StandardCharsets
 
 /**
- * WatchlistPollingWorker 단위 테스트 (결함④ fix · 2026-06-15).
+ * WatchlistPollingWorker 단위 테스트 — **시세 5초 REST polling 폐지** (ADR 0124 amend · 2026-06-15 결재).
  *
  * 검증 목표:
- * 1. polling tick 시 현재가 단건(FHKST01010100 inquire-price) fetch → Redis quote cache 갱신.
- * 2. 더 이상 candle fetch/DB upsert 를 하지 않는다(50페이지 5,000봉 폭주 root cause 제거).
- * 3. REAL 자격증명 부재 시 fetch skip(현재가 endpoint 는 userId 토큰 필요).
+ * 1. watchlist pool 등록/제거/조회 기능은 유지된다(등록/삭제/priority 기능 보존).
+ * 2. start/stop 상태 플래그만 토글하고 KIS REST 시세 조회는 더 이상 하지 않는다(EGW00201 quota 낭비 제거).
  *
- * 배경: 기존 `fetchCandles(ONE_DAY, 1)` 은 count 무시 → 1d max page(50) 페이지네이션으로 종목당 최대
- * 5,000봉을 매 tick 받아 단일 스케줄러 스레드를 점유 → status 발행이 밀려 빨간 배너 false positive 유발.
+ * 배경: 기존 5초 `@Scheduled tick()` 은 watchlist 종목 현재가를 KIS REST(FHKST01010100)로 polling 해
+ * quote:last 캐시를 채웠으나, 운영 실측상 KIS EGW00201(초당 거래건수 초과)을 유발하고 USER bucket(주문·잔고)과
+ * 경합했다. quote:last 라이브 공급은 본 polling 단일 경로였고 최고 관리자가 watchlist 시세 화면을 미사용 →
+ * 순수 quota 낭비로 결재되어 자동 조회 책임이 폐지됐다.
  */
 class WatchlistPollingWorkerTest {
-    private val redisQuoteCacheAdapter = mockk<RedisQuoteCacheAdapter>(relaxed = true)
-    private val kisRestPriceAdapter = mockk<KisRestPriceAdapter>()
-    private val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
-
     private lateinit var worker: WatchlistPollingWorker
-
-    private val realCredentialEntity =
-        ConsumerUserKisCredentialJpaEntity(
-            id = ConsumerUserKisCredentialId(userId = "user001", accountType = AccountType.REAL.name),
-            accountNumber = "12345678",
-            appKeyEnc = ByteArray(0),
-            secretKeyEnc = ByteArray(0),
-        )
-
-    private fun tickEvent(
-        code: String = "005930",
-        price: String = "75000",
-        volume: Long = 12_000_000L,
-    ) = TickEvent(
-        code = code,
-        price = BigDecimal(price),
-        volume = volume,
-        ts = Clock.System.now(),
-        source = "polling",
-        stale = false,
-    )
 
     @BeforeEach
     fun setUp() {
-        worker =
-            WatchlistPollingWorker(
-                redisQuoteCacheAdapter = redisQuoteCacheAdapter,
-                kisRestPriceAdapter = kisRestPriceAdapter,
-                credentialRepository = credentialRepository,
-                interCallDelayMs = 0,
-            )
+        worker = WatchlistPollingWorker()
+    }
+
+    @Test
+    fun `watchlist pool add 시 poolSize 증가 + poolCodes 반영`() {
+        worker.add("005930")
+        worker.add("000660")
+
+        assertThat(worker.poolSize()).isEqualTo(2)
+        assertThat(worker.poolCodes()).containsExactlyInAnyOrder("005930", "000660")
+    }
+
+    @Test
+    fun `중복 add 는 멱등 (set 기반)`() {
+        worker.add("005930")
+        worker.add("005930")
+
+        assertThat(worker.poolSize()).isEqualTo(1)
+    }
+
+    @Test
+    fun `watchlist pool remove 시 poolSize 감소`() {
+        worker.add("005930")
+        worker.add("000660")
+
+        worker.remove("005930")
+
+        assertThat(worker.poolSize()).isEqualTo(1)
+        assertThat(worker.poolCodes()).containsExactly("000660")
+    }
+
+    @Test
+    fun `start stop 은 running 플래그만 토글한다 (시세 조회 없음)`() {
+        assertThat(worker.running).isFalse()
+
+        worker.start()
+        assertThat(worker.running).isTrue()
+
+        worker.stop()
+        assertThat(worker.running).isFalse()
+    }
+
+    @Test
+    fun `start 해도 KIS REST 시세 조회 의존성이 없다 (자동 polling 폐지)`() {
+        // ADR 0124 amend: worker 는 무인자 생성자다(RedisQuoteCache·KisRestPriceAdapter·credential 의존 제거).
+        // 시세 자동 조회 경로가 코드에서 사라졌음을 생성자 시그니처가 보증한다.
         worker.add("005930")
         worker.start()
+
+        // pool 관리만 살아있고 어떤 외부 KIS 호출도 트리거되지 않는다(의존성 0 → 호출 불가).
+        assertThat(worker.poolCodes()).containsExactly("005930")
+        assertThat(worker.running).isTrue()
     }
-
-    @Test
-    fun `polling tick 시 현재가 fetch + Redis quote cache 갱신`() {
-        // given
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
-
-        // when
-        worker.tick()
-
-        // then — 현재가 endpoint 호출 + Redis 갱신
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
-        verify(exactly = 1) {
-            redisQuoteCacheAdapter.putQuote(
-                code = "005930",
-                price = BigDecimal("75000"),
-                volume = 12_000_000L,
-                source = "polling",
-            )
-        }
-    }
-
-    @Test
-    fun `REAL 자격증명 부재 시 현재가 fetch skip`() {
-        // given — REAL credential 없음
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns emptyList()
-
-        // when
-        worker.tick()
-
-        // then — fetch 자체 미진입
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice(any(), any()) }
-        verify(exactly = 0) { redisQuoteCacheAdapter.putQuote(any(), any(), any(), any()) }
-    }
-
-    @Test
-    fun `credential userId 빈 문자열이면 skip (DB 결함 방어)`() {
-        // given — userId 빈 문자열
-        val blankUserEntity =
-            ConsumerUserKisCredentialJpaEntity(
-                id = ConsumerUserKisCredentialId(userId = "", accountType = AccountType.REAL.name),
-                accountNumber = "12345678",
-                appKeyEnc = ByteArray(0),
-                secretKeyEnc = ByteArray(0),
-            )
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(blankUserEntity)
-
-        // when
-        worker.tick()
-
-        // then
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice(any(), any()) }
-    }
-
-    @Test
-    fun `running=false 면 tick skip`() {
-        // given
-        worker.stop()
-
-        // when
-        worker.tick()
-
-        // then — credential 조회조차 안 함
-        verify(exactly = 0) { credentialRepository.findAllByAccountType(any()) }
-    }
-
-    @Test
-    fun `polling tick 은 max-codes-per-tick 만큼 round-robin 으로 조회한다`() {
-        // given
-        worker.add("000660")
-        worker.add("035420")
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } returns tickEvent(code = "000660")
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent(code = "005930")
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "035420") } returns tickEvent(code = "035420")
-
-        // when — sorted pool: 000660, 005930, 035420. default max=2.
-        worker.tick()
-        worker.tick()
-
-        // then — 첫 tick 2개, 둘째 tick 다음 2개(순환)만 조회.
-        verify(exactly = 2) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "035420") }
-    }
-
-    @Test
-    fun `KIS rate-limit 응답 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
-        // given
-        worker.add("000660")
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws rateLimitException()
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
-
-        // when
-        worker.tick()
-        worker.tick()
-
-        // then — 첫 tick 에 000660 rate-limit 감지 후 005930 미호출, 둘째 tick 은 cooldown 으로 전체 skip.
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
-    }
-
-    @Test
-    fun `local rate-limit acquire timeout 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
-        // given
-        worker.add("000660")
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws
-            KisRateLimitTimeoutException(KisCallPriority.INGESTION, timeoutMillis = 3000L)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
-
-        // when
-        worker.tick()
-        worker.tick()
-
-        // then — local limiter timeout 도 KIS quota 압박으로 보고 slice 중단 + cooldown.
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
-    }
-
-    @Test
-    fun `KIS request failure 시 남은 slice 를 중단하고 cooldown 동안 다음 tick 을 skip 한다`() {
-        // given
-        worker.add("000660")
-        every { credentialRepository.findAllByAccountType(AccountType.REAL.name) } returns listOf(realCredentialEntity)
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") } throws requestFailureException()
-        every { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") } returns tickEvent()
-
-        // when
-        worker.tick()
-        worker.tick()
-
-        // then — connection prematurely closed 류 요청 실패도 KIS 불안정으로 보고 slice 중단 + cooldown.
-        verify(exactly = 1) { kisRestPriceAdapter.fetchPollingPrice("user001", "000660") }
-        verify(exactly = 0) { kisRestPriceAdapter.fetchPollingPrice("user001", "005930") }
-    }
-
-    private fun rateLimitException(): WebClientResponseException =
-        WebClientResponseException.create(
-            HttpStatus.INTERNAL_SERVER_ERROR.value(),
-            "Internal Server Error",
-            org.springframework.http.HttpHeaders.EMPTY,
-            """{"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다."}""".toByteArray(),
-            StandardCharsets.UTF_8,
-        )
-
-    private fun requestFailureException(): WebClientRequestException =
-        WebClientRequestException(
-            RuntimeException("Connection prematurely closed BEFORE response"),
-            HttpMethod.GET,
-            URI.create("https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price"),
-            HttpHeaders.EMPTY,
-        )
 }

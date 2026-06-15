@@ -44,6 +44,19 @@ watchlist owner의 KIS WS 체결가 구독을 폐지하고, watchlist 시세 공
 - **watchlist 기능은 유지**(등록/삭제/priority/화면) — **시세 공급 채널만 WS → polling**으로 바뀐다. watchlist 도메인·UI·우선순위는 무변경.
 - **eviction 로직 단순화**: 0123 §2-2의 WATCHLIST(priority 20) victim 선정·polling 강등 fallback 분기가 제거된다. watchlist는 더 이상 ledger의 slot owner가 아니므로, eviction 대상 집합에서 빠진다. → eviction 대상 = STRATEGY·DETAIL 2종으로 축소(HOLDING·PENDING_BUY는 evict 금지 LOCK 계승).
 
+#### ★ amend (2026-06-15, 최고 관리자 직접 결재) — watchlist 시세 5초 REST polling **폐지**
+
+§2-B의 "watchlist 시세 = 5초 REST polling 전용" 결정을 **폐지**한다. **watchlist 시세 자동 polling 자체를 제거**하고, `quote:last` Redis 캐시는 WS owner(STRATEGY/HOLDING/PENDING_BUY/DETAIL) 경로가 채운다(혹은 화면이 STOMP WS tick·KIS PriceMetrics 폴백으로 직접 조달).
+
+- **운영 evidence**: `WatchlistPollingWorker.tick()`이 5초마다 watchlist 등록 종목 현재가를 KIS REST(`FHKST01010100` inquire-price)로 조회했고, 이 polling이 KIS **`EGW00201`(초당 거래건수 초과)**를 지속 유발하며 USER bucket(주문·잔고 hot path)과 경합해 잔고조회 `EGW00215`까지 밀었다(2026-06-15 REAL 세션 실측).
+- **근거**: 이 polling이 채우던 `quote:last`는 watchlist 전용 종목(STRATEGY/HOLDING/PENDING_BUY/DETAIL owner에 안 걸린 종목)의 화면 시세만 추가로 채웠다. **최고 관리자가 watchlist 시세 화면을 사용하지 않으므로 순수 KIS quota 낭비**다.
+- **영향도 audit (무회귀 결재)**:
+  - STRATEGY/DETAIL 종목 상세 화면 — frontend는 STOMP `topic.market.tick`으로 WS tick을 실시간 수신하므로 `quote:last` 부재의 영향이 없다. REST 첫 조회(`SymbolMetaService`)는 `quote:last` 1순위가 비면 KIS PriceMetrics(2순위)로 폴백한다(폴백 설계됨).
+  - `CandleQueryService`·`CandleHealthService`의 `quote:last` 소비는 WS/PriceMetrics 경로로 충족된다.
+  - watchlist 전용 종목의 화면 시세만 안 나옴 — **결재된 trade-off**.
+- **watchlist 기능은 유지**(등록/삭제/priority/DB·pool). 시세 자동 조회 책임만 폐지된다. `WatchlistPollingWorker`는 pool 추적/`start`/`stop` API만 보존(향후 재활성화 hook). `application.yml`의 `watchlist-polling.*` throttle 설정과 worker의 KIS REST·credential 의존성을 제거했다.
+- **구현**: `agent/backend-core/watchlist-polling-and-strategy-drift` (consumer 모듈).
+
 ### 2-C. owner 우선순위 재정렬: HOLDING > PENDING_BUY > STRATEGY > DETAIL
 
 WS slot owner priority를 재정렬한다(낮을수록 상위):
@@ -121,3 +134,4 @@ WS slot owner priority를 재정렬한다(낮을수록 상위):
 |---|---|
 | 2026-06-13 | ADR 0124 본문 발행 (Accepted) — architect opus 4.8. KIS WS 구독 수요 재편 3건 LOCK(최고 관리자 직접 결재): ①H0UNCNT0 단일 채널 기본(ADR 0123 R3 채택 확정·라이브 31→16 실측) ②watchlist WS 구독 폐지→5초 REST polling 전용 강등(매매 본체 기여 0·WS 40 slot 매매 전용 보존·eviction 단순화) ③owner priority 재정렬 HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20)(STRATEGY>DETAIL 역전=매매 경로>관찰 경로·WATCHLIST owner 폐지). ADR 0123 amend(R3 채택 확정·owner 재정렬·watchlist owner 제거). KIS-first raw(`ccnl_total.py` H0UNCNT0+`NEW_MKOP_CLS_CODE`). 구현=market-data 병렬(`agent/market-data/...`). |
 | 2026-06-13 | 이중 발사 경로·`INTEGRATED_TICK` flag 완전 제거 현행화 (최고 관리자 결재 "문서에서 다 지워라") — deprecated·비상 롤백 잔존·제거 예정 서술을 H0UNCNT0 단일 채널 확정으로 압축. 롤백은 CHANGELOG v3.13.2 코드 참조. md only. |
+| 2026-06-15 | **§2-B amend — watchlist 시세 5초 REST polling 폐지** (최고 관리자 직접 결재 · backend-core opus 4.8). `WatchlistPollingWorker.tick()`의 5초 KIS REST(`FHKST01010100`) 시세 조회가 `EGW00201`(초당 거래건수 초과) 지속 유발 + USER bucket(주문·잔고) 경합 → 잔고조회 `EGW00215`까지 밀어 결재. polling이 채우던 `quote:last`는 watchlist 전용 종목 화면 시세만 추가 공급했고 최고 관리자 미사용 → 순수 quota 낭비. watchlist 등록/삭제/priority 기능은 유지, 시세 자동 조회 책임만 폐지. STRATEGY/DETAIL 종목은 STOMP WS tick·KIS PriceMetrics 폴백으로 무회귀. worker KIS REST·credential 의존성 + `application.yml watchlist-polling.*` throttle 설정 제거. 구현=`agent/backend-core/watchlist-polling-and-strategy-drift`. |

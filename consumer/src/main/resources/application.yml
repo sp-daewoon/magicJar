@@ -214,14 +214,10 @@ magicjar:
       # WARN(silent 누락 차단 §11-2 — 2026-06-15 403870 silent 누락 결함 ②). 정규장(08:00~20:00 KST)만 점검.
       # 0 이하면 watchdog 비활성(롤백 toggle).
       no-tick-watchdog-seconds: ${MAGICJAR_KIS_WS_NO_TICK_WATCHDOG_SECONDS:120}
-      # watchlist REST 현재가 polling throttle (ADR 0124 후속 · 2026-06-15 EGW00201 hotfix).
-      # watchlist 는 KIS WS slot 을 쓰지 않는 보조 화면 경로다. 한 tick 에 전체 관심종목을 모두 조회하면
-      # FHKST01010100 EGW00201 이 누적되고 USER_PATH 잔고조회와 경합한다. round-robin slice + INGESTION
-      # bucket + cooldown 으로 주문/잔고 USER bucket 을 보호한다.
-      watchlist-polling:
-        max-codes-per-tick: ${MAGICJAR_KIS_WS_WATCHLIST_POLLING_MAX_CODES_PER_TICK:2}
-        inter-call-delay-ms: ${MAGICJAR_KIS_WS_WATCHLIST_POLLING_INTER_CALL_DELAY_MS:500}
-        rate-limit-cooldown-ms: ${MAGICJAR_KIS_WS_WATCHLIST_POLLING_RATE_LIMIT_COOLDOWN_MS:30000}
+      # watchlist 시세 5초 REST polling 폐지 (ADR 0124 amend · 2026-06-15 최고 관리자 결재).
+      #   기존 throttle 설정(max-codes-per-tick·inter-call-delay-ms·rate-limit-cooldown-ms)은 worker 가
+      #   더 이상 KIS REST 를 호출하지 않으므로 제거했다. watchlist 화면 시세 polling 은 KIS quota(EGW00201)
+      #   순수 낭비로 결재돼 자동 조회 책임이 폐지됐다. watchlist 등록/삭제/priority 기능은 유지.
       # ADR 0123 R1 — KIS WS 구독 슬롯 단일 회계기 (WsSlotBudgetLedger).
       # max-slots: KIS 동시 구독 한도 (KIS-first kis_auth.py __runner() enforce 값 40, 상수 아닌 설정).
       #   KIS-first raw: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py

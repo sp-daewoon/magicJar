@@ -11,8 +11,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler
  *
  * ## 왜 전용 스케줄러인가
  * Spring 기본 `@Scheduled` 는 단일 스레드(`scheduling-1`)에서 모든 작업을 **순차** 실행한다
- * ([ConsumerApplication] 에 커스텀 TaskScheduler 없음). 그 결과 [WatchlistPollingWorker.tick] 같은
- * 무거운 polling 이 스레드를 점유하는 동안 [RealtimeStatusSnapshotPublisher.publishScheduled] 의 5초
+ * ([ConsumerApplication] 에 커스텀 TaskScheduler 없음). 그 결과 무거운 polling/backfill(과거
+ * `WatchlistPollingWorker.tick` 등 — 시세 polling 은 ADR 0124 amend 로 폐지) 이 스레드를 점유하는
+ * 동안 [RealtimeStatusSnapshotPublisher.publishScheduled] 의 5초
  * 발행이 밀려 `admin:realtime-status` Redis 키 TTL(60s)이 만료 → 관리자 화면 "실시간 경로 비정상"
  * 빨간 배너(false positive)가 떴다(2026-06-15 REAL 세션 실측, Codex + 오케스트레이터 코드 검증 일치).
  *

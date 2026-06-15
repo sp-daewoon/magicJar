@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component
  * - groupId: magicjar-consumer-watchlist-ingestion
  * - manual ack (MANUAL_IMMEDIATE — ADR 0045 graceful shutdown 정합)
  * - at-least-once delivery + idempotent 처리
- * - action=ADDED: polling pool 등록 (+ Redis warm은 PollingWorker 첫 tick)
- * - action=REMOVED: polling pool 제거 + Redis evict
+ * - action=ADDED: watchlist pool 등록 (시세 자동 조회 X — ADR 0124 amend 2026-06-15)
+ * - action=REMOVED: watchlist pool 제거 + Redis evict
  *
  * ★ watchlist WS 구독 폐지 (ADR 0124 · 2026-06-13):
  *   watchlist 종목은 처음부터 KIS WS 구독 0 — 5초 REST polling 전용이다(SubscriptionRouter가 polling pool만 관리).
@@ -92,13 +92,13 @@ class WatchlistChangedKafkaListener(
         val code = event.code
         val userId = event.userId
 
-        // 1. SubscriptionRouter에 위임 — watchlist는 WS 구독 0, polling pool 등록 전용 (ADR 0124 결정 2).
+        // 1. SubscriptionRouter에 위임 — watchlist는 WS 구독 0, pool 등록 전용 (ADR 0124 결정 2).
         //    proactive cold-start 백필 폐지 (ADR 0119): 신규 종목 일봉=R-BF/R2 기보유, 1m=차트 진입 on-demand.
         subscriptionRouter.add(userId, code)
 
-        // 2. Redis quote:last warm (즉시 첫 가격 표시 위해)
-        // warm은 PollingWorker가 5초 내 갱신하므로 별도 warm 불필요
-        // (KIS REST 1회 호출은 WatchlistPollingWorker 첫 tick에서 자동 실행)
+        // 2. Redis quote:last warm 없음.
+        //    ADR 0124 amend(2026-06-15): watchlist 시세 5초 REST polling 폐지(KIS quota 보호).
+        //    quote:last 는 더 이상 watchlist 경로로 채우지 않는다. STRATEGY/DETAIL 종목은 STOMP WS tick 직접 수신.
 
         log.info("ADDED 처리 완료: code={}", code)
     }
