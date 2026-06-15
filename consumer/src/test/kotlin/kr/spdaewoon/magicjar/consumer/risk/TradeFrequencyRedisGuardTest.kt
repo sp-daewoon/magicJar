@@ -83,6 +83,14 @@ class TradeFrequencyRedisGuardTest {
     }
 
     @Test
+    fun `removeRecord — minute 와 day 카운트에서 signalId 를 제거`() {
+        guard.removeRecord(strategyId = 8L, userId = "user-A", signalId = 77L)
+
+        verify { zops.remove("risk:trade-freq:8:user-A:minute", "77") }
+        verify { zops.remove("risk:trade-freq:8:user-A:day", "77") }
+    }
+
+    @Test
     fun `countRecentMinute — 롤링 60s 윈도 그대로(당일 경계 무관)`() {
         val now = Instant.parse("2026-06-11T20:00:00Z")
         val fromSlot = slot<Double>()

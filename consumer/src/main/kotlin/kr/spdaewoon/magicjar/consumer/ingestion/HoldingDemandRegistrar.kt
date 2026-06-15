@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 보유 종목 KIS WS 구독 보장 — ADR 0114 §4-3 P3 ([RealtimeDemandOwner.HOLDING] 등록·해제).
@@ -35,6 +36,7 @@ class HoldingDemandRegistrar(
     private val enabled: Boolean = true,
 ) {
     private val log = LoggerFactory.getLogger(HoldingDemandRegistrar::class.java)
+    private val registeredHoldingCodes = ConcurrentHashMap.newKeySet<String>()
 
     /** 부팅 직후 보유 종목 구독 복구(시스템 재시작 시 보유분 구독 공백 0). 인덱스 refresh 이후 register. */
     @PostConstruct
@@ -45,16 +47,26 @@ class HoldingDemandRegistrar(
         registerAllHolding()
     }
 
-    /** 60초 주기 — 보유 종목 HOLDING demand 갱신(TTL refresh) + 신규 보유 등록. 인덱스 refresh 직후 호출 순서 의존 X(각자 refresh 안전). */
+    /** 60초 주기 — 보유 종목 HOLDING demand 갱신(TTL refresh) + 신규 보유 등록 + 청산 종목 명시 해제. */
     @Scheduled(fixedDelayString = "\${magicjar.autotrading.holding-watch.refresh-delay-ms:60000}", initialDelay = 15_000)
     fun refreshHoldingDemands() {
         if (!enabled) return
+        holdingPositionIndex.refresh()
         registerAllHolding()
     }
 
     private fun registerAllHolding() {
         val codes = holdingPositionIndex.holdingKeys().map { it.code }.toSet()
-        codes.forEach { code -> requestHolding(code) }
+        val staleCodes = registeredHoldingCodes.filter { it !in codes }
+        staleCodes.forEach { code ->
+            releaseHolding(code, reason = "refresh-missing")
+        }
+        val activeCodes = mutableSetOf<String>()
+        codes.forEach { code ->
+            if (requestHolding(code)) activeCodes.add(code)
+        }
+        registeredHoldingCodes.clear()
+        registeredHoldingCodes.addAll(activeCodes)
         if (codes.isNotEmpty()) log.debug("HoldingDemandRegistrar refresh: holdingCodes={}", codes.size)
     }
 
@@ -67,10 +79,18 @@ class HoldingDemandRegistrar(
     /** 전량 청산(quantity=0) 시 해제. 잔량 있으면 호출 금지(refresh가 유지). */
     fun onFullyExited(code: String) {
         if (!enabled) return
+        releaseHolding(code, reason = "fully-exited")
+    }
+
+    private fun releaseHolding(
+        code: String,
+        reason: String,
+    ) {
         runCatching {
             realtimeSubscriptionRouter.release(owner = RealtimeDemandOwner.HOLDING, ownerId = holdingOwnerId(code), code = code)
         }.onFailure { e -> log.warn("HOLDING demand release 실패: code={} err={}", code, e.message) }
-        log.info("HOLDING demand release(전량 청산): code={}", code)
+        registeredHoldingCodes.remove(code)
+        log.info("HOLDING demand release: code={} reason={}", code, reason)
     }
 
     /** 주문 제출~체결 사이 pending watch (Codex 흡수 — PENDING_BUY owner). */
@@ -94,11 +114,13 @@ class HoldingDemandRegistrar(
         }.onFailure { e -> log.warn("PENDING_BUY release 실패: code={} err={}", code, e.message) }
     }
 
-    private fun requestHolding(code: String) {
+    private fun requestHolding(code: String): Boolean =
         runCatching {
             realtimeSubscriptionRouter.request(owner = RealtimeDemandOwner.HOLDING, ownerId = holdingOwnerId(code), code = code)
+            registeredHoldingCodes.add(code)
+            true
         }.onFailure { e -> log.warn("HOLDING demand request 실패: code={} err={}", code, e.message) }
-    }
+            .getOrDefault(false)
 
     // bare ownerId — prefix(`holding:`/`pending_buy:`)는 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
     // request/release가 동일 함수를 쓰므로 OwnerKey 매칭 유지(holding=code, pending-buy=orderId 단위 멱등).
