@@ -395,3 +395,154 @@ PR #987 배포 후 관찰:
 - DB 기준 전략 #86은 `PAUSED`, `strategy_position(093370)`과 계좌 `position(093370)`은 모두 0으로 정리됐다. 열린 주문도 0건이다.
 - 배포 후 관찰 창에서 `OPSP8997`, `invalid_tr_type`, `EGW00201`, `EGW00215`, `잔고조회 실패`는 재발하지 않았다.
 - 다만 배포 후에는 active holding/detail subscription이 없어 실제 live unsubscribe 이벤트가 새로 발생하지 않았다. payload 형식은 회귀 테스트에서 raw JSON `tr_type:"2"`로 잠갔다.
+
+## 6. 후성 전략 #86 자동매매 중지 사유 분석
+
+요약:
+
+- 14:08 KST 매도는 익절/손절 라인 체결이 아니라 전략 DSL 매도 신호(`STRATEGY_SIGNAL`)였다.
+- 전략 #86 설정에는 `take_profit_pct=1.0000`, `fixed_stop_loss_pct=2.0000` 외에 별도 청산식 `dsl_exit = close < ma(10)`이 들어가 있었다.
+- `min_hold_bars`가 비어 있어, 매수 직후라도 다음 1분봉에서 `close < ma(10)`이면 DSL 매도 신호가 즉시 허용된다.
+- 14:29 KST 매도는 두 번째 매수 직후 걸린 자동 익절 선주문(`AUTO_EXIT`)이 체결된 것이다.
+
+거래 타임라인:
+
+| KST | order | trigger | 내용 |
+| --- | --- | --- | --- |
+| 14:04:01 | #328 | `STRATEGY_SIGNAL` | BUY 17주 @ 19,530 체결 |
+| 14:04:02 | #329 | `AUTO_EXIT` | 익절 LIMIT SELL 17주 @ 19,720 접수 |
+| 14:07:00 | signal #1079 | `close < ma(10)` | SELL 신호 발생했으나 KIS 잔고조회 실패로 차단 |
+| 14:08:01 | #329 | - | 기존 익절 LIMIT SELL 취소 처리 |
+| 14:08:02 | #330 | `STRATEGY_SIGNAL` | MARKET SELL 17주 @ 19,500 체결 |
+| 14:10:01 | #331 | `STRATEGY_SIGNAL` | BUY 17주 @ 19,570 체결 |
+| 14:10:02 | #332 | `AUTO_EXIT` | 익절 LIMIT SELL 17주 @ 19,760 접수 |
+| 14:29:01 | #332 | `AUTO_EXIT` | LIMIT SELL 17주 @ 19,760 체결 |
+
+14:08 매도 근거:
+
+- signal #1080: `side=SELL`, `reason=THRESHOLD: close vs ma(10)`, `risk_status=ALLOWED`.
+- candle 재계산 기준 14:07 close=19,500, MA10=19,519.50, 따라서 `close < ma(10)`가 참이었다.
+- 기존 auto-tp #329는 전략 SELL 발행 전에 `RestingSellOrderCanceller` 경로로 취소됐다. KIS는 미체결 SELL이 보유 수량을 잠그므로, DSL SELL/손절이 먼저 오면 기존 auto-tp를 취소한 뒤 시장가 SELL을 내는 구현이다.
+
+14:29 매도 근거:
+
+- order #332는 `order_trigger=AUTO_EXIT`, `price_type=LIMIT`, `limit_price=19760`.
+- 두 번째 BUY 평단 19,570원에 `take_profit_pct=1%`를 적용하면 19,765.7원이고, 호가단위 내림으로 19,760원이 된다.
+- 따라서 14:29 매도는 시스템 기준 익절 선주문 체결이다.
+
+손익:
+
+- 1차 왕복: 19,530 매수 → 19,500 매도, 총 -510원.
+- 2차 왕복: 19,570 매수 → 19,760 매도, 총 +3,230원.
+- 합산 총 +2,720원으로 `strategy_position.realized_pnl=2720`과 일치한다.
+
+판정:
+
+- 데이터 기준으로는 “익절/손절 watcher가 오작동해 임의 매도했다”는 증거는 없다. `STOP_LOSS`, `VI_AUTO_EXIT` 트리거도 발견되지 않았다.
+- 실제 문제는 전략 설정과 운영 기대가 어긋난 것이다. #86은 “매수 후 익절/손절 라인만 대기”하는 전략이 아니라, `close < ma(10)` DSL 청산도 동시에 켜진 전략이었다.
+- `min_hold_bars` 미설정으로 매수 직후 DSL 청산을 막는 완충 구간이 없었다.
+- 체결 알림 본문에는 `orderTrigger`가 드러나지 않아, 사용자가 `STRATEGY_SIGNAL` 매도와 `AUTO_EXIT` 매도를 즉시 구분하기 어렵다.
+
+권고:
+
+- #86을 “TP/SL만으로 청산”하려면 `dsl_exit`를 비우거나 비활성화하고, 필요한 경우 `min_hold_bars`를 설정해 매수 직후 DSL SELL을 막아야 한다.
+- 전략 체결 알림 본문에 `주문출처: 전략 SELL / 자동 익절 / 손절 / VI 자동청산`을 명시해야 한다.
+- 운영 UI에도 현재 전략의 청산 경로(`dsl_exit`, take-profit, stop-loss, VI policy, minHold)를 한 화면에 표시해야 한다.
+
+## 7. 20개 이상 다전략 장중 운용 준비도
+
+사용자 목표:
+
+- 20개 이상 전략을 동시에 켜고, 5분봉/15분봉/1분봉이 혼재해도 각 전략이 독립적으로 진입/청산해야 한다.
+- 같은 종목에 같은 1분봉이더라도 서로 다른 DSL을 쓰는 전략이 공존할 수 있어야 한다.
+- 매도 사인이 오면 그 전략의 보유분을 팔 수 있어야 한다.
+
+현재 판정:
+
+- 시그널 생성기는 같은 `(code, interval)`에 여러 전략이 있으면 boundary 1건마다 전략 수만큼 순차 평가한다. 즉 평가 자체는 가능하다.
+- 그러나 주문/포지션/구독/리스크 쪽은 아직 “다전략 오케스트레이션”이라기보다 “전략별 가상 lot을 보수적으로 지키는 단일 계좌 투영”에 가깝다.
+- 따라서 20전략 운영은 기능적으로 일부 가능하지만, 운영 안정성은 아직 부족하다.
+
+핵심 문제 1 — 전략별 포지션 원장 race:
+
+- 15:10 KST 삼성전자 #88 BUY 1주가 실제 체결됐다.
+- 직후 로그 흐름:
+  - `execution position update ... nextQty=1 source=REAL`
+  - `strategy_position upsert ... strategyId=88 ... nextQty=1`
+  - `STRATEGY_POSITION_DRIFT_CORRECTED ... strategySum=1->0 ... authorityQuantity=0`
+- 결과:
+  - `position(REAL,005930)=1`
+  - `strategy_position(88,005930)=0`
+  - `order_request #334 AUTO_EXIT SELL ACK 1주`는 남아 있음
+  - `strategy_position quantity > 0` row는 0건
+- 추정 원인:
+  - `position`은 native upsert로 갱신되지만, 같은 transaction/persistence context에서 직전에 읽힌 stale entity quantity=0이 남아 있을 수 있다.
+  - strategy_position drift 보정이 그 stale authority=0을 보고 방금 정상 귀속한 #88 보유 1주를 즉시 0으로 내렸다.
+- 영향:
+  - 보유 기반 HOLDING 구독과 tick 손절/익절 watcher가 전략 보유를 못 볼 수 있다.
+  - 실제 계좌에는 1주가 있는데 전략별 원장에는 0이라, 이후 청산 신호/알림/리스크가 꼬인다.
+  - 다전략 이전에 단일 전략에서도 P0급 정합 결함이다.
+
+핵심 문제 2 — 같은 종목 다전략 SELL 충돌:
+
+- 브로커 계좌는 종목별 순수량만 알고, 전략별 보유 태그를 알지 못한다.
+- 시스템은 이를 `strategy_position`으로 가상 분리한다.
+- 하지만 한 전략이 SELL을 내기 전에 같은 종목 open SELL을 검사하면, 수동/타전략 SELL은 침범 금지로 취소하지 않고 차단한다.
+- 이 설계는 안전하지만 다음 상황에서 사용자가 기대한 독립 운용과 충돌한다:
+  - 삼성전자 1분봉 전략 A와 B가 동시에 각 1주 보유
+  - A의 auto-tp가 open SELL로 걸려 있음
+  - B의 손절/DSL SELL이 먼저 발생
+  - B는 A의 open SELL을 타전략 예약으로 보고 보류/차단될 수 있음
+- 즉 “같은 종목 여러 전략이 각자 매도 사인에 독립 반응”은 현재 완전 지원이라고 보기 어렵다.
+
+핵심 문제 3 — DSL exit와 TP/SL이 모두 청산 경로:
+
+- #85/#86 오늘 거래에서 반복 확인됐다.
+- BUY 체결 직후 auto-tp LIMIT이 걸리고, 이후 DSL SELL이 오면 기존 auto-tp를 취소한 뒤 전략 SELL이 시장가로 나간다.
+- 사용자가 “익절/손절 라인만 청산”으로 이해하면 실제 동작과 다르다.
+- 다전략에서는 이 혼선이 더 커진다. 각 전략마다 `dsl_exit`, `take_profit_pct`, `fixed_stop_loss_pct`, `vi_action_policy`, `min_hold_bars`를 한눈에 보여줘야 한다.
+
+핵심 문제 4 — KIS USER 경로 호출 압박:
+
+- 오늘 `KIS_TPS_EXCEEDED` system event 39건, `SIGNAL_SKIPPED_CAPITAL_UNAVAILABLE` 4건, `EGW00215` 재발이 있었다.
+- 일부 hotfix로 fresh-cache/cooldown/preflight를 넣었지만, 20전략이 1분봉 boundary에서 동시에 BUY/SELL을 만들면 다음 호출이 다시 몰린다:
+  - capital/balance 조회
+  - execution backfill 조회
+  - asking-price/quote 조회
+  - 주문 hashkey/주문/취소
+- 현재는 시그널 단위 처리라 “같은 user 같은 초에 여러 전략 신호”를 batch로 묶어 KIS 조회 1회로 공유하는 계층이 약하다.
+
+핵심 문제 5 — 구독과 readiness가 전략 규모에 민감:
+
+- realtime subscription은 code 단위 owner ledger로 dedup하지만, 오늘 watchlist polling network failure와 `무tick 감지`가 계속 보였다.
+- 15:10 #88 보유 원장 race 후 005930 HOLDING demand가 `refresh-missing`으로 release됐고, 이후 005930 구독이 빠졌다.
+- 즉 구독 시스템 자체보다, 구독의 입력인 strategy_position/holding owner ledger가 깨지면 realtime도 같이 흔들린다.
+
+핵심 문제 6 — 평가 경로 최적화 부족:
+
+- 같은 `(code, interval)` boundary에서 여러 전략이 있으면 전략마다:
+  - strategy row 조회/DSL parse 결과 사용
+  - candle history 조회
+  - indicator 계산
+  - signal 저장/publish
+  - risk context 구성
+- code+interval 단위 candle/indicator snapshot을 한 번 만들고 여러 DSL이 공유하는 구조가 아직 강하지 않다.
+- 전략 20개가 전부 삼성전자 1분봉이면, 논리적으로는 1개 candle snapshot에 20 DSL 평가면 되지만 현재는 중복 비용이 크다.
+
+우선순위:
+
+| 우선순위 | 항목 | 이유 |
+| --- | --- | --- |
+| P0 | strategy_position race 수정 | 실제 보유와 전략 원장이 갈라져 청산/구독/리스크가 붕괴 |
+| P0 | 동일 종목 다전략 SELL 충돌 정책 재설계 | 전략별 독립 청산 목표와 현재 fail-closed 정책이 충돌 |
+| P1 | user+초 단위 KIS 조회 coalescing | 20전략에서 KIS USER path 자가 압박 재발 가능 |
+| P1 | 청산 경로 UI/알림 명확화 | 사용자가 DSL SELL, AUTO_EXIT, STOP_LOSS를 구분 못함 |
+| P1 | code+interval 평가 batch/cache | 같은 종목/분봉 다전략 비용 감소 필요 |
+| P2 | 다전략 simulation harness | 같은 종목 1m 전략 A/B, 5m/15m 혼재, 동시 SELL/BUY race를 자동 검증 |
+
+단기 안전 운용 가이드:
+
+- 같은 종목에 실계좌 전략 2개 이상을 동시에 켜는 것은 아직 피한다.
+- 실계좌는 종목당 1전략부터 확장하고, 같은 종목 다전략은 페이퍼/소액 격리로 먼저 검증한다.
+- `dsl_exit`가 있는 전략은 TP/SL만 청산하는 전략이 아님을 전제로 운용한다.
+- `min_hold_bars` 없이 1분봉 DSL exit가 있는 전략은 매수 직후 청산이 정상 동작으로 발생할 수 있다.
