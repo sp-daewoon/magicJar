@@ -22,6 +22,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 본 provider의 유일한 호출처는 [SignalGeneratedKafkaListener.buildContext]의 `currentCapital` —
  * **주문 수량/한도(POSITION_LIMIT 예산·DAILY_LOSS_LIMIT) 산정 경로**다. stale 잔고는 오버주문 위험이므로
  * (사용자 지시 — 주문 관련 캐시 제거) Redis 표시용 cache를 **우회하고 KIS [KisBalanceQueryPort]로 직접 조회**한다.
+ * 단, 2026-06-15 REAL 장중에서 1분 신호가 직전 성공 잔고 직후에도 매번 KIS 잔고를 직접 조회해 `EGW00215`
+ * 를 재유발했다. 그래서 아주 짧은 fresh-cache reuse window(default 90초)를 둔다. 이 창 안의 직전 성공
+ * snapshot 은 KIS 원장 TPS 보호를 위해 재사용한다(0이면 비활성).
  *
  * ### F10 — 조회 실패 시 0 fabricate 폐기 → 재시도 → stale-cache → skip (2026-06-12 최고 관리자 결재)
  * 14:12 라이브 incident: 잔고조회가 rate limit(EGW00215)로 실패하자 **capital=0 을 fabricate** →
@@ -60,6 +63,8 @@ class KisCapitalSnapshotProviderAdapter(
     // F10 — 최근 성공 capital snapshot 유효 시간(분). 이 시간 내면 조회 실패 시 직전 성공값(stale)을 재사용.
     @Value("\${magicjar.risk.capital-stale-cache-ttl-minutes:5}")
     private val staleCacheTtlMinutes: Long = 5,
+    @Value("\${magicjar.risk.capital-fresh-cache-reuse-seconds:90}")
+    private val freshCacheReuseSeconds: Long = 90,
     private val clock: () -> Instant = Instant::now,
 ) : CapitalSnapshotProvider {
     private val log = LoggerFactory.getLogger(KisCapitalSnapshotProviderAdapter::class.java)
@@ -89,6 +94,8 @@ class KisCapitalSnapshotProviderAdapter(
      * KIS 가 성공적으로 0 을 반환한 경우에만 발생(그 경우만 정상 POSITION_LIMIT 평가 대상).
      */
     override fun capitalOutcome(userId: String): CapitalOutcome {
+        freshCacheOrNull(userId)?.let { return it }
+
         val port = balanceQueryPortProvider?.getIfAvailable()
         if (port == null) {
             log.error(
@@ -166,6 +173,28 @@ class KisCapitalSnapshotProviderAdapter(
             )
         }
         return CapitalOutcome.Unavailable(reason)
+    }
+
+    /**
+     * 매우 짧은 성공 snapshot 재사용. 장중 1분 신호가 KIS 원장 TPS를 매번 소모하지 않게 하는 완충이다.
+     * stale=true 로 반환해 caller 로그와 audit에서 직접 fresh 조회가 아니었음을 보존한다.
+     */
+    private fun freshCacheOrNull(userId: String): CapitalOutcome.Available? {
+        val reuseSeconds = freshCacheReuseSeconds.coerceAtLeast(0)
+        if (reuseSeconds <= 0) return null
+        val cached = recentCapital[userId] ?: return null
+        val ageSeconds = Duration.between(cached.at, clock()).seconds
+        if (ageSeconds in 0..reuseSeconds) {
+            log.info(
+                "KisCapitalSnapshotProvider capital fresh-cache 재사용 — capital={} ageSec={} reuseSec={} (userId={})",
+                cached.capital,
+                ageSeconds,
+                reuseSeconds,
+                maskUserId(userId),
+            )
+            return CapitalOutcome.Available(capital = cached.capital, stale = true)
+        }
+        return null
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

@@ -355,3 +355,9 @@ canary 거래빈도 오염 수정 배포 뒤에도 Dozzle/consumer 로그에서 
 - 안정 부팅 이후 `/api/admin/realtime-status`는 `stale=false`, `wsConnected=true`, `slotsUsed=2`, `subscriptions=2`로 fresh.
 - 관찰 창에서 `EGW00201`, `EGW00215`, 잔고조회 실패 재발 없음.
 - `Connection prematurely closed BEFORE response`는 1회 있었지만 `watchlist polling KIS failure ... reason=request-failure ... cooldownMs=30000`로 남은 slice 중단 + cooldown 처리됨.
+
+추가 잔불:
+
+- 14:04 KST 전략 #86 BUY 17주가 실제 체결됐다. 이는 코드의 canary cap 우회가 아니라 운영 `.env`에서 `MAGICJAR_CANARY_MAX_ORDER_QTY=0`, `MAGICJAR_CANARY_MAX_ORDER_NOTIONAL_KRW=0`, `MAGICJAR_CANARY_MAX_ORDERS_PER_DAY=0`으로 전용 cap이 비활성화된 결과다. `.env` 주석도 "금액 cap 35만원으로 통일" 결재 상태를 가리킨다.
+- 14:05 KST 다음 BUY 신호는 `POSITION_LIMIT`으로 차단됐지만, 그 전에 KIS 잔고조회가 `EGW00215`를 다시 맞았다. 직전 14:04 성공 잔고가 있었는데도 1분 뒤 KIS 원장을 다시 직접 조회해 USER 경로 압박을 만든 것이다.
+- 보강: `KisCapitalSnapshotProviderAdapter`에 90초 fresh-cache reuse window를 추가한다. 직전 성공 잔고가 이 창 안이면 KIS 직접 조회를 생략하고 stale=true Available로 재사용해 1분 신호 반복의 원장 TPS 자가압박을 줄인다.

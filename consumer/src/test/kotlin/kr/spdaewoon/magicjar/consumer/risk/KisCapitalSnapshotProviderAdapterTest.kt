@@ -27,6 +27,7 @@ import java.time.Instant
  * 4. 조회 실패 + stale-cache TTL 초과 → Unavailable(skip)
  * 5. provider bean 부재 → Unavailable(skip)
  * 6. KIS fresh 0 netAssetValue(실제 0 잔고) → Available(0) — 진짜 0 은 정상값
+ * 7. 직전 성공 90초 내 재호출 → KIS 직접 조회 없이 fresh-cache 재사용(EGW00215 자가압박 완화)
  *
  * mock 합성 0 LOCK (feedback_no_mock_data): 본 테스트는 fixture (테스트 fixture 면제).
  * AI 호출 0 LOCK (룰 5 + ADR 0023 §2-4): LLM provider import 0.
@@ -95,6 +96,24 @@ class KisCapitalSnapshotProviderAdapterTest {
         val available = outcome as CapitalOutcome.Available
         assertThat(available.capital).isEqualByComparingTo("12000000.00")
         assertThat(available.stale).isFalse()
+        verify(exactly = 1) { balanceQueryPort.fetchFullBalance(userId, AccountType.MOCK) }
+    }
+
+    @Test
+    fun `직전 성공 90초 내 재호출은 KIS 직접 조회 없이 fresh-cache 를 재사용한다`() {
+        every { portProvider.getIfAvailable() } returns balanceQueryPort
+        every { balanceQueryPort.fetchFullBalance(userId, AccountType.MOCK) } returns
+            fixtureSnapshot(BigDecimal("12000000.00"))
+
+        sut.capitalOutcome(userId)
+
+        nowRef = nowRef.plusSeconds(60)
+        val outcome = sut.capitalOutcome(userId)
+
+        assertThat(outcome).isInstanceOf(CapitalOutcome.Available::class.java)
+        val available = outcome as CapitalOutcome.Available
+        assertThat(available.capital).isEqualByComparingTo("12000000.00")
+        assertThat(available.stale).isTrue()
         verify(exactly = 1) { balanceQueryPort.fetchFullBalance(userId, AccountType.MOCK) }
     }
 
