@@ -163,6 +163,32 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): Int
 
     /**
+     * 정확히 (code, interval, ts) 1행 삭제 — ADR 0118 R-BF amend (2026-06-15 특정 날짜 1d 정밀 복구).
+     *
+     * ## ★ 안전 제약 (광역 DELETE 금지 — 정확 키 매칭)
+     *   삭제 조건은 `code=? AND interval=? AND ts=?` 정확 매칭뿐(범위·LIKE·IN 없음). 손상 0값 row 가
+     *   KIS range 미보유(무거래·거래정지)여서 DO UPDATE 로 덮을 수 없을 때, 그 정확한 1행만 제거한다.
+     *   다른 날짜·interval·종목은 절대 삭제되지 않는다.
+     *
+     * @return 삭제된 row 수(0 또는 1).
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = """
+            DELETE FROM candle
+            WHERE code = :code
+              AND interval = :interval
+              AND ts = :ts
+        """,
+    )
+    fun deleteByCodeAndIntervalAndTs(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("ts") ts: java.time.Instant,
+    ): Int
+
+    /**
      * 단건 idempotent INSERT (ON CONFLICT DO NOTHING).
      */
     @Modifying

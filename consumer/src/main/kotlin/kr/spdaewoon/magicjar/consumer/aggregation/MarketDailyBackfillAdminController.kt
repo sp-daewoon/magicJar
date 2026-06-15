@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 
 /**
  * MARKET_DAILY 10년 일봉 backfill 캠페인 admin 트리거 (ADR 0118 R-BF).
@@ -51,6 +53,7 @@ import org.springframework.web.bind.annotation.RestController
 class MarketDailyBackfillAdminController(
     private val campaign: MarketDailyBackfillCampaign,
     private val properties: MarketDailyBackfillProperties,
+    private val dateRepairService: MarketDailyDateRepairService,
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyBackfillAdminController::class.java)
 
@@ -97,6 +100,77 @@ class MarketDailyBackfillAdminController(
         )
     }
 
+    /**
+     * ★ 특정 날짜 1d 정밀 복구 (ADR 0118 R-BF amend — 2026-06-15 06-12 손상 row 교정).
+     *
+     * 대상 날짜 전종목 1d 봉을 KIS daily range 로 재fetch → 정상값은 그 날짜 1봉만 upsert(DO UPDATE),
+     * KIS 미보유/여전히 0값은 손상 row 정확 1행 DELETE → 대상 날짜 소속 주/월/년봉 재롤업.
+     * **1d 패밀리 전체 wipe 0 — 대상 날짜 1d 1봉만 교정.** NORMAL/MIGRATE 경로 무변경.
+     *
+     * 비동기 — 즉시 runId(accepted) 반환 후 백그라운드 완주(curl 타임아웃 회피). 진행/결과는 GET /repair-date/status.
+     *
+     * ## ★ 06-12 복구 실행 예 (curl — 머지·재배포 + ENABLED=true 선행)
+     * ```
+     * curl -X POST 'http://localhost:8082/admin/market-daily-backfill/repair-date?date=2026-06-12'
+     * # 응답(accepted): {"runId":...,"status":"COMPLETED","targetDate":"2026-06-12","universeSize":2517,...}
+     * # 완주 결과 관측:
+     * curl 'http://localhost:8082/admin/market-daily-backfill/repair-date/status'
+     * ```
+     *
+     * @param date ISO-8601 `yyyy-MM-dd`(KST 기준). 형식 오류면 400.
+     */
+    @PostMapping("/repair-date")
+    fun repairDate(
+        @RequestParam(name = "date") date: String,
+    ): ResponseEntity<DateRepairResponse> {
+        val parsed =
+            try {
+                LocalDate.parse(date.trim())
+            } catch (e: DateTimeParseException) {
+                log.warn("admin market-daily-backfill repair-date 날짜 파싱 실패: date={} err={}", date, e.message)
+                return ResponseEntity.badRequest().build()
+            }
+        log.info(
+            "admin market-daily-backfill repair-date trigger: enabled={} date={}",
+            properties.enabled,
+            parsed,
+        )
+        val r = dateRepairService.repairDateAsync(parsed)
+        return ResponseEntity.ok(toDateRepairResponse(r))
+    }
+
+    /** 특정 날짜 1d 복구 진행/결과 관측 — 비동기 완주 결과(없으면 lastResult=null). */
+    @GetMapping("/repair-date/status")
+    fun repairDateStatus(): ResponseEntity<DateRepairStatusResponse> {
+        val v = dateRepairService.statusView()
+        return ResponseEntity.ok(
+            DateRepairStatusResponse(
+                running = v.running,
+                enabled = properties.enabled,
+                lastResult = v.lastResult?.let { toDateRepairResponse(it) },
+            ),
+        )
+    }
+
+    private fun toDateRepairResponse(r: MarketDailyDateRepairService.RepairResult): DateRepairResponse =
+        DateRepairResponse(
+            runId = r.runId,
+            status = r.status.name,
+            targetDate = r.targetDate,
+            universeSize = r.universeSize,
+            processedSymbols = r.processedSymbols,
+            repairedSymbols = r.repairedSymbols,
+            upsertedRows = r.upsertedRows,
+            deletedCorruptRows = r.deletedCorruptRows,
+            stillZeroSymbols = r.stillZeroSymbols,
+            failedSymbols = r.failedSymbols,
+            rollupWeeklyUpserted = r.rollupWeeklyUpserted,
+            rollupMonthlyUpserted = r.rollupMonthlyUpserted,
+            rollupYearlyUpserted = r.rollupYearlyUpserted,
+            durationMs = r.durationMs,
+            enabled = properties.enabled,
+        )
+
     @GetMapping("/progress")
     fun progress(): ResponseEntity<ProgressResponse> {
         val total = campaign.universeCount()
@@ -137,5 +211,29 @@ class MarketDailyBackfillAdminController(
         val historyYears: Int,
         val nightlyCallCap: Int,
         val note: String,
+    )
+
+    data class DateRepairResponse(
+        val runId: String,
+        val status: String,
+        val targetDate: String,
+        val universeSize: Int,
+        val processedSymbols: Int,
+        val repairedSymbols: Int,
+        val upsertedRows: Long,
+        val deletedCorruptRows: Long,
+        val stillZeroSymbols: Int,
+        val failedSymbols: Int,
+        val rollupWeeklyUpserted: Long,
+        val rollupMonthlyUpserted: Long,
+        val rollupYearlyUpserted: Long,
+        val durationMs: Long,
+        val enabled: Boolean,
+    )
+
+    data class DateRepairStatusResponse(
+        val running: Boolean,
+        val enabled: Boolean,
+        val lastResult: DateRepairResponse?,
     )
 }
