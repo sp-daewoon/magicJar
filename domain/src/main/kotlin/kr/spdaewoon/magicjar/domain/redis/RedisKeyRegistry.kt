@@ -177,6 +177,10 @@ object RedisKeyRegistry {
             interval: String,
         ): String = Standard.candleBackfillUnrecoverable(code, interval)
 
+        fun candleUniverseDetailRecent(): String = Standard.candleUniverseDetailRecent()
+
+        fun candleUniverseStrategyCandidates(): String = Standard.candleUniverseStrategyCandidates()
+
         object Standard {
             fun quoteLast(code: String): String = "market:quote:last:code:$code"
 
@@ -202,6 +206,10 @@ object RedisKeyRegistry {
                 code: String,
                 interval: String,
             ): String = "market:candle:backfill:unrecoverable:code:$code:interval:$interval"
+
+            fun candleUniverseDetailRecent(): String = "market:candle:universe:detail-recent"
+
+            fun candleUniverseStrategyCandidates(): String = "market:candle:universe:strategy-candidates"
         }
     }
 

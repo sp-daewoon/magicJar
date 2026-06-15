@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.reconciliation
 
+import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
@@ -18,15 +19,13 @@ class ManagedCandleUniverseCache(
     private val log = LoggerFactory.getLogger(ManagedCandleUniverseCache::class.java)
 
     companion object {
-        private const val DETAIL_KEY = "candle:universe:detail-recent"
-        private const val STRATEGY_KEY = "candle:universe:strategy-candidates"
         private val DETAIL_TTL = Duration.ofHours(24)
         private val STRATEGY_TTL = Duration.ofMinutes(30)
         private val CODE_REGEX = Regex("^\\d{6}$")
     }
 
     fun recordDetail(code: String) {
-        record(DETAIL_KEY, code, DETAIL_TTL)
+        record(RedisKeyRegistry.Market.candleUniverseDetailRecent(), code, DETAIL_TTL)
     }
 
     fun recordStrategyCandidate(
@@ -38,12 +37,12 @@ class ManagedCandleUniverseCache(
                 ?.coerceAtLeast(1L)
                 ?.let(Duration::ofSeconds)
                 ?: STRATEGY_TTL
-        record(STRATEGY_KEY, code, ttl)
+        record(RedisKeyRegistry.Market.candleUniverseStrategyCandidates(), code, ttl)
     }
 
-    fun recentDetailCodes(): Set<String> = readActiveCodes(DETAIL_KEY)
+    fun recentDetailCodes(): Set<String> = readActiveCodes(RedisKeyRegistry.Market.candleUniverseDetailRecent())
 
-    fun strategyCandidateCodes(): Set<String> = readActiveCodes(STRATEGY_KEY)
+    fun strategyCandidateCodes(): Set<String> = readActiveCodes(RedisKeyRegistry.Market.candleUniverseStrategyCandidates())
 
     private fun record(
         key: String,
