@@ -269,8 +269,11 @@ magicjar:
       refresh-fixed-delay-ms: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REFRESH_DELAY_MS:300000}
       refresh-debounce-ms: ${MAGICJAR_KIS_ACCOUNT_AVAILABILITY_REFRESH_DEBOUNCE_MS:2000}
   # F10 (2026-06-12) — 주문경로 capital 산출 정책. 조회 실패 시 직전 성공 잔고(stale)를 이 TTL 내에서 재사용(0 fabricate 금지).
+  # 2026-06-15 REAL 보강 — 직전 성공 잔고가 아주 최근이면 KIS 원장 직접 조회를 생략해 1분 신호의 EGW00215 자가압박을 줄인다.
+  # 0 이하면 fresh-cache reuse 비활성(항상 KIS 직접 조회).
   risk:
     capital-stale-cache-ttl-minutes: ${MAGICJAR_RISK_CAPITAL_STALE_CACHE_TTL_MINUTES:5}
+    capital-fresh-cache-reuse-seconds: ${MAGICJAR_RISK_CAPITAL_FRESH_CACHE_REUSE_SECONDS:90}
   # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
   yahoo:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}
