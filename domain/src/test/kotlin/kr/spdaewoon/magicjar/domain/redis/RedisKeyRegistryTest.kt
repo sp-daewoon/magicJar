@@ -36,6 +36,8 @@ class RedisKeyRegistryTest {
         RedisKeyRegistry.Market.candleToday1d("005930") shouldBe
             "market:candle:session:code:005930:interval:1d"
         RedisKeyRegistry.Market.candleToday1dPattern() shouldBe "market:candle:session:code:*:interval:1d"
+        RedisKeyRegistry.Market.candleUniverseDetailRecent() shouldBe "market:candle:universe:detail-recent"
+        RedisKeyRegistry.Market.candleUniverseStrategyCandidates() shouldBe "market:candle:universe:strategy-candidates"
         RedisKeyRegistry.Market.codeFromCandleToday1dKey("market:candle:session:code:005930:interval:1d") shouldBe "005930"
     }
 

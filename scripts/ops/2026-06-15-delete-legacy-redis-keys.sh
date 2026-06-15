@@ -62,6 +62,7 @@ patterns=(
   "candle:current:*"
   "candle:today:*"
   "candle:backfill:guard:*"
+  "candle:universe:*"
   "meta:*"
   "session:cache:current"
   "strategy:active:by_code:*"
