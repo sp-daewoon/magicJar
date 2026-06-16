@@ -20,6 +20,7 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * KisWebSocketBridge 종목별 무tick watchdog 단위테스트 (결함 ② — 403870 H0UNCNT0 silent 누락).
@@ -189,6 +190,10 @@ class KisWebSocketBridgeNoTickWatchdogTest {
         val bridge = newBridge(1L) // 1초 임계
         getSession(bridge).onConnected()
         bridge.subscribe(listOf("403870", "005930"))
+        val fallbackCalls = AtomicInteger(0)
+        bridge.onNoTickDetected = { code, trId, _ ->
+            if (code == "403870" && trId == "H0UNCNT0") fallbackCalls.incrementAndGet()
+        }
         val now = System.currentTimeMillis()
         // 403870 = stale(3초 전 마지막 tick), 005930 = fresh(방금 tick).
         lastTickMap(bridge)["403870"] = now - 3_000L
@@ -200,11 +205,14 @@ class KisWebSocketBridgeNoTickWatchdogTest {
             // 정규장 세션 중 — stale 종목만 WARN 마킹, fresh 종목은 미마킹.
             assertThat(warnedSet(bridge)).contains("403870")
             assertThat(warnedSet(bridge)).doesNotContain("005930")
+            assertThat(fallbackCalls.get()).isEqualTo(1)
 
             // 2차 점검 — 이미 마킹된 종목은 중복 WARN 차단(set 유지, 추가 0).
             val sizeAfterFirst = warnedSet(bridge).size
             invokeWatchdogCheck(bridge)
             assertThat(warnedSet(bridge).size).isEqualTo(sizeAfterFirst)
+            // WARN은 중복 차단되지만 fallback hook은 service dedupe에 맡기기 위해 계속 호출한다.
+            assertThat(fallbackCalls.get()).isEqualTo(2)
 
             // tick 복구 → 재무장 → 다시 stale 시 1회 WARN 가능.
             invokeRecordTickReceived(bridge, "403870")
@@ -212,6 +220,7 @@ class KisWebSocketBridgeNoTickWatchdogTest {
         } else {
             // 정규장 외 — 세션 게이트로 점검 skip(자연 무거래 오탐 방지). 마킹 0이어야 함.
             assertThat(warnedSet(bridge)).doesNotContain("403870")
+            assertThat(fallbackCalls.get()).isZero()
         }
     }
 }
