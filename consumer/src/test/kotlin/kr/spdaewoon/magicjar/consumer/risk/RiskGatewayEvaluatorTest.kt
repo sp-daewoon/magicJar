@@ -196,9 +196,10 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
-    fun `6b POSITION_LIMIT BLOCKED — 같은 종목 기존 보유금액 포함`() {
-        // budget 100만, 005930 3주 보유(현재가 30만 기준 90만 노출), 추가 1주 30만은 남은 예산 10만 초과
-        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("300000"))
+    fun `6b POSITION_LIMIT BLOCKED — 전체노출(다른 종목 포함)이 총한도를 다 써 남은 한도 0`() {
+        // 총한도 100만(min(1000000, 1000만×10%)). 다른 종목들 매수원가 합 100만(avgPrice 10000 × 100주) → 남은 0.
+        // 같은 종목 보유 없어도(계좌 전체 공유 풀) 신규 BUY 차단됨이 핵심.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
         val context =
             sampleContext(
                 config =
@@ -207,18 +208,25 @@ class RiskGatewayEvaluatorTest {
                         maxPositionPercent = BigDecimal("10.00"),
                     ),
                 currentCapital = BigDecimal("10000000"),
-                currentPositions = listOf(samplePosition("005930", quantity = 3)),
+                // 005930 과 무관한 종목들 — 매수원가 합 = 10000×(60+40) = 100만 = 총한도 소진.
+                currentPositions =
+                    listOf(
+                        samplePosition("000660", quantity = 60),
+                        samplePosition("035720", quantity = 40),
+                    ),
             )
 
         val result = evaluator.evaluate(signal, context)
 
         assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
         assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.POSITION_LIMIT)
-        assertThat(result.reason).contains("remaining buy budget")
+        assertThat(result.reason).contains("buyable amount")
     }
 
     @Test
-    fun `6c resolveBuyQuantity — 같은 종목 남은 예산만 수량 산정`() {
+    fun `6c resolveBuyQuantity — 계좌 전체 남은 한도만 수량 산정(다른 종목 노출 차감·매수원가 기준)`() {
+        // 총한도 100만, 다른 종목 70만 노출(avgPrice 10000 × 70주) → 남은 30만.
+        // orderableCash 충분 → 남은 30만 ÷ 단위 30만 = 1주.
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("300000"))
         val context =
             sampleContext(
@@ -228,12 +236,13 @@ class RiskGatewayEvaluatorTest {
                         maxPositionPercent = BigDecimal("10.00"),
                     ),
                 currentCapital = BigDecimal("10000000"),
-                currentPositions = listOf(samplePosition("005930", quantity = 1)),
+                orderableCash = BigDecimal("10000000"),
+                currentPositions = listOf(samplePosition("000660", quantity = 70)),
             )
 
         val quantity = evaluator.resolveBuyQuantity(signal, context)
 
-        assertThat(quantity).isEqualTo(2)
+        assertThat(quantity).isEqualTo(1)
     }
 
     // ── 매수 버짓 = 예수금(주문가능금액) 기준 전환 (사용자 결재 2026-06-16) ──────────────────────────────
@@ -283,15 +292,14 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
-    fun `6f 매수 사이징 — 비중%(maxPositionPercent)는 미적용(예수금만 기준)`() {
-        // 예수금 1000만 전액이 버짓. percent 1% 라도 깎지 않는다(결재 — 예수금만 기준).
-        // 옛 로직이면 순자산 1억×1%=100만으로 제한돼 20주만 잡혔을 것.
+    fun `6f 매수 사이징 — 비중(순자산×%)이 절대보다 작으면 비율이 binding(복원)`() {
+        // PR #1008 이 제거했던 비율 한도 복원. 순자산 1억 × 1% = 100만 < 절대 1억 → 총한도 100만.
+        // 예수금 1000만 충분 → 100만 ÷ 5만 = 20주(비율로 깎임).
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
         val context =
             sampleContext(
                 config =
                     sampleConfig(
-                        // 절대 상한을 예수금보다 크게 둬 percent 미적용을 분리 검증(maxPositionAmount 은 항상 양수 — RiskConfig 제약).
                         maxPositionAmount = BigDecimal("100000000"),
                         maxPositionPercent = BigDecimal("1.00"),
                     ),
@@ -301,13 +309,13 @@ class RiskGatewayEvaluatorTest {
 
         val quantity = evaluator.resolveBuyQuantity(signal, context)
 
-        // 예수금 1000만 ÷ 5만 = 200주(비중 1% 로 깎이지 않음).
-        assertThat(quantity).isEqualTo(200)
+        // 총한도 = min(1억, 1억×1%=100만) = 100만 ÷ 5만 = 20주.
+        assertThat(quantity).isEqualTo(20)
     }
 
     @Test
-    fun `6g 매수 사이징 — 예수금 부족 시 살 수 있는 만큼만(소수 절사·기존 종목 노출 차감)`() {
-        // 예수금 17만, 5만짜리. 같은 종목 1주(5만) 이미 보유 → 남은 12만 ÷ 5만 = 2주(0.4주 절사).
+    fun `6g 매수 사이징 — 예수금이 남은 한도보다 작으면 예수금이 binding(소수 절사)`() {
+        // 총한도 1000만, 노출 0 → 남은 1000만. 예수금 17만이 더 작아 binding → 17만 ÷ 5만 = 3주(0.4주 절사).
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
         val context =
             sampleContext(
@@ -318,12 +326,11 @@ class RiskGatewayEvaluatorTest {
                     ),
                 currentCapital = BigDecimal("100000000"),
                 orderableCash = BigDecimal("170000"),
-                currentPositions = listOf(samplePosition("005930", quantity = 1)),
             )
 
         val quantity = evaluator.resolveBuyQuantity(signal, context)
 
-        assertThat(quantity).isEqualTo(2)
+        assertThat(quantity).isEqualTo(3)
     }
 
     @Test
@@ -343,6 +350,117 @@ class RiskGatewayEvaluatorTest {
         val quantity = evaluator.resolveBuyQuantity(signal, context)
 
         assertThat(quantity).isEqualTo(0)
+    }
+
+    // ── 계좌 전체 공유 풀 재설계 (사용자 결재 2026-06-16) ──────────────────────────────────────────
+
+    @Test
+    fun `6i 계좌 전체 공유 풀 — 핵심 시나리오 — 다른 전략이 900만 매수했으면 남은 100만만 매수 가능`() {
+        // 순자산 1억·총한도 1,000만. #1 전략이 다른 종목 900만 매수(avgPrice 30000 × 300주) → 전체노출 900만.
+        // 남은 한도 = 100만. 예수금 충분(5천만). 매수가능 = min(100만, 5천만) = 100만 ÷ 5만 = 20주.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("10000000"),
+                        maxPositionPercent = BigDecimal("100.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("50000000"),
+                // 다른 종목(다른 전략) 매수원가 합 = 30000 × 300 = 900만.
+                currentPositions = listOf(samplePositionAt("000660", quantity = 300, avgPrice = BigDecimal("30000"))),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        // 남은 한도 100만 ÷ 5만 = 20주.
+        assertThat(quantity).isEqualTo(20)
+    }
+
+    @Test
+    fun `6j 계좌 전체 공유 풀 — 전체노출이 총한도 이상이면 매수 0(차단)`() {
+        // 총한도 1,000만, 전체노출 1,000만(30000 × 334 ≈ 1,002만 ≥ 한도) → 남은 0 → 수량 0.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("10000000"),
+                        maxPositionPercent = BigDecimal("100.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("50000000"),
+                currentPositions = listOf(samplePositionAt("000660", quantity = 334, avgPrice = BigDecimal("30000"))),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+        assertThat(quantity).isEqualTo(0)
+
+        // POSITION_LIMIT 게이트도 동일 기준으로 차단.
+        val result = evaluator.evaluate(signal, context)
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.POSITION_LIMIT)
+    }
+
+    @Test
+    fun `6k 계좌 전체 공유 풀 — 예수금이 남은 한도보다 작으면 예수금이 binding`() {
+        // 총한도 1,000만·노출 0 → 남은 1,000만. 예수금 30만이 더 작아 binding → 30만 ÷ 5만 = 6주.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("10000000"),
+                        maxPositionPercent = BigDecimal("100.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("300000"),
+            )
+
+        assertThat(evaluator.resolveBuyQuantity(signal, context)).isEqualTo(6)
+    }
+
+    @Test
+    fun `6l 계좌 전체 공유 풀 — 절대 한도가 비율보다 작으면 절대가 binding`() {
+        // 절대 300만 < 순자산 1억×10%=1,000만 → 총한도 300만. 예수금 충분 → 300만 ÷ 5만 = 60주.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("3000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("100000000"),
+            )
+
+        assertThat(evaluator.resolveBuyQuantity(signal, context)).isEqualTo(60)
+    }
+
+    @Test
+    fun `6m 계좌 전체 공유 풀 — 여러 종목 보유 시 합산 노출이 한도를 깎는다(매수원가 기준)`() {
+        // 총한도 1,000만. 종목 A 매수원가 400만(20000×200) + 종목 B 300만(30000×100) = 합 700만.
+        // 남은 = 300만. 예수금 충분 → 300만 ÷ 5만 = 60주.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("10000000"),
+                        maxPositionPercent = BigDecimal("100.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("100000000"),
+                currentPositions =
+                    listOf(
+                        samplePositionAt("000660", quantity = 200, avgPrice = BigDecimal("20000")),
+                        samplePositionAt("035720", quantity = 100, avgPrice = BigDecimal("30000")),
+                    ),
+            )
+
+        assertThat(evaluator.resolveBuyQuantity(signal, context)).isEqualTo(60)
     }
 
     @Test
@@ -621,13 +739,19 @@ class RiskGatewayEvaluatorTest {
     private fun samplePosition(
         code: String,
         quantity: Int = 10,
+    ): Position = samplePositionAt(code, quantity, avgPrice = BigDecimal("10000"))
+
+    private fun samplePositionAt(
+        code: String,
+        quantity: Int,
+        avgPrice: BigDecimal,
     ): Position =
         Position(
             id = null,
             userId = "user-A",
             code = code,
             quantity = quantity,
-            avgPrice = BigDecimal("10000"),
+            avgPrice = avgPrice,
             updatedAt = now,
         )
 

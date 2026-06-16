@@ -197,21 +197,18 @@ class RiskGatewayEvaluator {
             )
         }
 
-        // 6. POSITION_LIMIT — BUY 버짓=예수금(주문가능금액) 기준 (사용자 결재 2026-06-16), BUY만 의미.
-        //    버짓 = min(maxPositionAmount(>0일 때만 상한), orderableCash). 비중%(maxPositionPercent) 미적용.
+        // 6. POSITION_LIMIT — BUY 매수 한도=계좌 전체 공유 풀 기준 (사용자 결재 2026-06-16), BUY만 의미.
+        //    매수가능 = min(총한도 − 전체노출(전 종목·전 전략 합), 예수금). 시그널 단위가격이 매수가능 초과 시 즉시 BLOCKED.
         if (signal.side == SignalSide.BUY) {
             val buyBudget = resolveBuyBudget(context)
-            val existingExposure = currentCodeExposure(signal, context)
-            val remainingBudget = (buyBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
 
-            // Phase 1 quantity 결정은 T-O 트랙 — 시그널 단위 가격(priceAtSignal) > 남은 종목 예산 시 즉시 BLOCKED.
             val unitCost = signal.priceAtSignal
-            if (unitCost > remainingBudget) {
+            if (unitCost > buyBudget.buyable) {
                 val reasonText =
-                    "Unit price ${unitCost.toPlainString()} exceeds remaining buy budget " +
-                        "${remainingBudget.toPlainString()} " +
-                        "(budget=${buyBudget.budget.toPlainString()}, existing=${existingExposure.toPlainString()}, " +
-                        "orderableCash=${buyBudget.orderableCash.toPlainString()}, absLimit=${buyBudget.absoluteLimit.toPlainString()})"
+                    "Unit price ${unitCost.toPlainString()} exceeds buyable amount " +
+                        "${buyBudget.buyable.toPlainString()} " +
+                        "(totalLimit=${buyBudget.totalLimit.toPlainString()}, totalExposure=${buyBudget.totalExposure.toPlainString()}, " +
+                        "remainingLimit=${buyBudget.remainingLimit.toPlainString()}, orderableCash=${buyBudget.orderableCash.toPlainString()})"
                 return blocked(
                     signalId,
                     RiskRule.POSITION_LIMIT,
@@ -219,11 +216,13 @@ class RiskGatewayEvaluator {
                     context =
                         mapOf(
                             "unitCost" to unitCost.toPlainString(),
-                            "budget" to buyBudget.budget.toPlainString(),
-                            "remainingBudget" to remainingBudget.toPlainString(),
-                            "existingExposure" to existingExposure.toPlainString(),
+                            "totalLimit" to buyBudget.totalLimit.toPlainString(),
+                            "totalExposure" to buyBudget.totalExposure.toPlainString(),
+                            "remainingLimit" to buyBudget.remainingLimit.toPlainString(),
+                            "buyable" to buyBudget.buyable.toPlainString(),
                             "orderableCash" to buyBudget.orderableCash.toPlainString(),
                             "absLimit" to buyBudget.absoluteLimit.toPlainString(),
+                            "percentLimit" to buyBudget.percentLimit.toPlainString(),
                             "currentCapital" to context.currentCapital.toPlainString(),
                         ),
                 )
@@ -327,9 +326,7 @@ class RiskGatewayEvaluator {
         context: RiskContext,
     ): Int {
         val buyBudget = resolveBuyBudget(context)
-        val existingExposure = currentCodeExposure(signal, context)
-        val remainingBudget = (buyBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
-        return remainingBudget
+        return buyBudget.buyable
             .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
             .toInt()
             .coerceAtLeast(0)
@@ -341,44 +338,76 @@ class RiskGatewayEvaluator {
     ): Int = (holdingQuantity(signal, context) - reservedSellQuantity(signal, context)).coerceAtLeast(0)
 
     /**
-     * BUY 매수 버짓 산정 — **예수금(주문가능금액) 기준** (사용자 결재 2026-06-16).
+     * BUY 매수 버짓 산정 — **계좌 전체 공유 풀 + 예수금 cap** (사용자 결재 2026-06-16).
      *
-     * ## 왜 순자산(netAsset)이 아니라 예수금인가
-     * 기존엔 버짓 = min(maxPositionAmount, 순자산 × maxPositionPercent%) 였다. 보유주식이 많으면 순자산은 크지만
-     * 실제 주문할 현금(예수금)이 부족해 KIS 가 "주문가능금액 초과"로 통째 거부했다. 결재에 따라 버짓을 예수금
-     * ([RiskContext.orderableCash] = KIS `prvs_rcdl_excc_amt` D+2 실가용, 비정상 시 예수금총액 fallback — consumer 배선)으로
-     * 전환한다("남은 예수금으로 살 수 있는 만큼만 산다").
+     * ## 왜 종목별 풀이 아니라 계좌 전체 공유 풀인가
+     * 기존(PR #1008 이전)엔 노출을 **그 종목만**(`currentCodeExposure` = filter code==signal.code) 차감해, 종목마다
+     * 한도(maxPositionAmount)가 따로 걸렸다. 사용자 의도는 **"계좌 전체가 공유하는 1개 풀"** 이다. 예) 순자산 1억·
+     * 한도 1,000만에서 #1 전략이 900만 매수하면, #2 전략은 **남은 100만만** 매수할 수 있어야 한다. 따라서 노출은
+     * 전 종목·전 전략 합산([totalExposure])으로 깎는다.
      *
-     * ## 규약
-     * - 기준값 = `orderableCash`(예수금).
-     * - `maxPositionAmount`(전략 설정 절대금액)가 0보다 크면 상한으로 유지: `budget = min(maxPositionAmount, orderableCash)`.
-     *   maxPositionAmount ≤ 0(미설정)이면 예수금 전체가 버짓.
-     * - **`maxPositionPercent`(비중%)는 매수 사이징에서 미적용**(결재 — 예수금만 기준, 비중 한도로 깎지 않는다).
+     * ## 비율 한도 복원 (PR #1008 회귀 정정)
+     * PR #1008 이 비율 한도(maxPositionPercent)를 제거했으나, 원래 A-1 규약은 **min(절대, 비율)** 이다. 복원한다.
+     * - 총한도 = min(maxPositionAmount(절대, 원), currentCapital(순자산) × maxPositionPercent / 100).
+     * - 비율 기준 자본 = **순자산(currentCapital)** — 사용자 결재.
+     *
+     * ## 예수금 cap (PR #1008 정합 유지)
+     * 보유주식이 많아 순자산은 크지만 실제 주문할 현금(예수금)이 부족하면 KIS 가 "주문가능금액 초과(EGW...)"로 통째
+     * 거부한다. 따라서 최종 매수가능은 예수금([RiskContext.orderableCash] = KIS `prvs_rcdl_excc_amt` D+2 실가용,
+     * 비정상 시 예수금총액 fallback — consumer 배선, 0 합성 금지)으로 한 번 더 cap 한다.
+     *
+     * ## 최종 공식
+     * ```
+     * 총한도   = min( maxPositionAmount,  currentCapital × maxPositionPercent / 100 )
+     * 전체노출 = Σ over currentPositions { avgPrice × quantity }   ← 전 종목·전 전략, 매수원가 기준
+     * 남은한도 = (총한도 − 전체노출).coerceAtLeast(0)
+     * 매수가능 = min( 남은한도,  orderableCash )
+     * ```
+     * 예수금은 노출을 다시 차감하지 않는다(이미 현금 잔액 — 보유는 이미 현금에서 빠진 값). 남은한도와 예수금 중
+     * 작은 값이 매수가능이다.
      */
     private fun resolveBuyBudget(context: RiskContext): BuyBudget {
         val orderableCash = context.orderableCash.coerceAtLeast(BigDecimal.ZERO)
         val absoluteLimit = context.config.maxPositionAmount
-        val budget =
-            if (absoluteLimit > BigDecimal.ZERO && absoluteLimit < orderableCash) {
-                absoluteLimit
-            } else {
-                orderableCash
-            }
+        val percentLimit =
+            context.currentCapital
+                .multiply(context.config.maxPositionPercent)
+                .divide(BigDecimal("100"), 0, RoundingMode.DOWN)
+        // 총한도 = min(절대, 순자산×비율) — A-1 규약 복원.
+        val totalLimit = absoluteLimit.min(percentLimit)
+        val totalExposure = totalExposure(context)
+        val remainingLimit = (totalLimit - totalExposure).coerceAtLeast(BigDecimal.ZERO)
+        // 매수가능 = min(남은한도, 예수금). 예수금은 노출을 다시 차감하지 않는다.
+        val buyable = remainingLimit.min(orderableCash)
         return BuyBudget(
             orderableCash = orderableCash,
             absoluteLimit = absoluteLimit,
-            budget = budget,
+            percentLimit = percentLimit,
+            totalLimit = totalLimit,
+            totalExposure = totalExposure,
+            remainingLimit = remainingLimit,
+            buyable = buyable,
         )
     }
 
-    private fun currentCodeExposure(
-        signal: Signal,
-        context: RiskContext,
-    ): BigDecimal =
+    /**
+     * 계좌 전체 노출 — **전 종목·전 전략 매수원가 합** (사용자 결재 2026-06-16).
+     *
+     * `Σ over currentPositions { avgPrice × quantity }`. 종목별 필터 없이 전부 합산해 "계좌 전체 공유 풀" 에서
+     * 차감할 자본 노출을 만든다.
+     *
+     * ## 왜 평가액(현재가)이 아니라 매수원가(avgPrice)인가
+     * 한도는 "투입 자본(원금)" 을 제한하는 개념이다. 평가액으로 깎으면 시세 등락만으로 한도가 출렁여(상승 시 신규
+     * 매수 봉쇄, 하락 시 과매수 허용) 결정론·예측가능성이 깨진다. 매수원가는 보유 lot 의 실제 투입 자본이므로
+     * 한도 차감의 안정적 기준이다. 또한 [RiskContext]에는 종목별 현재가가 들어있지 않아(평가액 산정 불가) 새 KIS
+     * 호출 없이 산출 가능한 값이기도 하다. 시그널 단위가격(priceAtSignal)을 쓰던 옛 [currentCodeExposure]는 단일
+     * 종목 가정의 잔재였다.
+     */
+    private fun totalExposure(context: RiskContext): BigDecimal =
         context.currentPositions
-            .filter { it.code == signal.code && it.quantity > 0 }
+            .filter { it.quantity > 0 }
             .fold(BigDecimal.ZERO) { acc, position ->
-                acc + signal.priceAtSignal.multiply(BigDecimal(position.quantity))
+                acc + position.avgPrice.multiply(BigDecimal(position.quantity))
             }
 
     /**
@@ -431,12 +460,21 @@ class RiskGatewayEvaluator {
     }
 
     /**
-     * BUY 매수 버짓 (예수금 기준). [budget] = min(maxPositionAmount(>0일 때), orderableCash) — 비중% 미적용.
+     * BUY 매수 버짓 산정 결과 (계좌 전체 공유 풀 — 사용자 결재 2026-06-16).
+     *
+     * - [totalLimit]      = min([absoluteLimit], [percentLimit]) — A-1 규약(절대 vs 순자산×비율).
+     * - [totalExposure]   = Σ currentPositions { avgPrice × quantity } (전 종목·전 전략, 매수원가).
+     * - [remainingLimit]  = (totalLimit − totalExposure).coerceAtLeast(0).
+     * - [buyable]         = min(remainingLimit, orderableCash) — 최종 매수가능 금액.
      */
     private data class BuyBudget(
         val orderableCash: BigDecimal,
         val absoluteLimit: BigDecimal,
-        val budget: BigDecimal,
+        val percentLimit: BigDecimal,
+        val totalLimit: BigDecimal,
+        val totalExposure: BigDecimal,
+        val remainingLimit: BigDecimal,
+        val buyable: BigDecimal,
     )
 
     private fun blocked(
