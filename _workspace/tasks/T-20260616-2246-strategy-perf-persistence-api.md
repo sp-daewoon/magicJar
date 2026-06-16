@@ -3,10 +3,10 @@ id: T-20260616-2246-strategy-perf-persistence-api
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-perf-persistence-api
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T22:46:29.822+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T22:57:20.569+09:00
+pr: #1025
 parentPhase: ?
 ---
 
