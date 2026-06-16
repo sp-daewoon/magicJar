@@ -478,6 +478,18 @@ class KisWebSocketBridge(
     @Volatile
     var onSubscribeRejected: ((code: String, trId: String) -> Unit)? = null
 
+    /**
+     * SUBSCRIBE SUCCESS 후 종목 단위 체결 tick 0건 silent 감지 시 호출되는 fallback hook.
+     *
+     * 기존 무tick watchdog는 관측 WARN만 수행해 Redis flush 등으로 `market:candle:current:*:1m`이 사라진 뒤
+     * KIS가 특정 종목 tick을 계속 보내지 않으면 1m DB/전략 평가가 멈췄다. 본 hook은 WS bridge가
+     * reconciliation/KIS REST 컴포넌트를 직접 의존하지 않고, wiring이 저빈도 1m gap-fill을 연결하도록 한다.
+     *
+     * 파라미터: (code, trId, ageSeconds) — silent 채널 식별자와 마지막 tick 이후 경과 초.
+     */
+    @Volatile
+    var onNoTickDetected: ((code: String, trId: String, ageSeconds: Long) -> Unit)? = null
+
     private fun slotLedger(): kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger? = slotLedgerProvider.ifAvailable
 
     private fun sendTickSubscribe(
@@ -2042,6 +2054,17 @@ class KisWebSocketBridge(
             val lastMs = lastTickAtMsByCode[code] ?: continue
             val ageMs = nowMs - lastMs
             if (ageMs >= thresholdMs) {
+                val ageSeconds = ageMs / 1000L
+                runCatching {
+                    onNoTickDetected?.invoke(code, TR_ID_UNIFIED_TICK, ageSeconds)
+                }.onFailure { e ->
+                    log.warn(
+                        "KIS WS 무tick fallback hook 실패(graceful): code={} trId={} err={}",
+                        code,
+                        TR_ID_UNIFIED_TICK,
+                        e.message,
+                    )
+                }
                 // 종목별 1 윈도우당 1회만 WARN(중복 스팸 차단). tick 복구 시 recordTickReceived가 재무장.
                 if (noTickWarned.add(code)) {
                     log.warn(
@@ -2050,7 +2073,7 @@ class KisWebSocketBridge(
                         noTickWatchdogSeconds,
                         code,
                         TR_ID_UNIFIED_TICK,
-                        ageMs / 1000L,
+                        ageSeconds,
                     )
                 }
             }
