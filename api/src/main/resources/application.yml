@@ -84,6 +84,12 @@ management:
 magicjar:
   mode: ${MAGICJAR_MODE:MOCK}
   allow-real: ${MAGICJAR_ALLOW_REAL:false}
+  # 지수 일봉 롤업 레짐 분류 임계치 (spec 2026-06-16 §4-4 · ADR 0126 §3-4 — MarketIndexDailyRollupService).
+  # default = spec LOCK 값. 추후 튜닝 가능(룰 기반·AI 0). HIGH_VOL 우선 > UPTREND > DOWNTREND > SIDEWAYS.
+  market-index:
+    regime:
+      high-vol-threshold-pct: ${MAGICJAR_MARKET_INDEX_REGIME_HIGH_VOL_PCT:2.5}   # range_pct ≥ 2.5% → HIGH_VOL
+      trend-threshold-pct: ${MAGICJAR_MARKET_INDEX_REGIME_TREND_PCT:0.6}         # |change_pct| ≥ 0.6% → UP/DOWNTREND
   # 시스템 이벤트 운영 대시보드 source table retention.
   # Kafka kafka.shared.evt.system.event.v1 은 이미 7d 이며, DB system_event 도 같은 보존 기간으로 맞춘다.
   system-event:
