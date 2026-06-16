@@ -3,10 +3,10 @@ id: T-20260616-1419-risk-usage-api
 agent: strategy
 model: opus
 branch: agent/strategy/risk-usage-api
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T14:19:48.644+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T14:34:57.229+09:00
+pr: #1015
 parentPhase: ?
 ---
 
