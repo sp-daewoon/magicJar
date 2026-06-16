@@ -3,10 +3,10 @@ id: T-20260616-1418-risk-usage-display
 agent: frontend
 model: opus
 branch: agent/frontend/risk-usage-display
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T14:18:40.563+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T14:26:24.360+09:00
+pr: #1012
 parentPhase: ?
 ---
 
