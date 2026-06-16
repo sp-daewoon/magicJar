@@ -18,6 +18,7 @@ import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import { StrategyPositionPanel } from './StrategyPositionPanel'
+import { StrategyPerformanceModal } from './StrategyPerformanceModal'
 import {
   formatStrategyCodeLabel,
   isPaperStrategy,
@@ -57,6 +58,7 @@ interface StrategyCardProps {
 export function StrategyCard({ strategy }: StrategyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showAllCodes, setShowAllCodes] = useState(false)
+  const [showPerformance, setShowPerformance] = useState(false)
   const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
@@ -402,6 +404,22 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           빌더에서 수정
         </Link>
 
+        {/* 성과·메모 (T-PERF R3 — ADR 0126) */}
+        <button
+          type="button"
+          onClick={() => setShowPerformance(true)}
+          className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+        >
+          📊 성과·메모
+        </button>
+        <Link
+          to={`/strategy/${strategy.id}/performance`}
+          title="성과·메모 전체화면으로 보기"
+          className="rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+        >
+          전체화면
+        </Link>
+
         {/* 상태 토글 */}
         {isToggleable && (
           <button
@@ -499,6 +517,16 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           }}
         />
       </div>
+
+      {/* 성과·메모 모달 (T-PERF R3 — ADR 0126) */}
+      {showPerformance && (
+        <StrategyPerformanceModal
+          strategyId={Number(strategy.id)}
+          strategyName={strategy.name}
+          userId={userId}
+          onClose={() => setShowPerformance(false)}
+        />
+      )}
     </article>
   )
 }

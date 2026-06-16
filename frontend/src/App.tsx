@@ -50,6 +50,7 @@ import { DaytradeDiscoverPage } from './pages/Strategy/DaytradeDiscoverPage'
 import { PaperDashboardPage } from './pages/Strategy/PaperDashboardPage'
 import { DiscoveryScorecardPage } from './pages/Strategy/DiscoveryScorecardPage'
 import { StrategyListPage } from './pages/Strategy/StrategyListPage'
+import { StrategyPerformancePage } from './pages/Strategy/StrategyPerformancePage'
 import { ScenarioReplayPage } from './pages/QA/ScenarioReplayPage'
 import { RiskConfigPage } from './pages/Risk/RiskConfigPage'
 import { RiskEventsPage } from './pages/Risk/RiskEventsPage'
@@ -149,6 +150,8 @@ export function App() {
           <Route path="/strategy/scorecard" element={<DiscoveryScorecardPage />} />
           {/* T-SIG Phase 3: 전략 목록 + 시그널 내역 — ADR 0066 */}
           <Route path="/strategy/list" element={<StrategyListPage />} />
+          {/* T-PERF R3: 전략별 일자별 성과 히스토리 + 메모 풀스크린 — ADR 0126 */}
+          <Route path="/strategy/:id/performance" element={<StrategyPerformancePage />} />
           {/* T-SIM Phase 3: 실제 주문과 분리된 시나리오 리플레이 — ADR 0107 */}
           <Route path="/strategy/scenario-replay" element={<ScenarioReplayPage />} />
           <Route path="/qa/scenario-replay" element={<Navigate to="/strategy/scenario-replay" replace />} />
