@@ -5,9 +5,16 @@ import io.mockk.mockk
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
+import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
+import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
+import org.springframework.web.reactive.function.client.ClientResponse
+import org.springframework.web.reactive.function.client.WebClient
+import reactor.core.publisher.Mono
 
 /**
  * [KisRestAskingPriceAdapter] 단위 테스트 — ADR 0114 §10-3 R2-C1 FHKST01010200 응답 파싱.
@@ -25,6 +32,8 @@ import org.springframework.beans.factory.ObjectProvider
  * AI 호출 0.
  */
 class KisRestAskingPriceAdapterTest {
+    private val secretCipher = mockk<SecretCipher>(relaxed = true)
+
     private val adapter =
         KisRestAskingPriceAdapter(
             webClient = mockk(relaxed = true),
@@ -33,6 +42,7 @@ class KisRestAskingPriceAdapterTest {
             kisBaseProd = "https://openapi.koreainvestment.com:9443",
             defaultUserId = "tester",
             credentialRepositoryProvider = mockk(relaxed = true),
+            secretCipher = secretCipher,
         )
 
     @Test
@@ -94,6 +104,7 @@ class KisRestAskingPriceAdapterTest {
                 kisBaseProd = "https://openapi.koreainvestment.com:9443",
                 defaultUserId = "thdeodns", // WS approval 식별자 — REST 자격증명 없음(c95b5391 incident 재현)
                 credentialRepositoryProvider = provider,
+                secretCipher = secretCipher,
             )
 
         assertThat(invokeResolveRestUserId(adapterWithRepo)).isEqualTo("74683223")
@@ -114,6 +125,7 @@ class KisRestAskingPriceAdapterTest {
                 kisBaseProd = "https://openapi.koreainvestment.com:9443",
                 defaultUserId = "thdeodns",
                 credentialRepositoryProvider = provider,
+                secretCipher = secretCipher,
             )
 
         assertThat(invokeResolveRestUserId(adapterWithRepo)).isEqualTo("thdeodns")
@@ -130,6 +142,7 @@ class KisRestAskingPriceAdapterTest {
                 kisBaseProd = "https://openapi.koreainvestment.com:9443",
                 defaultUserId = "wsuser",
                 credentialRepositoryProvider = provider,
+                secretCipher = secretCipher,
             )
 
         assertThat(invokeResolveRestUserId(adapterNoRepo)).isEqualTo("wsuser")
@@ -139,6 +152,76 @@ class KisRestAskingPriceAdapterTest {
         val m = KisRestAskingPriceAdapter::class.java.getDeclaredMethod("resolveRestUserId")
         m.isAccessible = true
         return m.invoke(target) as String
+    }
+
+    @Test
+    fun `fetchTopQuote는 KIS 필수 appkey appsecret 헤더를 전송한다`() {
+        val capturedHeaders = mutableMapOf<String, List<String>>()
+        val webClient =
+            WebClient
+                .builder()
+                .exchangeFunction { request ->
+                    capturedHeaders.putAll(request.headers().mapValues { it.value })
+                    Mono.just(
+                        ClientResponse
+                            .create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                            .body(
+                                """
+                                {
+                                  "rt_cd": "0",
+                                  "output1": {
+                                    "askp1": "20050",
+                                    "bidp1": "20000",
+                                    "askp_rsqn1": "10",
+                                    "aspr_acpt_hour": "111435"
+                                  }
+                                }
+                                """.trimIndent(),
+                            ).build(),
+                    )
+                }.build()
+        val appKeyEnc = "enc-app".toByteArray()
+        val secretKeyEnc = "enc-secret".toByteArray()
+        val cred =
+            ConsumerUserKisCredentialJpaEntity(
+                id = ConsumerUserKisCredentialId(userId = "74683223", accountType = "REAL"),
+                accountNumber = "12345678",
+                appKeyEnc = appKeyEnc,
+                secretKeyEnc = secretKeyEnc,
+            )
+        val repo =
+            mockk<ConsumerUserKisCredentialJpaRepository> {
+                every { findAllByAccountType("REAL") } returns listOf(cred)
+            }
+        val provider = mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>> { every { ifAvailable } returns repo }
+        val kisAuth =
+            mockk<KisAuthAdapter> {
+                every { getAccessToken("74683223", AccountType.REAL) } returns "token-plain"
+            }
+        val cipher =
+            mockk<SecretCipher> {
+                every { decrypt(appKeyEnc) } returns "appkey-plain".toByteArray()
+                every { decrypt(secretKeyEnc) } returns "secret-plain".toByteArray()
+            }
+        val adapterWithHttp =
+            KisRestAskingPriceAdapter(
+                webClient = webClient,
+                kisAuthAdapter = kisAuth,
+                kisRateLimiterPort = mockk(relaxed = true),
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                defaultUserId = "thdeodns",
+                credentialRepositoryProvider = provider,
+                secretCipher = cipher,
+            )
+
+        val quote = adapterWithHttp.fetchTopQuote("093370")
+
+        assertThat(quote).isNotNull
+        assertThat(capturedHeaders["authorization"]).containsExactly("Bearer token-plain")
+        assertThat(capturedHeaders["appkey"]).containsExactly("appkey-plain")
+        assertThat(capturedHeaders["appsecret"]).containsExactly("secret-plain")
+        assertThat(capturedHeaders["tr_id"]).containsExactly("FHKST01010200")
     }
 
     @Test
