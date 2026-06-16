@@ -28,4 +28,7 @@ class BatchOrderRequestJpaEntity(
     val code: String = "",
     @Column(name = "side", nullable = false, length = 4)
     val side: String = "BUY",
+    // V43 add-only — 전략 귀속 키. MANUAL 주문은 0 sentinel (전략 왕복 집계에서 제외).
+    @Column(name = "strategy_id", nullable = false)
+    val strategyId: Long = 0L,
 )
