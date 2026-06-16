@@ -214,7 +214,7 @@ class RiskGatewayEvaluatorTest {
 
         assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
         assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.POSITION_LIMIT)
-        assertThat(result.reason).contains("remaining position budget")
+        assertThat(result.reason).contains("remaining buy budget")
     }
 
     @Test
@@ -234,6 +234,115 @@ class RiskGatewayEvaluatorTest {
         val quantity = evaluator.resolveBuyQuantity(signal, context)
 
         assertThat(quantity).isEqualTo(2)
+    }
+
+    // ── 매수 버짓 = 예수금(주문가능금액) 기준 전환 (사용자 결재 2026-06-16) ──────────────────────────────
+
+    @Test
+    fun `6d 매수 사이징 — 예수금이 순자산보다 작으면 예수금이 binding(순자산 아님)`() {
+        // 순자산 1억(보유주식 다수) 이지만 실제 주문가능 예수금은 50만뿐. 예수금 기준이면 5만짜리 10주만 가능.
+        // 옛 로직(순자산×percent)이면 1억×10%=1000만 → 200주가 잡혀 KIS 가 "주문가능금액 초과"로 거부하던 버그.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        // 절대 상한을 크게 둬 예수금이 binding 임을 분리 검증.
+                        maxPositionAmount = BigDecimal("100000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("500000"),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        // 예수금 50만 ÷ 5만 = 10주. 순자산 기준(200주)이 아님.
+        assertThat(quantity).isEqualTo(10)
+    }
+
+    @Test
+    fun `6e 매수 사이징 — maxPositionAmount 절대 상한이 예수금보다 작으면 상한이 binding`() {
+        // 예수금은 1000만으로 충분하지만 전략 절대 상한(maxPositionAmount)이 30만 → 상한 적용.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("300000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("10000000"),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        // min(상한 30만, 예수금 1000만) = 30만 ÷ 5만 = 6주.
+        assertThat(quantity).isEqualTo(6)
+    }
+
+    @Test
+    fun `6f 매수 사이징 — 비중%(maxPositionPercent)는 미적용(예수금만 기준)`() {
+        // 예수금 1000만 전액이 버짓. percent 1% 라도 깎지 않는다(결재 — 예수금만 기준).
+        // 옛 로직이면 순자산 1억×1%=100만으로 제한돼 20주만 잡혔을 것.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        // 절대 상한을 예수금보다 크게 둬 percent 미적용을 분리 검증(maxPositionAmount 은 항상 양수 — RiskConfig 제약).
+                        maxPositionAmount = BigDecimal("100000000"),
+                        maxPositionPercent = BigDecimal("1.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("10000000"),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        // 예수금 1000만 ÷ 5만 = 200주(비중 1% 로 깎이지 않음).
+        assertThat(quantity).isEqualTo(200)
+    }
+
+    @Test
+    fun `6g 매수 사이징 — 예수금 부족 시 살 수 있는 만큼만(소수 절사·기존 종목 노출 차감)`() {
+        // 예수금 17만, 5만짜리. 같은 종목 1주(5만) 이미 보유 → 남은 12만 ÷ 5만 = 2주(0.4주 절사).
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("100000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("170000"),
+                currentPositions = listOf(samplePosition("005930", quantity = 1)),
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        assertThat(quantity).isEqualTo(2)
+    }
+
+    @Test
+    fun `6h 매수 사이징 — 예수금 0이면 수량 0(coerceAtLeast 0)`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config =
+                    sampleConfig(
+                        maxPositionAmount = BigDecimal("1000000"),
+                        maxPositionPercent = BigDecimal("10.00"),
+                    ),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal.ZERO,
+            )
+
+        val quantity = evaluator.resolveBuyQuantity(signal, context)
+
+        assertThat(quantity).isEqualTo(0)
     }
 
     @Test
@@ -525,6 +634,9 @@ class RiskGatewayEvaluatorTest {
     private fun sampleContext(
         config: RiskConfig = sampleConfig(),
         currentCapital: BigDecimal = BigDecimal("10000000"),
+        // 미지정 시 순자산(currentCapital)과 동일 — 기존 테스트 회귀 0(예수금 충분 가정).
+        // 매수 사이징 검증 테스트는 이 값을 명시 주입해 예수금 binding 을 확인한다.
+        orderableCash: BigDecimal? = null,
         currentPositions: List<Position> = emptyList(),
         openOrders: List<OrderRequest> = emptyList(),
         dailyRealizedPnl: BigDecimal = BigDecimal.ZERO,
@@ -537,6 +649,7 @@ class RiskGatewayEvaluatorTest {
             userId = "user-A",
             config = config,
             currentCapital = currentCapital,
+            orderableCash = orderableCash ?: currentCapital,
             currentPositions = currentPositions,
             openOrders = openOrders,
             dailyRealizedPnl = dailyRealizedPnl,

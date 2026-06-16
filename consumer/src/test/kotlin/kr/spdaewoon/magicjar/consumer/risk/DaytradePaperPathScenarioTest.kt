@@ -148,11 +148,13 @@ class DaytradePaperPathScenarioTest {
 
     @Test
     fun `S-2 페이퍼 가상 자본이 작으면 예산도 줄어 더 적은 수량을 발행한다(가상 자본이 실제로 사이징을 가른다)`() {
-        // 가상 자본 2백만 → budget min(paper.maxPositionAmount, 2M×10%=200k) → 200k/50000 = 4주.
-        // (S-2 1천만 케이스의 20주와 대비 — 실 KIS 잔고가 아니라 가상 자본이 수량을 결정함을 증명.)
+        // 매수 버짓=예수금(주문가능금액) 기준 전환(사용자 결재 2026-06-16) — 페이퍼는 예수금 개념이 없어 가상 자본을
+        // 그대로 예수금(orderableCash)으로 본다. budget = min(paper.maxPositionAmount=1M, 가상 자본). 비중% 미적용.
+        // 가상 자본 50만(< 절대상한 1M) → budget 50만 → 50만/50000 = 10주.
+        // (S-2 1천만 케이스의 20주와 대비 — 실 KIS 잔고가 아니라 가상 자본이 수량을 가름을 증명.)
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(paperStrategy())
         every { riskConfigRepository.getOrDefault("user-A:paper", now) } returns paperConfig()
-        every { paperCapitalProvider.getCapital("user-A") } returns BigDecimal("2000000")
+        every { paperCapitalProvider.getCapital("user-A") } returns BigDecimal("500000")
         every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
         every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
         every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
@@ -162,7 +164,7 @@ class DaytradePaperPathScenarioTest {
 
         listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
-        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 4, OrderPriceType.MARKET, null) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 10, OrderPriceType.MARKET, null) }
         verify(exactly = 0) { realCapitalProvider.getCapital(any()) }
     }
 
