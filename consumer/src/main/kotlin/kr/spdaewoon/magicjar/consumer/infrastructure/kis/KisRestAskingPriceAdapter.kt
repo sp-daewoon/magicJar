@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisErrorClass
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.classifyKisError
+import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -64,6 +65,7 @@ class KisRestAskingPriceAdapter(
      * ObjectProvider: qa fixture 등 repo 부재 환경 부팅 보장(fallback skip graceful 정합).
      */
     private val credentialRepositoryProvider: ObjectProvider<ConsumerUserKisCredentialJpaRepository>,
+    private val secretCipher: SecretCipher,
 ) {
     private val log = LoggerFactory.getLogger(KisRestAskingPriceAdapter::class.java)
 
@@ -73,14 +75,14 @@ class KisRestAskingPriceAdapter(
      * timeout 3s(다른 USER_PATH 조회 정합). asOf는 응답 `aspr_acpt_hour`(호가접수시각) 우선, 없으면 수신 시각.
      */
     fun fetchTopQuote(code: String): EntryQuote? {
-        val resolvedUserId = resolveRestUserId()
-        if (resolvedUserId.isBlank()) {
-            // REAL 자격증명·ws.user-id 모두 부재(qa fixture 등) — 토큰 발급 불가이므로 fallback skip(진입 스킵).
-            log.warn("KIS asking-price REST fallback skip — REAL 자격증명 userId resolve 불가: code={}", code)
+        val credential = resolveRestCredential()
+        if (credential == null) {
+            // REAL 자격증명 부재(qa fixture 등) — KIS 필수 appkey/appsecret 헤더를 만들 수 없으므로 fallback skip.
+            log.warn("KIS asking-price REST fallback skip — REAL 자격증명 resolve 불가: code={}", code)
             return null
         }
         val accountType = AccountType.REAL
-        val token = kisAuthAdapter.getAccessToken(resolvedUserId, accountType)
+        val token = kisAuthAdapter.getAccessToken(credential.userId, accountType)
 
         // D-1 try-finally drift 차단 패턴 — acquire를 try 안으로, signalSent flag로 통계 미발행 path 감시.
         var signalSent = false
@@ -95,6 +97,8 @@ class KisRestAskingPriceAdapter(
                         "$kisBaseProd/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn" +
                             "?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=$code",
                     ).header("authorization", "Bearer $token")
+                    .header("appkey", credential.appKey)
+                    .header("appsecret", credential.appSecret)
                     .header("tr_id", "FHKST01010200")
                     .header("custtype", "P")
                     .retrieve()
@@ -182,6 +186,40 @@ class KisRestAskingPriceAdapter(
             defaultUserId
         }
     }
+
+    private fun resolveRestCredential(): RestCredential? {
+        val repo = credentialRepositoryProvider.ifAvailable ?: return null
+        val cred =
+            try {
+                val creds = repo.findAllByAccountType(AccountType.REAL.name)
+                creds.firstOrNull { it.id.userId == defaultUserId }
+                    ?: creds.firstOrNull()
+            } catch (e: Exception) {
+                log.debug("KIS asking-price credential resolve 실패: {}", e.message)
+                null
+            } ?: return null
+
+        var appKey: ByteArray? = null
+        var secretKey: ByteArray? = null
+        return try {
+            appKey = secretCipher.decrypt(cred.appKeyEnc)
+            secretKey = secretCipher.decrypt(cred.secretKeyEnc)
+            RestCredential(
+                userId = cred.id.userId,
+                appKey = String(appKey),
+                appSecret = String(secretKey),
+            )
+        } finally {
+            appKey?.fill(0)
+            secretKey?.fill(0)
+        }
+    }
+
+    private data class RestCredential(
+        val userId: String,
+        val appKey: String,
+        val appSecret: String,
+    )
 
     /**
      * `aspr_acpt_hour`(HHMMSS, KST) → [Instant]. 파싱 불가 시 수신 시각(now)으로 graceful.
