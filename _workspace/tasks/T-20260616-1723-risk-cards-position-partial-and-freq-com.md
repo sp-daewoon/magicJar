@@ -3,10 +3,10 @@ id: T-20260616-1723-risk-cards-position-partial-and-freq-com
 agent: frontend
 model: opus
 branch: agent/frontend/risk-cards-position-partial-and-freq-combobox
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T17:23:21.710+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T17:27:42.170+09:00
+pr: #1019
 parentPhase: ?
 ---
 
@@ -14,8 +14,8 @@ parentPhase: ?
 포지션 한도 카드 부분렌더 + 거래빈도 콤보박스 환원
 
 ## 결과물 체크리스트
-- [ ] PositionCard capital 미상 부분렌더
-- [ ] TradeFrequencyCard 콤보박스 환원
+- [x] PositionCard capital 미상 부분렌더
+- [x] TradeFrequencyCard 콤보박스 환원
 
 ## 의존성
 - (필요 시 기록)
