@@ -3,10 +3,10 @@ id: T-20260616-2336-strategy-performance-ui
 agent: frontend
 model: opus
 branch: agent/frontend/strategy-performance-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T23:36:38.342+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T23:45:35.450+09:00
+pr: #1027
 parentPhase: ?
 ---
 
