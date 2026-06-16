@@ -109,4 +109,34 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
      * 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
      */
     fun findAllByStatus(status: String): List<StrategyJpaEntity>
+
+    /**
+     * 내 전략 목록 — "자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순" 정렬.
+     *
+     * Spring Data [org.springframework.data.domain.Sort]는 CASE식 정렬을 표현하지 못하므로 @Query JPQL로 처리.
+     * 정렬 규칙(가동도 → 최신 변경):
+     *   1. status 우선순위: ACTIVE(0) > BUY_BLOCKED(1) > PAUSED(2) > DISABLED(3) > 기타(4)
+     *   2. 동일 그룹 내 updatedAt DESC (전략 토글 시 updated_at 갱신 → 방금 켠 전략이 맨 위)
+     *
+     * DELETED는 WHERE 절에서 제외. ORDER BY 가 포함되어 Spring Data가 count 파생에 실패할 수 있어 countQuery 명시.
+     * 헌법 §6 (ADR 0051): Repository interface 내부 abstract fun (body 0) — 정렬 로직은 @Query 위임.
+     */
+    @Query(
+        value =
+            "SELECT s FROM StrategyJpaEntity s " +
+                "WHERE s.userId = :userId AND s.status <> 'DELETED' " +
+                "ORDER BY CASE s.status " +
+                "WHEN 'ACTIVE' THEN 0 " +
+                "WHEN 'BUY_BLOCKED' THEN 1 " +
+                "WHEN 'PAUSED' THEN 2 " +
+                "WHEN 'DISABLED' THEN 3 " +
+                "ELSE 4 END ASC, s.updatedAt DESC",
+        countQuery =
+            "SELECT COUNT(s) FROM StrategyJpaEntity s " +
+                "WHERE s.userId = :userId AND s.status <> 'DELETED'",
+    )
+    fun findAllByUserIdActiveFirst(
+        @Param("userId") userId: Long,
+        pageable: Pageable,
+    ): Page<StrategyJpaEntity>
 }
