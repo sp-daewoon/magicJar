@@ -81,6 +81,7 @@ class RealtimeSignalGenerator(
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
+    private val realtimeFallbackBuyPolicy: RealtimeFallbackBuyPolicy,
     private val marketSessionResolver: MarketSessionResolver,
     private val businessDayCalendarProvider: ObjectProvider<BusinessDayCalendar>,
     @Value("\${magicjar.signal.eval-lookback-candles:500}") private val evalLookbackCandles: Int = 500,
@@ -373,6 +374,17 @@ class RealtimeSignalGenerator(
                 code,
                 interval.code,
                 boundaryTs,
+            )
+            return
+        }
+        if (side == SignalSide.BUY && !realtimeFallbackBuyPolicy.allowsBuy(candle)) {
+            log.warn(
+                "RealtimeSignalGenerator fallback candle BUY suppress: strategyId={} code={} interval={} ts={} source={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+                candle.source,
             )
             return
         }

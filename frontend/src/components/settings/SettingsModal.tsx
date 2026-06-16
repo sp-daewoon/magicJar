@@ -9,9 +9,10 @@
  *   Section 2: KisCredentialSection (KIS 키 변경 풀세트 — ADR 0074 §2 submit 활성화)
  *   Section 3: SystemConfigSection (DART + Slack — fully functional)
  *   Section 4: KillSwitchSection (자본 보호 — ADR 0074 §3 신규)
- *   Section 5: TrendPreferenceSection (W4 T-MARKET — ADR 0101)
+ *   Section 5: RealtimeFallbackPolicySection (자동매매 데이터 정책)
+ *   Section 6: TrendPreferenceSection (W4 T-MARKET — ADR 0101)
  *
- * Section 6 (AiCredentialSection): 환경변수 기반 운영 — 본 PR scope 외
+ * Section 7 (AiCredentialSection): 환경변수 기반 운영 — 본 PR scope 외
  *
  * overlay z-index: z-[60] — AppHeader(z-50) 위
  * panel: max-w-2xl + max-h-[85vh] overflow-y-auto
@@ -22,6 +23,7 @@ import { useModalBehavior } from '../../hooks/useModalBehavior'
 import { KisCredentialSection } from './sections/KisCredentialSection'
 import { KillSwitchSection } from './sections/KillSwitchSection'
 import { RealTradingConsentSection } from './sections/RealTradingConsentSection'
+import { RealtimeFallbackPolicySection } from './sections/RealtimeFallbackPolicySection'
 import { SystemConfigSection } from './sections/SystemConfigSection'
 import { TrendPreferenceSection } from '../../features/settings/components/TrendPreferenceSection'
 
@@ -98,7 +100,10 @@ export function SettingsModal({ onClose }: Props) {
           {/* Section 4: 자본 보호 (KillSwitch) — ADR 0074 §3 신규 */}
           <KillSwitchSection />
 
-          {/* Section 5: 추세 분석 설정 — W4 T-MARKET (ADR 0101) */}
+          {/* Section 5: 자동매매 데이터 정책 */}
+          <RealtimeFallbackPolicySection />
+
+          {/* Section 6: 추세 분석 설정 — W4 T-MARKET (ADR 0101) */}
           <TrendPreferenceSection />
         </div>
       </div>

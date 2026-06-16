@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.market
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
+import kr.spdaewoon.magicjar.consumer.ingestion.ActiveStrategyCodeProvider
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
@@ -53,6 +54,7 @@ class TickToMinuteAggregator(
     private val candleRepository: ConsumerCandleJpaRepository,
     private val objectMapper: ObjectMapper,
     private val kisWebSocketBridge: KisWebSocketBridge,
+    private val activeStrategyCodeProvider: ActiveStrategyCodeProvider,
     private val boundaryAggregator: BoundaryAggregator,
     private val transactionTemplate: TransactionTemplate,
     private val clock: Clock = Clock.systemUTC(),
@@ -65,7 +67,7 @@ class TickToMinuteAggregator(
      */
     @Scheduled(cron = "0 * * * * ?")
     fun aggregate() {
-        val subscribedCodes = kisWebSocketBridge.subscribedCodes()
+        val subscribedCodes = kisWebSocketBridge.subscribedCodes() + activeStrategyCodeProvider.activeCodes()
         if (subscribedCodes.isEmpty()) return
 
         // deterministic: 스케줄 실행 시각(now) 기준 방금 닫힌 분봉의 시작 시각.
@@ -140,6 +142,7 @@ class TickToMinuteAggregator(
             val lowRaw = hash["low"]?.toBigDecimalOrNull() ?: return
             val closeRaw = hash["close"]?.toBigDecimalOrNull() ?: return
             val volume = hash["volume"]?.toLongOrNull() ?: 0L
+            val source = hash["source"]?.ifBlank { null } ?: "KIS"
 
             // 과거 분이면 그 bar 의 실제 ts 로 발행(보통 closingTs 와 동일).
             val ts = barTs
@@ -159,7 +162,7 @@ class TickToMinuteAggregator(
                         lowRaw = lowRaw,
                         closeRaw = closeRaw,
                         volume = volume,
-                        source = "KIS",
+                        source = source,
                     )
                 } ?: 0
 
@@ -170,7 +173,7 @@ class TickToMinuteAggregator(
             }
 
             log.debug("1m candle DB UPSERT: code={} ts={} close={}", code, ts, closeRaw)
-            publishMinuteCandle(code, ts, openRaw, highRaw, lowRaw, closeRaw, volume)
+            publishMinuteCandle(code, ts, openRaw, highRaw, lowRaw, closeRaw, volume, source)
         } finally {
             // 스냅샷 임시 키 DEL — 다음 분봉 준비. 복원 path 에서도 임시 키는 제거.
             redisTemplate.delete(snapshotKey)
@@ -218,6 +221,7 @@ class TickToMinuteAggregator(
         lowRaw: BigDecimal,
         closeRaw: BigDecimal,
         volume: Long,
+        source: String,
     ) {
         try {
             val payload =
@@ -235,6 +239,7 @@ class TickToMinuteAggregator(
                         "lowRaw" to lowRaw.toPlainString(),
                         "closeRaw" to closeRaw.toPlainString(),
                         "volume" to volume,
+                        "source" to source,
                     ),
                 )
             kafkaTemplate.send(KafkaTopics.Candle.MINUTE_CLOSED, code, payload)

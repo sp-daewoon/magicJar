@@ -202,8 +202,9 @@ magicjar:
       # false 시 단일 :global 버킷(capacity) 회귀 (Phase 1 안전 최소 — rollback).
       priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
       bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}       # USER_PATH 1차 (주문·현재가·차트·잔고)
-      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}   # INGESTION 1차 (watchlist·approval) + USER_PATH fallback
-      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}           # BACKFILL·INGESTION_LOW 1차 (캔들 backfill·지수/섹터 cron)
+      bucket-realtime-market: ${MAGICJAR_KIS_BUCKET_REALTIME_MARKET:2} # ACTIVE 전략 degraded 시세 보강
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:2}   # INGESTION 1차 (watchlist·approval) + USER_PATH fallback
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:2}           # BACKFILL·INGESTION_LOW 1차 (캔들 backfill·지수/섹터 cron)
       # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1

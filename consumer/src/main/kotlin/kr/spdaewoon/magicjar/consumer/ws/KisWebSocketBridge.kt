@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
+import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
@@ -39,7 +40,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
@@ -98,6 +98,7 @@ class KisWebSocketBridge(
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
+    private val liveCandleUpdater: LiveCandleUpdater,
     private val quoteCachePort: QuoteCachePort,
     /** KIS WS 전용 WebSocketClient — SslProvider.JDK + TLSv1.2/1.3 명시 (WebClientConfig 빈).
      *  SSL handshake timeout fix (PR #278 DART 패턴 동일 적용).
@@ -212,9 +213,6 @@ class KisWebSocketBridge(
          */
         private const val DISCONNECT_ALERT_GRACE_SECONDS = 10L
 
-        private val LIVE_CANDLE_INTERVALS =
-            listOf("1m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h", "1d", "1wk", "1mo", "1y")
-
         /**
          * ADR 0114 §10-3 R2-C1 — `orderbook:top:{code}` 1호가 캐시 TTL(보수적 짧게).
          *
@@ -223,9 +221,6 @@ class KisWebSocketBridge(
          * 10초로 둔다(WS 잠깐 끊김에도 직전 호가 1회 fallback 여지 + 그래도 EntryPricePolicy stale gate가 최종 차단).
          */
         private val ORDERBOOK_TOP_TTL: Duration = Duration.ofSeconds(10)
-
-        private const val NXT_INTEGRATED_OPEN_MIN = CandleSession.NXT_INTEGRATED_OPEN_MIN
-        private val NINETY_MIN_BOUNDARY_STARTS = CandleSession.NINETY_MIN_START_MIN.toList()
 
         /**
          * 최근 unsubscribe 전송 이력 상한 (결함③ 진단 관측 — [recentUnsubscribes]).
@@ -569,6 +564,17 @@ class KisWebSocketBridge(
     }
 
     override fun subscribedCodes(): Set<String> = session.subscribedCodes.toSet()
+
+    /**
+     * ACTIVE 전략 degraded feed 판정용 read-only tick age.
+     *
+     * null이면 해당 JVM 세션에서 아직 H0UNCNT0/H0STOUP0 기준선이 없다는 뜻이다.
+     * 호출자는 이 값을 근거로만 KIS 구독 상태를 변경하지 않는다.
+     */
+    fun lastTickAgeSeconds(code: String): Long? {
+        val lastMs = lastTickAtMsByCode[code] ?: return null
+        return ((System.currentTimeMillis() - lastMs).coerceAtLeast(0L)) / 1000L
+    }
 
     /**
      * 관리자 실시간 상태 스냅샷용 — 체결가 demand가 점유하는 tr_id (ADR 0124 단일 채널).
@@ -1258,7 +1264,7 @@ class KisWebSocketBridge(
 
         recordTickReceived(tick.code)
         writeToRedis(tick)
-        updateLiveCandles(tick)
+        liveCandleUpdater.update(tick)
         publishTickEvent(tick)
     }
 
@@ -1295,7 +1301,7 @@ class KisWebSocketBridge(
         // 동일 처리 흐름 — Redis update + candle 갱신 + Kafka publish
         recordTickReceived(tick.code)
         writeToRedis(tick)
-        updateLiveCandles(tick)
+        liveCandleUpdater.update(tick)
         publishTickEvent(tick)
     }
 
@@ -1497,112 +1503,6 @@ class KisWebSocketBridge(
         }
     }
 
-    private fun updateLiveCandles(tick: TickEvent) {
-        try {
-            LIVE_CANDLE_INTERVALS.forEach { interval ->
-                val start = liveCandleStart(tick, interval)
-                updateLiveCandleHash(
-                    key = RedisKeyRegistry.Market.candleCurrent(tick.code, interval),
-                    interval = interval,
-                    start = start,
-                    tick = tick,
-                    ttl = liveCandleTtl(interval),
-                )
-
-                // 기존 API/운영 키 호환. 신규 경로는 candle:current:{code}:1d를 우선 사용한다.
-                if (interval == "1d") {
-                    updateLiveCandleHash(
-                        key = RedisKeyRegistry.Market.candleToday1d(tick.code),
-                        interval = interval,
-                        start = start,
-                        tick = tick,
-                        ttl = Duration.ofHours(24),
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            log.error("KIS WS live candle 갱신 실패: code={} error={}", tick.code, e.message)
-        }
-    }
-
-    private fun updateLiveCandleHash(
-        key: String,
-        interval: String,
-        start: Instant,
-        tick: TickEvent,
-        ttl: Duration,
-    ) {
-        val existing = redisTemplate.opsForHash<String, String>().entries(key)
-        val startTs = start.toString()
-        val sameBar = (existing["startTs"] ?: existing["ts"]) == startTs
-        val priceStr = tick.price.toPlainString()
-
-        // 공식 KIS 시드(TodayCandleSeedPort.seedTodayCandle)가 먼저 Hash를 채웠는지 — 같은 bar 한정 유효.
-        // seeded=true 이면 open은 공식 9시 시가로 LOCK(틱으로 덮어쓰지 않음), 고/저는 공식 baseline 위 확장만,
-        // volume은 공식 누적거래량(acmlBase) + 시드 이후 WS 체결량(CNTG_VOL) 델타 — 이중계상 차단.
-        val seeded = sameBar && existing["seeded"] == "true"
-        if (interval == "1d" && !seeded) {
-            log.debug(
-                "KIS WS 1d live candle tick-only 생성 skip — 공식 seed 대기: key={} startTs={}",
-                key,
-                startTs,
-            )
-            return
-        }
-
-        val open =
-            if (sameBar) {
-                // seeded든 아니든 기존 open 보존(첫 틱/공식 시가). 새 bar면 첫 틱이 open.
-                existing["open"] ?: priceStr
-            } else {
-                priceStr
-            }
-        val high =
-            if (sameBar) {
-                existing["high"]?.let { h -> maxOf(h.toBigDecimalOrNull() ?: tick.price, tick.price).toPlainString() } ?: priceStr
-            } else {
-                priceStr
-            }
-        val low =
-            if (sameBar) {
-                existing["low"]?.let { l -> minOf(l.toBigDecimalOrNull() ?: tick.price, tick.price).toPlainString() } ?: priceStr
-            } else {
-                priceStr
-            }
-
-        // volume 권위 분기:
-        //  - seeded: volume = acmlBase(공식 ACML_VOL) + wsVolDelta(시드 이후 CNTG_VOL 누적). 공식값 이중계상 0.
-        //  - 미시드(시드 실패/구독 안 됨 legacy): 기존 동작 — CNTG_VOL 단순 누적(차선, graceful).
-        val baseFields: Map<String, String>
-        val volume: Long
-        if (seeded) {
-            val acmlBase = existing["acmlBase"]?.toLongOrNull() ?: 0L
-            val wsVolDelta = (existing["wsVolDelta"]?.toLongOrNull() ?: 0L) + tick.volume
-            volume = acmlBase + wsVolDelta
-            baseFields = mapOf("seeded" to "true", "acmlBase" to acmlBase.toString(), "wsVolDelta" to wsVolDelta.toString())
-        } else {
-            volume = (if (sameBar) existing["volume"]?.toLongOrNull() ?: 0L else 0L) + tick.volume
-            baseFields = emptyMap()
-        }
-
-        redisTemplate.opsForHash<String, String>().putAll(
-            key,
-            mapOf(
-                "interval" to interval,
-                "open" to open,
-                "high" to high,
-                "low" to low,
-                "close" to priceStr,
-                "volume" to volume.toString(),
-                "startTs" to startTs,
-                "ts" to startTs,
-                "source" to tick.source,
-                "updatedAt" to tick.ts.toString(),
-            ) + baseFields,
-        )
-        redisTemplate.expire(key, ttl)
-    }
-
     /**
      * 구독 수립 시점 호출 — `candle:today:{code}:1d`(+`candle:current:{code}:1d`) Hash를 공식 KIS 당일값으로 시드/재보정.
      *
@@ -1704,7 +1604,7 @@ class KisWebSocketBridge(
                 low,
                 close,
                 acmlVol ?: 0L,
-                liveCandleTtl("1d"),
+                Duration.ofDays(2),
             )
             log.info(
                 "[TodayCandleSeed] 공식 KIS 당일값 시드: code={} open={} high={} low={} close={} acmlVol={}",
@@ -1812,76 +1712,6 @@ class KisWebSocketBridge(
             }
         }
     }
-
-    private fun liveCandleStart(
-        tick: TickEvent,
-        interval: String,
-    ): Instant {
-        val tickInstant = Instant.ofEpochMilli(tick.ts.toEpochMilliseconds())
-        val zdt = tickInstant.atZone(kstZone)
-        val dayStart = zdt.toLocalDate().atStartOfDay(kstZone)
-        val minOfDay = zdt.hour * 60 + zdt.minute
-
-        return when (interval) {
-            "1m" -> zdt.truncatedTo(ChronoUnit.MINUTES).toInstant()
-            "3m" -> floorKstMinute(dayStart, minOfDay, 3)
-            "5m" -> floorKstMinute(dayStart, minOfDay, 5)
-            "15m" -> floorKstMinute(dayStart, minOfDay, 15)
-            "30m" -> floorKstMinute(dayStart, minOfDay, 30)
-            "90m" -> dayStart.plusMinutes(ninetyMinuteStart(minOfDay).toLong()).toInstant()
-            "1h" -> zdt.truncatedTo(ChronoUnit.HOURS).toInstant()
-            "4h" -> anchoredIntegratedStart(dayStart, minOfDay, 4 * 60)
-            "12h" -> dayStart.plusMinutes(NXT_INTEGRATED_OPEN_MIN.toLong()).toInstant()
-            "1d" -> dayStart.toInstant()
-            "1wk" -> {
-                val monday = zdt.toLocalDate().minusDays((zdt.dayOfWeek.value - 1).toLong())
-                monday.atStartOfDay(kstZone).toInstant()
-            }
-            "1mo" -> LocalDate.of(zdt.year, zdt.month, 1).atStartOfDay(kstZone).toInstant()
-            "1y" -> LocalDate.of(zdt.year, 1, 1).atStartOfDay(kstZone).toInstant()
-            else -> dayStart.toInstant()
-        }
-    }
-
-    private fun floorKstMinute(
-        dayStart: java.time.ZonedDateTime,
-        minOfDay: Int,
-        intervalMinutes: Int,
-    ): Instant {
-        val startMinute = (minOfDay / intervalMinutes) * intervalMinutes
-        return dayStart.plusMinutes(startMinute.toLong()).toInstant()
-    }
-
-    private fun anchoredIntegratedStart(
-        dayStart: java.time.ZonedDateTime,
-        minOfDay: Int,
-        intervalMinutes: Int,
-    ): Instant {
-        val boundedMinute = minOfDay.coerceAtLeast(NXT_INTEGRATED_OPEN_MIN)
-        val startMinute =
-            NXT_INTEGRATED_OPEN_MIN +
-                ((boundedMinute - NXT_INTEGRATED_OPEN_MIN) / intervalMinutes) * intervalMinutes
-        return dayStart.plusMinutes(startMinute.toLong()).toInstant()
-    }
-
-    private fun ninetyMinuteStart(minOfDay: Int): Int {
-        var picked = NINETY_MIN_BOUNDARY_STARTS.first()
-        for (anchor in NINETY_MIN_BOUNDARY_STARTS) {
-            if (anchor <= minOfDay) picked = anchor else break
-        }
-        return picked
-    }
-
-    private fun liveCandleTtl(interval: String): Duration =
-        when (interval) {
-            "1m" -> Duration.ofMinutes(2)
-            "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h" -> Duration.ofHours(24)
-            "1d" -> Duration.ofDays(2)
-            "1wk" -> Duration.ofDays(14)
-            "1mo" -> Duration.ofDays(62)
-            "1y" -> Duration.ofDays(400)
-            else -> Duration.ofDays(2)
-        }
 
     /**
      * Kafka market.tick.v1 publish.

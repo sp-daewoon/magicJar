@@ -25,6 +25,12 @@ enum class KisCallPriority {
     INGESTION,
 
     /**
+     * ACTIVE 전략 degraded candle feed 등 장중 실시간성 보강 REST.
+     * USER_PATH(주문·잔고)보다는 낮고, 일반 ingestion/backfill보다는 높게 보호한다.
+     */
+    REALTIME_MARKET,
+
+    /**
      * Backfill·corp action·reconcile (백그라운드 batch).
      * Phase 2에서 최후 우선순위 (사용자 path 방해 0).
      */

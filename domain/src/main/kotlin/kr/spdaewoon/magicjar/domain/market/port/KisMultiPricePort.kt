@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.domain.market.port
 
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import java.math.BigDecimal
 
 /**
@@ -37,6 +38,7 @@ interface KisMultiPricePort {
     fun fetchMultiPrice(
         codes: List<String>,
         mrktDivCode: String = "J",
+        priority: KisCallPriority = KisCallPriority.BACKFILL,
     ): List<MultiPriceQuote>
 }
 

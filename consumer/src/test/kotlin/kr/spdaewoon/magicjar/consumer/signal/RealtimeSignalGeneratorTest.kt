@@ -52,6 +52,7 @@ class RealtimeSignalGeneratorTest {
     private val evaluator = mockk<JvmStrategyEvaluator>()
     private val dedupeGuard = mockk<SignalDedupeGuard>()
     private val signalKafkaProducer = mockk<SignalKafkaProducer>()
+    private val realtimeFallbackBuyPolicy = mockk<RealtimeFallbackBuyPolicy>()
     private val marketSessionResolver = SimpleMarketSessionResolver()
     private val businessDayCalendar =
         mockk<BusinessDayCalendar>().also {
@@ -69,6 +70,7 @@ class RealtimeSignalGeneratorTest {
         every { strategyLookup.findSellEvalByCodeAndInterval(any(), any()) } answers {
             strategyLookup.findActiveByCodeAndInterval(firstArg(), secondArg())
         }
+        every { realtimeFallbackBuyPolicy.allowsBuy(any()) } returns true
     }
 
     @Test
@@ -164,6 +166,43 @@ class RealtimeSignalGeneratorTest {
         assertThat(publishedSignal.captured.id).isEqualTo(88L)
         assertThat(publishedSignal.captured.side).isEqualTo(SignalSide.BUY)
         verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `fallback BUY 정책 OFF면 BUY 시그널을 저장하거나 발행하지 않는다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:30:00Z")
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "005930",
+                CandleInterval.FIVE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns listOf(candle("2026-05-20T00:25:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                signal = StrategySignal.BUY,
+                strength = BigDecimal("0.85"),
+                reason = mapOf("trigger" to "MA_CROSS"),
+                evaluatedAt = fixedNow,
+                evalTimeMs = 2L,
+            )
+        every { realtimeFallbackBuyPolicy.allowsBuy(any()) } returns false
+
+        generator().onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "150", source = "KIS-POLLING"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
     }
 
     @Test
@@ -1025,6 +1064,7 @@ class RealtimeSignalGeneratorTest {
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,
+            realtimeFallbackBuyPolicy = realtimeFallbackBuyPolicy,
             marketSessionResolver = marketSessionResolver,
             businessDayCalendarProvider = providerOf(businessDayCalendar),
             evalLookbackCandles = evalLookbackCandles,
@@ -1109,6 +1149,7 @@ class RealtimeSignalGeneratorTest {
     private fun candle(
         ts: Instant,
         close: String,
+        source: String = "TEST",
     ): Candle {
         val price = BigDecimal(close)
         return Candle(
@@ -1124,7 +1165,7 @@ class RealtimeSignalGeneratorTest {
             lowAdj = null,
             closeAdj = null,
             volume = 1_000L,
-            source = "TEST",
+            source = source,
         )
     }
 

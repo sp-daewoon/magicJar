@@ -89,6 +89,7 @@ class ConsumerRedisKisRateLimiterAdapter(
 
         /** priority별 버킷 key suffix (api·batch 동일 LOCK — 동일 Redis 3 key 정합 · ADR 0116 §2-B). */
         const val USER_KEY_SUFFIX = ":user"
+        const val REALTIME_KEY_SUFFIX = ":realtime"
         const val SHARED_KEY_SUFFIX = ":shared"
         const val BG_KEY_SUFFIX = ":bg"
 
@@ -109,15 +110,25 @@ class ConsumerRedisKisRateLimiterAdapter(
 
         /** 버킷 라벨 (metric tag). */
         const val BUCKET_USER = "user"
+        const val BUCKET_REALTIME = "realtime"
         const val BUCKET_SHARED = "shared"
         const val BUCKET_BG = "bg"
         const val BUCKET_GLOBAL = "global"
         const val BUCKET_NONE = "none"
     }
 
-    /** priority별 버킷 capacity 합 = bucketCapacity 인지 (ADR 0116 §4 합 검증). 불일치 시 단일 bucket fallback. */
-    private val bucketSumValid: Boolean =
+    /** 4-tier 합 = bucketCapacity 인지. */
+    private val realtimeBucketSumValid: Boolean =
+        (props.bucketUser + props.bucketRealtimeMarket + props.bucketShared + props.bucketBg) == props.bucketCapacity &&
+            props.bucketRealtimeMarket > 0L
+
+    /** 기존 3-tier 합 = bucketCapacity 인지. 구버전 ENV 호환용. */
+    private val legacyBucketSumValid: Boolean =
         (props.bucketUser + props.bucketShared + props.bucketBg) == props.bucketCapacity
+
+    private val bucketSumValid: Boolean = realtimeBucketSumValid || legacyBucketSumValid
+
+    private val realtimeBucketActive: Boolean = realtimeBucketSumValid
 
     /** 3-tier priority 버킷 활성 여부. 비활성 시 단일 :global 버킷(capacity) 회귀 (Phase 1 안전 최소). */
     private val priorityBucketsActive: Boolean =
@@ -130,11 +141,12 @@ class ConsumerRedisKisRateLimiterAdapter(
     init {
         if (props.priorityBucketsEnabled && !bucketSumValid) {
             log.warn(
-                "[KisRateLimit/consumer] priority 버킷 합 불일치 — 단일 bucket fallback: user={} shared={} bg={} sum={} != capacity={}",
+                "[KisRateLimit/consumer] priority 버킷 합 불일치 — 단일 bucket fallback: user={} realtime={} shared={} bg={} sum={} != capacity={}",
                 props.bucketUser,
+                props.bucketRealtimeMarket,
                 props.bucketShared,
                 props.bucketBg,
-                props.bucketUser + props.bucketShared + props.bucketBg,
+                props.bucketUser + props.bucketRealtimeMarket + props.bucketShared + props.bucketBg,
                 props.bucketCapacity,
             )
         }
@@ -166,6 +178,9 @@ class ConsumerRedisKisRateLimiterAdapter(
     /** USER 버킷 — USER_PATH 1차. Redis backend Lettuce ProxyManager 가 multi-JVM share 보장 (api·batch 동일 bucketKey). */
     private val userBucket: BucketProxy by lazy { buildBucket(USER_KEY_SUFFIX, props.bucketUser) }
 
+    /** REALTIME 버킷 — ACTIVE 전략 degraded 시세 보강 전용. */
+    private val realtimeBucket: BucketProxy by lazy { buildBucket(REALTIME_KEY_SUFFIX, props.bucketRealtimeMarket) }
+
     /** SHARED 버킷 — INGESTION 1차 + USER_PATH fallback 2단. */
     private val sharedBucket: BucketProxy by lazy { buildBucket(SHARED_KEY_SUFFIX, props.bucketShared) }
 
@@ -182,11 +197,28 @@ class ConsumerRedisKisRateLimiterAdapter(
      * USER_PATH→[USER,SHARED,BG]·INGESTION→[SHARED,BG]·BACKFILL/INGESTION_LOW→[BG] (when exhaustive).
      */
     private fun bucketsFor(priority: KisCallPriority): List<Pair<String, BucketProxy>> =
-        when (priority) {
-            KisCallPriority.USER_PATH ->
-                listOf(BUCKET_USER to userBucket, BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
-            KisCallPriority.INGESTION -> listOf(BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
-            KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(BUCKET_BG to bgBucket)
+        if (realtimeBucketActive) {
+            when (priority) {
+                KisCallPriority.USER_PATH ->
+                    listOf(
+                        BUCKET_USER to userBucket,
+                        BUCKET_REALTIME to realtimeBucket,
+                        BUCKET_SHARED to sharedBucket,
+                        BUCKET_BG to bgBucket,
+                    )
+                KisCallPriority.REALTIME_MARKET ->
+                    listOf(BUCKET_REALTIME to realtimeBucket, BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+                KisCallPriority.INGESTION -> listOf(BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+                KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(BUCKET_BG to bgBucket)
+            }
+        } else {
+            when (priority) {
+                KisCallPriority.USER_PATH ->
+                    listOf(BUCKET_USER to userBucket, BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+                KisCallPriority.REALTIME_MARKET, KisCallPriority.INGESTION ->
+                    listOf(BUCKET_SHARED to sharedBucket, BUCKET_BG to bgBucket)
+                KisCallPriority.BACKFILL, KisCallPriority.INGESTION_LOW -> listOf(BUCKET_BG to bgBucket)
+            }
         }
 
     /**

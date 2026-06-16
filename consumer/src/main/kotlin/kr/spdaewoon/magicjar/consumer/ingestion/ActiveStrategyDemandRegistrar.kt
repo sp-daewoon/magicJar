@@ -1,8 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
@@ -20,10 +18,9 @@ import org.springframework.stereotype.Component
  */
 @Component
 class ActiveStrategyDemandRegistrar(
-    private val strategyJpaRepository: ConsumerStrategyJpaRepository,
+    private val activeStrategyCodeProvider: ActiveStrategyCodeProvider,
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
     private val orderbookSubscriptionRouter: OrderbookSubscriptionRouter,
-    private val objectMapper: ObjectMapper,
     @Value("\${magicjar.autotrading.strategy-watch.enabled:true}")
     private val enabled: Boolean = true,
 ) {
@@ -43,14 +40,7 @@ class ActiveStrategyDemandRegistrar(
     fun refreshActiveStrategyDemands() {
         if (!enabled) return
 
-        val nextByStrategy =
-            strategyJpaRepository
-                .findActiveWithExplicitCodes()
-                .mapNotNull { entity ->
-                    val id = entity.id ?: return@mapNotNull null
-                    val codes = parseCodes(entity.codes).toSet()
-                    if (codes.isEmpty()) null else id to codes
-                }.toMap()
+        val nextByStrategy = activeStrategyCodeProvider.activeCodesByStrategy()
 
         nextByStrategy.forEach { (strategyId, codes) ->
             codes.forEach { code ->
@@ -100,31 +90,11 @@ class ActiveStrategyDemandRegistrar(
         }
     }
 
-    private fun parseCodes(json: String?): List<String> {
-        if (json.isNullOrBlank()) return emptyList()
-        return try {
-            val node = objectMapper.readTree(json)
-            when {
-                node.isArray ->
-                    node
-                        .mapNotNull { child -> child.asText(null) }
-                        .filter { CODE_REGEX.matches(it) }
-                        .distinct()
-                node.isTextual && CODE_REGEX.matches(node.asText()) -> listOf(node.asText())
-                else -> emptyList()
-            }
-        } catch (e: Exception) {
-            log.warn("ACTIVE strategy codes 파싱 실패: err={}", e.message)
-            emptyList()
-        }
-    }
-
     // bare ownerId — prefix(`strategy:`)는 스냅샷 직렬화에서 1회 부여(이중 prefix 회피).
     // request/release/onStrategyActivated/onStrategyDeactivated 모두 본 함수를 쓰므로 멱등 매칭 키 동일.
     private fun ownerId(strategyId: Long): String = "$strategyId"
 
     private companion object {
         const val STRATEGY_DEMAND_TTL_SECONDS = 180L
-        val CODE_REGEX = Regex("^\\d{6}$")
     }
 }

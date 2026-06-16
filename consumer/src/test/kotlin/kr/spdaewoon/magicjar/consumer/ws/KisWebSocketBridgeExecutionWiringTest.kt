@@ -178,6 +178,7 @@ class KisWebSocketBridgeExecutionWiringTest {
             redisTemplate = redisTemplate,
             kafkaTemplate = kafkaTemplate,
             objectMapper = objectMapper,
+            liveCandleUpdater = mockk(relaxed = true),
             quoteCachePort = quoteCachePort,
             wsClient = wsClient,
             wsUrlProd = "ws://localhost:21000",

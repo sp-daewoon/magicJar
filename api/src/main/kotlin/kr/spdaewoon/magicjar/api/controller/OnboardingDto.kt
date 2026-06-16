@@ -153,6 +153,12 @@ data class SystemConfigRequest(
         nullable = true,
     )
     val slackWebhookUrl: String? = null,
+    @Schema(
+        description = "fallback source candle 신규 BUY 허용 여부 — null: 변경 안 함",
+        example = "true",
+        nullable = true,
+    )
+    val realtimeFallbackBuyEnabled: Boolean? = null,
 )
 
 /**
@@ -172,6 +178,8 @@ data class SystemConfigResponse(
         nullable = true,
     )
     val slackWebhookUrl: String? = null,
+    @Schema(description = "fallback source candle 신규 BUY 허용 여부", example = "true")
+    val realtimeFallbackBuyEnabled: Boolean = true,
     @Schema(description = "갱신 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
     val updatedAt: Instant,
 )

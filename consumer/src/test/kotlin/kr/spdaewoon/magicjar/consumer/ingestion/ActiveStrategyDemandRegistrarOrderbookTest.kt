@@ -1,11 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import org.junit.jupiter.api.Test
 
 /**
@@ -18,49 +15,38 @@ import org.junit.jupiter.api.Test
 class ActiveStrategyDemandRegistrarOrderbookTest {
     private val realtimeRouter = mockk<RealtimeSubscriptionRouter>(relaxed = true)
     private val orderbookRouter = mockk<OrderbookSubscriptionRouter>(relaxed = true)
-    private val objectMapper = ObjectMapper()
 
-    private fun registrar(repo: ConsumerStrategyJpaRepository) =
+    private fun registrar(provider: ActiveStrategyCodeProvider) =
         ActiveStrategyDemandRegistrar(
-            strategyJpaRepository = repo,
+            activeStrategyCodeProvider = provider,
             realtimeSubscriptionRouter = realtimeRouter,
             orderbookSubscriptionRouter = orderbookRouter,
-            objectMapper = objectMapper,
             enabled = true,
         )
 
-    private fun activeStrategy(
-        id: Long,
-        codesJson: String,
-    ): ConsumerStrategyJpaEntity =
-        mockk {
-            every { this@mockk.id } returns id
-            every { codes } returns codesJson
-        }
-
     @Test
     fun `전략 ACTIVE 종목은 호가 구독(onStrategyActivated)도 함께 요청한다`() {
-        val repo =
-            mockk<ConsumerStrategyJpaRepository> {
-                every { findActiveWithExplicitCodes() } returns listOf(activeStrategy(86, """["093370"]"""))
+        val provider =
+            mockk<ActiveStrategyCodeProvider> {
+                every { activeCodesByStrategy() } returns mapOf(86L to setOf("093370"))
             }
 
-        registrar(repo).refreshActiveStrategyDemands()
+        registrar(provider).refreshActiveStrategyDemands()
 
         verify { orderbookRouter.onStrategyActivated(code = "093370", ownerId = "86") }
     }
 
     @Test
     fun `전략 대상 종목 제외 시 호가 구독도 대칭 release(onStrategyDeactivated)한다`() {
-        val repo = mockk<ConsumerStrategyJpaRepository>()
-        val reg = registrar(repo)
+        val provider = mockk<ActiveStrategyCodeProvider>()
+        val reg = registrar(provider)
 
         // 1차: 093370 보유
-        every { repo.findActiveWithExplicitCodes() } returns listOf(activeStrategy(86, """["093370"]"""))
+        every { provider.activeCodesByStrategy() } returns mapOf(86L to setOf("093370"))
         reg.refreshActiveStrategyDemands()
 
         // 2차: 전략에서 093370 제외(빈 codes는 null 처리되므로 다른 종목으로 교체)
-        every { repo.findActiveWithExplicitCodes() } returns listOf(activeStrategy(86, """["005930"]"""))
+        every { provider.activeCodesByStrategy() } returns mapOf(86L to setOf("005930"))
         reg.refreshActiveStrategyDemands()
 
         verify { orderbookRouter.onStrategyDeactivated(code = "093370", ownerId = "86") }
