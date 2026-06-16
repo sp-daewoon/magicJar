@@ -42,11 +42,13 @@ export function RiskConfigPage() {
         </p>
       </div>
 
-      {/* 설정 폼 (기존 디자인 유지) */}
-      <RiskConfigForm userId={userId} onSaved={() => invalidateUsage(userId)} />
-
-      {/* 한도 사용 현황 게이지 (보강) — 저장 시 onSaved → invalidate → 즉시 재조회 */}
+      {/* 한도 사용 현황 게이지 — 사용자가 한도 근접도를 먼저 보도록 최상단 배치 (피드백 #1) */}
       <RiskUsageCards userId={userId} />
+
+      {/* 설정 폼 (기존 디자인 유지) — 저장 시 onSaved → invalidate → 위 사용 현황 즉시 재조회 */}
+      <div className="mt-10">
+        <RiskConfigForm userId={userId} onSaved={() => invalidateUsage(userId)} />
+      </div>
     </div>
   )
 }

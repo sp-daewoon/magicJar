@@ -4,10 +4,11 @@
  * 설정 화면(RiskConfigForm) 아래에 보강되는 읽기 전용 사용량 보드.
  * 각 한도를 "지금 얼마나 쓰고 있는지" 게이지로 노출한다.
  *
- *   A. 포지션 한도 (계좌 전체 공유) — 종목별이 아니라 계좌 전체 1개 풀
+ *   A. 포지션 한도 (계좌 전체 공유) — "계좌 전체 공유 단일 풀" 배지로 종목별 오해 방지
  *   B. 일일 손실 한도 (DLL)
  *   C. 동시 보유 종목 — 점(●●●○○) + 게이지
- *   D. 거래 빈도 (전략당) — 전략 드롭다운 선택
+ *   D. 거래 빈도 (전략당) — 드롭다운 없이 ACTIVE 전략 전부를 세로로 전개
+ *     (전략 행마다 useRiskUsage(userId, strategyId) 독립 호출 · 키 분리 캐싱)
  *
  * 데이터: GET /api/risk/usage (useRiskUsage, 10초 polling + 저장 시 강제 갱신)
  *
@@ -18,7 +19,7 @@
  *
  * 룰 5: LLM provider import 0건
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useRiskUsage } from '../../api/hooks/useRiskUsage'
 import { useStrategies } from '../../api/hooks/useStrategy'
 import type {
@@ -167,6 +168,19 @@ function EmptySection({ label, desc }: { label: string; desc?: string }) {
 // A. 포지션 한도 (계좌 전체 공유)
 // ──────────────────────────────────────────────
 
+/**
+ * "계좌 전체 공유" 안내 배지 — 사용자가 종목별 한도로 오해하지 않도록
+ * A 카드에 명시적으로 강조 표시 (피드백 #2).
+ */
+function SharedPoolBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-blue-700/60 bg-blue-900/30 px-2 py-1 text-[11px] font-medium text-blue-300">
+      <span aria-hidden="true">●</span>
+      계좌 전체 공유 단일 풀 · 종목별 한도 아님
+    </span>
+  )
+}
+
 function PositionCard({ d }: { d: RiskUsagePosition | null }) {
   if (!d || d.totalLimit === null) {
     return (
@@ -178,10 +192,10 @@ function PositionCard({ d }: { d: RiskUsagePosition | null }) {
   }
   const ratio = pct(d.totalExposure, d.totalLimit)
   return (
-    <CardShell
-      label="A. 포지션 한도 (계좌 전체)"
-      desc="계좌 전체가 공유하는 단일 풀 — 종목별 한도가 아닙니다."
-    >
+    <CardShell label="A. 포지션 한도 (계좌 전체)">
+      <div className="mb-3">
+        <SharedPoolBadge />
+      </div>
       <Gauge
         ratio={ratio}
         caption={`전체노출 ${won(d.totalExposure)} / ${won(d.totalLimit)}`}
@@ -290,58 +304,37 @@ function ConcurrentCard({ d }: { d: RiskUsageConcurrent | null }) {
 }
 
 // ──────────────────────────────────────────────
-// D. 거래 빈도 (전략당)
+// D. 거래 빈도 (전략당) — 드롭다운 제거, ACTIVE 전략 전체 전개 (피드백 #3)
 // ──────────────────────────────────────────────
 
-function TradeFrequencyCard({
-  d,
+/**
+ * 한 전략의 거래 빈도 행 — 일별·분당 두 게이지.
+ * 각 행이 독립적으로 useRiskUsage(userId, strategyId) 호출 (react-query 키 분리 캐싱).
+ * 카운트는 strategyId 별로 집계되므로 전략당 표기가 실제로 맞다.
+ */
+function StrategyFrequencyRow({
   userId,
-  selectedStrategyId,
-  onSelectStrategy,
+  strategyId,
+  name,
 }: {
-  d: RiskUsageTradeFrequency | null
   userId: number
-  selectedStrategyId: number | null
-  onSelectStrategy: (id: number | null) => void
+  strategyId: number
+  name: string
 }) {
-  const { data: strategies, isLoading } = useStrategies(userId)
-
-  const selector = (
-    <select
-      value={selectedStrategyId ?? ''}
-      onChange={(e) => onSelectStrategy(e.target.value === '' ? null : Number(e.target.value))}
-      className="max-w-[55%] truncate rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
-      aria-label="거래 빈도 전략 선택"
-    >
-      <option value="">전략 선택…</option>
-      {(strategies ?? []).map((s) => (
-        <option key={s.id} value={s.id}>
-          {s.nameKo || s.name}
-        </option>
-      ))}
-    </select>
-  )
+  const { data } = useRiskUsage(userId, strategyId)
+  const d: RiskUsageTradeFrequency | null = data?.tradeFrequency ?? null
 
   return (
-    <CardShell
-      label="D. 거래 빈도 (전략당)"
-      desc="선택한 전략의 분당·일별 주문 사용량"
-      badge={selector}
-    >
-      {!isLoading && (strategies ?? []).length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
-          등록된 전략이 없습니다.
-        </div>
-      ) : selectedStrategyId === null ? (
-        <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
-          전략을 선택하면 빈도 사용량이 표시됩니다.
-        </div>
-      ) : !d || d.perDayLimit === null ? (
-        <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
+    <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+      <div className="mb-2 truncate text-xs font-semibold text-gray-200" title={name}>
+        {name}
+      </div>
+      {!d || d.perDayLimit === null ? (
+        <div className="rounded-md border border-dashed border-gray-700 bg-gray-900/40 px-3 py-4 text-center text-[11px] text-gray-500">
           데이터 없음 · 준비 중
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
             <Gauge
               ratio={pct(d.perDayUsed, d.perDayLimit)}
@@ -359,6 +352,47 @@ function TradeFrequencyCard({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function TradeFrequencyCard({ userId }: { userId: number }) {
+  const { data: strategies, isLoading } = useStrategies(userId)
+
+  // ACTIVE(enabled) 전략만 전개 — id 는 string 이므로 number 로 환산
+  const activeStrategies = useMemo(
+    () =>
+      (strategies ?? [])
+        .filter((s) => s.enabled)
+        .map((s) => ({ id: Number(s.id), name: s.nameKo || s.name }))
+        .filter((s) => Number.isFinite(s.id)),
+    [strategies],
+  )
+
+  return (
+    <CardShell label="D. 거래 빈도 (전략당)" desc="활성 전략별 분당·일별 주문 사용량">
+      {isLoading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="h-28 animate-pulse rounded-lg bg-gray-800" />
+          ))}
+        </div>
+      ) : activeStrategies.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
+          활성 전략 없음 — 전략을 활성화하면 거래 빈도가 표시됩니다.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {activeStrategies.map((s) => (
+            <StrategyFrequencyRow
+              key={s.id}
+              userId={userId}
+              strategyId={s.id}
+              name={s.name}
+            />
+          ))}
+        </div>
+      )}
     </CardShell>
   )
 }
@@ -372,11 +406,9 @@ interface RiskUsageCardsProps {
 }
 
 export function RiskUsageCards({ userId }: RiskUsageCardsProps) {
-  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null)
-  const { data, isLoading, isError, isFetching, dataUpdatedAt } = useRiskUsage(
-    userId,
-    selectedStrategyId,
-  )
+  // A/B/C 카드는 strategyId 무관 단일 호출. D(거래 빈도)는 전략별로 자체 호출하므로
+  // 여기서 strategyId state 를 두지 않는다 → 셀렉트 변경에 의한 스크롤 점프 제거 (피드백 #4).
+  const { data, isLoading, isError, isFetching, dataUpdatedAt } = useRiskUsage(userId)
 
   const updatedLabel = useMemo(() => {
     if (!dataUpdatedAt) return null
@@ -384,7 +416,7 @@ export function RiskUsageCards({ userId }: RiskUsageCardsProps) {
   }, [dataUpdatedAt])
 
   return (
-    <section className="mt-10">
+    <section>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-white">한도 사용 현황</h2>
@@ -412,12 +444,7 @@ export function RiskUsageCards({ userId }: RiskUsageCardsProps) {
           <PositionCard d={data?.position ?? null} />
           <DailyLossCard d={data?.dailyLoss ?? null} />
           <ConcurrentCard d={data?.concurrent ?? null} />
-          <TradeFrequencyCard
-            d={data?.tradeFrequency ?? null}
-            userId={userId}
-            selectedStrategyId={selectedStrategyId}
-            onSelectStrategy={setSelectedStrategyId}
-          />
+          <TradeFrequencyCard userId={userId} />
         </div>
       )}
     </section>
