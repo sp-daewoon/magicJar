@@ -3,10 +3,10 @@ id: T-20260616-1943-strategy-perf-migrations
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-perf-migrations
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T19:43:22.002+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T19:47:38.217+09:00
+pr: #1021
 parentPhase: ?
 ---
 
