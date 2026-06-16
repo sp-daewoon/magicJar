@@ -7,8 +7,9 @@
  *   A. 포지션 한도 (계좌 전체 공유) — "계좌 전체 공유 단일 풀" 배지로 종목별 오해 방지
  *   B. 일일 손실 한도 (DLL)
  *   C. 동시 보유 종목 — 점(●●●○○) + 게이지
- *   D. 거래 빈도 (전략당) — 드롭다운 없이 ACTIVE 전략 전부를 세로로 전개
- *     (전략 행마다 useRiskUsage(userId, strategyId) 독립 호출 · 키 분리 캐싱)
+ *   D. 거래 빈도 (전략당) — 콤보박스로 ACTIVE 전략 1개를 선택해 표시
+ *     (선택된 전략 행만 useRiskUsage(userId, strategyId) 독립 호출 · 키 분리 캐싱.
+ *      선택 state 는 카드 로컬 useState — 상위 호출 인자에 넣지 않아 스크롤 점프 회귀 방지)
  *
  * 데이터: GET /api/risk/usage (useRiskUsage, 10초 polling + 저장 시 강제 갱신)
  *
@@ -19,7 +20,7 @@
  *
  * 룰 5: LLM provider import 0건
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRiskUsage } from '../../api/hooks/useRiskUsage'
 import { useStrategies } from '../../api/hooks/useStrategy'
 import type {
@@ -182,7 +183,9 @@ function SharedPoolBadge() {
 }
 
 function PositionCard({ d }: { d: RiskUsagePosition | null }) {
-  if (!d || d.totalLimit === null) {
+  // position 객체 자체가 없을 때만 빈 표시.
+  // capital(순자산·예수금) 미상으로 totalLimit 이 null 이어도 절대·비율·노출 구조는 렌더한다.
+  if (!d) {
     return (
       <EmptySection
         label="A. 포지션 한도 (계좌 전체)"
@@ -190,27 +193,48 @@ function PositionCard({ d }: { d: RiskUsagePosition | null }) {
       />
     )
   }
+  // capital 미상 = 순자산 의존 필드(totalLimit 등)가 null. 절대/비율/노출만 가지고 부분 렌더.
+  const capitalReady = d.totalLimit !== null
   const ratio = pct(d.totalExposure, d.totalLimit)
   return (
     <CardShell label="A. 포지션 한도 (계좌 전체)">
       <div className="mb-3">
         <SharedPoolBadge />
       </div>
+      {/* 항상 표시: 절대 한도 · 비율% · 현재 전체 노출액 */}
+      <div className="mb-3 space-y-1.5">
+        <Row label="절대 한도" value={won(d.absoluteLimit)} />
+        <Row
+          label="비율 한도"
+          value={d.maxPositionPercent !== null ? `순자산 ${d.maxPositionPercent}%` : '—'}
+        />
+        <Row label="현재 전체 노출" value={won(d.totalExposure)} emphasis />
+      </div>
       <Gauge
         ratio={ratio}
-        caption={`전체노출 ${won(d.totalExposure)} / ${won(d.totalLimit)}`}
+        caption={
+          capitalReady
+            ? `전체노출 ${won(d.totalExposure)} / ${won(d.totalLimit)}`
+            : `전체노출 ${won(d.totalExposure)} · 총한도 순자산 정보 준비 중`
+        }
       />
       <div className="mt-3 space-y-1.5">
         <Row label="남은 한도" value={won(d.remaining)} emphasis />
         <Row label="예수금(주문가능 현금)" value={won(d.orderableCash)} />
         <Row label="실제 매수가능 (남은한도·예수금 중 작은 값)" value={won(d.buyable)} emphasis />
       </div>
-      <p className="mt-3 text-[11px] leading-relaxed text-gray-600">
-        총한도 = min(절대 {won(d.absoluteLimit)}, 순자산
-        {d.maxPositionPercent !== null ? ` ${d.maxPositionPercent}%` : ''} =
-        {' '}
-        {won(d.percentLimit)})
-      </p>
+      {capitalReady ? (
+        <p className="mt-3 text-[11px] leading-relaxed text-gray-600">
+          총한도 = min(절대 {won(d.absoluteLimit)}, 순자산
+          {d.maxPositionPercent !== null ? ` ${d.maxPositionPercent}%` : ''} =
+          {' '}
+          {won(d.percentLimit)})
+        </p>
+      ) : (
+        <p className="mt-3 rounded-md border border-dashed border-gray-700 bg-gray-900/40 px-3 py-2 text-[11px] leading-relaxed text-gray-500">
+          순자산·예수금 정보 준비 중 — 잔고 동기화 후 총한도·매수가능이 표시됩니다.
+        </p>
+      )}
     </CardShell>
   )
 }
@@ -304,31 +328,28 @@ function ConcurrentCard({ d }: { d: RiskUsageConcurrent | null }) {
 }
 
 // ──────────────────────────────────────────────
-// D. 거래 빈도 (전략당) — 드롭다운 제거, ACTIVE 전략 전체 전개 (피드백 #3)
+// D. 거래 빈도 (전략당) — 콤보박스로 활성 전략 1개 선택해 표시
+//    (전략 세로 전체 전개가 너무 길다는 피드백으로 콤보박스 환원)
 // ──────────────────────────────────────────────
 
 /**
  * 한 전략의 거래 빈도 행 — 일별·분당 두 게이지.
- * 각 행이 독립적으로 useRiskUsage(userId, strategyId) 호출 (react-query 키 분리 캐싱).
+ * 선택된 전략에 대해서만 useRiskUsage(userId, strategyId) 독립 호출 (react-query 키 분리 캐싱).
  * 카운트는 strategyId 별로 집계되므로 전략당 표기가 실제로 맞다.
+ * 전략명은 상위 콤보박스에서 보여주므로 행 내부에 별도 제목을 두지 않는다.
  */
 function StrategyFrequencyRow({
   userId,
   strategyId,
-  name,
 }: {
   userId: number
   strategyId: number
-  name: string
 }) {
   const { data } = useRiskUsage(userId, strategyId)
   const d: RiskUsageTradeFrequency | null = data?.tradeFrequency ?? null
 
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-      <div className="mb-2 truncate text-xs font-semibold text-gray-200" title={name}>
-        {name}
-      </div>
       {!d || d.perDayLimit === null ? (
         <div className="rounded-md border border-dashed border-gray-700 bg-gray-900/40 px-3 py-4 text-center text-[11px] text-gray-500">
           데이터 없음 · 준비 중
@@ -359,7 +380,7 @@ function StrategyFrequencyRow({
 function TradeFrequencyCard({ userId }: { userId: number }) {
   const { data: strategies, isLoading } = useStrategies(userId)
 
-  // ACTIVE(enabled) 전략만 전개 — id 는 string 이므로 number 로 환산
+  // ACTIVE(enabled) 전략만 후보 — id 는 string 이므로 number 로 환산
   const activeStrategies = useMemo(
     () =>
       (strategies ?? [])
@@ -369,6 +390,18 @@ function TradeFrequencyCard({ userId }: { userId: number }) {
     [strategies],
   )
 
+  // ⚠️ 선택 state 는 이 카드 내부 로컬에만 둔다. 상위 RiskUsageCards 의
+  //    useRiskUsage(userId) 인자에 strategyId 를 넣지 않으므로 선택 변경이
+  //    전체 섹션 refetch/리렌더로 번지지 않는다 → 스크롤 점프 회귀 방지 (피드백 #4).
+  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null)
+
+  // 활성 목록이 바뀌면 선택 보정: 미선택이거나 선택이 더 이상 활성이 아니면 첫 번째로.
+  const selected = useMemo(() => {
+    if (activeStrategies.length === 0) return null
+    const found = activeStrategies.find((s) => s.id === selectedStrategyId)
+    return found ?? activeStrategies[0]
+  }, [activeStrategies, selectedStrategyId])
+
   return (
     <CardShell label="D. 거래 빈도 (전략당)" desc="활성 전략별 분당·일별 주문 사용량">
       {isLoading ? (
@@ -377,20 +410,29 @@ function TradeFrequencyCard({ userId }: { userId: number }) {
             <div key={i} className="h-28 animate-pulse rounded-lg bg-gray-800" />
           ))}
         </div>
-      ) : activeStrategies.length === 0 ? (
+      ) : activeStrategies.length === 0 || !selected ? (
         <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
           활성 전략 없음 — 전략을 활성화하면 거래 빈도가 표시됩니다.
         </div>
       ) : (
         <div className="space-y-3">
-          {activeStrategies.map((s) => (
-            <StrategyFrequencyRow
-              key={s.id}
-              userId={userId}
-              strategyId={s.id}
-              name={s.name}
-            />
-          ))}
+          <select
+            aria-label="거래 빈도를 볼 활성 전략 선택"
+            value={selected.id}
+            onChange={(e) => setSelectedStrategyId(Number(e.target.value))}
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          >
+            {activeStrategies.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <StrategyFrequencyRow
+            key={selected.id}
+            userId={userId}
+            strategyId={selected.id}
+          />
         </div>
       )}
     </CardShell>
