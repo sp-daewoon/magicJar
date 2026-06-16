@@ -3,10 +3,10 @@ id: T-20260616-2317-strategy-perf-batch-backfill
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-perf-batch-backfill
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T23:17:11.786+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T23:28:11.972+09:00
+pr: #1026
 parentPhase: ?
 ---
 
