@@ -3,10 +3,10 @@ id: T-20260616-1946-strategy-perf-domain-calc
 agent: strategy-engine
 model: opus
 branch: agent/strategy-engine/strategy-perf-domain-calc
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T19:46:15.173+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T19:53:53.121+09:00
+pr: #1023
 parentPhase: ?
 ---
 
