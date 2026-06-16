@@ -3,10 +3,10 @@ id: T-20260616-1246-realtime-candle-degraded-feed
 agent: backend-core
 model: opus
 branch: agent/backend-core/realtime-candle-degraded-feed
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T12:46:51.260+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T13:11:50.117+09:00
+pr: #1009
 parentPhase: ?
 ---
 
