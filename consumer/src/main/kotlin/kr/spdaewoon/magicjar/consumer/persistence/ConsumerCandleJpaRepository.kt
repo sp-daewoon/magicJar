@@ -235,7 +235,7 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
                 close_raw = EXCLUDED.close_raw,
                 volume = EXCLUDED.volume,
                 source = EXCLUDED.source
-            WHERE candle.source = 'KIS-RANGE-GAPFILL'
+            WHERE candle.source IN ('KIS-RANGE-GAPFILL', 'KIS-POLLING')
                OR COALESCE(candle.volume, 0) < COALESCE(EXCLUDED.volume, 0)
         """,
     )

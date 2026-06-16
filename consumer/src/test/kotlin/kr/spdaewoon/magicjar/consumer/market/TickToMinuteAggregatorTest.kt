@@ -6,6 +6,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
+import kr.spdaewoon.magicjar.consumer.ingestion.ActiveStrategyCodeProvider
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
@@ -37,6 +38,7 @@ class TickToMinuteAggregatorTest {
     private val kafkaTemplate = mockk<KafkaTemplate<String, String>>(relaxed = true)
     private val candleRepository = mockk<ConsumerCandleJpaRepository>()
     private val kisWebSocketBridge = mockk<KisWebSocketBridge>()
+    private val activeStrategyCodeProvider = mockk<ActiveStrategyCodeProvider>()
     private val boundaryAggregator = mockk<BoundaryAggregator>(relaxed = true)
     private val hashOps = mockk<HashOperations<String, String, String>>(relaxed = true)
     private val objectMapper = jacksonObjectMapper()
@@ -62,6 +64,7 @@ class TickToMinuteAggregatorTest {
             candleRepository = candleRepository,
             objectMapper = objectMapper,
             kisWebSocketBridge = kisWebSocketBridge,
+            activeStrategyCodeProvider = activeStrategyCodeProvider,
             boundaryAggregator = boundaryAggregator,
             transactionTemplate = transactionTemplate,
             clock = clock,
@@ -71,6 +74,7 @@ class TickToMinuteAggregatorTest {
     fun setup() {
         every { redisTemplate.opsForHash<String, String>() } returns hashOps
         every { kisWebSocketBridge.subscribedCodes() } returns setOf("005930")
+        every { activeStrategyCodeProvider.activeCodes() } returns emptySet()
     }
 
     private fun barHash(
@@ -80,6 +84,7 @@ class TickToMinuteAggregatorTest {
         low: String,
         close: String,
         volume: Long,
+        source: String = "KIS",
     ): Map<String, String> =
         mapOf(
             "interval" to "1m",
@@ -90,7 +95,7 @@ class TickToMinuteAggregatorTest {
             "volume" to volume.toString(),
             "startTs" to startTs.toString(),
             "ts" to startTs.toString(),
-            "source" to "KIS",
+            "source" to source,
         )
 
     @Test
@@ -131,6 +136,27 @@ class TickToMinuteAggregatorTest {
 
         // 중복 → Kafka 발행 0
         verify(exactly = 0) { kafkaTemplate.send(any(), any<String>(), any()) }
+    }
+
+    @Test
+    fun `polling source 분 마감 — source 를 DB와 Kafka payload에 보존`() {
+        val liveKey = "market:candle:current:code:005930:interval:1m"
+        val snapKey = "candle:closing:005930:1m:${closingTs.epochSecond}"
+        every { redisTemplate.renameIfAbsent(liveKey, snapKey) } returns true
+        every { hashOps.entries(snapKey) } returns
+            barHash(closingTs, "100", "110", "95", "105", 1000L, source = "KIS-POLLING")
+        every {
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", closingTs, any(), any(), any(), any(), 1000L, "KIS-POLLING")
+        } returns 1
+
+        aggregator.aggregate()
+
+        verify(exactly = 1) {
+            candleRepository.insertOrUpdateIfGapfill("005930", "1m", closingTs, any(), any(), any(), any(), 1000L, "KIS-POLLING")
+        }
+        val payloadSlot = slot<String>()
+        verify(exactly = 1) { kafkaTemplate.send(KafkaTopics.Candle.MINUTE_CLOSED, "005930", capture(payloadSlot)) }
+        assertThat(payloadSlot.captured).contains("\"source\":\"KIS-POLLING\"")
     }
 
     @Test

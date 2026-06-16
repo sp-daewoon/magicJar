@@ -60,6 +60,7 @@ export interface KisMockResponse {
 export interface SystemConfigRequest {
   dartApiKey?: string // null = 변경 안 함, "" = 삭제, 비어있지 않음 = 등록·갱신
   slackWebhookUrl?: string // 동일 정책 + URL validation
+  realtimeFallbackBuyEnabled?: boolean
 }
 
 /** POST /api/onboarding/system-config — 응답 (200) */
@@ -68,6 +69,7 @@ export interface SystemConfigResponse {
   hasSlackWebhook: boolean
   dartApiKey?: string | null
   slackWebhookUrl?: string | null
+  realtimeFallbackBuyEnabled: boolean
   updatedAt: string // ISO 8601
 }
 

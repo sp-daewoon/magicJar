@@ -44,6 +44,8 @@ data class ConsumerKisRateLimitProperties(
     val priorityBucketsEnabled: Boolean = true,
     /** USER 버킷 capacity — USER_PATH 1차 (본주문·현재가·잔고). 합 검증: user+shared+bg=bucketCapacity. */
     val bucketUser: Long = 4L,
+    /** REALTIME_MARKET 버킷 capacity — ACTIVE 전략 degraded 시세 보강. 0이면 legacy 3-bucket 라우팅. */
+    val bucketRealtimeMarket: Long = 0L,
     /** SHARED 버킷 capacity — INGESTION 1차 (approval·watchlist). USER_PATH fallback 2단. */
     val bucketShared: Long = 3L,
     /** BG 버킷 capacity — BACKFILL·INGESTION_LOW 1차. USER_PATH·INGESTION fallback 말단. */

@@ -71,8 +71,9 @@ magicjar:
       # batch 는 USER_PATH 0 (USER 버킷 미접근)이나 합 검증·config 정합 위해 동일 보유.
       priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
       bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}
-      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}
-      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}
+      bucket-realtime-market: ${MAGICJAR_KIS_BUCKET_REALTIME_MARKET:2}
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:2}
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:2}
       # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1

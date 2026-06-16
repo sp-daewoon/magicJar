@@ -6,6 +6,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
+import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
@@ -49,6 +50,7 @@ class TodayCandleSeedTest {
     private val store = HashMap<String, MutableMap<String, String>>()
     private lateinit var redisTemplate: StringRedisTemplate
     private lateinit var bridge: KisWebSocketBridge
+    private lateinit var liveCandleUpdater: LiveCandleUpdater
 
     private val code = "005930"
     private val todayKey = "market:candle:session:code:$code:interval:1d"
@@ -89,6 +91,7 @@ class TodayCandleSeedTest {
         every { redisTemplate.delete(capture(delKeySlot)) } answers {
             (store.remove(delKeySlot.captured) != null)
         }
+        liveCandleUpdater = LiveCandleUpdater(redisTemplate)
 
         val execProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { execProvider.getIfAvailable() } returns null
@@ -101,6 +104,7 @@ class TodayCandleSeedTest {
                 redisTemplate = redisTemplate,
                 kafkaTemplate = kafkaTemplate,
                 objectMapper = objectMapper,
+                liveCandleUpdater = liveCandleUpdater,
                 quoteCachePort = quoteCachePort,
                 wsClient = wsClient,
                 wsUrlProd = "ws://localhost:21000",
@@ -156,7 +160,7 @@ class TodayCandleSeedTest {
         businessDate = businessDate,
     )
 
-    /** private updateLiveCandles(tick) reflection 호출 — WS 틱 합류 path 재현. */
+    /** WS 틱 합류 path 재현. */
     private fun feedTick(
         price: String,
         volume: Long,
@@ -169,9 +173,7 @@ class TodayCandleSeedTest {
                 ts = Clock.System.now(),
                 source = "live",
             )
-        val m = KisWebSocketBridge::class.java.getDeclaredMethod("updateLiveCandles", TickEvent::class.java)
-        m.isAccessible = true
-        m.invoke(bridge, tick)
+        liveCandleUpdater.update(tick)
     }
 
     @Test

@@ -105,6 +105,7 @@ class OnboardingService(
             hasSlackWebhook = config.notificationSlackWebhook != null,
             dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
             slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
+            realtimeFallbackBuyEnabled = config.realtimeFallbackBuyEnabled,
             updatedAt = config.updatedAt,
         )
     }
@@ -343,6 +344,10 @@ class OnboardingService(
             }
         }
 
+        request.realtimeFallbackBuyEnabled?.let {
+            config.realtimeFallbackBuyEnabled = it
+        }
+
         config.updatedAt = now
         systemConfigJpaRepository.save(config)
 
@@ -353,7 +358,7 @@ class OnboardingService(
                 entityType = "system_config",
                 entityId = "1",
                 detailJson =
-                    """{"hasDartKey":${config.dartApiKey != null},"hasSlackWebhook":${config.notificationSlackWebhook != null}}""",
+                    """{"hasDartKey":${config.dartApiKey != null},"hasSlackWebhook":${config.notificationSlackWebhook != null},"realtimeFallbackBuyEnabled":${config.realtimeFallbackBuyEnabled}}""",
                 occurredAt = now,
             ),
         )
@@ -363,6 +368,7 @@ class OnboardingService(
             hasSlackWebhook = config.notificationSlackWebhook != null,
             dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
             slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
+            realtimeFallbackBuyEnabled = config.realtimeFallbackBuyEnabled,
             updatedAt = now,
         )
     }

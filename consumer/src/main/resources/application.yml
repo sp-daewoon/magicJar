@@ -89,6 +89,9 @@ magicjar:
       #   false: NXT 시간대(08~09시·15:30~20시) 보유 포지션 SELL(손절/익절) 평가 허용(시간대 무관). BUY는 항상 게이트.
       #   사용자가 NXT 유동성·종목 특성 보고 전환(ADR §9 U-9 — 운영 데이터 후 결재).
       sell-enabled: ${MAGICJAR_SIGNAL_MARKET_HOURS_GATE_SELL_ENABLED:true}
+    fallback-buy:
+      default-enabled: ${MAGICJAR_SIGNAL_FALLBACK_BUY_DEFAULT_ENABLED:true}
+      cache-ttl-ms: ${MAGICJAR_SIGNAL_FALLBACK_BUY_CACHE_TTL_MS:5000}
   # ADR 0114 §3·§5·§10-5 — 진입(BUY) 집행 정책 전역 default (전략별 entry_policy JSONB 미설정 시 적용).
   #   marketable limit 진입: 매도1호가에 걸되 상한(기준가 × (1+max-slippage-pct/100)) 초과면 스킵(시장가 fallback 0).
   #   미체결: timeout-sec 경과 시 취소(시장가 전환 금지·재시도 0). 스프레드 max-spread-pct 초과 진입 금지.
@@ -243,8 +246,9 @@ magicjar:
       # ADR 0116 §2-B priority별 별도 버킷 (USER 4 / SHARED 3 / BG 3 = 합 10) — api·batch 동일 LOCK.
       priority-buckets-enabled: ${MAGICJAR_KIS_PRIORITY_BUCKETS_ENABLED:true}
       bucket-user: ${MAGICJAR_KIS_BUCKET_USER:4}       # USER_PATH 1차 (본주문·현재가·잔고)
-      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:3}   # INGESTION 1차 (approval·watchlist)
-      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:3}           # BACKFILL·INGESTION_LOW 1차
+      bucket-realtime-market: ${MAGICJAR_KIS_BUCKET_REALTIME_MARKET:2} # ACTIVE 전략 degraded 시세 보강
+      bucket-shared: ${MAGICJAR_KIS_BUCKET_SHARED:2}   # INGESTION 1차 (approval·watchlist)
+      bucket-bg: ${MAGICJAR_KIS_BUCKET_BG:2}           # BACKFILL·INGESTION_LOW 1차
       # deprecated (ADR 0116 — priority-buckets-enabled로 일반화). 하위호환 바인딩 보존.
       user-path-reserve-tokens: ${MAGICJAR_KIS_USER_PATH_RESERVE:3}
       bucket-refill-period-seconds: 1
@@ -386,6 +390,13 @@ magicjar:
     daily-close-cron: ${MAGICJAR_DAILY_CLOSE_CRON:0 0 16 * * *}
     # TickFallbackEmitter: 10초 주기 T2 폴백 (ADR 0014)
     tick-fallback-delay-ms: ${MAGICJAR_TICK_FALLBACK_DELAY_MS:10000}
+  realtime-candle:
+    degraded-poller:
+      enabled: ${MAGICJAR_REALTIME_CANDLE_DEGRADED_POLLER_ENABLED:true}
+      fixed-delay-ms: ${MAGICJAR_REALTIME_CANDLE_DEGRADED_POLLER_DELAY_MS:5000}
+      initial-delay-ms: ${MAGICJAR_REALTIME_CANDLE_DEGRADED_POLLER_INITIAL_DELAY_MS:7000}
+      stale-after-seconds: ${MAGICJAR_REALTIME_CANDLE_DEGRADED_POLLER_STALE_SECONDS:10}
+      max-codes-per-cycle: ${MAGICJAR_REALTIME_CANDLE_DEGRADED_POLLER_MAX_CODES:30}
 
 
 # ─────────────────────────────────────────────────

@@ -142,6 +142,7 @@ class SettingsEndpointSwaggerTest {
                 hasSlackWebhook = true,
                 dartApiKey = "dart-key",
                 slackWebhookUrl = "https://hooks.slack.com/services/T00/B00/xxx",
+                realtimeFallbackBuyEnabled = true,
                 updatedAt = Instant.parse("2026-06-01T00:00:00Z"),
             ),
         )

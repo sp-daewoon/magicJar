@@ -37,6 +37,8 @@ data class BatchKisRateLimitProperties(
     val priorityBucketsEnabled: Boolean = true,
     /** USER 버킷 capacity — batch는 USER_PATH 0이라 미접근이나 합 검증·정합 위해 동일 보유. */
     val bucketUser: Long = 4L,
+    /** REALTIME_MARKET 버킷 capacity — ACTIVE 전략 degraded 시세 보강. 0이면 legacy 3-bucket 라우팅. */
+    val bucketRealtimeMarket: Long = 0L,
     /** SHARED 버킷 capacity — INGESTION 1차 (batch INGESTION 호출). */
     val bucketShared: Long = 3L,
     /** BG 버킷 capacity — BACKFILL·INGESTION_LOW 1차 (batch 캔들 backfill·corp action). */

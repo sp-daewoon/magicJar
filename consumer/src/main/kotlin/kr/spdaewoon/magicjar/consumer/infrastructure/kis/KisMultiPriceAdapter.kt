@@ -67,6 +67,7 @@ class KisMultiPriceAdapter(
     override fun fetchMultiPrice(
         codes: List<String>,
         mrktDivCode: String,
+        priority: KisCallPriority,
     ): List<MultiPriceQuote> {
         val validCodes =
             codes
@@ -112,14 +113,15 @@ class KisMultiPriceAdapter(
 
             val result = mutableListOf<MultiPriceQuote>()
             for (chunk in validCodes.chunked(MAX_SYMBOLS_PER_CALL)) {
-                result += fetchChunk(chunk, mrktDivCode, accessToken, appKeyStr, secretKeyStr)
+                result += fetchChunk(chunk, mrktDivCode, accessToken, appKeyStr, secretKeyStr, priority)
             }
             log.info(
-                "KIS 멀티시세 완료: 요청={} chunk={} 응답={} mrktDivCode={}",
+                "KIS 멀티시세 완료: 요청={} chunk={} 응답={} mrktDivCode={} priority={}",
                 validCodes.size,
                 (validCodes.size + MAX_SYMBOLS_PER_CALL - 1) / MAX_SYMBOLS_PER_CALL,
                 result.size,
                 mrktDivCode,
+                priority,
             )
             result
         } finally {
@@ -140,12 +142,12 @@ class KisMultiPriceAdapter(
         accessToken: String,
         appKeyStr: String,
         secretKeyStr: String,
+        priority: KisCallPriority,
     ): List<MultiPriceQuote> {
         var signalSent = false
         var acquired = false
         return try {
-            // BACKFILL priority (BG 버킷 3/s) — ADR 0118 §2-C·§5-1 LOCK. 사용자·자본 path 침범 0.
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = TR_ID)
+            kisRateLimiterPort.acquire(priority, timeoutMillis = 5000L, trId = TR_ID)
             acquired = true
 
             @Suppress("UNCHECKED_CAST")
