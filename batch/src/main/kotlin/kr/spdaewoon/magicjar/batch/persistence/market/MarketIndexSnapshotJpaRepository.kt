@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
 
 /**
  * market_index_snapshot Spring Data JPA Repository (batch 모듈 — T-MARKET Phase 1).
@@ -72,4 +73,62 @@ interface MarketIndexSnapshotJpaRepository : JpaRepository<MarketIndexSnapshotJp
         @Param("code") code: String,
         @Param("since") since: Instant,
     ): List<MarketIndexSnapshotJpaEntity>
+
+    /**
+     * 특정 KST 영업일에 snapshot 이 존재하는 지수 code 목록 (지수 일봉 롤업 대상 자동 탐색).
+     *
+     * spec 2026-06-16 §5-1 · ADR 0126 §3-3 — 새 KIS 호출 0 (적재된 영속 snapshot 만 읽음).
+     */
+    @Query(
+        value = """
+            SELECT DISTINCT code
+            FROM market_index_snapshot
+            WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = CAST(:tradeDate AS date)
+            ORDER BY code
+        """,
+        nativeQuery = true,
+    )
+    fun findDistinctCodesByTradeDate(
+        @Param("tradeDate") tradeDate: LocalDate,
+    ): List<String>
+
+    /**
+     * 지수 일봉 롤업 집계 — 특정 KST 영업일 1개 code 의 OHLC (spec 2026-06-16 §3 V86 source).
+     *
+     * `ts` 는 TIMESTAMPTZ(KST 의미) — `AT TIME ZONE 'Asia/Seoul'` 으로 KST 달력일을 잘라 그날치만 묶는다.
+     * open=첫 틱(ts ASC 1번)·high=max·low=min·close=막 틱(ts DESC 1번). 그날 snapshot 0건이면 행 미반환.
+     * api `MarketIndexSnapshotJpaRepository.aggregateDailyOhlc` 와 동일 산식(모듈 경계상 batch-side 재구현).
+     */
+    @Query(
+        value = """
+            SELECT
+                (array_agg(price ORDER BY ts ASC))[1]  AS open,
+                MAX(price)                              AS high,
+                MIN(price)                              AS low,
+                (array_agg(price ORDER BY ts DESC))[1] AS close
+            FROM market_index_snapshot
+            WHERE code = :code
+              AND (ts AT TIME ZONE 'Asia/Seoul')::date = CAST(:tradeDate AS date)
+            HAVING COUNT(*) > 0
+        """,
+        nativeQuery = true,
+    )
+    fun aggregateDailyOhlc(
+        @Param("code") code: String,
+        @Param("tradeDate") tradeDate: LocalDate,
+    ): BatchMarketIndexDailyOhlcProjection?
+}
+
+/**
+ * 지수 일봉 OHLC 집계 결과 projection (Spring Data interface projection).
+ * native query column alias(open/high/low/close)와 getter 명이 정합해야 한다.
+ */
+interface BatchMarketIndexDailyOhlcProjection {
+    fun getOpen(): BigDecimal?
+
+    fun getHigh(): BigDecimal?
+
+    fun getLow(): BigDecimal?
+
+    fun getClose(): BigDecimal?
 }
