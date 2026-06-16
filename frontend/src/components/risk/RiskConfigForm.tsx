@@ -190,9 +190,15 @@ function SectionHeader({ label, desc }: { label: string; desc?: string }) {
 interface RiskConfigFormProps {
   /** ADR 0089 Phase 2 — userId number */
   userId: number
+  /**
+   * 설정 저장/초기화 성공 직후 호출.
+   * 사용량 게이지의 분모(한도)를 새 값으로 즉시 갱신하기 위해 페이지가 주입한다.
+   * 미주입(undefined)이면 기존 동작과 동일 — 레이아웃·기능 회귀 0.
+   */
+  onSaved?: () => void
 }
 
-export function RiskConfigForm({ userId }: RiskConfigFormProps) {
+export function RiskConfigForm({ userId, onSaved }: RiskConfigFormProps) {
   const { data, isLoading, isError } = useRiskConfig(userId)
   const updateMutation = useUpdateRiskConfig(userId)
   const resetMutation = useResetRiskConfig(userId)
@@ -248,6 +254,7 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
       await updateMutation.mutateAsync(req)
       showToast('리스크 설정이 저장되었습니다.', 'success')
       setIsDirty(false)
+      onSaved?.()
     } catch {
       showToast('리스크 설정 저장에 실패했습니다. 다시 시도해 주세요.', 'error')
     }
@@ -258,6 +265,7 @@ export function RiskConfigForm({ userId }: RiskConfigFormProps) {
     try {
       await resetMutation.mutateAsync()
       showToast('기본값으로 초기화되었습니다.', 'info')
+      onSaved?.()
     } catch {
       showToast('초기화에 실패했습니다. 다시 시도해 주세요.', 'error')
     }
