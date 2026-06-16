@@ -137,7 +137,7 @@ class DaytradePaperPathScenarioTest {
 
         listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
-        // 가상 자본 1천만 + paper 프로필(maxPositionPct 10% → budget min(1M, 10M×10%=1M)=1M) → 1M/50000 = 20주.
+        // 가상 자본 1천만 + paper 프로필 → 총한도 min(절대 1M, 순자산 10M×10%=1M)=1M, 노출 0 → 매수가능 min(1M, 예수금 10M)=1M → 1M/50000 = 20주.
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.MARKET, null) }
         // spec §1-3 격리 LOCK — 페이퍼 평가는 실 KIS 잔고 provider를 절대 호출하지 않는다(오염 0).
@@ -148,9 +148,10 @@ class DaytradePaperPathScenarioTest {
 
     @Test
     fun `S-2 페이퍼 가상 자본이 작으면 예산도 줄어 더 적은 수량을 발행한다(가상 자본이 실제로 사이징을 가른다)`() {
-        // 매수 버짓=예수금(주문가능금액) 기준 전환(사용자 결재 2026-06-16) — 페이퍼는 예수금 개념이 없어 가상 자본을
-        // 그대로 예수금(orderableCash)으로 본다. budget = min(paper.maxPositionAmount=1M, 가상 자본). 비중% 미적용.
-        // 가상 자본 50만(< 절대상한 1M) → budget 50만 → 50만/50000 = 10주.
+        // 계좌 전체 공유 풀 재설계(사용자 결재 2026-06-16) — 매수가능 = min(총한도−전체노출, 예수금).
+        // 페이퍼는 예수금 개념이 없어 가상 자본을 그대로 순자산·예수금으로 본다.
+        // 총한도 = min(paper.maxPositionAmount=1M, 순자산(가상 자본 50만)×maxPositionPercent 10% = 5만) = 5만(비율 binding).
+        // 전체노출 0 → 남은 5만 → 매수가능 min(5만, 예수금 50만) = 5만 → 5만/50000 = 1주.
         // (S-2 1천만 케이스의 20주와 대비 — 실 KIS 잔고가 아니라 가상 자본이 수량을 가름을 증명.)
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(paperStrategy())
         every { riskConfigRepository.getOrDefault("user-A:paper", now) } returns paperConfig()
@@ -164,7 +165,7 @@ class DaytradePaperPathScenarioTest {
 
         listener().onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
 
-        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 10, OrderPriceType.MARKET, null) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 1, OrderPriceType.MARKET, null) }
         verify(exactly = 0) { realCapitalProvider.getCapital(any()) }
     }
 
