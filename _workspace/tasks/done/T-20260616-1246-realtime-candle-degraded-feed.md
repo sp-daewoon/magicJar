@@ -18,12 +18,13 @@ ACTIVE 전략 캔들 실시간 복구: LiveCandleUpdater 공통화, WS no-tick �
 - [x] shared live candle updater
 - [x] optional fallback-buy setting UI/API/consumer gate
 - [x] tests
-- [ ] deploy
+- [x] deploy
 
 ## 의존성
 - (필요 시 기록)
 
 ## 마지막 활동
 2026-06-16T12:46:51.276+09:00 — 작업 시작
+2026-06-16T13:17:55+09:00 — PR #1009 merge + api/batch/frontend/consumer 배포 완료. consumer drain guard는 실제 열린 AUTO_EXIT SELL ACK #400 확인 후 SKIP_DRAIN_CHECK=1로 우회, 부팅 후 체결통보 구독 성공 및 093370 1m current source=KIS-POLLING 갱신 확인.
 
 ## 비고
