@@ -3,10 +3,10 @@ id: T-20260616-1722-risk-position-partial-render
 agent: backend-core
 model: opus
 branch: agent/backend-core/risk-position-partial-render
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T17:22:50.610+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T17:27:23.415+09:00
+pr: #1018
 parentPhase: ?
 ---
 
