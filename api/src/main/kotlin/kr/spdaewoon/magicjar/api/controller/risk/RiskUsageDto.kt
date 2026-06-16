@@ -19,7 +19,13 @@ import java.math.BigDecimal
  */
 @Schema(description = "리스크 한도 현재 사용량 snapshot (게이트 실제 판정값과 동일 소스)")
 data class RiskUsageResponse(
-    @Schema(description = "포지션(매수) 한도 사용량 — capital(잔고) 조회 불가 시 null", nullable = true)
+    @Schema(
+        description =
+            "포지션(매수) 한도 사용량 — capital(잔고) 조회 불가여도 절대 null 로 떨어지지 않고 " +
+                "config·positions 파생값(absoluteLimit·maxPositionPercent·totalExposure)은 항상 채워 부분 렌더한다. " +
+                "순자산(capital) 의존 필드만 null (B 일일손실 카드와 동일 부분 채움 정책).",
+        nullable = true,
+    )
     val position: PositionUsage?,
     @Schema(description = "일일 손실 한도 사용량 — capital 조회 불가로 percent 환산 불가 시 일부 null")
     val dailyLoss: DailyLossUsage,
@@ -31,27 +37,60 @@ data class RiskUsageResponse(
 
 /**
  * 포지션(매수) 한도 사용량 — RiskBudgetCalculator.resolveBuyBudget 와 1:1 (매수 사이징 동일 소스).
+ *
+ * ## 부분 렌더 — capital 미상 시에도 섹션은 살아 있다 (B 카드 정합)
+ * 순자산(capital) 의존 6필드(percentBase·percentLimit·totalLimit·remaining·orderableCash·buyable)는
+ * Redis 잔고 cache miss 시 **null** 로 내려가고, config·positions 만으로 산출되는 3필드
+ * (absoluteLimit·maxPositionPercent·totalExposure)는 capital 무관하게 **항상 채워진다**. 따라서 프런트는
+ * 섹션 전체를 "준비중"으로 가리지 않고 알고 있는 한도값은 즉시 보여줄 수 있다.
  */
-@Schema(description = "포지션(매수) 한도 사용량 — 계좌 전체 공유 풀 기준")
+@Schema(description = "포지션(매수) 한도 사용량 — 계좌 전체 공유 풀 기준 (capital 미상 시 순자산 의존 필드만 null)")
 data class PositionUsage(
-    @Schema(description = "단일 포지션 절대 한도 (config.maxPositionAmount, 원)", example = "10000000")
+    @Schema(description = "단일 포지션 절대 한도 (config.maxPositionAmount, 원) — config 파생, capital 불필요", example = "10000000")
     val absoluteLimit: BigDecimal,
-    @Schema(description = "단일 포지션 비율 한도 (config.maxPositionPercent, %)", example = "10.0")
+    @Schema(description = "단일 포지션 비율 한도 (config.maxPositionPercent, %) — config 파생, capital 불필요", example = "10.0")
     val maxPositionPercent: BigDecimal,
-    @Schema(description = "비율 한도 기준 자본 = 순자산 netAssetValue (원)", example = "100000000")
-    val percentBase: BigDecimal,
-    @Schema(description = "비율 한도 금액 = 순자산 × maxPositionPercent / 100 (원)", example = "10000000")
-    val percentLimit: BigDecimal,
-    @Schema(description = "총 한도 = min(절대, 비율) — 계좌 전체 공유 한도 (원)", example = "10000000")
-    val totalLimit: BigDecimal,
-    @Schema(description = "전체 노출 = Σ 보유포지션(avgPrice × quantity), 전 종목·전 전략 매수원가 (원)", example = "9000000")
+    @Schema(
+        description = "비율 한도 기준 자본 = 순자산 netAssetValue (원) — capital(잔고) 조회 불가 시 null",
+        example = "100000000",
+        nullable = true,
+    )
+    val percentBase: BigDecimal?,
+    @Schema(
+        description = "비율 한도 금액 = 순자산 × maxPositionPercent / 100 (원) — capital(잔고) 조회 불가 시 null",
+        example = "10000000",
+        nullable = true,
+    )
+    val percentLimit: BigDecimal?,
+    @Schema(
+        description = "총 한도 = min(절대, 비율) — 계좌 전체 공유 한도 (원) — capital(잔고) 조회 불가 시 null",
+        example = "10000000",
+        nullable = true,
+    )
+    val totalLimit: BigDecimal?,
+    @Schema(
+        description = "전체 노출 = Σ 보유포지션(avgPrice × quantity), 전 종목·전 전략 매수원가 (원) — positions 파생, capital 불필요",
+        example = "9000000",
+    )
     val totalExposure: BigDecimal,
-    @Schema(description = "남은 한도 = (totalLimit − totalExposure).coerceAtLeast(0) (원)", example = "1000000")
-    val remaining: BigDecimal,
-    @Schema(description = "주문가능 예수금 = cashD2 fallback cashBalance (원)", example = "3000000")
-    val orderableCash: BigDecimal,
-    @Schema(description = "실제 매수가능 = min(remaining, orderableCash) (원)", example = "1000000")
-    val buyable: BigDecimal,
+    @Schema(
+        description = "남은 한도 = (totalLimit − totalExposure).coerceAtLeast(0) (원) — capital(잔고) 조회 불가 시 null",
+        example = "1000000",
+        nullable = true,
+    )
+    val remaining: BigDecimal?,
+    @Schema(
+        description = "주문가능 예수금 = cashD2 fallback cashBalance (원) — capital(잔고) 조회 불가 시 null",
+        example = "3000000",
+        nullable = true,
+    )
+    val orderableCash: BigDecimal?,
+    @Schema(
+        description = "실제 매수가능 = min(remaining, orderableCash) (원) — capital(잔고) 조회 불가 시 null",
+        example = "1000000",
+        nullable = true,
+    )
+    val buyable: BigDecimal?,
 )
 
 /**

@@ -155,16 +155,29 @@ class RiskUsageServiceTest {
     }
 
     @Test
-    fun `capital cache miss — position 섹션 null (0 fabricate 금지)`() {
+    fun `capital cache miss — position 섹션 부분 렌더 (config·노출은 채우고 순자산 의존 6필드만 null, 0 fabricate 금지)`() {
         val service =
             buildService(
-                config = config(),
-                positions = listOf(position("005930", 10, BigDecimal("70000"))),
+                config = config(maxPositionAmount = BigDecimal("10000000"), maxPositionPercent = BigDecimal("10.00")),
+                positions = listOf(position("005930", 10, BigDecimal("70000"))), // 노출 70만
                 balanceCacheJson = null, // cache 비어있음 — KIS 미호출
             )
 
         val usage = service.getUsage(userId, null)
-        usage.position.shouldBeNull()
+        val pos = usage.position
+        // 섹션이 통째로 null 로 떨어지지 않고 부분 채움된다 (B 일일손실 카드 정합).
+        pos.shouldNotBeNull()
+        // config·positions 파생값은 capital 없어도 채워진다.
+        pos.absoluteLimit shouldBe BigDecimal("10000000")
+        pos.maxPositionPercent shouldBe BigDecimal("10.00")
+        pos.totalExposure shouldBe BigDecimal("700000")
+        // 순자산(capital) 의존 6필드는 null (0 fabricate 금지).
+        pos.percentBase.shouldBeNull()
+        pos.percentLimit.shouldBeNull()
+        pos.totalLimit.shouldBeNull()
+        pos.remaining.shouldBeNull()
+        pos.orderableCash.shouldBeNull()
+        pos.buyable.shouldBeNull()
         // 잔고와 무관한 섹션은 계속 채워진다.
         usage.concurrent.current shouldBe 1
     }
