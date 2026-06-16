@@ -27,7 +27,6 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Primary
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
-import org.springframework.data.domain.Sort
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -268,6 +267,10 @@ class StrategyService(
 
     /**
      * 전략 목록 페이징 조회 (DELETED 제외).
+     *
+     * 정렬: 자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순(updatedAt DESC).
+     * 우선순위 ACTIVE > BUY_BLOCKED > PAUSED > DISABLED. CASE식 정렬은 @Query(findAllByUserIdActiveFirst)가 담당하므로
+     * 여기서는 Sort 미지정 PageRequest 만 전달한다(Sort 지정 시 @Query ORDER BY 와 충돌·중복).
      */
     @Transactional(readOnly = true)
     fun listByUserId(
@@ -275,9 +278,9 @@ class StrategyService(
         page: Int,
         size: Int,
     ): Page<Strategy> {
-        val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
+        val pageable = PageRequest.of(page, size)
         return strategyJpaRepository
-            .findAllByUserIdAndStatusNot(userId, StrategyStatus.DELETED.name, pageable)
+            .findAllByUserIdActiveFirst(userId, pageable)
             .map { entity ->
                 strategyRepositoryPort.findById(entity.id!!) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
             }
