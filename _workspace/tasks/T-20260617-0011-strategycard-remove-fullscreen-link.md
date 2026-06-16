@@ -3,10 +3,10 @@ id: T-20260617-0011-strategycard-remove-fullscreen-link
 agent: frontend
 model: opus
 branch: agent/frontend/strategycard-remove-fullscreen-link
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T00:11:08.199+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-17T00:14:30.307+09:00
+pr: #1028
 parentPhase: ?
 ---
 
