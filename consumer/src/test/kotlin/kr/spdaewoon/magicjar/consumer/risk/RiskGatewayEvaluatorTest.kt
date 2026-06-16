@@ -464,6 +464,38 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
+    fun `6n 사이징 단일 진실원 — evaluator resolveBuyQuantity 는 domain RiskBudgetCalculator buyable 과 일치`() {
+        // 표시값(api RiskUsageService) == 실제판정(evaluator) 보장 회귀 가드.
+        // evaluator.resolveBuyQuantity 가 호출하는 buyable 과, api 가 호출할 domain 계산기의 buyable 이
+        // 동일 입력에서 동일해야 한다(둘 다 같은 함수 RiskBudgetCalculator.resolveBuyBudget 를 호출).
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
+        val context =
+            sampleContext(
+                config = sampleConfig(maxPositionAmount = BigDecimal("10000000"), maxPositionPercent = BigDecimal("100.00")),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("3000000"),
+                currentPositions = listOf(samplePositionAt("000660", quantity = 90, avgPrice = BigDecimal("100000"))),
+            )
+
+        val sharedBudget =
+            kr.spdaewoon.magicjar.domain.risk.RiskBudgetCalculator.resolveBuyBudget(
+                config = context.config,
+                currentCapital = context.currentCapital,
+                orderableCash = context.orderableCash,
+                positions = context.currentPositions,
+            )
+        val expectedQty =
+            sharedBudget.buyable
+                .divide(signal.priceAtSignal, 0, java.math.RoundingMode.DOWN)
+                .toInt()
+
+        // 동일 함수 위임이므로 buyable·수량이 정확히 일치.
+        assertThat(sharedBudget.buyable).isEqualByComparingTo(BigDecimal("1000000")) // min(남은 100만, 예수금 300만)
+        assertThat(evaluator.resolveBuyQuantity(signal, context)).isEqualTo(expectedQty)
+        assertThat(expectedQty).isEqualTo(20) // 100만 ÷ 5만
+    }
+
+    @Test
     fun `7 ALLOWED happy path — 6 룰 모두 통과`() {
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
         // 자본 1,000만, 100만 budget — unitCost 5만 < 100만 → 통과

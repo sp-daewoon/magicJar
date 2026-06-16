@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.risk
 
 import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations.isCancellableAutoExit
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.risk.RiskBudgetCalculator
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
@@ -366,49 +367,14 @@ class RiskGatewayEvaluator {
      * 예수금은 노출을 다시 차감하지 않는다(이미 현금 잔액 — 보유는 이미 현금에서 빠진 값). 남은한도와 예수금 중
      * 작은 값이 매수가능이다.
      */
-    private fun resolveBuyBudget(context: RiskContext): BuyBudget {
-        val orderableCash = context.orderableCash.coerceAtLeast(BigDecimal.ZERO)
-        val absoluteLimit = context.config.maxPositionAmount
-        val percentLimit =
-            context.currentCapital
-                .multiply(context.config.maxPositionPercent)
-                .divide(BigDecimal("100"), 0, RoundingMode.DOWN)
-        // 총한도 = min(절대, 순자산×비율) — A-1 규약 복원.
-        val totalLimit = absoluteLimit.min(percentLimit)
-        val totalExposure = totalExposure(context)
-        val remainingLimit = (totalLimit - totalExposure).coerceAtLeast(BigDecimal.ZERO)
-        // 매수가능 = min(남은한도, 예수금). 예수금은 노출을 다시 차감하지 않는다.
-        val buyable = remainingLimit.min(orderableCash)
-        return BuyBudget(
-            orderableCash = orderableCash,
-            absoluteLimit = absoluteLimit,
-            percentLimit = percentLimit,
-            totalLimit = totalLimit,
-            totalExposure = totalExposure,
-            remainingLimit = remainingLimit,
-            buyable = buyable,
+    private fun resolveBuyBudget(context: RiskContext): RiskBudgetCalculator.BuyBudget =
+        // 사이징·사용량 표시의 단일 진실원 — domain RiskBudgetCalculator 로 위임(api RiskUsageService 와 동일 산식 보장).
+        RiskBudgetCalculator.resolveBuyBudget(
+            config = context.config,
+            currentCapital = context.currentCapital,
+            orderableCash = context.orderableCash,
+            positions = context.currentPositions,
         )
-    }
-
-    /**
-     * 계좌 전체 노출 — **전 종목·전 전략 매수원가 합** (사용자 결재 2026-06-16).
-     *
-     * `Σ over currentPositions { avgPrice × quantity }`. 종목별 필터 없이 전부 합산해 "계좌 전체 공유 풀" 에서
-     * 차감할 자본 노출을 만든다.
-     *
-     * ## 왜 평가액(현재가)이 아니라 매수원가(avgPrice)인가
-     * 한도는 "투입 자본(원금)" 을 제한하는 개념이다. 평가액으로 깎으면 시세 등락만으로 한도가 출렁여(상승 시 신규
-     * 매수 봉쇄, 하락 시 과매수 허용) 결정론·예측가능성이 깨진다. 매수원가는 보유 lot 의 실제 투입 자본이므로
-     * 한도 차감의 안정적 기준이다. 또한 [RiskContext]에는 종목별 현재가가 들어있지 않아(평가액 산정 불가) 새 KIS
-     * 호출 없이 산출 가능한 값이기도 하다. 시그널 단위가격(priceAtSignal)을 쓰던 옛 [currentCodeExposure]는 단일
-     * 종목 가정의 잔재였다.
-     */
-    private fun totalExposure(context: RiskContext): BigDecimal =
-        context.currentPositions
-            .filter { it.quantity > 0 }
-            .fold(BigDecimal.ZERO) { acc, position ->
-                acc + position.avgPrice.multiply(BigDecimal(position.quantity))
-            }
 
     /**
      * SELL 가용 수량 평가용 보유 수량 (ADR 0110 §2-4 SELL 전략별 분기).
@@ -458,24 +424,6 @@ class RiskGatewayEvaluator {
             .filterNot { it.isCancellableAutoExit(signal.strategyId) }
             .sumOf { it.quantity }
     }
-
-    /**
-     * BUY 매수 버짓 산정 결과 (계좌 전체 공유 풀 — 사용자 결재 2026-06-16).
-     *
-     * - [totalLimit]      = min([absoluteLimit], [percentLimit]) — A-1 규약(절대 vs 순자산×비율).
-     * - [totalExposure]   = Σ currentPositions { avgPrice × quantity } (전 종목·전 전략, 매수원가).
-     * - [remainingLimit]  = (totalLimit − totalExposure).coerceAtLeast(0).
-     * - [buyable]         = min(remainingLimit, orderableCash) — 최종 매수가능 금액.
-     */
-    private data class BuyBudget(
-        val orderableCash: BigDecimal,
-        val absoluteLimit: BigDecimal,
-        val percentLimit: BigDecimal,
-        val totalLimit: BigDecimal,
-        val totalExposure: BigDecimal,
-        val remainingLimit: BigDecimal,
-        val buyable: BigDecimal,
-    )
 
     private fun blocked(
         signalId: Long,
