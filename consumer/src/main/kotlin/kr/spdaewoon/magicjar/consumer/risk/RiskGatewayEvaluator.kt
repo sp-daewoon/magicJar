@@ -197,20 +197,21 @@ class RiskGatewayEvaluator {
             )
         }
 
-        // 6. POSITION_LIMIT — A-1 min(absolute, capital × percent/100), BUY만 의미
+        // 6. POSITION_LIMIT — BUY 버짓=예수금(주문가능금액) 기준 (사용자 결재 2026-06-16), BUY만 의미.
+        //    버짓 = min(maxPositionAmount(>0일 때만 상한), orderableCash). 비중%(maxPositionPercent) 미적용.
         if (signal.side == SignalSide.BUY) {
-            val positionBudget = resolvePositionBudget(context)
+            val buyBudget = resolveBuyBudget(context)
             val existingExposure = currentCodeExposure(signal, context)
-            val remainingBudget = (positionBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
+            val remainingBudget = (buyBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
 
             // Phase 1 quantity 결정은 T-O 트랙 — 시그널 단위 가격(priceAtSignal) > 남은 종목 예산 시 즉시 BLOCKED.
             val unitCost = signal.priceAtSignal
             if (unitCost > remainingBudget) {
                 val reasonText =
-                    "Unit price ${unitCost.toPlainString()} exceeds remaining position budget " +
+                    "Unit price ${unitCost.toPlainString()} exceeds remaining buy budget " +
                         "${remainingBudget.toPlainString()} " +
-                        "(budget=${positionBudget.budget.toPlainString()}, existing=${existingExposure.toPlainString()}, " +
-                        "min(abs=${positionBudget.absoluteLimit.toPlainString()}, pct=${positionBudget.percentBudget.toPlainString()}))"
+                        "(budget=${buyBudget.budget.toPlainString()}, existing=${existingExposure.toPlainString()}, " +
+                        "orderableCash=${buyBudget.orderableCash.toPlainString()}, absLimit=${buyBudget.absoluteLimit.toPlainString()})"
                 return blocked(
                     signalId,
                     RiskRule.POSITION_LIMIT,
@@ -218,13 +219,12 @@ class RiskGatewayEvaluator {
                     context =
                         mapOf(
                             "unitCost" to unitCost.toPlainString(),
-                            "budget" to positionBudget.budget.toPlainString(),
+                            "budget" to buyBudget.budget.toPlainString(),
                             "remainingBudget" to remainingBudget.toPlainString(),
                             "existingExposure" to existingExposure.toPlainString(),
-                            "absLimit" to positionBudget.absoluteLimit.toPlainString(),
-                            "percentBudget" to positionBudget.percentBudget.toPlainString(),
+                            "orderableCash" to buyBudget.orderableCash.toPlainString(),
+                            "absLimit" to buyBudget.absoluteLimit.toPlainString(),
                             "currentCapital" to context.currentCapital.toPlainString(),
-                            "maxPositionPercent" to context.config.maxPositionPercent.toPlainString(),
                         ),
                 )
             }
@@ -326,12 +326,13 @@ class RiskGatewayEvaluator {
         signal: Signal,
         context: RiskContext,
     ): Int {
-        val positionBudget = resolvePositionBudget(context)
+        val buyBudget = resolveBuyBudget(context)
         val existingExposure = currentCodeExposure(signal, context)
-        val remainingBudget = (positionBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
+        val remainingBudget = (buyBudget.budget - existingExposure).coerceAtLeast(BigDecimal.ZERO)
         return remainingBudget
             .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
             .toInt()
+            .coerceAtLeast(0)
     }
 
     fun resolveSellQuantity(
@@ -339,20 +340,33 @@ class RiskGatewayEvaluator {
         context: RiskContext,
     ): Int = (holdingQuantity(signal, context) - reservedSellQuantity(signal, context)).coerceAtLeast(0)
 
-    private fun resolvePositionBudget(context: RiskContext): PositionBudget {
+    /**
+     * BUY 매수 버짓 산정 — **예수금(주문가능금액) 기준** (사용자 결재 2026-06-16).
+     *
+     * ## 왜 순자산(netAsset)이 아니라 예수금인가
+     * 기존엔 버짓 = min(maxPositionAmount, 순자산 × maxPositionPercent%) 였다. 보유주식이 많으면 순자산은 크지만
+     * 실제 주문할 현금(예수금)이 부족해 KIS 가 "주문가능금액 초과"로 통째 거부했다. 결재에 따라 버짓을 예수금
+     * ([RiskContext.orderableCash] = KIS `prvs_rcdl_excc_amt` D+2 실가용, 비정상 시 예수금총액 fallback — consumer 배선)으로
+     * 전환한다("남은 예수금으로 살 수 있는 만큼만 산다").
+     *
+     * ## 규약
+     * - 기준값 = `orderableCash`(예수금).
+     * - `maxPositionAmount`(전략 설정 절대금액)가 0보다 크면 상한으로 유지: `budget = min(maxPositionAmount, orderableCash)`.
+     *   maxPositionAmount ≤ 0(미설정)이면 예수금 전체가 버짓.
+     * - **`maxPositionPercent`(비중%)는 매수 사이징에서 미적용**(결재 — 예수금만 기준, 비중 한도로 깎지 않는다).
+     */
+    private fun resolveBuyBudget(context: RiskContext): BuyBudget {
+        val orderableCash = context.orderableCash.coerceAtLeast(BigDecimal.ZERO)
         val absoluteLimit = context.config.maxPositionAmount
-        val percentBudget =
-            if (context.currentCapital > BigDecimal.ZERO) {
-                context.currentCapital
-                    .multiply(context.config.maxPositionPercent)
-                    .divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
+        val budget =
+            if (absoluteLimit > BigDecimal.ZERO && absoluteLimit < orderableCash) {
+                absoluteLimit
             } else {
-                BigDecimal.ZERO
+                orderableCash
             }
-        val budget = if (percentBudget < absoluteLimit) percentBudget else absoluteLimit
-        return PositionBudget(
+        return BuyBudget(
+            orderableCash = orderableCash,
             absoluteLimit = absoluteLimit,
-            percentBudget = percentBudget,
             budget = budget,
         )
     }
@@ -416,9 +430,12 @@ class RiskGatewayEvaluator {
             .sumOf { it.quantity }
     }
 
-    private data class PositionBudget(
+    /**
+     * BUY 매수 버짓 (예수금 기준). [budget] = min(maxPositionAmount(>0일 때), orderableCash) — 비중% 미적용.
+     */
+    private data class BuyBudget(
+        val orderableCash: BigDecimal,
         val absoluteLimit: BigDecimal,
-        val percentBudget: BigDecimal,
         val budget: BigDecimal,
     )
 

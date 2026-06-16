@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.consumer.risk
 
 import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisBalanceRateLimitedException
+import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.port.KisBalanceQueryPort
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalOutcome
 import kr.spdaewoon.magicjar.domain.risk.port.CapitalSnapshotProvider
@@ -80,6 +81,7 @@ class KisCapitalSnapshotProviderAdapter(
 
     private data class CapitalSnapshot(
         val capital: BigDecimal,
+        val orderableCash: BigDecimal,
         val at: Instant,
     )
 
@@ -115,17 +117,19 @@ class KisCapitalSnapshotProviderAdapter(
                         reason = "RISK_CAPITAL",
                     )
                 val netAsset = snapshot.balance.netAssetValue
-                recentCapital[userId] = CapitalSnapshot(netAsset, clock())
+                val orderableCash = resolveOrderableCash(snapshot.balance)
+                recentCapital[userId] = CapitalSnapshot(netAsset, orderableCash, clock())
                 recentFailures.remove(userId)
                 val ageSeconds = Duration.between(snapshot.fetchedAt, clock()).seconds
                 log.info(
-                    "KisCapitalSnapshotProvider account snapshot 사용 — netAsset={} cacheAgeSec={} (userId={} type={})",
+                    "KisCapitalSnapshotProvider account snapshot 사용 — netAsset={} orderableCash={} cacheAgeSec={} (userId={} type={})",
                     netAsset,
+                    orderableCash,
                     ageSeconds,
                     maskUserId(userId),
                     accountType.name,
                 )
-                CapitalOutcome.Available(capital = netAsset, stale = false)
+                CapitalOutcome.Available(capital = netAsset, orderableCash = orderableCash, stale = false)
             } catch (e: KisBalanceRateLimitedException) {
                 log.warn(
                     "KisCapitalSnapshotProvider account snapshot rate limit — stale-cache 시도(userId={})",
@@ -162,15 +166,17 @@ class KisCapitalSnapshotProviderAdapter(
             // rate limit backoff 재시도(default 2회)도 port 구현이 캡슐화 — 소진 시 KisBalanceRateLimitedException.
             val snapshot = port.fetchFullBalance(userId, accountType)
             val netAsset = snapshot.balance.netAssetValue
-            recentCapital[userId] = CapitalSnapshot(netAsset, clock())
+            val orderableCash = resolveOrderableCash(snapshot.balance)
+            recentCapital[userId] = CapitalSnapshot(netAsset, orderableCash, clock())
             recentFailures.remove(userId)
             log.info(
-                "KisCapitalSnapshotProvider KIS fresh 조회 — netAsset={} (userId={} type={}, 캐시 우회 — 주문경로)",
+                "KisCapitalSnapshotProvider KIS fresh 조회 — netAsset={} orderableCash={} (userId={} type={}, 캐시 우회 — 주문경로)",
                 netAsset,
+                orderableCash,
                 maskUserId(userId),
                 accountType.name,
             )
-            CapitalOutcome.Available(capital = netAsset, stale = false)
+            CapitalOutcome.Available(capital = netAsset, orderableCash = orderableCash, stale = false)
         } catch (e: KisBalanceRateLimitedException) {
             // 재시도까지 모두 소진된 rate limit — 0 fabricate 금지. stale-cache → skip.
             log.warn(
@@ -204,14 +210,15 @@ class KisCapitalSnapshotProviderAdapter(
             val ageMinutes = Duration.between(cached.at, clock()).toMinutes()
             if (ageMinutes <= staleCacheTtlMinutes) {
                 log.info(
-                    "KisCapitalSnapshotProvider capital stale-cache 사용 — capital={} ageMin={} ttlMin={} reason={} (userId={})",
+                    "KisCapitalSnapshotProvider capital stale-cache 사용 — capital={} orderableCash={} ageMin={} ttlMin={} reason={} (userId={})",
                     cached.capital,
+                    cached.orderableCash,
                     ageMinutes,
                     staleCacheTtlMinutes,
                     reason,
                     maskUserId(userId),
                 )
-                return CapitalOutcome.Available(capital = cached.capital, stale = true)
+                return CapitalOutcome.Available(capital = cached.capital, orderableCash = cached.orderableCash, stale = true)
             }
             log.warn(
                 "KisCapitalSnapshotProvider stale-cache 만료(ageMin={} > ttlMin={}) — 시그널 skip reason={} (userId={})",
@@ -241,13 +248,14 @@ class KisCapitalSnapshotProviderAdapter(
         val ageSeconds = Duration.between(cached.at, clock()).seconds
         if (ageSeconds in 0..reuseSeconds) {
             log.info(
-                "KisCapitalSnapshotProvider capital fresh-cache 재사용 — capital={} ageSec={} reuseSec={} (userId={})",
+                "KisCapitalSnapshotProvider capital fresh-cache 재사용 — capital={} orderableCash={} ageSec={} reuseSec={} (userId={})",
                 cached.capital,
+                cached.orderableCash,
                 ageSeconds,
                 reuseSeconds,
                 maskUserId(userId),
             )
-            return CapitalOutcome.Available(capital = cached.capital, stale = true)
+            return CapitalOutcome.Available(capital = cached.capital, orderableCash = cached.orderableCash, stale = true)
         }
         return null
     }
@@ -282,6 +290,21 @@ class KisCapitalSnapshotProviderAdapter(
         reason: String,
     ) {
         recentFailures[userId] = CapitalFailure(reason = reason, at = clock())
+    }
+
+    /**
+     * 주문가능 예수금 산정 (매수 버짓 기준 — 사용자 결재 2026-06-16). **새 KIS 호출 없이** 이미 받은 잔고 snapshot 에서 추출.
+     *
+     * - 권위 = `prvs_rcdl_excc_amt`(D+2 실가용 예수금, [AccountBalance.cashD2]). 미수·증거금 없이 실제 출금/매수 가능한 현금.
+     * - cashD2 가 0/음수 등 비정상이면 `dnca_tot_amt`(예수금총액, [AccountBalance.cashBalance])로 fallback.
+     * - 둘 다 비정상(0 이하)이면 0 을 반환(실제 예수금 0 = 살 수 없음 — fabricate 아님, KIS 가 준 사실).
+     *
+     * 0 합성·mock 금지(feedback_no_mock_data): 여기서의 0 은 "KIS 가 성공 응답으로 준 현금 잔고가 실제 0"인 경우뿐이다.
+     */
+    private fun resolveOrderableCash(balance: AccountBalance): BigDecimal {
+        if (balance.cashD2 > BigDecimal.ZERO) return balance.cashD2
+        if (balance.cashBalance > BigDecimal.ZERO) return balance.cashBalance
+        return BigDecimal.ZERO
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

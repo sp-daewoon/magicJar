@@ -1114,7 +1114,10 @@ class SignalGeneratedKafkaListener(
                 realProvider = capitalSnapshotProvider,
                 paperProvider = paperCapitalSnapshotProviderProvider.getIfAvailable(),
             )
-        val capital =
+        // capital(순자산 — DAILY_LOSS percent 기준) + orderableCash(예수금 — 매수 버짓 기준, 사용자 결재 2026-06-16)를
+        // 같은 CapitalOutcome 채널에서 함께 받는다(새 KIS 호출 0). 페이퍼/레거시 provider 는 orderableCash 가 null →
+        // 가상 자본(capital)을 예수금으로 대체(예수금 개념 없음). SELL 조회 불가 시 둘 다 0(매수 사이징 미사용 — SELL 영향 0).
+        val capitalResolution =
             when (
                 val outcome =
                     try {
@@ -1134,30 +1137,35 @@ class SignalGeneratedKafkaListener(
                     }
             ) {
                 is CapitalOutcome.Available -> {
+                    // 예수금 미상(페이퍼·레거시 provider) → 가상 자본을 예수금으로 본다(매수 버짓=가상 자본 — 회귀 0).
+                    val orderableCash = outcome.orderableCash ?: outcome.capital
                     if (outcome.stale) {
                         log.info(
-                            "Capital stale-cache 사용 — 직전 성공 잔고로 룰 평가(0 fabricate 회피): userId={} capital={}",
+                            "Capital stale-cache 사용 — 직전 성공 잔고로 룰 평가(0 fabricate 회피): userId={} capital={} orderableCash={}",
                             signal.userId,
                             outcome.capital,
+                            orderableCash,
                         )
                     }
-                    outcome.capital
+                    CapitalResolution(capital = outcome.capital, orderableCash = orderableCash)
                 }
                 is CapitalOutcome.Unavailable ->
                     if (signal.side == SignalSide.BUY) {
-                        // BUY 만 capital 필수 → skip(위반 평가로 흐르지 않음).
+                        // BUY 만 capital/예수금 필수 → skip(위반 평가로 흐르지 않음).
                         throw SignalSkippedCapitalUnavailableException(outcome.reason)
                     } else {
-                        // SELL — capital 불요. 청산을 잔고조회 실패로 막지 않는다(DAILY_LOSS percent 만 자연 비활성).
+                        // SELL — capital/예수금 불요. 청산을 잔고조회 실패로 막지 않는다(DAILY_LOSS percent 만 자연 비활성).
                         log.info(
                             "SELL capital 조회 불가 — 청산 진행(skip 아님, DAILY_LOSS percent 비활성): userId={} code={} reason={}",
                             signal.userId,
                             signal.code,
                             outcome.reason,
                         )
-                        BigDecimal.ZERO
+                        CapitalResolution(capital = BigDecimal.ZERO, orderableCash = BigDecimal.ZERO)
                     }
             }
+        val capital = capitalResolution.capital
+        val orderableCash = capitalResolution.orderableCash
 
         val positionPort = riskPositionPortProvider.getIfAvailable()
         val positions =
@@ -1240,6 +1248,7 @@ class SignalGeneratedKafkaListener(
             userId = signal.userId,
             config = config,
             currentCapital = capital,
+            orderableCash = orderableCash,
             currentPositions = positions,
             openOrders = openOrders,
             dailyRealizedPnl = dailyPnl,
@@ -1250,6 +1259,15 @@ class SignalGeneratedKafkaListener(
             strategyPosition = strategyPosition,
         )
     }
+
+    /**
+     * capital 산출 결과 묶음 — 순자산(capital, 기존 룰 기준)과 주문가능 예수금(orderableCash, 매수 버짓 기준)을
+     * 같은 CapitalOutcome 조회 1회에서 함께 운반(새 KIS 호출 0 · 사용자 결재 2026-06-16).
+     */
+    private data class CapitalResolution(
+        val capital: BigDecimal,
+        val orderableCash: BigDecimal,
+    )
 
     private fun resolveOrderQuantity(
         signal: Signal,
