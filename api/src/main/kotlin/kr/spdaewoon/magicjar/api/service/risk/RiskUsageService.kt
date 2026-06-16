@@ -49,9 +49,12 @@ import java.time.ZoneId
  * | dailyPnl     | [PositionJpaAdapter.sumDailyRealizedPnl] (DB, KST 자정 기준)            | DLL |
  * | recentTrades | Redis trade-frequency ZSET (consumer 가 record 한 동일 키)              | 거래빈도 |
  *
- * ## capital unavailable 시 0 fabricate 금지 (feedback_no_mock_data · F10 정신)
- * Redis 잔고 cache 가 비어 있으면(주문 경로가 아직 캐시를 채우지 않음) capital 을 0 으로 합성하지 않고
- * position 섹션을 **null** 로 내린다(프런트 "준비중" 처리). 새 KIS 잔고조회를 트리거해 TPS 를 갉아먹지 않는다.
+ * ## capital unavailable 시 — config 파생값은 채우고 순자산 의존 필드만 null (B 카드 정합)
+ * Redis 잔고 cache 가 비어 있으면(주문 경로가 아직 캐시를 채우지 않음) capital 을 0 으로 합성하지 않는다
+ * (feedback_no_mock_data · F10 정신). 단, position 섹션을 통째로 null 로 떨어뜨리지 않고 dailyLoss 카드와
+ * 동일하게 **부분 렌더**한다 — config·positions 만으로 산출되는 절대한도(maxPositionAmount)·maxPositionPercent·
+ * totalExposure 는 그대로 채우고, 순자산(netAssetValue) 의존 6필드(percentBase·percentLimit·totalLimit·
+ * remaining·orderableCash·buyable)만 null 로 내린다. 새 KIS 잔고조회는 여전히 트리거하지 않는다(TPS 보호).
  *
  * // AI 호출 0 — T-RISK 트랙 정책 (ADR 0023 §2-4 + ADR 0066 §8 + ADR 0067 §8)
  */
@@ -90,7 +93,8 @@ class RiskUsageService(
         val capital = readCapitalFromCacheOrNull(userId)
 
         return RiskUsageResponse(
-            position = capital?.let { buildPositionUsage(config, it, positions) },
+            // capital 미상이어도 position 섹션은 항상 non-null — config·positions 파생값은 채우고 순자산 의존 필드만 null.
+            position = buildPositionUsage(config, capital, positions),
             dailyLoss = buildDailyLossUsage(config, capital?.netAssetValue, userId),
             concurrent = buildConcurrentUsage(config, positions),
             tradeFrequency = strategyId?.let { buildTradeFrequencyUsage(config, userId, it) },
@@ -99,30 +103,55 @@ class RiskUsageService(
 
     // ── position (매수 한도) — RiskBudgetCalculator 단일 진실원 ───────────────────
 
+    /**
+     * position 섹션 조립 — capital 미상이어도 절대 null 로 떨어지지 않는 부분 렌더.
+     *
+     * - capital != null: 매수 사이징(PR #1011)이 호출하는 domain [RiskBudgetCalculator.resolveBuyBudget] 를
+     *   그대로 호출해 전 필드 채움(표시값 == 실제판정, 산식 1바이트 불변).
+     * - capital == null: config·positions 파생값(absoluteLimit·maxPositionPercent·totalExposure)만 채우고
+     *   순자산 의존 6필드는 null (0 fabricate 금지 · 새 KIS 호출 0).
+     */
     private fun buildPositionUsage(
         config: RiskConfig,
-        capital: CapitalSnapshot,
+        capital: CapitalSnapshot?,
         positions: List<Position>,
     ): PositionUsage {
-        // 매수 사이징(PR #1011)이 호출하는 domain 계산기를 그대로 호출 — 표시값 == 실제판정.
-        val budget =
-            RiskBudgetCalculator.resolveBuyBudget(
-                config = config,
-                currentCapital = capital.netAssetValue,
-                orderableCash = capital.orderableCash,
-                positions = positions,
+        // totalExposure 는 capital 무관 — config·positions 만으로 항상 산출(domain 단일 진실원).
+        val totalExposure = RiskBudgetCalculator.totalExposure(positions)
+        return capital
+            ?.let { snapshot ->
+                // 매수 사이징(PR #1011)이 호출하는 domain 계산기를 그대로 호출 — capital 있을 때 산식·결과 불변.
+                val budget =
+                    RiskBudgetCalculator.resolveBuyBudget(
+                        config = config,
+                        currentCapital = snapshot.netAssetValue,
+                        orderableCash = snapshot.orderableCash,
+                        positions = positions,
+                    )
+                PositionUsage(
+                    absoluteLimit = budget.absoluteLimit,
+                    maxPositionPercent = config.maxPositionPercent,
+                    percentBase = budget.currentCapital,
+                    percentLimit = budget.percentLimit,
+                    totalLimit = budget.totalLimit,
+                    totalExposure = budget.totalExposure,
+                    remaining = budget.remainingLimit,
+                    orderableCash = budget.orderableCash,
+                    buyable = budget.buyable,
+                )
+            }
+            // capital 미상 — config 파생 한도·totalExposure 만 채우고 순자산 의존 필드는 null.
+            ?: PositionUsage(
+                absoluteLimit = config.maxPositionAmount,
+                maxPositionPercent = config.maxPositionPercent,
+                percentBase = null,
+                percentLimit = null,
+                totalLimit = null,
+                totalExposure = totalExposure,
+                remaining = null,
+                orderableCash = null,
+                buyable = null,
             )
-        return PositionUsage(
-            absoluteLimit = budget.absoluteLimit,
-            maxPositionPercent = config.maxPositionPercent,
-            percentBase = budget.currentCapital,
-            percentLimit = budget.percentLimit,
-            totalLimit = budget.totalLimit,
-            totalExposure = budget.totalExposure,
-            remaining = budget.remainingLimit,
-            orderableCash = budget.orderableCash,
-            buyable = budget.buyable,
-        )
     }
 
     // ── dailyLoss ──────────────────────────────────────────────────────────────
