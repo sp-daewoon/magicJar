@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>magicJar 일일 운영 보고 — 2026-06-16 (화)</title>
+<style>
+  body{background:#0f1419;color:#d8e1ea;font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;line-height:1.7;padding:40px 24px;max-width:1000px;margin:0 auto}
+  h1{font-size:1.4rem;color:#fff;border-bottom:2px solid #2e3a47;padding-bottom:10px}
+  h2{font-size:1.05rem;color:#4fc3f7;margin-top:30px;border-left:3px solid #4fc3f7;padding-left:10px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:.85rem}
+  th,td{border:1px solid #2e3a47;padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#1a2129;color:#8fd}
+  code{background:#1a2129;color:#ffd479;padding:1px 5px;border-radius:3px;font-size:.85em}
+  .banner{background:#1a2129;border:1px solid #2e3a47;border-radius:8px;padding:16px 20px;margin:16px 0}
+  .red{color:#ff6b6b;font-weight:600}.green{color:#51cf66;font-weight:600}.yellow{color:#ffd479}
+  .p0{background:#3a1a1a;border-left:3px solid #ff6b6b}
+  ul{padding-left:20px}
+</style>
+</head>
+<body>
+<h1>📒 magicJar 일일 운영 보고 — 2026-06-16 (화) · canary 4일차</h1>
+
+<div class="banner">
+<b>요약 배너</b><br>
+· 거래: 85·86 단타 다수 (86 093370 익절 2회 + 수동손절 1회 · 85 005930 DSL매도 1회) · <span class="red">자동 손절 0건</span>(수동 2건)<br>
+· 실현손익: 86 수동 추정 <span class="red">−2,800원</span>(익절 +8,600 − 손절 −11,400) + 85 +α · <b>마감 flat (오버나잇 0 · 미체결 0)</b><br>
+· 결함: <span class="red">손절 미작동 P0 발견 + 당일 수정</span> · 매수 사이징 3차 재설계 · realized PnL 집계 0 의심<br>
+· 배포: <b>전체 재배포 1회</b> (PR 6건 묶음) · 미지 ERROR 0 · 컨테이너 전 healthy
+</div>
+
+<h2>① 오늘의 핵심 사건 (시간순)</h2>
+<ul>
+<li><b>오전</b> — 매매 정지 진단: 어제 Redis 전체삭제 여파로 WS tick 마비 → Codex가 REST fallback 복구(#1009). 86 093370 예수금부족 BUY 거부 7건.</li>
+<li><b>11:54 / 13:43</b> — 수동 매도 2건 (005930 1주 · <span class="red">093370 19주 수동 손절 −11,400원</span>).</li>
+<li><b>오후</b> — <span class="red">손절 미작동 P0 발견</span>: 86 093370 −2.95%인데 손절 미발화. 근본 = <code>evaluateTakeProfitExit</code>에 손절 누락(scale-in 경로에만 존재). Codex 수정(#1013).</li>
+<li><b>매수 사이징 3차 재설계</b>: ①예수금 기준(#1008) → ②비율 복원 → ③계좌 전체 공유 풀(#1011). 사용자 결재 반영.</li>
+<li><b>리스크 사용량 가시화</b>: 조회 API(#1015) + 화면 게이지(#1012) + UX 개선(#1016).</li>
+<li><b>15:04 전체 재배포</b> → 검증 GREEN → 장중 85·86 재매매 → 15:30 정상 마감.</li>
+</ul>
+
+<h2>② 거래 전수 (체인 무결성)</h2>
+<table>
+<tr><th>전략</th><th>종목</th><th>내역</th><th>결과</th></tr>
+<tr><td>86</td><td>093370</td><td>BUY FILLED 3회(59주) · AUTO_EXIT SELL FILLED 2회(40주) · BUY REJECTED 7회(예수금부족)</td><td>익절 12:00 +4,600 · 12:51 +4,000</td></tr>
+<tr><td>86</td><td>093370</td><td>12:58 BUY 19주 @20,000 → <span class="red">13:43 수동 손절 19주 @~19,400</span></td><td class="red">−11,400 (손절 미작동으로 수동 집행)</td></tr>
+<tr><td>85</td><td>005930</td><td>15:14 BUY 1주 @341,500 → 15:26 DSL매도(STRATEGY_SIGNAL) @~342,000</td><td class="green">+0.15% 소폭이익</td></tr>
+<tr><td>0(수동)</td><td>005930</td><td>11:54 MANUAL SELL 1주</td><td>—</td></tr>
+</table>
+<p class="yellow">⚠ 자동 손절(order_trigger=STOP_LOSS) 0건 — 오전 버그(미작동)였고, 오후 Codex 수정 후엔 가격이 손절선까지 안 빠져 실증 미완(익일 과제).</p>
+
+<h2>③ 알람 분류</h2>
+<table>
+<tr><th>알람</th><th>정체</th><th>처리</th></tr>
+<tr><td>STRATEGY_POSITION_DRIFT (부족방향)</td><td>체결 직후 장부 빈틈</td><td class="green">무해 — PR #992 가드 정상(보정 보류)</td></tr>
+<tr><td>EGW00201 (주문 rate limit)</td><td>86 반복 BUY 시도</td><td class="green">기지 — 예수금부족 반복(#1011로 해소 예정)</td></tr>
+<tr><td>MARKET_CLOSED (15:30)</td><td>마감 직후 시그널</td><td class="green">정상 — 정규장 종료 가드</td></tr>
+<tr><td>WATCHDOG 재attach</td><td>재배포 컨테이너 교체</td><td class="green">정상 — 재구독 확인</td></tr>
+</table>
+
+<h2>④ ERROR 분류</h2>
+<p><span class="green">미지 ERROR 0건</span> (api·batch·consumer, 기지 계열 EGW/OPSP/MARKET_CLOSED 제외). 재배포 후 4모듈 전 healthy.</p>
+
+<h2>⑤ 발견 결함 · 조치 · PR 매트릭스</h2>
+<table>
+<tr><th>결함</th><th>심각도</th><th>근본</th><th>조치 PR</th></tr>
+<tr class="p0"><td>손절 미작동 (보유 −2.95%인데 손절 SELL 미발화)</td><td class="red">P0</td><td><code>evaluateTakeProfitExit</code>에 손절 누락 — scale-in 경로에만 존재, 단순전략은 손절 통째 누락</td><td>#1013 (Codex)</td></tr>
+<tr><td>매수 사이징 — 순자산×비율 기준이라 예수금 부족 시 전량 거부</td><td class="yellow">P1</td><td>capital=netAssetValue(순자산), 예수금 미반영</td><td>#1008</td></tr>
+<tr><td>매수 사이징 — 비율 한도 누락 + 종목별 한도</td><td class="yellow">P1</td><td>#1008이 비율 제거 + currentCodeExposure 종목별</td><td>#1011 (계좌 전체 공유 풀 + 비율 복원)</td></tr>
+<tr><td>리스크 한도 근접도 미가시화</td><td>개선</td><td>사용량 표시 부재</td><td>#1015 API · #1012 화면 · #1016 UX</td></tr>
+<tr><td>realized PnL 집계 0 의심</td><td class="yellow">관찰</td><td>거래 있었으나 API todayRealizedPnl=0</td><td>익일 확인</td></tr>
+</table>
+
+<h2>⑥ 인프라 상태</h2>
+<ul>
+<li>전체 재배포 1회 (15:04) — gradle bootJar + docker, 전 컨테이너 healthy</li>
+<li>거래빈도 한도: <code>trade_freq_per_day</code> 9 → 12 변경(15:18, 사용자) — 단 사용자는 21 의도, <span class="yellow">DB 12 저장(입력≠저장 확인 필요)</span></li>
+<li>거래빈도 = <b>전략당</b> 확정 (키 <code>risk:trade-freq:{strategyId}:...</code>, 85/86 별개 카운트 실증)</li>
+<li>WS: 오전 마비(어제 Redis 여파) → REST fallback → 오후 정상 tick 수신 확인</li>
+</ul>
+
+<h2>⑦ 익일 인계 (관찰 포인트)</h2>
+<ul>
+<li><b>1순위 — 손절 실증</b>: 내일 장 시작 시 85(손절1%)·86(손절2%) 첫 매매 후 가격 하락 시 손절 MARKET 발화 집중 감시 (Codex #1013 검증)</li>
+<li><b>realized PnL 0 확인</b>: API todayRealizedPnl=0인데 실거래 손익 있음 — 집계 로직 점검</li>
+<li><b>거래빈도 21 저장</b>: 사용자 21 입력했으나 DB 12 — 화면 저장 동작 확인(입력≠저장이면 버그)</li>
+<li><b>매수 사이징 #1011 실작동</b>: 계좌 전체 공유 풀(전체노출 차감) + 예수금 부분매수 실거래 검증</li>
+<li><b>qa Visual</b>: 리스크 사용량 화면(#1012·#1016) 시각 회귀 (헌법 §9-2, API 배포됨 → 캡처 가능)</li>
+<li>오버나잇 0 · 미체결 0 — 깨끗한 마감</li>
+</ul>
+
+<p style="color:#8b9aab;font-size:.8rem;margin-top:30px">발행: <code>/magicjar-ops-monitor</code> §C · 2026-06-16 장 마감 후</p>
+</body>
+</html>
