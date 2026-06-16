@@ -830,6 +830,67 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `비 scale-in fixedStopLoss 도달 시 BUY 조건보다 손절 SELL MARKET을 우선 발행한다`() {
+        val buyAst = ast("1", Operator.GT, "0")
+        val boundaryTs = Instant.parse("2026-05-20T00:21:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+
+        every { strategyLookup.findActiveByCodeAndInterval("093370", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, fixedStopLossPct = BigDecimal("2.00")))
+        every { dedupeGuard.tryAcquire(42L, "093370", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval(
+                "093370",
+                CandleInterval.ONE_MIN,
+                boundaryTs.toJavaInstant(),
+                499,
+            )
+        } returns listOf(candle("2026-05-20T00:20:00Z", "20000"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(
+                StrategySignal.BUY,
+                BigDecimal("0.90"),
+                mapOf("trigger" to "BUY_CONDITION"),
+                fixedNow,
+                1L,
+            )
+        every { riskPositionPort.findCurrentByUser("1234") } returns
+            listOf(
+                Position(
+                    userId = "1234",
+                    code = "093370",
+                    quantity = 19,
+                    avgPrice = BigDecimal("20000"),
+                    updatedAt = fixedNow,
+                ),
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 100L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(riskPositionPort = riskPositionPort).onBoundaryClosed(
+            code = "093370",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "19600"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        assertThat(savedSignal.captured.reason).isEqualTo("STOP_LOSS")
+        val ctx =
+            com.fasterxml.jackson.databind
+                .ObjectMapper()
+                .readValue(savedSignal.captured.contextJson, Map::class.java)
+        assertThat(ctx["exitPriceType"]).isEqualTo("MARKET")
+        @Suppress("UNCHECKED_CAST")
+        val eval = ctx["eval"] as Map<String, Any?>
+        assertThat(eval["trigger"]).isEqualTo("STOP_LOSS")
+        assertThat(eval["stopPrice"]).isEqualTo("19600")
+        assertThat(eval["fixedStopLossPct"]).isEqualTo("2.00")
+        verify(exactly = 1) { riskPositionPort.findCurrentByUser("1234") }
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `장전 08시30분 boundary는 정규장 밖이라 strategy 평가를 skip 한다`() {
         val buyAst = ast("1", Operator.GT, "0")
         // KST 2026-05-20(수) 08:30 = UTC 2026-05-19T23:30:00Z (NXT pre-hour 캔들 마감 — 정책상 의도된 적재)
@@ -1078,6 +1139,7 @@ class RealtimeSignalGeneratorTest {
         buyAst: DslNode,
         sellAst: DslNode? = null,
         takeProfitPct: BigDecimal? = null,
+        fixedStopLossPct: BigDecimal? = null,
         minHoldBars: Int? = null,
         status: StrategyStatus = StrategyStatus.ACTIVE,
     ): Strategy =
@@ -1094,6 +1156,7 @@ class RealtimeSignalGeneratorTest {
                             sellCondition = sellAst,
                         ),
                     takeProfitPct = takeProfitPct,
+                    fixedStopLoss = fixedStopLossPct,
                     minHoldBars = minHoldBars,
                 ),
             complexity =

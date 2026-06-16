@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.toJavaInstant
+import kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepository
 import kr.spdaewoon.magicjar.consumer.reconciliation.DataReadinessService
@@ -503,7 +504,7 @@ class RealtimeSignalGenerator(
                 return SignalDecision(SignalSide.BUY, buyResult)
             }
         } else {
-            evaluateTakeProfitExit(strategy, code, currentPrice, buyResult)?.let { return it }
+            evaluatePlainPositionExit(strategy, code, currentPrice, buyResult)?.let { return it }
             if (buyFired) {
                 return SignalDecision(SignalSide.BUY, buyResult)
             }
@@ -625,17 +626,20 @@ class RealtimeSignalGenerator(
         }
     }
 
-    private fun evaluateTakeProfitExit(
+    private fun evaluatePlainPositionExit(
         strategy: Strategy,
         code: String,
         currentPrice: BigDecimal,
         baseResult: StrategyEvalResult,
     ): SignalDecision? {
-        val takeProfitPct = strategy.definition.takeProfitPct ?: return null
+        val fixedStopLossPct = strategy.definition.fixedStopLoss
+        val takeProfitPct = strategy.definition.takeProfitPct
+        if (fixedStopLossPct == null && takeProfitPct == null) return null
+
         val positionPort = riskPositionPortProvider.ifAvailable
         if (positionPort == null) {
             log.warn(
-                "takeProfitPct 설정 전략의 position 조회 port 부재 — exit skip: strategyId={} code={}",
+                "position exit 설정 전략의 position 조회 port 부재 — exit skip: strategyId={} code={}",
                 strategy.id,
                 code,
             )
@@ -648,7 +652,7 @@ class RealtimeSignalGenerator(
                     .firstOrNull { it.code == code && it.quantity > 0 }
             } catch (e: Exception) {
                 log.warn(
-                    "takeProfitPct position 조회 실패 — exit skip: strategyId={} code={} err={}",
+                    "position exit 조회 실패 — exit skip: strategyId={} code={} err={}",
                     strategy.id,
                     code,
                     e.message,
@@ -657,6 +661,36 @@ class RealtimeSignalGenerator(
             } ?: return null
 
         if (position.avgPrice <= BigDecimal.ZERO) return null
+
+        if (fixedStopLossPct != null && fixedStopLossPct > BigDecimal.ZERO) {
+            val stopPrice = PositionStopLossTickWatcher.stopPriceOf(position.avgPrice, fixedStopLossPct)
+            if (stopPrice != null && currentPrice <= stopPrice) {
+                val lossPct =
+                    position.avgPrice
+                        .subtract(currentPrice)
+                        .divide(position.avgPrice, 6, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal("100"))
+                return sellSignal(
+                    baseResult = baseResult,
+                    reasonExtras =
+                        mapOf(
+                            "trigger" to "STOP_LOSS",
+                            "condition" to "POSITION_AVG_STOP_LOSS",
+                            "quantity" to position.quantity.toString(),
+                            "lossPct" to lossPct.setScale(4, RoundingMode.HALF_UP).toPlainString(),
+                            "fixedStopLossPct" to fixedStopLossPct.toPlainString(),
+                            "stopPrice" to stopPrice.toPlainString(),
+                            "avgPrice" to position.avgPrice.toPlainString(),
+                            "currentPrice" to currentPrice.toPlainString(),
+                        ),
+                    // ADR 0114 §3-3 — 손절은 MARKET(체결 확실성 우선).
+                    exitPriceType = OrderPriceType.MARKET,
+                    exitLimitPrice = null,
+                )
+            }
+        }
+
+        takeProfitPct ?: return null
         val profitPct =
             currentPrice
                 .subtract(position.avgPrice)

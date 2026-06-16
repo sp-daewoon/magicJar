@@ -4,15 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PreDestroy
 import kotlinx.datetime.toJavaInstant
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
+import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
+import kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisOneMinuteCandleRangePort
+import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -22,6 +26,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.datetime.Instant as KxInstant
 
 /**
  * KIS WS H0UNCNT0 silent 종목 1m 보완 fallback.
@@ -44,6 +49,8 @@ class NoTickMinuteFallbackService(
     private val candleRepository: CandleRepository,
     private val kisOneMinuteCandleRangePort: KisOneMinuteCandleRangePort,
     private val boundaryAggregator: BoundaryAggregator,
+    private val liveCandleUpdater: LiveCandleUpdater,
+    private val positionStopLossTickWatcher: PositionStopLossTickWatcher,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.kis.ws.no-tick-fallback-enabled:true}")
@@ -97,7 +104,7 @@ class NoTickMinuteFallbackService(
         code: String,
         ageSeconds: Long,
     ): FallbackResult {
-        if (!enabled) return FallbackResult(code, fetched = 0, inserted = 0, published = false, latestTs = null)
+        if (!enabled) return FallbackResult(code, fetched = 0, inserted = 0, published = false, currentSeeded = false, latestTs = null)
 
         val targetTo = latestClosedMinute()
         val lastTs = candleRepository.findMaxTsByCodeAndInterval(code, CandleInterval.ONE_MIN)
@@ -113,18 +120,22 @@ class NoTickMinuteFallbackService(
                     .map { it.copy(source = SOURCE) }
             }
 
-        val inserted = candleRepository.saveAll(fetched)
+        val inserted = if (fetched.isEmpty()) 0 else candleRepository.saveAll(fetched)
         val latest = fetched.maxByOrNull { it.ts }
+        val latestForCurrent =
+            latest ?: candleRepository.findLatestByCodeAndInterval(code, CandleInterval.ONE_MIN, 1).lastOrNull()
+        val currentSeeded = latestForCurrent?.let { seedCurrentCandle(it) } ?: false
         val published = latest?.let { publishLatestIfNew(code, it, ageSeconds) } ?: false
 
         log.info(
-            "WS no-tick 1m fallback 완료: code={} range={}..{} fetched={} inserted={} latestTs={} published={} ageSeconds={}",
+            "WS no-tick 1m fallback 완료: code={} range={}..{} fetched={} inserted={} latestTs={} currentSeeded={} published={} ageSeconds={}",
             code,
             if (targetFrom.isAfter(targetTo)) null else targetFrom,
             targetTo,
             fetched.size,
             inserted,
-            latest?.ts,
+            latestForCurrent?.ts,
+            currentSeeded,
             published,
             ageSeconds,
         )
@@ -133,8 +144,25 @@ class NoTickMinuteFallbackService(
             fetched = fetched.size,
             inserted = inserted,
             published = published,
-            latestTs = latest?.ts?.toJavaInstant(),
+            currentSeeded = currentSeeded,
+            latestTs = latestForCurrent?.ts?.toJavaInstant(),
         )
+    }
+
+    private fun seedCurrentCandle(candle: Candle): Boolean {
+        val price = candle.closeRaw.takeIf { it > BigDecimal.ZERO } ?: return false
+        val tick =
+            TickEvent(
+                code = candle.code,
+                price = price,
+                volume = 0L,
+                ts = KxInstant.fromEpochMilliseconds(Instant.now().toEpochMilli()),
+                source = SOURCE,
+                stale = true,
+            )
+        liveCandleUpdater.update(tick)
+        positionStopLossTickWatcher.onFallbackPriceTick(tick)
+        return true
     }
 
     private fun publishLatestIfNew(
@@ -217,6 +245,7 @@ class NoTickMinuteFallbackService(
         val fetched: Int,
         val inserted: Int,
         val published: Boolean,
+        val currentSeeded: Boolean,
         val latestTs: Instant?,
     )
 }

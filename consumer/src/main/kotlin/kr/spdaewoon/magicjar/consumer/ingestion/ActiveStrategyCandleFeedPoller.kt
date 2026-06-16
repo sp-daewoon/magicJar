@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
 import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
+import kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
 import kr.spdaewoon.magicjar.domain.market.port.KisMultiPricePort
@@ -33,6 +34,7 @@ class ActiveStrategyCandleFeedPoller(
     private val activeStrategyCodeProvider: ActiveStrategyCodeProvider,
     private val kisMultiPricePort: KisMultiPricePort,
     private val liveCandleUpdater: LiveCandleUpdater,
+    private val positionStopLossTickWatcher: PositionStopLossTickWatcher,
     private val kisWebSocketBridge: KisWebSocketBridge,
     private val redisTemplate: StringRedisTemplate,
     @Value("\${magicjar.realtime-candle.degraded-poller.enabled:true}")
@@ -88,6 +90,7 @@ class ActiveStrategyCandleFeedPoller(
         quotes.forEach { quote ->
             val tick = quote.toPollingTick(now) ?: return@forEach
             liveCandleUpdater.update(tick)
+            positionStopLossTickWatcher.onFallbackPriceTick(tick)
             updated++
         }
         if (updated > 0) {
@@ -147,7 +150,7 @@ class ActiveStrategyCandleFeedPoller(
     }
 
     companion object {
-        const val SOURCE_KIS_POLLING = "KIS-POLLING"
+        const val SOURCE_KIS_POLLING = PositionStopLossTickWatcher.SOURCE_KIS_POLLING
         private const val MRKT_DIV_CODE_KRX = "J"
     }
 }

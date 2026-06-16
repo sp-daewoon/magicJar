@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -83,12 +84,34 @@ class PositionStopLossTickWatcher(
         val tick = parse(record) ?: return
         if (tick.stale || tick.price <= BigDecimal.ZERO) return
 
+        evaluateHeldPositions(tick.code, tick.price)
+    }
+
+    /**
+     * WS tick이 조용할 때 ACTIVE 전략 degraded polling/no-tick fallback 가격으로 손절만 평가하는 안전망.
+     *
+     * Kafka `market.tick.v1`의 stale tick은 기존처럼 무시한다. 이 메서드는 caller가 명시적으로
+     * "현재 보유 보호용 fallback 가격"임을 알고 호출하는 direct path라서 stale=true 여도 손절 평가를 진행한다.
+     * 신규 BUY 신호는 이 경로에서 만들지 않는다.
+     */
+    fun onFallbackPriceTick(tick: TickEvent) {
+        if (!enabled) return
+        if (tick.price <= BigDecimal.ZERO) return
+        if (!isSupportedFallbackSource(tick.source)) return
+
+        evaluateHeldPositions(tick.code, tick.price)
+    }
+
+    private fun evaluateHeldPositions(
+        code: String,
+        price: BigDecimal,
+    ) {
         // ★ 인메모리 hit-only — 보유 0 종목은 여기서 즉시 종료(DB 조회 0, Codex 대비 핵심 보강).
-        val held = holdingPositionIndex.heldBy(tick.code)
+        val held = holdingPositionIndex.heldBy(code)
         if (held.isEmpty()) return
 
         held.forEach { position ->
-            runCatching { evaluate(position, tick.price) }
+            runCatching { evaluate(position, price) }
                 .onFailure { e ->
                     log.warn(
                         "stop-loss tick 평가 실패(다음 tick 재평가): userId={} strategyId={} code={} err={}",
@@ -100,6 +123,8 @@ class PositionStopLossTickWatcher(
                 }
         }
     }
+
+    private fun isSupportedFallbackSource(source: String): Boolean = source == SOURCE_KIS_POLLING || source == SOURCE_KIS_NOTICK_FALLBACK
 
     internal fun evaluate(
         position: HoldingPositionIndex.HeldPosition,
@@ -285,6 +310,8 @@ class PositionStopLossTickWatcher(
 
     companion object {
         const val GROUP = "magicjar-consumer-position-stop-loss"
+        const val SOURCE_KIS_POLLING = "KIS-POLLING"
+        const val SOURCE_KIS_NOTICK_FALLBACK = "KIS-NOTICK-FALLBACK"
 
         /**
          * 손절가 = 평단 × (1 - stopLossPct/100) → KRX 호가단위 내림(R1 [KrxTickSize] 단일 출처).

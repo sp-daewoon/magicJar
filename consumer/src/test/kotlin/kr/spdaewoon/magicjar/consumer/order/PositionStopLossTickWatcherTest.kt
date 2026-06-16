@@ -8,6 +8,7 @@ import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
 import java.math.BigDecimal
 import java.time.Instant
+import kotlinx.datetime.Instant as KxInstant
 
 /**
  * [PositionStopLossTickWatcher] 단위 테스트 — ADR 0114 R2-C2b ① tick 손절 안전망.
@@ -227,6 +229,41 @@ class PositionStopLossTickWatcherTest {
     fun `stale tick — 평가 0`() {
         watcher().onTick(tickRecord(stale = true))
         verify(exactly = 0) { index.heldBy(any()) }
+    }
+
+    @Test
+    fun `fallback polling 가격은 stale이어도 보유 손절 안전망을 평가한다`() {
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+
+        watcher().onFallbackPriceTick(
+            TickEvent(
+                code = "005930",
+                price = BigDecimal("48000"),
+                volume = 0L,
+                ts = KxInstant.parse("2026-06-16T01:00:00Z"),
+                source = PositionStopLossTickWatcher.SOURCE_KIS_POLLING,
+                stale = true,
+            ),
+        )
+
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "user-A",
+                strategyId = 100L,
+                code = "005930",
+                intervalCode = any(),
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.MARKET,
+                quantity = 10,
+                limitPrice = null,
+                priceAtSignal = BigDecimal("48000"),
+                idempotencyKey = any(),
+                orderTrigger = any(),
+                triggerRefId = any(),
+                signalId = any(),
+            )
+        }
     }
 
     @Test

@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
+import kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher
 import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
 import kr.spdaewoon.magicjar.domain.market.port.KisMultiPricePort
 import kr.spdaewoon.magicjar.domain.market.port.MultiPriceQuote
@@ -25,6 +26,7 @@ class ActiveStrategyCandleFeedPollerTest {
     private val activeStrategyCodeProvider = mockk<ActiveStrategyCodeProvider>()
     private val kisMultiPricePort = mockk<KisMultiPricePort>()
     private val liveCandleUpdater = mockk<LiveCandleUpdater>()
+    private val stopLossWatcher = mockk<PositionStopLossTickWatcher>(relaxed = true)
     private val kisWebSocketBridge = mockk<KisWebSocketBridge>()
     private val redisTemplate = mockk<StringRedisTemplate>()
     private val clock = Clock.fixed(Instant.parse("2026-06-16T01:00:05Z"), ZoneOffset.UTC) // 10:00:05 KST
@@ -38,6 +40,7 @@ class ActiveStrategyCandleFeedPollerTest {
                 activeStrategyCodeProvider = activeStrategyCodeProvider,
                 kisMultiPricePort = kisMultiPricePort,
                 liveCandleUpdater = liveCandleUpdater,
+                positionStopLossTickWatcher = stopLossWatcher,
                 kisWebSocketBridge = kisWebSocketBridge,
                 redisTemplate = redisTemplate,
                 enabled = true,
@@ -69,6 +72,7 @@ class ActiveStrategyCandleFeedPollerTest {
         assertThat(tickSlot.captured.price).isEqualByComparingTo(BigDecimal("12340"))
         assertThat(tickSlot.captured.source).isEqualTo(ActiveStrategyCandleFeedPoller.SOURCE_KIS_POLLING)
         assertThat(tickSlot.captured.volume).isZero()
+        verify(exactly = 1) { stopLossWatcher.onFallbackPriceTick(tickSlot.captured) }
     }
 
     @Test
@@ -81,6 +85,7 @@ class ActiveStrategyCandleFeedPollerTest {
 
         verify(exactly = 0) { kisMultiPricePort.fetchMultiPrice(any(), any(), any()) }
         verify(exactly = 0) { liveCandleUpdater.update(any()) }
+        verify(exactly = 0) { stopLossWatcher.onFallbackPriceTick(any()) }
     }
 
     @Test
@@ -91,6 +96,7 @@ class ActiveStrategyCandleFeedPollerTest {
 
         verify(exactly = 0) { kisMultiPricePort.fetchMultiPrice(any(), any(), any()) }
         verify(exactly = 0) { liveCandleUpdater.update(any()) }
+        verify(exactly = 0) { stopLossWatcher.onFallbackPriceTick(any()) }
     }
 
     @Test
@@ -100,6 +106,7 @@ class ActiveStrategyCandleFeedPollerTest {
                 activeStrategyCodeProvider = activeStrategyCodeProvider,
                 kisMultiPricePort = kisMultiPricePort,
                 liveCandleUpdater = liveCandleUpdater,
+                positionStopLossTickWatcher = stopLossWatcher,
                 kisWebSocketBridge = kisWebSocketBridge,
                 redisTemplate = redisTemplate,
                 enabled = true,
