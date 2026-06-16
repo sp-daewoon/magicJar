@@ -3,10 +3,10 @@ id: T-20260616-2245-market-index-daily-rollup
 agent: market-data
 model: opus
 branch: agent/market-data/market-index-daily-rollup
-status: RUNNING
+status: DONE
 startedAt: 2026-06-16T22:45:51.003+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-16T22:57:12.271+09:00
+pr: #1024
 parentPhase: ?
 ---
 
