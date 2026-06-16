@@ -2,7 +2,7 @@
 
 아키텍처 결정 기록(Architecture Decision Record) 목차 — **본 README는 인덱스 전용**, 결정 본문·트레이드오프·sub-agent 매트릭스·spec 인용은 각 ADR 파일에서 읽는다. 변경 이력은 §14 참조.
 
-> **파일명 = 본문 헤더 번호 1:1** · 총 **121건**(파일 존재 0001~0125 중 0058·0059·0060·0065 의도적 갭 — §12 예약) · **Accepted ~96 / Proposed ~17 / Superseded·폐기 4**(역사 보존은 §15). README 행 status와 각 파일 헤더 status는 **불일치 0 정합**(2026-06-15 0125 추가 점검).
+> **파일명 = 본문 헤더 번호 1:1** · 총 **122건**(파일 존재 0001~0126 중 0058·0059·0060·0065 의도적 갭 — §12 예약) · **Accepted ~97 / Proposed ~17 / Superseded·폐기 4**(역사 보존은 §15). README 행 status와 각 파일 헤더 status는 **불일치 0 정합**(2026-06-16 0126 추가 점검).
 
 ## §0. 빠른 lookup
 
@@ -10,6 +10,7 @@
 
 | 번호 | 제목 | 상태 |
 |------|------|------|
+| **0126** | 전략별 일자별 성과 누적 원장 + 시장 레짐/α + 일자별 메모 (Flyway V85~V87 · DailyPerformanceJob 확장 접근법 A · 읽기 전용·KIS 0) | **Accepted** |
 | **0125** | 실시간 토픽 명명규칙 채택 + wire clean-cut 마이그레이션 (Kafka/STOMP/KIS alias · DLT auto-suffix 유지 · dual-write 미채택) | **Accepted** |
 | **0124** | KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬 | **Accepted** |
 | 0123 | KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트 (ADR 0048 amend) | Proposed (→0124 R3 채택) |
@@ -19,7 +20,6 @@
 | 0119 | 1분봉 proactive cold-start 백필 폐지 — on-demand 전환 | Accepted |
 | 0118 | 전종목 일봉 universe(MARKET_DAILY) + 야간 멀티시세 snapshot | Accepted |
 | 0117 | 단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수 | Proposed |
-| 0116 | KIS Rate Limit Phase 2 — priority별 별도 버킷 3-tier | Accepted |
 
 ### 주제별 jump
 
@@ -30,7 +30,7 @@
 | 프론트엔드 | §3 | 0009·0055 |
 | 도메인·멀티테넌트·매매 | §4 | 0010·0011·0012 |
 | 시장 데이터·외부 API | §5 | 0013·0017·0057·0063·0091·0104·0105·0118·0120 |
-| 전략·신호·리스크 | §6 | 0023·0024·0066·0067·0106·0110·0111·0114·0115·0117·0122 |
+| 전략·신호·리스크 | §6 | 0023·0024·0066·0067·0106·0110·0111·0114·0115·0117·0122·0126 |
 | KIS WS 구독·슬롯 | §5 | **0048·0123·0124** (수요·슬롯·채널) |
 | 시각화·AI·MCP | §7 | 0025·0026·0027·0100·0112 |
 | Watchlist·차트 데이터 흐름 | §8 | 0028·0029·0093·0113 |
@@ -106,7 +106,7 @@
 | **0104** | **시장 캘린더 이벤트 표면 + KRX 휴장일 배치 게이트 — Accepted (2026-05-25, 2026-05-25 부처님오신날 대체휴무일 실측 정합 + `market_calendar_event` 확장 테이블 + `/market/calendar` 웹 캘린더 + batch KRX 휴장일 skip + 지수 데이터 부족 원인 분리)** |
 | **0105** | **캔들 Reconciliation + 장기 1m 보관/복구 정책 — Accepted (2026-05-31, 2026-06-01 실전 시나리오 amend: A→B→A 재진입 gap fill + boot managed universe reconciliation + data readiness fail-closed)** |
 
-## §6. 전략·신호·리스크 (17건 — 2026-06-08 amend +1)
+## §6. 전략·신호·리스크 (18건 — 2026-06-16 amend +1: 0126)
 
 | 번호 | 제목 |
 |------|------|
@@ -133,6 +133,7 @@
 | **0117** | **단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수 — Proposed (2026-06-09, "돈 버는 전략 먼저" 피벗 후속 · 전략 미작성 시 시스템 빌트인 룰로 단타 후보 TOP N 제시 · ScreenerEngine strategyId-필수 전제와 책임분리(ADR 0071) · KIS H0STCNT0[18]CTTR/[14]ACML_TR_PBMN 흡수→TickEvent 2필드 add-only + DSL `trade_intensity` add-only + POST /api/screener/daytrade-discover(LLM 0·ai-discovery와 분리) + 빌트인 단타 setup 프리셋(BuiltinResearchCandidates add·신규 테이블 0) + STRATEGY owner 재사용·watchlist 비삽입 + 백테스트 IS/OOS·민감도 add-only(ADR 0056 코어 불변)·체결강도 백테스트 재현 불가 LOCK + 자본 결정권 0 · Flyway/Kafka/STOMP 0)** |
 | 0071 | T-SC Screener — Accepted (universe × DSL → 후보 + 랭킹 + Redis cache 30m + 옵션 영속 V28) |
 | 0072 | T-J + T-PERF 묶음 — Accepted (Trading Journal 영속 + Performance 통계 + Flyway V29·V30 + batch DailyPerformanceJob) |
+| **0126** | **전략별 일자별 성과 누적 원장 + 시장 레짐/α + 일자별 메모 — Accepted (2026-06-16 최고 관리자 요청 "전략이 어떤 장에서 효과적이었나 데이터 장기 축적" + 접근법 A 결재) · ADR 0072 amend(`DailyPerformanceJob` 00:30 KST T-1을 strategy_id 그룹핑으로 확장·멱등 UPSERT 패턴 계승) · 기존 자산 reuse(order_execution V21 체결 source·order_request.strategy_id V43 귀속·strategy_position V64/V65 교차검증·market_index_snapshot V47 지수 롤업 source·pnl_daily V30 user합 anchor) · **6건 LOCK**: ①신규 영속 3종(`strategy_daily_performance`·`market_index_daily`·`strategy_daily_note` Flyway V85~V87 — 전략×일자 불변 누적 원장·UQ 멱등 UPSERT) ②거래 단위=왕복(진입→완전청산 0복귀·청산일 귀속·수익률=청산손익/진입금액·승>0/패<0/0은 round_trip_count만) ③집계=`DailyPerformanceJob` 확장(접근법 A — 실시간 증분 B[canary 자본경로 결합·mutable 미귀속 risk ADR 0115 선례]·읽기시계산 C[O(N) replay 부하] 기각) ④α=전략수익률−벤치마크 등락률(0001코스피/1001코스닥·둘 중 null→null)·레짐=룰 기반 4분류(range≥2.5%→HIGH_VOL>change≥+0.6%→UPTREND>≤−0.6%→DOWNTREND>SIDEWAYS·임계 상수/yml·AI 0 ADR 0023 정합) ⑤신뢰도=읽기 시 mean/std/Sharpe식+라벨(<10왕복or<5일=LOW/<30=MEDIUM/else HIGH·저장 X·표본 N 명시·mock 금지) ⑥전 경로 읽기 전용·새 KIS 호출 0(canary 운영 영향 0·백필=1회성 멱등 6/11~어제). 모듈 경계: domain 순수 왕복집계·신뢰도(strategy-engine ScaleInExitCalculator 선례) / 지수 롤업·레짐(market-data 지수 owner) / 배치확장·영속·백필·Flyway V85~V87 단일 owner(backend-core batch 버전충돌 회피) / REST 4 + 메모 CRUD(api Swagger 4단) / UI StrategyCard 액션·StrategyPerformanceModal 탭2·/strategy/:id/performance 라우트(frontend qa Visual). 비목적(미실현손익·다일 레짐·MDD·연속손실일 — 일자행 원천 보존 후속 무손실 추가). 롱 온리 정합(헌법 §13 매도=청산·숏 부재). 자원 audit(ADR 0102): Flyway V85~V87(main V84까지)·REST 4 신규·Kafka/STOMP/ENV/Redis 0·KIS·AI·mock 0. 개발 룰 3 라운드 R1(도메인+마이그레이션)→R2(배치+영속+API)→R3(UI+백필+검증). 운영 ADR 양식 3슬롯(SLO 무영향·rollback Flyway/PR revert·관측 배치로그+교차검증+멱등+Visual). spec `2026-06-16-strategy-daily-performance.md` SoT. 코드 0 touch(md only). 자본 결정권 0** |
 
 ## §7. 시각화·AI·MCP (6건 — 2026-06-06 amend +1)
 
@@ -276,6 +277,7 @@
 
 본 README 자체 + ADR 발행/supersede 시계열. minor cut 단위로 누적.
 
+| 2026-06-16 | **ADR 0126 신설 — 전략별 일자별 성과 누적 원장 + 시장 레짐/α + 일자별 메모 (Accepted, 최고 관리자 요청 + 접근법 A 결재)** | 입력=spec `_workspace/specs/2026-06-16-strategy-daily-performance.md` + 최고 관리자 요청("전략이 어떤 장에서 효과적이었나를 데이터로 장기 축적 — 그날 지수와 함께 기록 + 전략별 일자 메모"). canary 운영 단계 진입 — 전략-시장 적합도 회고 layer 신설. 기존 자산 대부분 갖춰져 **연결·집계 layer만 추가**(order_execution V21·order_request.strategy_id V43·strategy_position V64/V65·market_index_snapshot V47·pnl_daily V30·DailyPerformanceJob ADR 0072 reuse — 신규 KIS·Kafka·AI 0). **6건 LOCK**: ①신규 영속 3종(`strategy_daily_performance`·`market_index_daily`·`strategy_daily_note` Flyway V85~V87 — 전략×일자 불변 누적 원장·UQ 멱등 UPSERT·마이그레이션 1건당 1관심사) ②거래 단위=왕복(진입→완전청산 0복귀·청산일 귀속·수익률=청산손익/진입금액) ③집계=`DailyPerformanceJob`(00:30 KST T-1) strategy_id 그룹핑 확장(접근법 A — 실시간 증분 B[canary 자본경로 결합·mutable 미귀속 영구화 risk ADR 0115 선례]·읽기시계산 C[O(N) replay 부하·일자행 freeze 불가] 기각·B는 보류 미래후보) ④α=전략수익률−벤치마크 등락률(0001/1001)·레짐=룰 기반 4분류(HIGH_VOL/UPTREND/DOWNTREND/SIDEWAYS·AI 0 ADR 0023 정합·임계 상수/yml) ⑤신뢰도=읽기 시 표본+일관성 산출(저장 X·표본 N 명시·mock 금지 feedback_no_mock_data) ⑥전 경로 읽기 전용·새 KIS 호출 0(canary 운영 영향 0·백필 1회성 멱등 6/11~어제). 모듈 경계(헥사고날): domain 순수 왕복집계·신뢰도(strategy-engine) / 지수 롤업·룰 레짐(market-data) / 배치확장·영속·백필·Flyway V85~V87 단일 owner(backend-core batch 버전충돌 회피) / REST 4 + 메모 CRUD(api Swagger 4단) / UI StrategyCard 액션·모달 탭2·라우트(frontend·qa Visual). 비목적(미실현손익·다일 레짐·MDD·연속손실일 — 일자행 원천 보존 후속 무손실 추가). 롱 온리 정합(헌법 §13 매도=청산·숏 부재). README 인덱스 갱신: §0 총건수 121→122·최근10건 표 prepend(0117 밀어냄)·주제별 jump §6 row(+0126)·§6 헤더 17→18건+0126 row·본 §14 row. 자원 audit(ADR 0102): Flyway V85~V87(main V84까지)·REST 4 신규·Kafka/STOMP/ENV/Redis 0·KIS·AI·mock 0. 개발 룰 3 라운드 R1(도메인+마이그레이션)→R2(배치+영속+API)→R3(UI+백필+일괄 검증). 운영 ADR 양식 3슬롯(SLO 무영향 야간 T-1 배치·rollback Flyway/PR revert add-only·관측 배치로그+pnl_daily/strategy_position 교차검증+멱등 UPSERT+Visual). 구현=strategy-engine·market-data·backend-core·api·frontend sub-agent. spec `2026-06-16-strategy-daily-performance.md` SoT. md only(코드 0 touch). 자본 영향 0(읽기 전용 집계·주문 발사 X) + KIS 호출 0 + AI 호출 0 + mock 합성 0. (architect, opus 4.8) |
 | 2026-06-15 | **ADR 0125 신설 — 실시간 토픽 명명규칙 채택 + wire clean-cut 마이그레이션 (Accepted, 최고 관리자 직접 결재 5건 LOCK)** | 입력=orchestrator dispatch "Phase 2 실제 wire 교체 ADR 0125 발행". Phase 1(레지스트리화 PR #966 api·#967 frontend·#968 messaging — wire 불변·`nextName:` 주석)에 이어 Phase 2로 레지스트리 wire 값을 새 명명규칙으로 clean cut 교체 결정. 근거 문서 `realtime-topic-inventory.md` 제안표 DRAFT→Accepted 권위 승격(status 줄 갱신·경로 이동은 후속). **5건 LOCK**: ①명명규칙(Kafka `kafka.{owner}.{kind}.{domain}.{resource}.{event}.v{n}`·STOMP `/topic/stomp.api.{domain}.{stream}[.{key}]`·KIS alias `kisws.consumer.{domain}.{stream}.{variant}.{trId}` — 전체 매핑=근거 문서 SoT) ②clean cut(dual-write 미채택 — 단일 운영자 canary+야간 재배포·옛 토픽 orphan retention 방치·PR revert 원자 롤백·dual-write는 향후 zero-downtime 표준 보존) ③DLT auto-suffix 유지(`KafkaErrorHandlerConfig` `${record.topic()}.DLT` 불변·근거 문서 dlt infix 미채택=error handler 재작성 risk 회피) ④KIS tr_id 절대 불변+alias 표시 전용·`WsSlotBudgetLedger` channelKey 불변 ⑤cut 안전 게이트(`order_event_outbox` PENDING/FAILED=0 검증됨 — DB topic 영속 ADR 0088 + 자본 토픽 lag=0). README 인덱스 갱신: §0 총건수 120→121·최근10건 표 prepend·주제별 jump §9 메시징 row·§9 헤더 14→15건+0125 row·본 §14 row. 구현=backend·frontend 병렬 wire 플립(literal-assert 테스트 정정 포함). 운영 ADR 양식 3 슬롯(SLO 무영향·rollback PR revert·관측 lag/DLT/STOMP). 자원 audit(ADR 0102): Flyway·Kafka(신규)·STOMP(신규)·REST·ENV 신설 0. 코드 0 touch(md only). 자본 영향 0(전송 layer 명명·clean cut in-flight 0 무손실) + KIS 호출 0 + AI 호출 0 + mock 합성 0. (architect, opus 4.8) |
 | 2026-06-13 | **이중 발사 문서 흔적 정리 + ADR 0020 격상 + ADR 0014 현행화 (최고 관리자 결재 "INTEGRATED_TICK flag·이중 발사 흔적은 CHANGELOG 한 줄만 남기고 문서에서 다 지워라")** | 입력=orchestrator dispatch. **작업1 이중 발사·flag 흔적 정리**: ADR 0124 "default true 반전+deprecated·롤백용 보존·제거 예정" → "이중 발사 경로·flag 완전 제거(롤백은 CHANGELOG v3.13.2 코드 참조)" 현행화 · ADR 0123 R3 "→0124 채택" 한 줄 정합 · 권위 문서 H0STCNT0+H0NXCNT0 이중 채널 → H0UNCNT0 단일 채널 정정(master §10 이력·kis-api-reference §F·candle-data-policy-v2 틱 row·tracks-roadmap T-W2·kis-api-mcp-adoption-plan §4-4) · 옛 ADR(0076 등) 본문 역사 보존(NXT 활성 시간 evidence·결정 근거이므로 무수정). **작업2 ADR 0020 격상**: Proposed (v2) → Accepted(구현 ADR 0022·0055·0083·0092·T-IND/PAT/DSL/SB 흡수 완료). **작업3 ADR 0014 현행화 amend**: 3-tier 골격 유지 + mock profile·MockTickGenerator v1/v2 잔재 제거 + source `"live"`\|`"polling"`\|전일종가 정정 + KIS-only 단일 출처 명시. §15 candidates 0020·0014 처치 완료 기록. CHANGELOG 한 줄. 코드 0 touch(md only). 자본 영향 0 + KIS 호출 0 + AI 호출 0 + mock 합성 0. (architect, 사용자 직접 결재) |
 | 2026-06-13 | **ADR 0124 신설 + README 인덱스 대청소 (Accepted, 최고 관리자 직접 결재 3건 LOCK)** | 입력=orchestrator dispatch "KIS WS 구독 수요 재편 + ADR 인덱스 대청소". **ADR 0124**: ADR 0123 amend(R3 H0UNCNT0 채택 확정 + owner priority 재정렬 + watchlist owner 폐지). 결정 A H0UNCNT0 단일 채널 기본(KIS-first raw `ccnl_total/ccnl_total.py`+`NEW_MKOP_CLS_CODE`·라이브 31→16 실측·`INTEGRATED_TICK_ENABLED` default true 반전+deprecated·이중 발사 코드 제거 예고) / B watchlist WS 폐지→5초 polling 강등(WS 40 slot 매매 전용 보존·watchlist owner 폐지) / C owner priority HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20)(STRATEGY>DETAIL 역전=매매 경로>관찰 경로). **README 대청소**: §0 빠른 lookup 신설(최근 10건 표 + 주제별 jump) · status drift 정정 2건(0116 Proposed→Accepted v3.12.1 반영·0118 Proposed→Accepted R1·R2 완료 — 파일 헤더 정합) · §15 역사 보존 § 신설(Superseded 4건 본문 섹션→역사 § 이동: 0035→0080·0049 폐기·0073→0075·0085→0094) · 제거 후보 candidates 목록(0020 v2 Proposed 방치·0014 KIS-only 후 재검토 — 판단 갈려 status 정정 보류). 구현=market-data 병렬(`agent/market-data/...`). 코드 0 touch(md only). 자본 영향 0(시세 인입 layer) + KIS 실주문 0 + AI 호출 0 + mock 합성 0. (architect, 사용자 직접 결재) |
