@@ -412,13 +412,6 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         >
           📊 성과·메모
         </button>
-        <Link
-          to={`/strategy/${strategy.id}/performance`}
-          title="성과·메모 전체화면으로 보기"
-          className="rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
-        >
-          전체화면
-        </Link>
 
         {/* 상태 토글 */}
         {isToggleable && (
