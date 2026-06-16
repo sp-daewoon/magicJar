@@ -53,7 +53,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     // 검증 퍼널 순서 정렬 (2026-06-10 strategy-mock-paper-flow 보고서 발전점 #5):
-    // 발굴 → 리서치 → 빌더 → 백테스트 → 모의 → 스코어카드 → 목록 → 리플레이
+    // 발굴 → 리서치 → 빌더 → 백테스트 → 모의 → 스코어카드 → 리플레이
+    // ('전략 목록'은 2026-06-17 사용자 결재로 메뉴 최상단 top-level 링크로 승격 — 중복 회피 위해 그룹에서 제외)
     label: '전략',
     items: [
       { to: '/strategy/daytrade-discover', label: '단타 발굴' },
@@ -62,7 +63,6 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/strategy/backtest', label: '백테스트' },
       { to: '/strategy/paper', label: '모의 트레이딩' },
       { to: '/strategy/scorecard', label: '발굴 스코어카드' },
-      { to: '/strategy/list', label: '전략 목록' },
       { to: '/strategy/scenario-replay', label: '시나리오 리플레이' },
     ],
   },
@@ -245,6 +245,9 @@ export function AppHeader() {
           className="order-3 flex w-full items-center gap-1 overflow-x-auto pb-1 lg:order-none lg:w-auto lg:overflow-visible lg:pb-0"
           aria-label="메인 메뉴"
         >
+          {/* 전략 목록 — 메뉴 최상단 고정 (사용자 결재 2026-06-17, 자주 진입하는 핵심 화면) */}
+          <TopNavLink to="/strategy/list" label="전략 목록" />
+
           <TopNavLink to="/" label="대시보드" end />
 
           {NAV_GROUPS.map((group) => (
