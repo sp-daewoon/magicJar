@@ -9,9 +9,12 @@
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { RiskConfigForm } from '../../components/risk/RiskConfigForm'
+import { RiskUsageCards } from '../../components/risk/RiskUsageCards'
+import { useInvalidateRiskUsage } from '../../api/hooks/useRiskUsage'
 
 export function RiskConfigPage() {
   const userId = useOnboardingStore((s) => s.registeredUserId)
+  const invalidateUsage = useInvalidateRiskUsage()
 
   if (!userId) {
     return (
@@ -39,8 +42,11 @@ export function RiskConfigPage() {
         </p>
       </div>
 
-      {/* 설정 폼 */}
-      <RiskConfigForm userId={userId} />
+      {/* 설정 폼 (기존 디자인 유지) */}
+      <RiskConfigForm userId={userId} onSaved={() => invalidateUsage(userId)} />
+
+      {/* 한도 사용 현황 게이지 (보강) — 저장 시 onSaved → invalidate → 즉시 재조회 */}
+      <RiskUsageCards userId={userId} />
     </div>
   )
 }
