@@ -3,10 +3,10 @@ id: T-20260617-0011-strategy-list-active-first-sort
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-list-active-first-sort
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T00:11:08.195+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-17T00:16:54.275+09:00
+pr: #1029
 parentPhase: ?
 ---
 
