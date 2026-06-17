@@ -324,11 +324,13 @@ class StrategiesController(
 
         val codes = entities.map { it.code }
         val codeNames = codeNamesFor(codes)
-        // WS 시세 캐시(quote:last) 일괄 read — 새 KIS 호출 0, miss 종목은 map 에 없어 null 처리
-        val livePrices = livePriceCacheReader.latestPrices(codes)
+        // 폴백 체인: LIVE(quote:last WS 캐시) → CLOSE(최신 캔들 종가) → 없으면 map 제외(null).
+        // 새 KIS 호출 0 — 마감·장전 WS 캐시 만료 시에도 종가로 평가손익이 끊기지 않는다.
+        val resolved = livePriceCacheReader.resolvePrices(codes)
 
         return entities.map { entity ->
-            val currentPrice = livePrices[entity.code]
+            val price = resolved[entity.code]
+            val currentPrice = price?.price
             val unrealizedPnl = unrealizedPnlOf(currentPrice, entity.avgPrice, entity.quantity)
             StrategyPositionResponse(
                 strategyId = entity.strategyId,
@@ -341,6 +343,7 @@ class StrategiesController(
                 realizedPnl = entity.realizedPnl,
                 isClosed = entity.quantity == 0,
                 currentPrice = currentPrice,
+                priceSource = price?.source?.name,
                 unrealizedPnl = unrealizedPnl,
                 unrealizedPnlPct = unrealizedPnlPctOf(unrealizedPnl, entity.avgPrice, entity.quantity),
                 updatedAt = entity.updatedAt.toString(),
@@ -774,16 +777,26 @@ data class StrategyPositionResponse(
     val isClosed: Boolean,
     @field:Schema(
         description =
-            "현재가 — WS 시세 캐시(quote:last, KIS WS H0UNCNT0 체결가) read. " +
-                "WS 시세 캐시 miss(TTL 5분 만료·미구독) 시 null (새 KIS 호출 없음).",
+            "현재가 — 폴백 체인 LIVE→CLOSE. ① WS 시세 캐시(quote:last, KIS WS H0UNCNT0 체결가) read, " +
+                "② WS 캐시 miss(TTL 5분 만료·장전·마감) 시 마지막 캔들 종가(1m 우선, 없으면 일봉)로 폴백. " +
+                "둘 다 없으면 null (새 KIS 호출 없음). 출처는 priceSource 참조.",
         example = "71500.0000",
         nullable = true,
     )
     val currentPrice: BigDecimal? = null,
     @field:Schema(
         description =
+            "현재가 출처 — LIVE=실시간 WS 시세 캐시, CLOSE=마지막 캔들 종가(WS 캐시 만료 폴백), " +
+                "null=가격 없음(WS·캔들 모두 부재).",
+        example = "LIVE",
+        nullable = true,
+        allowableValues = ["LIVE", "CLOSE"],
+    )
+    val priceSource: String? = null,
+    @field:Schema(
+        description =
             "미실현 평가손익 = (현재가 − 평단) × 수량. " +
-                "WS 시세 캐시 miss 로 현재가가 null 이면 null.",
+                "현재가가 null(WS 캐시·캔들 종가 모두 부재) 이면 null.",
         example = "15000.0000",
         nullable = true,
     )
