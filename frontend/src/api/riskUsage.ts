@@ -123,6 +123,29 @@ export interface RiskUsageDto {
 }
 
 // ──────────────────────────────────────────────
+// 오늘 활동(시그널/거래) 전략 — 거래 빈도(D) 콤보박스 소스
+// ──────────────────────────────────────────────
+
+/**
+ * 거래 빈도 콤보박스 후보 = 오늘(KST) 시그널/거래가 1건 이상 있은 전략.
+ * ACTIVE(enabled) 여부와 무관 — PAUSE 한 전략도 오늘 거래했으면 포함된다.
+ * (DELETED 전략은 backend 에서 제외, name = nameKo‖name)
+ */
+export interface ActiveStrategy {
+  id: number
+  name: string
+}
+
+interface ActiveStrategyWire {
+  id: number
+  name: string
+}
+
+interface ActiveStrategiesWire {
+  strategies?: ActiveStrategyWire[] | null
+}
+
+// ──────────────────────────────────────────────
 // 파싱 유틸 — string|null → number|null (mock 합성 X)
 // ──────────────────────────────────────────────
 
@@ -208,5 +231,21 @@ export const riskUsageApi = {
     }
     const res = await apiClient.get<RiskUsageWire>(`/risk/usage?${params.toString()}`)
     return normalize(res.data ?? {})
+  },
+
+  /**
+   * GET /api/risk/usage/active-strategies?userId=
+   * 오늘(KST) 시그널/거래가 1건 이상 있은 전략 목록 — 거래 빈도(D) 콤보박스 후보.
+   * ACTIVE(enabled) 여부와 무관 (PAUSE 한 전략도 오늘 거래했으면 포함).
+   * 빈 배열이면 "오늘 활동한 전략 없음" — mock 합성 금지.
+   */
+  getActiveStrategies: async (userId: number): Promise<ActiveStrategy[]> => {
+    const res = await apiClient.get<ActiveStrategiesWire>(
+      `/risk/usage/active-strategies?userId=${encodeURIComponent(String(userId))}`,
+    )
+    const list = res.data?.strategies ?? []
+    return list
+      .map((s) => ({ id: Number(s.id), name: String(s.name ?? '') }))
+      .filter((s) => Number.isFinite(s.id))
   },
 }
