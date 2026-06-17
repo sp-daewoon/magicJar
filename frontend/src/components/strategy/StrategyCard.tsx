@@ -16,6 +16,7 @@ import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { useToast } from '../ui/ToastProvider'
+import { BlockedStatusPopover } from './BlockedStatusPopover'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import { StrategyPositionPanel } from './StrategyPositionPanel'
 import { StrategyPerformanceModal } from './StrategyPerformanceModal'
@@ -275,38 +276,49 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
               : '자동매매 보호 장치가 전략을 멈췄습니다.'}
           </p>
           {isRiskViolationProtected && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-amber-200/80">
-                최근 차단 횟수가 자동정지 기준에 도달했습니다.
-              </span>
-              <Link
-                to="/risk-events?verdict=BLOCKED&range=7d"
-                className="font-semibold text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline"
-              >
-                최근 차단 이력 보기
-              </Link>
+            <div className="mt-2">
+              {/* 차단 누적 사유는 popover로 접어 카드 높이를 줄임 (2026-06-17) */}
+              <BlockedStatusPopover
+                tone="amber"
+                label="리스크 차단 누적"
+                title="리스크 차단 누적으로 자동 정지"
+                summaryLines={[
+                  { text: '최근 차단 횟수가 자동정지 기준에 도달했습니다.' },
+                  ...(disabledAtLabel
+                    ? [{ text: `정지 시각: ${disabledAtLabel}`, muted: true }]
+                    : []),
+                  {
+                    text: '해제: 차단 원인 해소 후 자동매매를 다시 시작하세요.',
+                    muted: true,
+                  },
+                ]}
+                historyTo="/risk-events?verdict=BLOCKED&range=7d"
+              />
             </div>
           )}
         </div>
       )}
 
       {strategy.status === 'BUY_BLOCKED' && (
-        <div className="border-l-2 border-sky-400 bg-sky-950/30 px-3 py-2 text-xs leading-5 text-sky-100">
-          <p className="font-semibold">신규 매수 차단</p>
-          <p className="text-sky-100/80">
-            {disabledAtLabel
-              ? `${disabledAtLabel}에 리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.`
-              : '리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.'}
-          </p>
-          <p className="text-sky-100/80">
-            기존 포지션의 매도·익절·손절 평가는 계속 유지됩니다.
-          </p>
-          <Link
-            to="/risk-events?verdict=BLOCKED&range=7d"
-            className="mt-1 inline-flex font-semibold text-blue-200 underline-offset-2 hover:text-blue-100 hover:underline"
-          >
-            최근 차단 이력 보기
-          </Link>
+        // "신규 매수 차단" 사유는 라벨 클릭 popover로 접어 카드 높이를 줄임 (2026-06-17)
+        <div>
+          <BlockedStatusPopover
+            tone="sky"
+            label={isPaper ? '모의 신규 매수 차단' : '신규 매수 차단'}
+            title="신규 매수 차단"
+            summaryLines={[
+              {
+                text: disabledAtLabel
+                  ? `${disabledAtLabel}에 리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.`
+                  : '리스크 차단 누적이 기준에 도달해 신규 BUY만 막았습니다.',
+              },
+              {
+                text: '기존 포지션의 매도·익절·손절 평가는 계속 유지됩니다.',
+                muted: true,
+              },
+            ]}
+            historyTo="/risk-events?verdict=BLOCKED&range=7d"
+          />
         </div>
       )}
 
