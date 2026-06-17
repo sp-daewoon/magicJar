@@ -7,8 +7,10 @@
  *   A. 포지션 한도 (계좌 전체 공유) — "계좌 전체 공유 단일 풀" 배지로 종목별 오해 방지
  *   B. 일일 손실 한도 (DLL)
  *   C. 동시 보유 종목 — 점(●●●○○) + 게이지
- *   D. 거래 빈도 (전략당) — 콤보박스로 ACTIVE 전략 1개를 선택해 표시
- *     (선택된 전략 행만 useRiskUsage(userId, strategyId) 독립 호출 · 키 분리 캐싱.
+ *   D. 거래 빈도 (전략당) — 콤보박스로 "오늘 활동(시그널/거래) 전략" 1개를 선택해 표시
+ *     (후보 = GET /api/risk/usage/active-strategies — 오늘 KST 시그널/거래 ≥1건 전략.
+ *      ACTIVE(enabled) 여부 무관 — PAUSE 한 전략도 오늘 거래했으면 포함.
+ *      선택된 전략 행만 useRiskUsage(userId, strategyId) 독립 호출 · 키 분리 캐싱.
  *      선택 state 는 카드 로컬 useState — 상위 호출 인자에 넣지 않아 스크롤 점프 회귀 방지)
  *
  * 데이터: GET /api/risk/usage (useRiskUsage, 10초 polling + 저장 시 강제 갱신)
@@ -21,8 +23,8 @@
  * 룰 5: LLM provider import 0건
  */
 import { useMemo, useState } from 'react'
+import { useRiskActiveStrategies } from '../../api/hooks/useRiskActiveStrategies'
 import { useRiskUsage } from '../../api/hooks/useRiskUsage'
-import { useStrategies } from '../../api/hooks/useStrategy'
 import type {
   RiskUsageConcurrent,
   RiskUsageDailyLoss,
@@ -328,7 +330,9 @@ function ConcurrentCard({ d }: { d: RiskUsageConcurrent | null }) {
 }
 
 // ──────────────────────────────────────────────
-// D. 거래 빈도 (전략당) — 콤보박스로 활성 전략 1개 선택해 표시
+// D. 거래 빈도 (전략당) — 콤보박스로 "오늘 활동(시그널/거래) 전략" 1개 선택해 표시
+//    후보 = GET /api/risk/usage/active-strategies (오늘 KST 시그널/거래 ≥1건 전략).
+//    ACTIVE(enabled) 여부 무관 — 오늘 거래 후 PAUSE 해도 콤보에 남는다.
 //    (전략 세로 전체 전개가 너무 길다는 피드백으로 콤보박스 환원)
 // ──────────────────────────────────────────────
 
@@ -378,51 +382,48 @@ function StrategyFrequencyRow({
 }
 
 function TradeFrequencyCard({ userId }: { userId: number }) {
-  const { data: strategies, isLoading } = useStrategies(userId)
-
-  // ACTIVE(enabled) 전략만 후보 — id 는 string 이므로 number 로 환산
-  const activeStrategies = useMemo(
-    () =>
-      (strategies ?? [])
-        .filter((s) => s.enabled)
-        .map((s) => ({ id: Number(s.id), name: s.nameKo || s.name }))
-        .filter((s) => Number.isFinite(s.id)),
-    [strategies],
-  )
+  // 후보 = 오늘(KST) 시그널/거래가 있은 전략 (ACTIVE/PAUSE 무관).
+  // 응답이 빈 배열이면 "오늘 활동한 전략 없음" — mock 합성 금지.
+  const { data: activeStrategies, isLoading, isError } = useRiskActiveStrategies(userId)
+  const candidates = activeStrategies ?? []
 
   // ⚠️ 선택 state 는 이 카드 내부 로컬에만 둔다. 상위 RiskUsageCards 의
   //    useRiskUsage(userId) 인자에 strategyId 를 넣지 않으므로 선택 변경이
   //    전체 섹션 refetch/리렌더로 번지지 않는다 → 스크롤 점프 회귀 방지 (피드백 #4).
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null)
 
-  // 활성 목록이 바뀌면 선택 보정: 미선택이거나 선택이 더 이상 활성이 아니면 첫 번째로.
+  // 후보 목록이 바뀌면 선택 보정: 미선택이거나 선택이 더 이상 후보가 아니면 첫 번째로.
   const selected = useMemo(() => {
-    if (activeStrategies.length === 0) return null
-    const found = activeStrategies.find((s) => s.id === selectedStrategyId)
-    return found ?? activeStrategies[0]
-  }, [activeStrategies, selectedStrategyId])
+    if (candidates.length === 0) return null
+    const found = candidates.find((s) => s.id === selectedStrategyId)
+    return found ?? candidates[0]
+  }, [candidates, selectedStrategyId])
 
   return (
-    <CardShell label="D. 거래 빈도 (전략당)" desc="활성 전략별 분당·일별 주문 사용량">
+    <CardShell label="D. 거래 빈도 (전략당)" desc="오늘 활동한 전략별 분당·일별 주문 사용량">
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="h-28 animate-pulse rounded-lg bg-gray-800" />
           ))}
         </div>
-      ) : activeStrategies.length === 0 || !selected ? (
+      ) : isError ? (
+        <div className="rounded-lg border border-dashed border-red-800 bg-red-900/20 px-3 py-6 text-center text-xs text-red-400">
+          오늘 활동한 전략을 불러오지 못했습니다. 잠시 후 다시 시도됩니다.
+        </div>
+      ) : candidates.length === 0 || !selected ? (
         <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-3 py-6 text-center text-xs text-gray-500">
-          활성 전략 없음 — 전략을 활성화하면 거래 빈도가 표시됩니다.
+          오늘 거래/시그널이 있은 전략이 없습니다.
         </div>
       ) : (
         <div className="space-y-3">
           <select
-            aria-label="거래 빈도를 볼 활성 전략 선택"
+            aria-label="거래 빈도를 볼 전략 선택 (오늘 활동한 전략)"
             value={selected.id}
             onChange={(e) => setSelectedStrategyId(Number(e.target.value))}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            {activeStrategies.map((s) => (
+            {candidates.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
