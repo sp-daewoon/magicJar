@@ -3,10 +3,10 @@ id: T-20260617-1313-trade-freq-roundtrip-count
 agent: backend-core
 model: opus
 branch: agent/backend-core/trade-freq-roundtrip-count
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T13:13:19.712+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-17T13:28:02.794+09:00
+pr: #1034
 parentPhase: ?
 ---
 
