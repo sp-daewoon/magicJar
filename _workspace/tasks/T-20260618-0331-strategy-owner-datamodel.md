@@ -14,11 +14,11 @@ parentPhase: ?
 전략 owner 데이터화 + 시작화면 조회 API + 즐겨찾기 R1+R2
 
 ## 결과물 체크리스트
-- [ ] owner컬럼
-- [ ] strategy_favorite
-- [ ] 시작화면API
-- [ ] 즐겨찾기API
-- [ ] 프리셋시드
+- [x] owner컬럼
+- [x] strategy_favorite
+- [x] 시작화면API
+- [x] 즐겨찾기API
+- [x] 프리셋시드
 
 ## 의존성
 - (필요 시 기록)
