@@ -10,7 +10,11 @@ import java.math.BigDecimal
  * - **A-1**: `maxPositionAmount`(절대) + `maxPositionPercent`(자본 비율) 둘 다 + min() 적용
  * - **B-1**: `dailyLossLimitAmount` OR `dailyLossLimitPercent` xor 택1 (또는 둘 다 NULL=비활성) + KST 자정 reset
  * - **C-1**: `maxConcurrentPositions` default 5 (1~50)
- * - **D-1**: `maxTradesPerMinute`(default 3) + `maxTradesPerDay`(default 50) strategy당
+ * - **D-1**: `maxTradesPerMinute`(default 3) + `maxTradesPerDay`(default 50) strategy당.
+ *   **카운트 단위 = 신규 포지션 오픈(왕복 개시)** — 1일/1분 **신규 진입(flat→보유 전환 BUY) 최대 횟수**다
+ *   (사용자 결재 2026-06-16). 청산(모든 SELL)·스케일인 추가매수(이미 보유 중 BUY)는 빈도 카운트·차단 대상이
+ *   아니다(특히 청산은 자본 보호상 throttle 금지). record(누적)와 check(게이트)가 같은 정의를 공유한다
+ *   (consumer `RiskGatewayEvaluator.isNewPositionOpen`). 필드명은 하위호환상 유지.
  * - **F-1**: `autoPauseThreshold` default 10 (연속 BLOCKED N회 시 strategy 신규 BUY 차단)
  * - **H-1**: 사용자별 (`userId` PK) + 부재 시 `defaultFor` seed
  *

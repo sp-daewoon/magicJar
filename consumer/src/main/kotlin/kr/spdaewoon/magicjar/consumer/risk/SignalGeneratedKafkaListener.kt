@@ -318,14 +318,19 @@ class SignalGeneratedKafkaListener(
                 publishSell(signal, quantity)
             }
 
-        // 3. TradeFrequencyGuard 누적 — **주문 intent 발행 성공 직후에만** (canary D2 hotfix #2).
-        //    과거엔 ALLOWED 시점(여기 위)에서 무조건 record → BUY Skip·SELL 정합 skip·발행 보류 시에도 한도를 헛소모했다
-        //    (canary D2 — 발행 0건인데 일일 5건 한도 도달 → 차단 폭주). 실제 발행된 경우에만 카운트한다.
-        if (intentPublished) {
+        // 3. TradeFrequencyGuard 누적 — **신규 포지션 오픈(왕복 개시) BUY + 주문 intent 발행 성공** 둘 다일 때만.
+        //    ▸ 왕복 단위 재정의(사용자 결재 2026-06-16): 거래빈도는 "포지션 신규 오픈당 1". 진입(BUY-from-flat)만 카운트하고
+        //      스케일인 추가매수(이미 보유 중 BUY)·모든 SELL(청산)은 미카운트한다. record(누적)와 check(게이트, isNewPositionOpen)가
+        //      같은 정의를 공유 — 후성 오늘 9(BUY 8 + SELL 1) → 왕복 8 불일치 해소.
+        //    ▸ 발행 성공 게이트(canary D2 hotfix #2)는 유지 — BUY Skip·정합 skip·보류 시 헛소모 방지.
+        val isNewOpen = riskGatewayEvaluator.isNewPositionOpen(signal, context)
+        if (intentPublished && isNewOpen) {
             tradeFrequencyGuard.record(signal.strategyId, signal.userId, allowed.signalId, context.nowKst)
         } else {
             log.debug(
-                "trade-frequency record skip — 주문 intent 미발행(Skip·정합 skip·보류): signalId={} side={} code={}",
+                "trade-frequency record skip — newOpen={} published={} (스케일인·청산·미발행 제외): signalId={} side={} code={}",
+                isNewOpen,
+                intentPublished,
                 allowed.signalId,
                 signal.side,
                 signal.code,
@@ -854,7 +859,46 @@ class SignalGeneratedKafkaListener(
             currentCodes = positions.map { it.code },
             recentTradesMinute = recentMinute,
             recentTradesDay = recentDay,
+            // 거래빈도 선차단도 신규 포지션 오픈 BUY 에만(evaluate isNewPositionOpen 과 동일 정의 — record/check/preCheck 정합).
+            isNewOpenBuy = preCheckIsNewOpenBuy(signal, positions),
         )
+    }
+
+    /**
+     * preCheck(KIS 호출 전) 단계의 신규 포지션 오픈 BUY 판정 — [RiskGatewayEvaluator.isNewPositionOpen]과 동일 의미.
+     *
+     * 진입 직전 그 전략의 그 종목 보유 수량 = strategyPosition lot(있고 quantity>0) → 그 lot, 없으면 user+code 합산
+     * (evaluate 의 holdingQuantity 와 동일 우선순위). 둘 다 0(flat)이면 신규 오픈. DB port·이미 로드한 positions 만
+     * 사용 — 새 KIS 호출 0. 조회 실패는 user+code fallback(보수적 — preCheck 는 통과시켜도 evaluate 가 최종 게이트).
+     */
+    private fun preCheckIsNewOpenBuy(
+        signal: Signal,
+        positions: List<kr.spdaewoon.magicjar.domain.position.Position>,
+    ): Boolean {
+        if (signal.side != SignalSide.BUY) return false
+        val strategyLotQty =
+            if (signal.strategyId != 0L) {
+                strategyPositionPortProvider.ifAvailable
+                    ?.runCatching { findByUserStrategyCode(signal.userId, signal.strategyId, signal.code) }
+                    ?.onFailure { e ->
+                        log.warn(
+                            "preCheck strategyPosition 조회 실패 — user+code fallback: userId={} strategyId={} code={} err={}",
+                            signal.userId,
+                            signal.strategyId,
+                            signal.code,
+                            e.message,
+                        )
+                    }?.getOrNull()
+                    ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId && it.quantity > 0 }
+                    ?.quantity
+            } else {
+                null
+            }
+        val holdingBefore =
+            strategyLotQty
+                ?: positions.firstOrNull { it.code == signal.code && it.quantity > 0 }?.quantity
+                ?: 0
+        return holdingBefore <= 0
     }
 
     private fun ensureRiskPlanIfBuy(signal: Signal): RiskGatewayResult.Blocked? {
@@ -1225,10 +1269,12 @@ class SignalGeneratedKafkaListener(
                 true
             }
 
-        // 전략별 포지션 귀속 (ADR 0110 §2-4) — SELL 시그널에 한해 전략 lot snapshot 조회.
+        // 전략별 포지션 귀속 (ADR 0110 §2-4) — SELL 시그널의 전략 lot snapshot 조회.
+        // 2026-06-16 거래빈도 왕복 재정의 — BUY 도 "진입 직전 그 전략의 그 종목 보유"(flat 판정)를 위해 동일 lot 을 조회한다
+        //   ([RiskGatewayEvaluator.isNewPositionOpen] 가 holdingQuantity → strategyPosition lot 을 본다). DB port — 새 KIS 호출 0.
         // 행 부재(분할매수 미사용·과거 보유) 또는 port/조회 실패 → null 유지 → user+code 합산 fallback(하위호환).
         val strategyPosition =
-            if (signal.side == SignalSide.SELL && signal.strategyId != 0L) {
+            if (signal.side != SignalSide.HOLD && signal.strategyId != 0L) {
                 strategyPositionPortProvider.ifAvailable
                     ?.runCatching { findByUserStrategyCode(signal.userId, signal.strategyId, signal.code) }
                     ?.onFailure { e ->

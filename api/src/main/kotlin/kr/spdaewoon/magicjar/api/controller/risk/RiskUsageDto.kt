@@ -145,3 +145,23 @@ data class TradeFrequencyUsage(
     @Schema(description = "당일 남은 거래 수 = (perDayLimit − perDayUsed).coerceAtLeast(0)", example = "12")
     val perDayRemaining: Int,
 )
+
+/**
+ * 오늘(KST) 활동 전략 목록 응답 — GET /api/risk/usage/active-strategies (콤보박스용).
+ *
+ * "오늘 시그널이 1건이라도 발생한 전략" = 거래 빈도 사용량(tradeFrequency)을 조회할 가치가 있는 전략.
+ * 프런트는 이 목록으로 전략 선택 콤보박스를 채운 뒤 GET /api/risk/usage?strategyId=... 로 사용량을 본다.
+ */
+@Schema(description = "오늘(KST) 시그널이 1건 이상 발생한 전략 목록 (거래 빈도 콤보박스용)")
+data class ActiveStrategiesResponse(
+    @Schema(description = "오늘 활동 전략 목록 (id 오름차순, DELETED 제외, 활동 0건이면 빈 배열)")
+    val strategies: List<ActiveStrategyItem>,
+)
+
+@Schema(description = "오늘 활동 전략 1건")
+data class ActiveStrategyItem(
+    @Schema(description = "전략 ID", example = "86")
+    val id: Long,
+    @Schema(description = "전략 이름 (name_ko 우선, 없으면 name)", example = "단타 돌파 V2")
+    val name: String,
+)
