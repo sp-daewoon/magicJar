@@ -3,10 +3,10 @@ id: T-20260617-1107-fix-stomp-signal-ts-iso
 agent: backend-core
 model: opus
 branch: agent/backend-core/fix-stomp-signal-ts-iso
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T11:07:57.539+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-17T11:12:56.916+09:00
+pr: #1032
 parentPhase: ?
 ---
 
