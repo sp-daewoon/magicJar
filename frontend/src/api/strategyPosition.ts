@@ -33,6 +33,13 @@ export interface StrategyPositionDto {
   unrealizedPnl: number | null
   /** 미실현 평가손익률 (%). 현재가 miss → null */
   unrealizedPnlPct: number | null
+  /**
+   * currentPrice 출처 (backend 별도 PR).
+   *   - 'LIVE'  : KIS WS 실시간 시세
+   *   - 'CLOSE' : 마감/장전 → 캔들 종가로 채움 (평가손익 종가기준)
+   *   - null    : 시세 미확보 (currentPrice/unrealizedPnl도 null)
+   */
+  priceSource: 'LIVE' | 'CLOSE' | null
 }
 
 type StrategyPositionBackendDto = Omit<Partial<StrategyPositionDto>, 'strategyId'> & {
@@ -42,6 +49,7 @@ type StrategyPositionBackendDto = Omit<Partial<StrategyPositionDto>, 'strategyId
   currentPrice?: number | string | null
   unrealizedPnl?: number | string | null
   unrealizedPnlPct?: number | string | null
+  priceSource?: string | null
 }
 
 function toNumber(value: number | string | null | undefined): number {
@@ -72,6 +80,7 @@ function normalize(raw: StrategyPositionBackendDto): StrategyPositionDto {
     currentPrice: toNullableNumber(raw.currentPrice),
     unrealizedPnl: toNullableNumber(raw.unrealizedPnl),
     unrealizedPnlPct: toNullableNumber(raw.unrealizedPnlPct),
+    priceSource: raw.priceSource === 'LIVE' || raw.priceSource === 'CLOSE' ? raw.priceSource : null,
   }
 }
 

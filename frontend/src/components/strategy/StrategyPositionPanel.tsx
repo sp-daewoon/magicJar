@@ -1,13 +1,15 @@
 /**
  * StrategyPositionPanel — 전략별 보유 현황 표시 (ADR 0110 · 분할매수 R3-a)
  *
- * 그 전략이 산 물량(수량·평단·진행 회차 N/M)과 손익 두 종류를 표시한다.
+ * 그 전략이 산 물량(수량·평단·분할매수 단계 N/M)과 손익 두 종류를 표시한다.
  *   - 평가손익(미실현, 폴링): currentPrice·unrealizedPnl·unrealizedPnlPct (PR #1035, Redis WS 시세캐시).
  *     useStrategyPosition 8초 폴링으로 주기 갱신된다. 시세 캐시 miss(null)면 "시세 대기"/"—" 표기(mock 금지).
+ *     priceSource로 출처 부기: 'LIVE'→"(실시간)", 'CLOSE'→"(종가기준)"(마감/장전 캔들 종가).
  *   - 실현손익: realizedPnl (확정 손익, 불변).
  * 데이터는 strategy_position (GET /api/strategies/{id}/position). 보유 0건이면 "보유 없음"(mock 합성 0건).
  *
- * scaleIn.totalSlices가 있으면 진행 회차를 N/M(filledLots/totalSlices)로 표시한다.
+ * "분할매수"는 filledLots(이 포지션의 분할매수 단계)이며 오늘 거래 횟수가 아니다.
+ * scaleIn.totalSlices가 있으면 N/M(filledLots/totalSlices)차로 표시한다.
  *
  * 룰 5: LLM provider import 0건
  */
@@ -66,6 +68,8 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
           {held.map((p) => {
             const totalSlices = scaleIn?.totalSlices
             const hasLive = p.unrealizedPnl !== null && p.currentPrice !== null
+            const isClose = p.priceSource === 'CLOSE'
+            const priceSourceLabel = isClose ? '(종가기준)' : '(실시간)'
             return (
               <li key={`${p.strategyId}-${p.code}`} className="rounded border border-gray-800/60 bg-gray-900/30 p-2">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
@@ -80,9 +84,12 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-gray-500">진행 회차</div>
+                    <div className="text-[11px] text-gray-500">분할매수</div>
                     <div className="font-medium tabular-nums text-indigo-300">
-                      {totalSlices ? `${p.filledLots} / ${totalSlices}` : `${p.filledLots}회`}
+                      {totalSlices ? `${p.filledLots} / ${totalSlices}차` : `${p.filledLots}차`}
+                    </div>
+                    <div className="text-[10px] leading-tight text-gray-600">
+                      이 포지션의 분할매수 단계 (오늘 거래 횟수 아님)
                     </div>
                   </div>
                   <div>
@@ -94,7 +101,9 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
                 </div>
 
                 <div className="mt-1.5 border-t border-gray-800/60 pt-1.5 text-xs">
-                  <div className="text-[11px] text-gray-500">평가손익 (실시간)</div>
+                  <div className="text-[11px] text-gray-500">
+                    평가손익 {hasLive ? <span className="text-gray-600">{priceSourceLabel}</span> : null}
+                  </div>
                   {hasLive ? (
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
                       <span className={`font-semibold ${pnlToneOf(p.unrealizedPnl as number)}`}>
@@ -105,7 +114,9 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
                           ({formatSignedPct(p.unrealizedPnlPct)})
                         </span>
                       )}
-                      <span className="text-gray-500">· 현재가 {formatKrw(p.currentPrice as number)}</span>
+                      <span className="text-gray-500">
+                        · {isClose ? '종가' : '현재가'} {formatKrw(p.currentPrice as number)}
+                      </span>
                     </div>
                   ) : (
                     <div className="text-gray-500" title="시세 캐시 miss — 다음 폴링에서 갱신">
