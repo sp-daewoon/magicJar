@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>magicJar 일일 운영 보고 · 2026-06-17 (canary 5일차)</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;background:#0b0e14;color:#d7dce5;margin:0;padding:24px;line-height:1.6}
+  .wrap{max-width:980px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid #232838;color:#fff}
+  .sub{color:#8a93a6;font-size:13px}
+  .banner{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+  .kpi{background:#141925;border:1px solid #232838;border-radius:10px;padding:12px 16px;min-width:150px}
+  .kpi .l{font-size:11px;color:#8a93a6}
+  .kpi .v{font-size:18px;font-weight:700;color:#fff;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  th,td{border:1px solid #232838;padding:6px 9px;text-align:left;vertical-align:top}
+  th{background:#161b27;color:#aeb6c6}
+  .g{color:#34d399}.r{color:#f87171}.y{color:#fbbf24}.m{color:#8a93a6}
+  code{background:#161b27;padding:1px 5px;border-radius:4px;font-size:12px}
+  .tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600}
+  .tag.ok{background:#0f2e22;color:#34d399;border:1px solid #1c5540}
+  .tag.warn{background:#332806;color:#fbbf24;border:1px solid #5e4a0f}
+  .tag.crit{background:#3a0f12;color:#f87171;border:1px solid #6e1f24}
+  ul{margin:6px 0;padding-left:20px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>magicJar 일일 운영 보고 — 2026-06-17 (수) · canary 5일차</h1>
+<div class="sub">작성 23:32 KST · 실계좌 소액(REAL) · 종목 후성(093370)·삼성전자(005930) · 롱온리</div>
+
+<div class="banner">
+  <div class="kpi"><div class="l">후성 왕복(체결)</div><div class="v">약 9 완료 +1 보유</div></div>
+  <div class="kpi"><div class="l">삼성 익절</div><div class="v g">+7,250원</div></div>
+  <div class="kpi"><div class="l">손절 자동발동</div><div class="v">2회 (정상)</div></div>
+  <div class="kpi"><div class="l">오버나잇 보유</div><div class="v y">후성 22주</div></div>
+  <div class="kpi"><div class="l">결함 발견/해소</div><div class="v">1 / 6 fix 배포</div></div>
+  <div class="kpi"><div class="l">미지 알람</div><div class="v g">0 (GREEN)</div></div>
+</div>
+
+<h2>① 요약</h2>
+<ul>
+  <li><b>손절 P0 실증 ✅</b> — 어제(06-16) 수정한 손절 미작동 P0가 라이브에서 검증됨. 후성에서 <code>PositionStopLossTickWatcher</code> MARKET 손절이 <b>오전 2회 정상 발동</b>(10:00 -8,800 / 10:33 -7,980). 오늘 최우선 목표 달성.</li>
+  <li><b>오프라인 체결 자동 정합 실증 ✅</b> — 사용자 시스템 종료(13:46 consumer 사망~14:28 재기동) 중 삼성 익절 LIMIT(343,000)이 KIS에서 체결. 재기동 시 <code>KisExecutionBackfillService</code>가 자동 정합(주문 FILLED·포지션0·실현손익 +7,250·Slack) — 사람 개입 0, 중복 0.</li>
+  <li><b>후성 R:R 불리</b> — 익절 폭(+1.2%) &lt; 손절 폭(-2%)로 오전 순손실(≈-7,330). 시스템 결함 아님, 전략 튜닝 신호(사용자 보고).</li>
+  <li>현재 <b>후성 22주 @17,680 오버나잇</b> 보유(평가손익 -2,200, 종가 17,580 기준). 익절 LIMIT 431은 마감 만료 → 익일 전략 재관리.</li>
+</ul>
+
+<h2>② 거래 체인 무결성 (시그널→주문→체결→원장→알림)</h2>
+<table>
+  <tr><th>단계</th><th>실측</th><th>정합</th></tr>
+  <tr><td>시그널(ALLOWED)</td><td>후성 BUY 11·SELL 1 / 삼성(88) BUY 1</td><td class="g">OK</td></tr>
+  <tr><td>주문(order_request)</td><td>당일 28건 (FILLED 다수·ACK 1·CANCELLED 일부)</td><td class="g">OK</td></tr>
+  <tr><td>체결(order_execution)</td><td>후성 BUY 10·SELL 9 체결 + 삼성 익절 1</td><td class="g">OK</td></tr>
+  <tr><td>원장(strategy_position)</td><td>86=+18,270·88=+7,250·85=+34,500 (누적)</td><td class="g">OK</td></tr>
+  <tr><td>알림(ORDER_FILLED)</td><td>25건 SENT</td><td class="g">OK</td></tr>
+</table>
+<div class="sub">삼성 오프라인 체결도 부팅 backfill로 체인 복원(executed_at은 주문시각 폴백 — ④ 개선점).</div>
+
+<h2>③ 알람 전수 분류 <span class="tag ok">GREEN · 미지 0</span></h2>
+<table>
+  <tr><th>이벤트</th><th>세부</th><th>건수</th><th>분류</th></tr>
+  <tr><td>ORDER_FILLED</td><td>—</td><td>25</td><td class="g">정상(체결통지)</td></tr>
+  <tr><td>RISK_VIOLATION</td><td>SELL_QUANTITY_UNAVAILABLE</td><td>13</td><td class="m">롱온리 가드(보유초과 매도 차단) 정상</td></tr>
+  <tr><td>RISK_VIOLATION</td><td>POSITION_LIMIT</td><td>10</td><td class="m">계좌 전체 한도 가드 정상</td></tr>
+  <tr><td>SYSTEM_EVENT</td><td>STRATEGY_POSITION_DRIFT</td><td>2</td><td class="m">position 권위 미보정·자동회복</td></tr>
+  <tr><td>RECONCILE_RUN</td><td>—</td><td>1</td><td class="g">정상</td></tr>
+</table>
+
+<h2>④ ERROR 분류 (신규 의심 0)</h2>
+<table>
+  <tr><th>현상</th><th>정체</th><th>판정</th></tr>
+  <tr><td>consumer exit 137 (13:46)</td><td>Kafka <code>NOT_LEADER_OR_FOLLOWER</code>/coordinator blip 후 사망·자동 재기동 안 됨</td><td class="r">개선 필요</td></tr>
+  <tr><td>KIS <code>inquire-balance</code> 500 버스트 (10:34·45·55)</td><td>KIS 서버측 잔고 endpoint 일시 장애 → stale-cache 폴백, exit 무관</td><td class="y">무해(핸들링)</td></tr>
+  <tr><td>reactor <code>PrematureCloseException</code> (멀티시세 직후)</td><td>KIS idle keep-alive 종료, 시세 호출 성공·다음 새연결</td><td class="m">무해</td></tr>
+  <tr><td>nginx /ws Connection refused (배포 윈도우)</td><td>api 재시작 중 프록시 재시도</td><td class="m">무해</td></tr>
+</table>
+
+<h2>⑤ 발견 결함·조치·PR 매트릭스</h2>
+<table>
+  <tr><th>항목</th><th>조치</th><th>PR</th><th>상태</th></tr>
+  <tr><td>손절 미작동 P0(06-16)</td><td>라이브 자동 손절 2회 실증</td><td>(06-16 #1013)</td><td class="g">검증 완료</td></tr>
+  <tr><td>시그널 ts Invalid Date(실시간)</td><td>STOMP ts ISO-8601 정규화(epoch→ISO)</td><td>#1032</td><td class="g">배포</td></tr>
+  <tr><td>거래빈도 카운트 부정확(9≠왕복)</td><td>신규 포지션 오픈(왕복 개시)당 1로 정정</td><td>#1034</td><td class="g">배포</td></tr>
+  <tr><td>거래빈도 콤보 전략 누락</td><td>오늘 활동 전략 전부 노출(active-strategies API)</td><td>#1033</td><td class="g">배포</td></tr>
+  <tr><td>전략 보유현황 실시간 평가손익</td><td>현재가·미실현 PnL + 종가 폴백 + priceSource</td><td>#1035·1036·1040·1039</td><td class="g">배포</td></tr>
+  <tr><td>진행 회차 라벨 오해</td><td>"분할매수 N차" + 보조설명</td><td>#1039</td><td class="g">배포</td></tr>
+  <tr><td>차단 사유 섹션 과다 길이</td><td>라벨 클릭 popover + 이력보기 링크</td><td>#1038</td><td class="g">배포</td></tr>
+  <tr><td>전략 성과 히스토리(신규 기능)</td><td>왕복 누적·지수레짐·α·메모 (ADR 0126)</td><td>#1020~1027</td><td class="g">배포·라이브 집계 실증</td></tr>
+</table>
+
+<h2>⑥ 인프라 상태</h2>
+<ul>
+  <li><b>consumer 13:46 Kafka 코디네이터 blip 사망 → 14:28 사용자 재기동</b>(스택 down 후 재기동). 부팅 backfill로 오프라인 체결 정합. <span class="r">자동 재기동(restart policy) 부재가 무인운영 risk.</span></li>
+  <li>배포 다회(15:35 5건 + 23:30 3건, SKIP_DRAIN_CHECK 마감 후 안전). 전 모듈 healthy 복귀.</li>
+  <li>KIS 잔고 endpoint 500 버스트(오전 3회) + PrematureClose — KIS측 일시 불안정, 자체 핸들링(stale-cache·재연결).</li>
+  <li>시세 생존: 장중 1m 캔들 73~133초(정상), 마감 후 종가 폴백 적용.</li>
+</ul>
+
+<h2>⑦ 익일 인계</h2>
+<ul>
+  <li><b>후성 22주 @17,680 오버나잇</b> — 평가손익 -2,200(종가 17,580). 익절 LIMIT 만료. 익일 09:00 전략(86) 재평가 + 손절 watcher 재가동. 갭 리스크 인지.</li>
+  <li><b>장중 재검증 대기</b>: ① 거래빈도 왕복 카운트(신규오픈만) — 내일 거래 발생 시 ② 평가손익 LIVE(priceSource=LIVE) 장중 표시 ③ 시그널 ts Invalid Date 해소(실시간 푸시).</li>
+  <li><b>개선 backlog</b>: ① consumer <code>restart: unless-stopped</code> + Kafka 재연결 견고화(무인 자동복구) ② 손절 KIS 역지정가(다운타임 하방 보호) ③ 오프라인 체결 executed_at 정확도(KIS 체결시각 반영).</li>
+  <li>오늘 밤 00:30 배치가 06-17 strategy_daily_performance 집계 → 내일 성과 히스토리에서 후성 당일 왕복·승률·α 확인.</li>
+  <li>main = 17 커밋 머지 전부 배포 완료. 미배포 0.</li>
+</ul>
+
+<div class="sub" style="margin-top:24px">권위 ref: 헌법 §12·§13 · ADR 0115(체결정합)·0124(WS)·0126(성과) · 메모리 project_offline_fill_reconcile</div>
+
+</div></body></html>
