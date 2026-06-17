@@ -9,7 +9,7 @@
  * 데이터는 strategy_position (GET /api/strategies/{id}/position). 보유 0건이면 "보유 없음"(mock 합성 0건).
  *
  * "분할매수"는 filledLots(이 포지션의 분할매수 단계)이며 오늘 거래 횟수가 아니다.
- * scaleIn.totalSlices가 있으면 N/M(filledLots/totalSlices)차로 표시한다.
+ * scaleIn.totalSlices가 있으면 N/설정값(filledLots/totalSlices)으로 표시한다.
  *
  * 룰 5: LLM provider import 0건
  */
@@ -86,10 +86,7 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
                   <div>
                     <div className="text-[11px] text-gray-500">분할매수</div>
                     <div className="font-medium tabular-nums text-indigo-300">
-                      {totalSlices ? `${p.filledLots} / ${totalSlices}차` : `${p.filledLots}차`}
-                    </div>
-                    <div className="text-[10px] leading-tight text-gray-600">
-                      이 포지션의 분할매수 단계 (오늘 거래 횟수 아님)
+                      {totalSlices ? `${p.filledLots}/${totalSlices}` : `${p.filledLots}`}
                     </div>
                   </div>
                   <div>
