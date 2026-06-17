@@ -20,9 +20,15 @@ import java.math.RoundingMode
  *  1. [RiskRule.KILL_SWITCH_ON]
  *  2. [RiskRule.DAILY_LOSS_LIMIT]
  *  3. [RiskRule.MAX_CONCURRENT_POSITIONS]   (BUY만)
- *  4. [RiskRule.TRADE_FREQUENCY_MINUTE]
- *  5. [RiskRule.TRADE_FREQUENCY_DAY]
+ *  4. [RiskRule.TRADE_FREQUENCY_MINUTE]     (신규 포지션 오픈 BUY만 — 아래 "거래빈도 = 왕복 개시" 참조)
+ *  5. [RiskRule.TRADE_FREQUENCY_DAY]        (신규 포지션 오픈 BUY만)
  *  6. [RiskRule.POSITION_LIMIT]            (BUY만)
+ *
+ * ### 거래빈도 = 왕복(신규 포지션 오픈) 개시당 1 (사용자 결재 2026-06-16)
+ * `maxTradesPerMinute`/`maxTradesPerDay` 빈도 룰은 **신규 진입(flat→보유 전환) BUY 시그널에만** 적용한다
+ * ([isNewPositionOpen]). 청산(모든 SELL)·스케일인 추가매수(이미 보유 중 BUY)는 빈도 룰로 차단되지 않는다 —
+ * 특히 청산은 자본 보호상 절대 throttle 금지. [SignalGeneratedKafkaListener]의 record(누적)도 동일 정의를
+ * 써서 check 와 record 가 같은 의미("왕복 개시")로 정합한다(record≠check 갭 차단).
  *
  * ### Pure logic (deterministic)
  * 외부 I/O 0건 — RiskContext에 모든 입력 사전 빌드 후 호출.
@@ -168,34 +174,38 @@ class RiskGatewayEvaluator {
             }
         }
 
-        // 4. TRADE_FREQUENCY_MINUTE — D-1
-        if (context.recentTradesMinute >= context.config.maxTradesPerMinute) {
-            return blocked(
-                signalId,
-                RiskRule.TRADE_FREQUENCY_MINUTE,
-                reason = "Strategy minute trade count ${context.recentTradesMinute} >= limit ${context.config.maxTradesPerMinute}",
-                context =
-                    mapOf(
-                        "strategyId" to signal.strategyId,
-                        "recentTradesMinute" to context.recentTradesMinute,
-                        "limit" to context.config.maxTradesPerMinute,
-                    ),
-            )
-        }
+        // 4·5. TRADE_FREQUENCY — D-1. **신규 포지션 오픈 BUY(왕복 개시)에만** 적용 (사용자 결재 2026-06-16).
+        //   청산(SELL)·스케일인(이미 보유 중 BUY)은 빈도 룰로 차단하지 않는다(record 정의와 정합 — 갭 차단).
+        if (isNewPositionOpen(signal, context)) {
+            // 4. TRADE_FREQUENCY_MINUTE
+            if (context.recentTradesMinute >= context.config.maxTradesPerMinute) {
+                return blocked(
+                    signalId,
+                    RiskRule.TRADE_FREQUENCY_MINUTE,
+                    reason = "Strategy minute trade count ${context.recentTradesMinute} >= limit ${context.config.maxTradesPerMinute}",
+                    context =
+                        mapOf(
+                            "strategyId" to signal.strategyId,
+                            "recentTradesMinute" to context.recentTradesMinute,
+                            "limit" to context.config.maxTradesPerMinute,
+                        ),
+                )
+            }
 
-        // 5. TRADE_FREQUENCY_DAY — D-1
-        if (context.recentTradesDay >= context.config.maxTradesPerDay) {
-            return blocked(
-                signalId,
-                RiskRule.TRADE_FREQUENCY_DAY,
-                reason = "Strategy daily trade count ${context.recentTradesDay} >= limit ${context.config.maxTradesPerDay}",
-                context =
-                    mapOf(
-                        "strategyId" to signal.strategyId,
-                        "recentTradesDay" to context.recentTradesDay,
-                        "limit" to context.config.maxTradesPerDay,
-                    ),
-            )
+            // 5. TRADE_FREQUENCY_DAY
+            if (context.recentTradesDay >= context.config.maxTradesPerDay) {
+                return blocked(
+                    signalId,
+                    RiskRule.TRADE_FREQUENCY_DAY,
+                    reason = "Strategy daily trade count ${context.recentTradesDay} >= limit ${context.config.maxTradesPerDay}",
+                    context =
+                        mapOf(
+                            "strategyId" to signal.strategyId,
+                            "recentTradesDay" to context.recentTradesDay,
+                            "limit" to context.config.maxTradesPerDay,
+                        ),
+                )
+            }
         }
 
         // 6. POSITION_LIMIT — BUY 매수 한도=계좌 전체 공유 풀 기준 (사용자 결재 2026-06-16), BUY만 의미.
@@ -251,8 +261,12 @@ class RiskGatewayEvaluator {
      * 평가 룰(공짜 입력만):
      *  1. [RiskRule.KILL_SWITCH_ON]            — killSwitch 포트(부재 시 fail-closed=ON 은 caller 책임)
      *  2. [RiskRule.MAX_CONCURRENT_POSITIONS]  — BUY 만, positions count
-     *  3. [RiskRule.TRADE_FREQUENCY_MINUTE]
-     *  4. [RiskRule.TRADE_FREQUENCY_DAY]
+     *  3. [RiskRule.TRADE_FREQUENCY_MINUTE]    — **신규 포지션 오픈 BUY([isNewOpenBuy])만** (사용자 결재 2026-06-16)
+     *  4. [RiskRule.TRADE_FREQUENCY_DAY]       — **신규 포지션 오픈 BUY([isNewOpenBuy])만**
+     *
+     * [isNewOpenBuy] 는 caller([SignalGeneratedKafkaListener])가 [evaluate]의 [isNewPositionOpen]과 동일 소스
+     * (strategyPosition lot → user+code 합산 fallback)로 산출해 전달한다. record/check/preCheck 세 경로가 같은
+     * "왕복 개시" 정의를 공유해 의미 갭을 없앤다. 청산(SELL)·스케일인은 빈도 룰 대상이 아니다(자본 보호 — 청산 throttle 금지).
      *
      * 자본·체결 의존 룰(DAILY_LOSS·POSITION_LIMIT·SELL 잔고 가드)은 KIS 입력이 필요하므로 본 선차단 대상이 아니며
      * [evaluate] 전체 평가에서만 판정한다(의미 보존).
@@ -265,6 +279,7 @@ class RiskGatewayEvaluator {
         currentCodes: List<String>,
         recentTradesMinute: Int,
         recentTradesDay: Int,
+        isNewOpenBuy: Boolean,
     ): RiskGatewayResult.Blocked? {
         val signalId = signal.id ?: error("Signal.id must be non-null for risk evaluation")
 
@@ -291,36 +306,55 @@ class RiskGatewayEvaluator {
             )
         }
 
-        if (recentTradesMinute >= config.maxTradesPerMinute) {
-            return blocked(
-                signalId,
-                RiskRule.TRADE_FREQUENCY_MINUTE,
-                reason = "Strategy minute trade count $recentTradesMinute >= limit ${config.maxTradesPerMinute}",
-                context =
-                    mapOf(
-                        "strategyId" to signal.strategyId,
-                        "recentTradesMinute" to recentTradesMinute,
-                        "limit" to config.maxTradesPerMinute,
-                    ),
-            )
-        }
+        // 거래빈도 선차단 — 신규 포지션 오픈 BUY 에만(evaluate 와 동일 정의). 청산·스케일인은 통과시켜 evaluate 로 흘림.
+        if (isNewOpenBuy) {
+            if (recentTradesMinute >= config.maxTradesPerMinute) {
+                return blocked(
+                    signalId,
+                    RiskRule.TRADE_FREQUENCY_MINUTE,
+                    reason = "Strategy minute trade count $recentTradesMinute >= limit ${config.maxTradesPerMinute}",
+                    context =
+                        mapOf(
+                            "strategyId" to signal.strategyId,
+                            "recentTradesMinute" to recentTradesMinute,
+                            "limit" to config.maxTradesPerMinute,
+                        ),
+                )
+            }
 
-        if (recentTradesDay >= config.maxTradesPerDay) {
-            return blocked(
-                signalId,
-                RiskRule.TRADE_FREQUENCY_DAY,
-                reason = "Strategy daily trade count $recentTradesDay >= limit ${config.maxTradesPerDay}",
-                context =
-                    mapOf(
-                        "strategyId" to signal.strategyId,
-                        "recentTradesDay" to recentTradesDay,
-                        "limit" to config.maxTradesPerDay,
-                    ),
-            )
+            if (recentTradesDay >= config.maxTradesPerDay) {
+                return blocked(
+                    signalId,
+                    RiskRule.TRADE_FREQUENCY_DAY,
+                    reason = "Strategy daily trade count $recentTradesDay >= limit ${config.maxTradesPerDay}",
+                    context =
+                        mapOf(
+                            "strategyId" to signal.strategyId,
+                            "recentTradesDay" to recentTradesDay,
+                            "limit" to config.maxTradesPerDay,
+                        ),
+                )
+            }
         }
 
         return null
     }
+
+    /**
+     * 거래빈도 카운트 단위 = **신규 포지션 오픈(왕복 개시)** 인가 (사용자 결재 2026-06-16 · 단일 진실원).
+     *
+     * `true` ⇔ `signal.side == BUY` **AND** 진입 직전 그 전략이 그 종목을 0주 보유(flat→보유 전환)일 때만.
+     * - 스케일인 추가매수(이미 보유 중 BUY) → false(미카운트).
+     * - 모든 SELL(청산) → false(미카운트 — 청산은 빈도 throttle 절대 금지, 자본 보호).
+     *
+     * 진입 직전 보유 판정은 **SELL_WITHOUT_POSITION 가 쓰는 동일 소스**([holdingQuantity] — strategyPosition lot →
+     * user+code 합산 fallback)를 그대로 재사용한다(새 KIS 호출 0). evaluate(check)·preCheck·listener(record)가
+     * 모두 본 함수를 호출해 같은 "왕복 개시" 정의를 공유한다(record≠check 갭 차단).
+     */
+    fun isNewPositionOpen(
+        signal: Signal,
+        context: RiskContext,
+    ): Boolean = signal.side == SignalSide.BUY && holdingQuantity(signal, context) <= 0
 
     fun resolveBuyQuantity(
         signal: Signal,

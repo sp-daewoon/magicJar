@@ -784,13 +784,55 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 0) { tradeFrequencyGuard.record(any(), any(), any(), any()) }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // 거래빈도 = 왕복(신규 포지션 오픈) 단위 record (사용자 결재 2026-06-16)
+    //   신규 오픈 BUY(flat→보유)만 1카운트. 스케일인(이미 보유 중 BUY)·모든 SELL(청산)은 record 0.
+    // ─────────────────────────────────────────────────────────────────────────
+
     @Test
-    fun `hotfix #2 — 정상 발행 시에는 record 1회(발행 직후)`() {
+    fun `record — 신규 오픈 BUY(flat→보유 전환) 발행 시 record 1회`() {
+        // 보유 0(flat)에서 BUY 진입 → 왕복 개시 → record 1.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.record(100L, "user-A", 77L, now) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(entryLimitEnabled = true).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 20, OrderPriceType.LIMIT, BigDecimal("50000")) }
+        verify(exactly = 1) { tradeFrequencyGuard.record(100L, "user-A", 77L, now) }
+    }
+
+    @Test
+    fun `record — 스케일인 BUY(이미 보유 중) 발행돼도 record 0 (왕복 개시 아님)`() {
+        // 이미 005930 5주 보유 중 BUY → 추가매수(스케일인) → 신규 오픈 아님 → record 0.
+        every { riskConfigRepository.getOrDefault("user-A", now) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 5, avgPrice = BigDecimal("49000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl("user-A", now) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(100L, "user-A", now) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(100L, "user-A", now) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(entryLimitEnabled = true).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        // 발행은 정상(스케일인 허용 — 빈도만 미카운트). record 만 0.
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), OrderPriceType.LIMIT, BigDecimal("50000")) }
+        verify(exactly = 0) { tradeFrequencyGuard.record(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `record — SELL(청산) 발행돼도 record 0 (청산은 빈도 미카운트)`() {
         sellContext()
         listener().onSignalGenerated(record(payload(side = "SELL", price = "72000")), ack())
 
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, 7, OrderPriceType.MARKET, null) }
-        verify(exactly = 1) { tradeFrequencyGuard.record(100L, "user-A", 77L, now) }
+        verify(exactly = 0) { tradeFrequencyGuard.record(any(), any(), any(), any()) }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

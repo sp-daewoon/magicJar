@@ -104,6 +104,7 @@ class RiskUsageServiceTest {
         dailyPnl: BigDecimal = BigDecimal.ZERO,
         minuteCount: Long = 0,
         dayCount: Long = 0,
+        activeStrategyRows: List<kr.spdaewoon.magicjar.api.persistence.signal.ActiveStrategyRow> = emptyList(),
     ): RiskUsageService {
         val riskConfigService = mockk<RiskConfigService>()
         every { riskConfigService.getOrDefault(userId) } returns config
@@ -111,6 +112,9 @@ class RiskUsageServiceTest {
         val positionAdapter = mockk<PositionJpaAdapter>()
         every { positionAdapter.findCurrentByUser(userId) } returns positions
         every { positionAdapter.sumDailyRealizedPnl(userId, any()) } returns dailyPnl
+
+        val signalJpaRepository = mockk<kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaRepository>()
+        every { signalJpaRepository.findTodayActiveStrategies(eq(userId), any()) } returns activeStrategyRows
 
         val redis = mockk<StringRedisTemplate>()
         val valueOps = mockk<ValueOperations<String, String>>()
@@ -126,12 +130,22 @@ class RiskUsageServiceTest {
         return RiskUsageService(
             riskConfigService = riskConfigService,
             positionJpaAdapter = positionAdapter,
+            signalJpaRepository = signalJpaRepository,
             redisTemplate = redis,
             objectMapper = objectMapper,
             magicjarMode = "MOCK",
             clock = clock,
         )
     }
+
+    private fun activeRow(
+        id: Long,
+        name: String,
+    ): kr.spdaewoon.magicjar.api.persistence.signal.ActiveStrategyRow =
+        object : kr.spdaewoon.magicjar.api.persistence.signal.ActiveStrategyRow {
+            override val id: Long = id
+            override val name: String = name
+        }
 
     @Test
     fun `position 섹션 — DTO 예시값 그대로 (절대1천만·비율10퍼·순자산1억·노출900만·예수금300만 → buyable 100만)`() {
@@ -273,5 +287,38 @@ class RiskUsageServiceTest {
                 balanceCacheJson = balanceJson(BigDecimal("100000000"), BigDecimal("1000000")),
             )
         service.getUsage(userId, null).tradeFrequency.shouldBeNull()
+    }
+
+    @Test
+    fun `activeStrategies — 오늘 활동 전략을 DTO 로 매핑(name_ko 우선은 repository COALESCE)`() {
+        val service =
+            buildService(
+                config = config(),
+                positions = emptyList(),
+                balanceCacheJson = null,
+                activeStrategyRows =
+                    listOf(
+                        activeRow(86L, "단타 돌파 V2"),
+                        activeRow(91L, "Gap Up Breakout"),
+                    ),
+            )
+        val res = service.getActiveStrategies(userId)
+        res.strategies.size shouldBe 2
+        res.strategies[0].id shouldBe 86L
+        res.strategies[0].name shouldBe "단타 돌파 V2"
+        res.strategies[1].id shouldBe 91L
+        res.strategies[1].name shouldBe "Gap Up Breakout"
+    }
+
+    @Test
+    fun `activeStrategies — 오늘 활동 전략 0건이면 빈 배열`() {
+        val service =
+            buildService(
+                config = config(),
+                positions = emptyList(),
+                balanceCacheJson = null,
+                activeStrategyRows = emptyList(),
+            )
+        service.getActiveStrategies(userId).strategies.size shouldBe 0
     }
 }

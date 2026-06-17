@@ -7,13 +7,17 @@ import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atTime
 import kotlinx.datetime.toInstant
+import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toLocalDateTime
+import kr.spdaewoon.magicjar.api.controller.risk.ActiveStrategiesResponse
+import kr.spdaewoon.magicjar.api.controller.risk.ActiveStrategyItem
 import kr.spdaewoon.magicjar.api.controller.risk.ConcurrentUsage
 import kr.spdaewoon.magicjar.api.controller.risk.DailyLossUsage
 import kr.spdaewoon.magicjar.api.controller.risk.PositionUsage
 import kr.spdaewoon.magicjar.api.controller.risk.RiskUsageResponse
 import kr.spdaewoon.magicjar.api.controller.risk.TradeFrequencyUsage
 import kr.spdaewoon.magicjar.api.persistence.position.PositionJpaAdapter
+import kr.spdaewoon.magicjar.api.persistence.signal.SignalJpaRepository
 import kr.spdaewoon.magicjar.domain.account.AccountBalance
 import kr.spdaewoon.magicjar.domain.account.KisAccountBalance
 import kr.spdaewoon.magicjar.domain.position.Position
@@ -62,6 +66,7 @@ import java.time.ZoneId
 class RiskUsageService(
     private val riskConfigService: RiskConfigService,
     private val positionJpaAdapter: PositionJpaAdapter,
+    private val signalJpaRepository: SignalJpaRepository,
     private val redisTemplate: StringRedisTemplate,
     private val objectMapper: ObjectMapper,
     @Value("\${magicjar.mode:MOCK}")
@@ -98,6 +103,31 @@ class RiskUsageService(
             dailyLoss = buildDailyLossUsage(config, capital?.netAssetValue, userId),
             concurrent = buildConcurrentUsage(config, positions),
             tradeFrequency = strategyId?.let { buildTradeFrequencyUsage(config, userId, it) },
+        )
+    }
+
+    /**
+     * 오늘(KST) 시그널이 ≥1건 발생한 전략 목록 — 거래 빈도 콤보박스용 (읽기 전용 · 새 KIS 호출 0).
+     *
+     * 정의(사용자 결재): side·risk_status 무관(시그널 발생 자체 기준), DELETED 전략 제외, id 오름차순.
+     * name = strategy.name_ko 우선, 없으면 name (repository COALESCE). 오늘 경계는 KST 자정.
+     */
+    @Transactional(readOnly = true)
+    fun getActiveStrategies(userId: String): ActiveStrategiesResponse {
+        val kstMidnight =
+            clock
+                .now()
+                .toLocalDateTime(KST_KT)
+                .date
+                .atTime(LocalTime(0, 0, 0))
+                .toInstant(KST_KT)
+        val rows =
+            signalJpaRepository.findTodayActiveStrategies(
+                userId = userId,
+                fromInstant = kstMidnight.toJavaInstant(),
+            )
+        return ActiveStrategiesResponse(
+            strategies = rows.map { ActiveStrategyItem(id = it.id, name = it.name) },
         )
     }
 

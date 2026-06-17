@@ -66,4 +66,30 @@ class RiskUsageController(
         log.debug("risk usage 조회: userId={} strategyId={}", userId, strategyId)
         return riskUsageService.getUsage(userId, strategyId)
     }
+
+    @Operation(
+        summary = "오늘(KST) 활동 전략 목록 조회 (거래 빈도 콤보박스용)",
+        description =
+            "오늘(KST 자정 이후) 시그널이 1건이라도 발생한 전략 목록을 반환합니다. " +
+                "side·risk 통과 여부와 무관하게 '시그널 발생 자체'를 기준으로 하며, 삭제(DELETED)된 전략은 제외합니다. " +
+                "프런트는 이 목록으로 거래 빈도 전략 선택 콤보박스를 채운 뒤 GET /api/risk/usage?strategyId=... 로 " +
+                "그 전략의 거래 빈도 사용량을 조회합니다. 읽기 전용이며 새 KIS 호출을 하지 않습니다. " +
+                "오늘 활동한 전략이 없으면 strategies 는 빈 배열입니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "오늘 활동 전략 목록 조회 성공"),
+        ApiResponse(
+            responseCode = "500",
+            description = "서버 오류",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/usage/active-strategies")
+    fun getActiveStrategies(
+        @Parameter(description = "사용자 ID", example = "1", required = true)
+        @RequestParam userId: String,
+    ): ActiveStrategiesResponse {
+        log.debug("risk usage 오늘 활동 전략 조회: userId={}", userId)
+        return riskUsageService.getActiveStrategies(userId)
+    }
 }

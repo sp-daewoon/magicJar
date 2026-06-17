@@ -651,6 +651,7 @@ class RiskGatewayEvaluatorTest {
                 currentCodes = emptyList(),
                 recentTradesMinute = 0,
                 recentTradesDay = 0,
+                isNewOpenBuy = true,
             )
         assertThat(result?.rule).isEqualTo(RiskRule.KILL_SWITCH_ON)
     }
@@ -667,6 +668,7 @@ class RiskGatewayEvaluatorTest {
                 currentCodes = emptyList(),
                 recentTradesMinute = 0,
                 recentTradesDay = 5,
+                isNewOpenBuy = true,
             )
         assertThat(result?.rule).isEqualTo(RiskRule.TRADE_FREQUENCY_DAY)
     }
@@ -683,6 +685,7 @@ class RiskGatewayEvaluatorTest {
                 currentCodes = listOf("000660", "035720"),
                 recentTradesMinute = 0,
                 recentTradesDay = 0,
+                isNewOpenBuy = true,
             )
         assertThat(result?.rule).isEqualTo(RiskRule.MAX_CONCURRENT_POSITIONS)
     }
@@ -699,6 +702,7 @@ class RiskGatewayEvaluatorTest {
                 currentCodes = (1..9).map { "00${it}000" },
                 recentTradesMinute = 0,
                 recentTradesDay = 0,
+                isNewOpenBuy = false, // SELL — 신규 오픈 아님.
             )
         // SELL 은 동시보유·거래빈도만 자유 룰 — 동시보유 초과여도 SELL 은 차단 0(BUY 한정 룰).
         assertThat(result).isNull()
@@ -716,6 +720,95 @@ class RiskGatewayEvaluatorTest {
                 currentCodes = emptyList(),
                 recentTradesMinute = 0,
                 recentTradesDay = 0,
+                isNewOpenBuy = true,
+            )
+        assertThat(result).isNull()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 거래빈도 = 왕복(신규 포지션 오픈) 단위 카운트 (사용자 결재 2026-06-16)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `isNewPositionOpen — BUY flat(보유 0)이면 신규 오픈 true`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val context = sampleContext(currentPositions = emptyList())
+        assertThat(evaluator.isNewPositionOpen(signal, context)).isTrue()
+    }
+
+    @Test
+    fun `isNewPositionOpen — BUY 스케일인(이미 보유 중)이면 false`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val context = sampleContext(currentPositions = listOf(samplePosition("005930", quantity = 10)))
+        assertThat(evaluator.isNewPositionOpen(signal, context)).isFalse()
+    }
+
+    @Test
+    fun `isNewPositionOpen — SELL(청산)은 항상 false`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val context = sampleContext(currentPositions = listOf(samplePosition("005930", quantity = 10)))
+        assertThat(evaluator.isNewPositionOpen(signal, context)).isFalse()
+    }
+
+    @Test
+    fun `isNewPositionOpen — strategyPosition lot 존재(보유)면 BUY 도 false (전략 lot 우선)`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val context =
+            sampleContext(
+                currentPositions = emptyList(),
+                strategyPosition = sampleStrategyPosition(quantity = 5),
+            )
+        assertThat(evaluator.isNewPositionOpen(signal, context)).isFalse()
+    }
+
+    @Test
+    fun `거래빈도 룰 — 스케일인 BUY(이미 보유)는 일 한도 초과여도 차단되지 않는다`() {
+        // recentTradesDay=50 (한도 도달)이지만 이미 005930 보유 중 → 스케일인 → 빈도 룰 미적용.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val context =
+            sampleContext(
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("100000000"),
+                currentPositions = listOf(samplePosition("005930", quantity = 1)),
+                recentTradesDay = 50,
+                recentTradesMinute = 3,
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        // 빈도 차단 없이 ALLOWED (POSITION_LIMIT·동시보유 여유 충분).
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `거래빈도 룰 — SELL(청산)은 일 한도 초과여도 절대 차단되지 않는다`() {
+        val signal = sampleSignal(side = SignalSide.SELL)
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 10)),
+                recentTradesDay = 50,
+                recentTradesMinute = 3,
+            )
+
+        val result = evaluator.evaluate(signal, context)
+
+        // 청산은 자본 보호 — 빈도 throttle 절대 금지 → ALLOWED.
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `preCheckFreeRules — 스케일인(신규 오픈 아님)은 거래빈도 일 한도여도 통과`() {
+        val signal = sampleSignal(side = SignalSide.BUY)
+        val result =
+            evaluator.preCheckFreeRules(
+                signal = signal,
+                killSwitchOn = false,
+                config = sampleConfig(maxTradesPerDay = 5),
+                currentPositionCount = 1,
+                currentCodes = listOf("005930"),
+                recentTradesMinute = 0,
+                recentTradesDay = 5,
+                isNewOpenBuy = false, // 이미 보유 중 스케일인 → 빈도 미적용.
             )
         assertThat(result).isNull()
     }
