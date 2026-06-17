@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
+import kr.spdaewoon.magicjar.api.service.market.LivePriceCacheReader
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.ExitLimits
@@ -58,6 +59,7 @@ class StrategiesController(
     private val kisYamlDslParser: KisYamlDslParser,
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val strategyPositionReadJpaRepository: StrategyPositionReadJpaRepository,
+    private val livePriceCacheReader: LivePriceCacheReader,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -317,22 +319,57 @@ class StrategiesController(
     ): List<StrategyPositionResponse> {
         strategyService.findById(id)
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
-        return strategyPositionReadJpaRepository
-            .findByStrategyId(id)
-            .map { entity ->
-                StrategyPositionResponse(
-                    strategyId = entity.strategyId,
-                    userId = entity.userId,
-                    code = entity.code,
-                    codeName = codeNamesFor(listOf(entity.code))[entity.code],
-                    quantity = entity.quantity,
-                    avgPrice = entity.avgPrice,
-                    filledLots = entity.filledLots,
-                    realizedPnl = entity.realizedPnl,
-                    isClosed = entity.quantity == 0,
-                    updatedAt = entity.updatedAt.toString(),
-                )
-            }
+        val entities = strategyPositionReadJpaRepository.findByStrategyId(id)
+        if (entities.isEmpty()) return emptyList()
+
+        val codes = entities.map { it.code }
+        val codeNames = codeNamesFor(codes)
+        // WS 시세 캐시(quote:last) 일괄 read — 새 KIS 호출 0, miss 종목은 map 에 없어 null 처리
+        val livePrices = livePriceCacheReader.latestPrices(codes)
+
+        return entities.map { entity ->
+            val currentPrice = livePrices[entity.code]
+            val unrealizedPnl = unrealizedPnlOf(currentPrice, entity.avgPrice, entity.quantity)
+            StrategyPositionResponse(
+                strategyId = entity.strategyId,
+                userId = entity.userId,
+                code = entity.code,
+                codeName = codeNames[entity.code],
+                quantity = entity.quantity,
+                avgPrice = entity.avgPrice,
+                filledLots = entity.filledLots,
+                realizedPnl = entity.realizedPnl,
+                isClosed = entity.quantity == 0,
+                currentPrice = currentPrice,
+                unrealizedPnl = unrealizedPnl,
+                unrealizedPnlPct = unrealizedPnlPctOf(unrealizedPnl, entity.avgPrice, entity.quantity),
+                updatedAt = entity.updatedAt.toString(),
+            )
+        }
+    }
+
+    /**
+     * 미실현 평가손익 = (현재가 − 평단) × 수량. currentPrice null 이면 null.
+     * 롱 온리(보유분 청산만) 정책상 quantity ≥ 0 — 수량 0 이면 0.
+     */
+    private fun unrealizedPnlOf(
+        currentPrice: BigDecimal?,
+        avgPrice: BigDecimal,
+        quantity: Int,
+    ): BigDecimal? = currentPrice?.let { (it - avgPrice).multiply(BigDecimal(quantity)) }
+
+    /**
+     * 미실현 수익률% = 평가손익 / (평단 × 수량) × 100. 분모(취득원가) 0·null 이면 null.
+     */
+    private fun unrealizedPnlPctOf(
+        unrealizedPnl: BigDecimal?,
+        avgPrice: BigDecimal,
+        quantity: Int,
+    ): BigDecimal? {
+        val pnl = unrealizedPnl ?: return null
+        val cost = avgPrice.multiply(BigDecimal(quantity))
+        if (cost.signum() == 0) return null
+        return pnl.divide(cost, 6, java.math.RoundingMode.HALF_UP).multiply(BigDecimal(100))
     }
 
     // ─── private helper ───────────────────────────────────────────────────────
@@ -735,6 +772,30 @@ data class StrategyPositionResponse(
     val realizedPnl: BigDecimal,
     @field:Schema(description = "전량 청산 여부 (quantity=0)", example = "false")
     val isClosed: Boolean,
+    @field:Schema(
+        description =
+            "현재가 — WS 시세 캐시(quote:last, KIS WS H0UNCNT0 체결가) read. " +
+                "WS 시세 캐시 miss(TTL 5분 만료·미구독) 시 null (새 KIS 호출 없음).",
+        example = "71500.0000",
+        nullable = true,
+    )
+    val currentPrice: BigDecimal? = null,
+    @field:Schema(
+        description =
+            "미실현 평가손익 = (현재가 − 평단) × 수량. " +
+                "WS 시세 캐시 miss 로 현재가가 null 이면 null.",
+        example = "15000.0000",
+        nullable = true,
+    )
+    val unrealizedPnl: BigDecimal? = null,
+    @field:Schema(
+        description =
+            "미실현 수익률% = 평가손익 / (평단 × 수량) × 100. " +
+                "현재가 null 또는 취득원가(평단×수량)=0 이면 null.",
+        example = "2.1428",
+        nullable = true,
+    )
+    val unrealizedPnlPct: BigDecimal? = null,
     @field:Schema(description = "마지막 갱신 시각 (ISO-8601 UTC)", example = "2026-06-05T09:30:00Z")
     val updatedAt: String,
 )
