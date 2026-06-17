@@ -23,8 +23,9 @@ class ConsumerStrategyJpaEntity(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     val id: Long? = null,
-    @Column(name = "user_id", nullable = false)
-    val userId: Long,
+    // V88 — user_id nullable 전환(SYSTEM 시드 프리셋은 null). consumer는 owner='USER' 행만 조회하므로 실 조회 row는 항상 non-null.
+    @Column(name = "user_id")
+    val userId: Long? = null,
     @Column(name = "name", nullable = false, length = 200)
     val name: String,
     @Column(name = "name_ko", length = 200)

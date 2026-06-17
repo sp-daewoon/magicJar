@@ -12,7 +12,8 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
     @Query(
         value =
             "SELECT * FROM strategy " +
-                "WHERE status IN ('ACTIVE', 'BUY_BLOCKED') " +
+                "WHERE owner = 'USER' " +
+                "AND status IN ('ACTIVE', 'BUY_BLOCKED') " +
                 "AND codes @> CAST(:codeJson AS jsonb) " +
                 "AND intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,
@@ -25,7 +26,8 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
     @Query(
         value =
             "SELECT * FROM strategy " +
-                "WHERE status IN ('ACTIVE', 'BUY_BLOCKED') " +
+                "WHERE owner = 'USER' " +
+                "AND status IN ('ACTIVE', 'BUY_BLOCKED') " +
                 "AND codes IS NOT NULL",
         nativeQuery = true,
     )
@@ -44,7 +46,8 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
         value =
             "SELECT DISTINCT s.* FROM strategy s " +
                 "JOIN strategy_position sp ON sp.strategy_id = s.id AND sp.quantity > 0 " +
-                "WHERE s.status = 'DISABLED' " +
+                "WHERE s.owner = 'USER' " +
+                "AND s.status = 'DISABLED' " +
                 "AND s.codes @> CAST(:codeJson AS jsonb) " +
                 "AND s.intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,

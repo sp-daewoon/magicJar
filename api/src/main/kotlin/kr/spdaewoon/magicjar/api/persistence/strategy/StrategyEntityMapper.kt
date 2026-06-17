@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
@@ -100,6 +101,7 @@ object StrategyEntityMapper {
         return Strategy(
             id = entity.id,
             userId = entity.userId,
+            owner = safeOwner(entity.owner),
             definition = definition,
             complexity = complexity,
             disabledReason = disabledReason,
@@ -136,6 +138,19 @@ object StrategyEntityMapper {
         }
 
     fun safeStatus(value: String): StrategyStatus = runCatching { StrategyStatus.valueOf(value) }.getOrDefault(StrategyStatus.ACTIVE)
+
+    /**
+     * `owner` 문자열 → enum (V88 · spec 2026-06-18 §5.1).
+     *
+     * invalid 값(미래 enum 추가 후 rollback 등)은 [StrategyOwner.USER] default — 자동매매 제외 가드는 owner='USER'
+     * 조건이므로, 알 수 없는 값을 SYSTEM으로 흡수하면 평가 누락 risk가 있어 보수적으로 USER로 흡수한다(`safe*` 패턴 정합).
+     */
+    fun safeOwner(value: String?): StrategyOwner =
+        if (value == null) {
+            StrategyOwner.USER
+        } else {
+            runCatching { StrategyOwner.valueOf(value) }.getOrDefault(StrategyOwner.USER)
+        }
 
     fun safeViActionPolicy(value: String?): ViActionPolicy =
         value

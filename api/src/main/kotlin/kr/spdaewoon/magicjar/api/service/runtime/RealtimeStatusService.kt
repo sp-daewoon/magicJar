@@ -156,7 +156,8 @@ class RealtimeStatusService(
         val activeCodes =
             try {
                 strategyJpaRepository
-                    .findAllByStatus("ACTIVE")
+                    // owner='USER' 가드 — SYSTEM 시드 템플릿은 실시간 평가/집계 비대상 (spec 2026-06-18 §5.1).
+                    .findAllByOwnerAndStatus("USER", "ACTIVE")
                     .flatMap { parseCodes(it.codes) }
                     .toSortedSet()
             } catch (e: Exception) {

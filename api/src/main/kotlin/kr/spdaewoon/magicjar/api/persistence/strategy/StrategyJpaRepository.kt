@@ -94,7 +94,8 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     @Query(
         value =
             "SELECT * FROM strategy " +
-                "WHERE status IN ('ACTIVE', 'BUY_BLOCKED') " +
+                "WHERE owner = 'USER' " +
+                "AND status IN ('ACTIVE', 'BUY_BLOCKED') " +
                 "AND codes @> CAST(:codeJson AS jsonb) " +
                 "AND intervals @> CAST(:intervalJson AS jsonb)",
         nativeQuery = true,
@@ -109,6 +110,22 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
      * 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
      */
     fun findAllByStatus(status: String): List<StrategyJpaEntity>
+
+    /**
+     * owner+status 전략 전건 — 자동매매 평가/집계 경로 SYSTEM 제외 가드 (spec 2026-06-18 §5.1).
+     * RealtimeStatusService가 owner='USER' ACTIVE 전략만 집계하도록 [findAllByStatus] 대체.
+     * 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
+     */
+    fun findAllByOwnerAndStatus(
+        owner: String,
+        status: String,
+    ): List<StrategyJpaEntity>
+
+    /**
+     * owner 별 전략 전건 — 시작 화면 SYSTEM 템플릿 조회용 (spec 2026-06-18 §6.1).
+     * 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
+     */
+    fun findAllByOwner(owner: String): List<StrategyJpaEntity>
 
     /**
      * 내 전략 목록 — "자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순" 정렬.

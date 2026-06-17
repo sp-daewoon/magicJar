@@ -88,6 +88,8 @@ class StrategyJpaAdapter(
         return StrategyJpaEntity(
             id = strategy.id,
             userId = strategy.userId,
+            // V88 — 소유 주체 영속. default USER (사용자 전략). SYSTEM 시드는 Flyway INSERT 전용(앱 write 경로 없음).
+            owner = strategy.owner.name,
             name = dsl.name,
             nameKo = dsl.nameKo?.takeIf { it.isNotBlank() },
             dslEntry = dsl.buyConditionText?.takeIf { it.isNotBlank() } ?: extractDslText(dsl.buyCondition),
