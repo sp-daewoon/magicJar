@@ -7,10 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import kr.spdaewoon.magicjar.api.controller.dto.StrategyStartResponse
 import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
 import kr.spdaewoon.magicjar.api.service.market.LivePriceCacheReader
 import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.api.service.strategy.StrategyStartService
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.ExitLimits
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
@@ -23,6 +25,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
+import kr.spdaewoon.magicjar.domain.strategy.port.StrategyFavoritePort
 import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -60,8 +63,63 @@ class StrategiesController(
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val strategyPositionReadJpaRepository: StrategyPositionReadJpaRepository,
     private val livePriceCacheReader: LivePriceCacheReader,
+    private val strategyStartService: StrategyStartService,
+    private val favoritePort: StrategyFavoritePort,
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
+
+    // ─── GET /api/strategies/start ────────────────────────────────────────────
+
+    @Operation(
+        summary = "전략 시작 화면 조회",
+        description =
+            "검증 템플릿(SYSTEM) + 내 전략(USER) + 즐겨찾기를 단일 호출로 반환합니다 (spec 2026-06-18 §6.1). " +
+                "데이터 0건이면 빈 배열 — 프론트는 '아직 없음 + 빈 캔버스로 직접' 안내(mock 합성 0건).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "시작 화면 조회 성공 (재료 0건이면 빈 배열)"),
+    )
+    @GetMapping("/start")
+    fun start(
+        @Parameter(description = "사용자 ID", example = "1", required = true)
+        @RequestParam userId: Long,
+    ): StrategyStartResponse = strategyStartService.load(userId)
+
+    // ─── POST /api/strategies/{id}/favorite ───────────────────────────────────
+
+    @Operation(
+        summary = "전략 즐겨찾기 추가(멱등)",
+        description = "이미 즐겨찾기면 UNIQUE 충돌을 흡수해 멱등 동작합니다 (spec 2026-06-18 §6.2).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "201", description = "즐겨찾기 추가(또는 이미 존재)"),
+    )
+    @PostMapping("/{id}/favorite")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun addFavorite(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+        @Parameter(description = "사용자 ID", example = "1", required = true)
+        @RequestParam userId: Long,
+    ) = favoritePort.add(userId, id)
+
+    // ─── DELETE /api/strategies/{id}/favorite ─────────────────────────────────
+
+    @Operation(
+        summary = "전략 즐겨찾기 해제",
+        description = "즐겨찾기가 아니어도 no-op으로 204를 반환합니다 (spec 2026-06-18 §6.2).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "204", description = "즐겨찾기 해제(또는 없음)"),
+    )
+    @DeleteMapping("/{id}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun removeFavorite(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+        @Parameter(description = "사용자 ID", example = "1", required = true)
+        @RequestParam userId: Long,
+    ) = favoritePort.remove(userId, id)
 
     // ─── POST /api/strategies ─────────────────────────────────────────────────
 
@@ -406,7 +464,8 @@ class StrategiesController(
         val activationBlockedReason = strategyService.activationBlockedReason(strategy)
         return StrategyDetailResponse(
             id = strategy.id ?: 0L,
-            userId = strategy.userId,
+            // SYSTEM 시드는 userId null — 상세 응답은 USER 전략 전용 경로라 0L sentinel(실제 노출 없음).
+            userId = strategy.userId ?: 0L,
             name = strategy.definition.dsl.name,
             nameKo = strategy.definition.dsl.nameKo ?: "",
             origin = strategy.origin.name,

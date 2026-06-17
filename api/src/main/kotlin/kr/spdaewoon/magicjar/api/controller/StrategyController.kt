@@ -282,7 +282,8 @@ class StrategyController(
     private fun toStrategyResponse(strategy: Strategy): StrategyResponse =
         StrategyResponse(
             id = strategy.id ?: 0L,
-            userId = strategy.userId,
+            // SYSTEM 시드는 userId null — 본 응답은 USER 전략 전용 경로라 0L sentinel(실제 노출 없음).
+            userId = strategy.userId ?: 0L,
             name = strategy.definition.dsl.name,
             nameKo = strategy.definition.dsl.nameKo ?: "",
             universe = strategy.definition.universe.market,
