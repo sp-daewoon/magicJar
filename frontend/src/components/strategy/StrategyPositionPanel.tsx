@@ -1,7 +1,10 @@
 /**
  * StrategyPositionPanel — 전략별 보유 현황 표시 (ADR 0110 · 분할매수 R3-a)
  *
- * 그 전략이 산 물량(수량·평단·진행 회차 N/M·실현손익)을 표시한다.
+ * 그 전략이 산 물량(수량·평단·진행 회차 N/M)과 손익 두 종류를 표시한다.
+ *   - 평가손익(미실현, 폴링): currentPrice·unrealizedPnl·unrealizedPnlPct (PR #1035, Redis WS 시세캐시).
+ *     useStrategyPosition 8초 폴링으로 주기 갱신된다. 시세 캐시 miss(null)면 "시세 대기"/"—" 표기(mock 금지).
+ *   - 실현손익: realizedPnl (확정 손익, 불변).
  * 데이터는 strategy_position (GET /api/strategies/{id}/position). 보유 0건이면 "보유 없음"(mock 합성 0건).
  *
  * scaleIn.totalSlices가 있으면 진행 회차를 N/M(filledLots/totalSlices)로 표시한다.
@@ -25,6 +28,16 @@ function formatKrw(value: number): string {
 function formatSignedKrw(value: number): string {
   const sign = value > 0 ? '+' : ''
   return `${sign}${Math.round(value).toLocaleString('ko-KR')}원`
+}
+
+function formatSignedPct(value: number): string {
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(1)}%`
+}
+
+/** 손익 부호별 색조 (양수 초록 / 음수 빨강 / 0 회색) */
+function pnlToneOf(value: number): string {
+  return value > 0 ? 'text-emerald-300' : value < 0 ? 'text-red-300' : 'text-gray-400'
 }
 
 export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: StrategyPositionPanelProps) {
@@ -52,28 +65,53 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
         <ul className="space-y-2">
           {held.map((p) => {
             const totalSlices = scaleIn?.totalSlices
-            const pnlTone = p.realizedPnl > 0 ? 'text-emerald-300' : p.realizedPnl < 0 ? 'text-red-300' : 'text-gray-400'
+            const hasLive = p.unrealizedPnl !== null && p.currentPrice !== null
             return (
-              <li key={`${p.strategyId}-${p.code}`} className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
-                <div>
-                  <div className="text-[11px] text-gray-500">종목</div>
-                  <div className="font-medium text-gray-200">{p.codeName ?? p.code}</div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-gray-500">수량 · 평단</div>
-                  <div className="font-medium tabular-nums text-gray-200">
-                    {p.quantity.toLocaleString('ko-KR')}주 · {formatKrw(p.avgPrice)}
+              <li key={`${p.strategyId}-${p.code}`} className="rounded border border-gray-800/60 bg-gray-900/30 p-2">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
+                  <div>
+                    <div className="text-[11px] text-gray-500">종목</div>
+                    <div className="font-medium text-gray-200">{p.codeName ?? p.code}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-gray-500">수량 · 평단</div>
+                    <div className="font-medium tabular-nums text-gray-200">
+                      {p.quantity.toLocaleString('ko-KR')}주 · {formatKrw(p.avgPrice)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-gray-500">진행 회차</div>
+                    <div className="font-medium tabular-nums text-indigo-300">
+                      {totalSlices ? `${p.filledLots} / ${totalSlices}` : `${p.filledLots}회`}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-gray-500">실현손익</div>
+                    <div className={`font-medium tabular-nums ${pnlToneOf(p.realizedPnl)}`}>
+                      {formatSignedKrw(p.realizedPnl)}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-[11px] text-gray-500">진행 회차</div>
-                  <div className="font-medium tabular-nums text-indigo-300">
-                    {totalSlices ? `${p.filledLots} / ${totalSlices}` : `${p.filledLots}회`}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-gray-500">실현손익</div>
-                  <div className={`font-medium tabular-nums ${pnlTone}`}>{formatSignedKrw(p.realizedPnl)}</div>
+
+                <div className="mt-1.5 border-t border-gray-800/60 pt-1.5 text-xs">
+                  <div className="text-[11px] text-gray-500">평가손익 (실시간)</div>
+                  {hasLive ? (
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+                      <span className={`font-semibold ${pnlToneOf(p.unrealizedPnl as number)}`}>
+                        {formatSignedKrw(p.unrealizedPnl as number)}
+                      </span>
+                      {p.unrealizedPnlPct !== null && (
+                        <span className={`${pnlToneOf(p.unrealizedPnlPct)}`}>
+                          ({formatSignedPct(p.unrealizedPnlPct)})
+                        </span>
+                      )}
+                      <span className="text-gray-500">· 현재가 {formatKrw(p.currentPrice as number)}</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500" title="시세 캐시 miss — 다음 폴링에서 갱신">
+                      시세 대기 · —
+                    </div>
+                  )}
                 </div>
               </li>
             )

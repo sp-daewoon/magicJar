@@ -3,6 +3,8 @@
  *
  * GET /api/strategies/{id}/position → StrategyPositionDto[]
  *   - 이 전략이 산 물량(수량·평단·진행 회차·실현손익)
+ *   - currentPrice·unrealizedPnl·unrealizedPnlPct: 실시간 평가손익 add-only nullable (PR #1035)
+ *     · Redis WS 시세캐시 출처, miss → null (mock 합성 금지 — feedback_no_mock_data 정합)
  *   - 보유 없으면 빈 배열 (mock 합성 0건 — feedback_no_mock_data 정합)
  *
  * 룰 5: LLM provider import 0건
@@ -25,18 +27,34 @@ export interface StrategyPositionDto {
   /** 전량 청산 여부 (quantity=0) */
   isClosed: boolean
   updatedAt: string
+  /** 실시간 현재가 (Redis WS 시세캐시). 캐시 miss → null (mock 합성 금지) */
+  currentPrice: number | null
+  /** 미실현 평가손익 = (현재가 − 평단) × 수량. 현재가 miss → null */
+  unrealizedPnl: number | null
+  /** 미실현 평가손익률 (%). 현재가 miss → null */
+  unrealizedPnlPct: number | null
 }
 
 type StrategyPositionBackendDto = Omit<Partial<StrategyPositionDto>, 'strategyId'> & {
   strategyId?: number | string
   avgPrice?: number | string
   realizedPnl?: number | string
+  currentPrice?: number | string | null
+  unrealizedPnl?: number | string | null
+  unrealizedPnlPct?: number | string | null
 }
 
 function toNumber(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0
   const n = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(n) ? n : 0
+}
+
+/** null 허용 number 파싱 — null/undefined/비유한 → null (mock 합성 0 금지) */
+function toNullableNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 function normalize(raw: StrategyPositionBackendDto): StrategyPositionDto {
@@ -51,6 +69,9 @@ function normalize(raw: StrategyPositionBackendDto): StrategyPositionDto {
     realizedPnl: toNumber(raw.realizedPnl),
     isClosed: raw.isClosed ?? raw.quantity === 0,
     updatedAt: String(raw.updatedAt ?? ''),
+    currentPrice: toNullableNumber(raw.currentPrice),
+    unrealizedPnl: toNullableNumber(raw.unrealizedPnl),
+    unrealizedPnlPct: toNullableNumber(raw.unrealizedPnlPct),
   }
 }
 
