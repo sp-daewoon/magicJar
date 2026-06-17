@@ -8,7 +8,8 @@ import java.time.Instant
  * ADR 0022 §2-4 정합. JPA 엔티티는 api 모듈 [StrategyJpaEntity].
  *
  * @param id 전략 ID (DB auto-generated)
- * @param userId 소유자 사용자 ID
+ * @param userId 소유자 사용자 ID — SYSTEM 소유 시드 프리셋은 소유 사용자가 없어 null (spec 2026-06-18 §5.1)
+ * @param owner 소유 주체 (SYSTEM=시드 프리셋·자동매매 비대상, USER=사용자 전략). default USER = 기존 26행 무손실
  * @param definition magicJar 확장 전략 정의 (DSL inner 포함)
  * @param complexity 복잡도 메타 (등록 시 static 검증 결과)
  * @param disabledReason auto-disable 사유 (NULL = 정상)
@@ -20,7 +21,8 @@ import java.time.Instant
  */
 data class Strategy(
     val id: Long? = null,
-    val userId: Long,
+    val userId: Long? = null,
+    val owner: StrategyOwner = StrategyOwner.USER,
     val definition: StrategyDefinition,
     val complexity: StrategyComplexity,
     val disabledReason: StrategyDisabledReason = StrategyDisabledReason.NULL,
