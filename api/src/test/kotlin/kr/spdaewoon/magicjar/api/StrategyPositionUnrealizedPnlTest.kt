@@ -40,6 +40,8 @@ class StrategyPositionUnrealizedPnlTest {
     private val instrumentJpaRepository = mock<InstrumentJpaRepository>()
     private val positionRepo = mock<StrategyPositionReadJpaRepository>()
     private val livePriceCacheReader = mock<LivePriceCacheReader>()
+    private val strategyStartService = mock<kr.spdaewoon.magicjar.api.service.strategy.StrategyStartService>()
+    private val favoritePort = mock<kr.spdaewoon.magicjar.domain.strategy.port.StrategyFavoritePort>()
 
     private val controller =
         StrategiesController(
@@ -48,6 +50,8 @@ class StrategyPositionUnrealizedPnlTest {
             instrumentJpaRepository = instrumentJpaRepository,
             strategyPositionReadJpaRepository = positionRepo,
             livePriceCacheReader = livePriceCacheReader,
+            strategyStartService = strategyStartService,
+            favoritePort = favoritePort,
         )
 
     private fun entity(
