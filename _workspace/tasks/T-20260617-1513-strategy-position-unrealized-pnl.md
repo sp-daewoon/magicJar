@@ -3,10 +3,10 @@ id: T-20260617-1513-strategy-position-unrealized-pnl
 agent: frontend
 model: opus
 branch: agent/frontend/strategy-position-unrealized-pnl
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T15:13:59.685+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-17T15:27:38.899+09:00
+pr: #1036
 parentPhase: ?
 ---
 
