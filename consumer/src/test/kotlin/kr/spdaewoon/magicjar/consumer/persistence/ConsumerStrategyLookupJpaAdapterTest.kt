@@ -152,6 +152,110 @@ class ConsumerStrategyLookupJpaAdapterTest {
     }
 
     @Test
+    fun `scale_in_config JSONB 는 ScaleInPlan 으로 적재되어 definition scaleIn 에 노출된다 (P0 재수정 회귀 가드)`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val entity =
+            jpaEntity(
+                id = 47L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                scaleInConfig = """{"totalSlices":3,"sliceWeights":[40,35,25]}""",
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        val scaleIn = result.single().definition.scaleIn
+        assertThat(scaleIn).isNotNull
+        assertThat(scaleIn!!.totalSlices).isEqualTo(3)
+        assertThat(scaleIn.sliceWeights).containsExactly(BigDecimal("40"), BigDecimal("35"), BigDecimal("25"))
+    }
+
+    @Test
+    fun `partial_exits JSONB 는 PartialExit 리스트로 적재되어 definition partialExits 에 노출된다`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val entity =
+            jpaEntity(
+                id = 48L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                partialExits = """[{"triggerProfitPct":3.0,"exitWeightPct":50},{"triggerProfitPct":7.0,"exitWeightPct":30}]""",
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        val partialExits = result.single().definition.partialExits
+        assertThat(partialExits).isNotNull
+        assertThat(partialExits!!).hasSize(2)
+        assertThat(partialExits[0].triggerProfitPct).isEqualByComparingTo(BigDecimal("3.0"))
+        assertThat(partialExits[0].exitWeightPct).isEqualByComparingTo(BigDecimal("50"))
+    }
+
+    @Test
+    fun `scale_in_config 미설정 행은 scaleIn null 로 유지된다 (zero-regression)`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val entity = jpaEntity(id = 49L, userId = 1L, dslEntry = "MA(5) > MA(20)", dslExit = null)
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        assertThat(result.single().definition.scaleIn).isNull()
+        assertThat(result.single().definition.partialExits).isNull()
+    }
+
+    @Test
+    fun `scale_in_config 가 invalid JSON 이면 scaleIn null 로 흡수되고 평가 전체가 down 되지 않는다`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        // totalSlices 11 = cap(10) 초과 → ScaleInPlan.init require 실패 → null 흡수
+        val entity =
+            jpaEntity(
+                id = 50L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                scaleInConfig = """{"totalSlices":11}""",
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        // 전략 자체는 제외되지 않고(평가 계속), scaleIn만 null 흡수
+        assertThat(result).hasSize(1)
+        assertThat(result.single().definition.scaleIn).isNull()
+    }
+
+    @Test
     fun `eval_metric_summary JSON 텍스트는 Map 으로 역직렬화되어 노출된다`() {
         val buyAst = condition("1", Operator.GT, "0")
         val entity =
@@ -200,6 +304,8 @@ class ConsumerStrategyLookupJpaAdapterTest {
         dslEntry: String,
         dslExit: String?,
         evalMetricSummary: String? = null,
+        scaleInConfig: String? = null,
+        partialExits: String? = null,
     ): ConsumerStrategyJpaEntity =
         ConsumerStrategyJpaEntity(
             id = id,
@@ -210,6 +316,8 @@ class ConsumerStrategyLookupJpaAdapterTest {
             dslExit = dslExit,
             universeMarket = "KOSPI",
             tf = "5m",
+            scaleInConfig = scaleInConfig,
+            partialExits = partialExits,
             astDepth = 1,
             nodeCount = 3,
             indicatorCallCount = 0,

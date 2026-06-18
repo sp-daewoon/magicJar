@@ -52,6 +52,16 @@ class ConsumerStrategyJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "entry_policy", columnDefinition = "jsonb")
     val entryPolicy: String? = null,
+    // V65 추가 컬럼 — ADR 0111 분할매수(scale_in_config)·분할익절(partial_exits) JSONB(raw String 보관).
+    //   2026-06-18 P0 재수정 — consumer hot path 시그널 평가가 scaleIn을 적재하도록 매핑 누락 해소.
+    //   api StrategyJpaEntity는 이미 보유했으나 consumer 복제 엔티티에서만 빠져 있어 resolveBuyQuantity 분할 분기가
+    //   항상 scaleIn=null로 전량 매수했다(라이브 실증: 전략 47 첫회 40% 미적용·전량 20주).
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "scale_in_config", columnDefinition = "jsonb")
+    val scaleInConfig: String? = null,
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "partial_exits", columnDefinition = "jsonb")
+    val partialExits: String? = null,
     @Column(name = "ast_depth", nullable = false)
     val astDepth: Int = 0,
     @Column(name = "node_count", nullable = false)

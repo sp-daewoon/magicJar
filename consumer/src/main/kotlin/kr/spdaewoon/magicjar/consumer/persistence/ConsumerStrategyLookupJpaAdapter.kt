@@ -3,6 +3,9 @@ package kr.spdaewoon.magicjar.consumer.persistence
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
+import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
@@ -18,6 +21,7 @@ import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 
 /**
  * Consumer-side StrategyLookupPort implementation.
@@ -94,6 +98,11 @@ class ConsumerStrategyLookupJpaAdapter(
                 viActionPolicy = safeViActionPolicy(entity.viActionPolicy),
                 // ADR 0114 진입 정책 JSONB(V72) → 도메인 (BUY 가격 산정 입력). 역직렬화 실패 시 null = 전역 default.
                 entryPolicy = deserializeEntryPolicy(entity.entryPolicy),
+                // ADR 0111 분할매수(scale_in_config)·분할익절(partial_exits) JSONB(V65) → 도메인 wiring.
+                //   2026-06-18 P0 재수정 — 이 매핑 누락이 consumer resolveBuyQuantity 분할 분기를 항상 건너뛰게 해
+                //   라이브 분할매수를 전량 매수로 만들었다. 미설정 행은 null 유지(현행 단일 진입·전량 익절 — zero-regression).
+                scaleIn = deserializeScaleIn(entity.scaleInConfig),
+                partialExits = deserializePartialExits(entity.partialExits),
             )
         val complexity =
             StrategyComplexity(
@@ -182,6 +191,66 @@ class ConsumerStrategyLookupJpaAdapter(
             val map = objectMapper.readValue(value, Map::class.java) as Map<String, Any?>
             kr.spdaewoon.magicjar.domain.strategy.EntryPolicySerde
                 .fromMap(map)
+        }.getOrNull()
+    }
+
+    /**
+     * `scale_in_config` JSONB(V65) → [ScaleInPlan] (ADR 0111 분할매수). api [StrategyEntityMapper] 정합.
+     *
+     * 도메인([ScaleInPlan])은 jackson 어노테이션 없는 평탄 데이터 클래스이므로 readTree로 raw 파싱 후 생성한다
+     * (도메인은 Spring·jackson import 금지 — 헥사고날 정합). init 검증·역직렬화 실패 시 null 흡수(invalid DB row가
+     * 실시간 hot path 평가 전체를 down 시키지 않도록 — `safe*` 패턴 정합). 미설정 행은 null → 단일 진입(zero-regression).
+     */
+    private fun deserializeScaleIn(value: String?): ScaleInPlan? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val node = objectMapper.readTree(value)
+            if (!node.isObject) return null
+            val totalSlices = node.get("totalSlices")?.takeIf { it.isNumber }?.asInt() ?: return null
+            val sliceWeights =
+                node
+                    .get("sliceWeights")
+                    ?.takeIf { it.isArray }
+                    ?.mapNotNull { it?.let { w -> BigDecimal(w.asText()) } }
+                    ?.takeIf { it.isNotEmpty() }
+            val reentryTrigger =
+                node
+                    .get("reentryTrigger")
+                    ?.asText()
+                    ?.let { runCatching { ReentryTrigger.valueOf(it) }.getOrNull() }
+                    ?: ReentryTrigger.SIGNAL_REPEAT
+            val priceDropPct = node.get("priceDropPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
+            val minSliceIntervalSec = node.get("minSliceIntervalSec")?.takeIf { it.isNumber }?.asInt()
+            ScaleInPlan(
+                totalSlices = totalSlices,
+                sliceWeights = sliceWeights,
+                reentryTrigger = reentryTrigger,
+                priceDropPct = priceDropPct,
+                minSliceIntervalSec = minSliceIntervalSec,
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * `partial_exits` JSONB(V65) → [List]<[PartialExit]> (ADR 0111 분할익절). api [StrategyEntityMapper] 정합.
+     *
+     * 단계당 [PartialExit.init] + [StrategyDefinition.init]의 cap·weight 합 검증을 통과해야 한다.
+     * 역직렬화·검증 실패 시 null 흡수(`safe*` 패턴 정합). 미설정 행은 null → 전량 익절(zero-regression).
+     */
+    private fun deserializePartialExits(value: String?): List<PartialExit>? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val node = objectMapper.readTree(value)
+            if (!node.isArray) return null
+            node
+                .mapNotNull { stage ->
+                    if (stage == null || !stage.isObject) return@mapNotNull null
+                    val trigger =
+                        stage.get("triggerProfitPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) } ?: return@mapNotNull null
+                    val weight =
+                        stage.get("exitWeightPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) } ?: return@mapNotNull null
+                    PartialExit(triggerProfitPct = trigger, exitWeightPct = weight)
+                }.takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
 

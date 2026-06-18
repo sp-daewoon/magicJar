@@ -14,9 +14,9 @@ parentPhase: ?
 분할 lookup scaleIn 적재 누락 P0 재수정
 
 ## 결과물 체크리스트
-- [ ] 근본진단
-- [ ] lookup scaleIn적재
-- [ ] 테스트
+- [x] 근본진단
+- [x] lookup scaleIn적재
+- [x] 테스트
 - [ ] PR
 
 ## 의존성
