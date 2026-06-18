@@ -3,10 +3,10 @@ id: T-20260618-1121-adr-tp-tick-failsafe
 agent: architect
 model: opus
 branch: docs/adr-tp-tick-failsafe
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T11:21:36.253+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T11:30:46.320+09:00
+pr: #1047
 parentPhase: ?
 ---
 
