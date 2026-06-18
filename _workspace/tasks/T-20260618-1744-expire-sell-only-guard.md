@@ -14,9 +14,9 @@ parentPhase: ?
 ExpiredDayOrderSyncWorker EXPIRE 매도전용 가드 + RT_CD_7 글자매칭 제거
 
 ## 결과물 체크리스트
-- [ ] side==SELL가드
-- [ ] 글자매칭삭제
-- [ ] 테스트
+- [x] side==SELL가드
+- [x] 글자매칭삭제
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)

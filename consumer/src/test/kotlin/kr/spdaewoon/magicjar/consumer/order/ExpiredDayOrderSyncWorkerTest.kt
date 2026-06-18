@@ -38,6 +38,8 @@ import java.time.ZoneId
  *  (f) 전일 미종결 0건 → skip
  *  (g) ENV off → no-op
  *  (h) 당일 장마감+grace 이후 미체결 ACK → CANCELLED(배포 drain 가드 해소)
+ *  (i) 자본 안전 hotfix — EXPIRE fallback 은 매도(SELL) 전용. 매수(BUY)는 RT_CD_7 연속이어도 EXPIRE 안 됨
+ *      (체결 누락 오삭제 회피). isKisDateError 는 RT_CD_7 prefix 만 판정(조회일자 글자매칭 제거).
  *
  * AI 호출 0 — 룰 기반 자본 흐름 운영 가드 (ADR 0023 §2-4).
  */
@@ -264,6 +266,46 @@ class ExpiredDayOrderSyncWorkerTest {
     }
 
     @Test
+    fun `SELL 전용 가드 — 매수(BUY) day-order 는 RT_CD_7 연속이어도 EXPIRE 안 됨(재시도 유지)`() {
+        // 자본 안전 hotfix: BUY 는 실제 체결됐는데 통보를 놓쳐 DB 미체결로 남았을 수 있어, EXPIRE(CANCELLED)로
+        // 지우면 보유수량이 어긋난다. 따라서 조회 성공 전까지 보수적 재시도만 하고 EXPIRE fallback 대상에서 제외.
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 810L, status = OrderStatus.ACK, side = OrderSide.BUY))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns
+            OrderInquireResult.Failed("RT_CD_7:조회일자를 확인하십시오")
+
+        val w = worker()
+        w.expireTick() // 1
+        w.expireTick() // 2
+        w.expireTick() // 3 → SELL 이었다면 임계 도달 EXPIRE 였을 횟수
+        w.expireTick() // 4 → BUY 이므로 여전히 EXPIRE 안 됨
+
+        // 매수는 절대 CANCELLED 로 지우지 않음 — 체결 누락 오삭제 회피.
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+    }
+
+    @Test
+    fun `SELL 전용 가드 — 매도(SELL)는 기존대로 RT_CD_7 3회 연속 시 EXPIRE fallback 발동`() {
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 811L, status = OrderStatus.ACK, side = OrderSide.SELL))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns
+            OrderInquireResult.Failed("RT_CD_7:조회일자를 확인하십시오")
+
+        val w = worker()
+        w.expireTick() // 1
+        w.expireTick() // 2
+        w.expireTick() // 3 → 임계 도달 EXPIRE
+
+        verify(exactly = 1) {
+            orderRepo.updateStatus(811L, OrderStatus.CANCELLED, match { it.contains("DAY_ORDER_EXPIRED") })
+        }
+        verify(exactly = 1) { orderRepo.markCompleted(811L, any(), OrderStatus.CANCELLED) }
+    }
+
+    @Test
     fun `RT_CD_7 fallback — date-error 아닌 일반 Failed(TIMEOUT)는 EXPIRE 하지 않는다`() {
         every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
             listOf(priorDayOrder(id = 702L, status = OrderStatus.ACK))
@@ -281,12 +323,15 @@ class ExpiredDayOrderSyncWorkerTest {
     }
 
     @Test
-    fun `isKisDateError 식별 — RT_CD_7 와 조회일자 메시지만 date-error`() {
+    fun `isKisDateError 식별 — RT_CD_7 prefix 만 date-error (글자매칭 제거)`() {
+        // 자본 안전 hotfix: RT_CD_7 prefix 만으로 판정. "조회일자" 글자매칭 OR 는 제거됨.
         assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_7:조회일자를 확인하십시오")).isTrue()
-        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_1:조회일자 오류")).isTrue()
         assertThat(ExpiredDayOrderSyncWorker.isKisDateError("TIMEOUT")).isFalse()
         assertThat(ExpiredDayOrderSyncWorker.isKisDateError("HTTP_500")).isFalse()
         assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_1:잔고 부족")).isFalse()
+        // ★ 글자매칭 제거 검증: "조회일자" 를 포함하되 RT_CD_7 이 아닌 메시지는 false (오판 차단).
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_1:조회일자 오류")).isFalse()
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("조회일자 형식이 올바르지 않습니다")).isFalse()
     }
 
     // ── fixtures ───────────────────────────────────────────────────────────
@@ -295,6 +340,7 @@ class ExpiredDayOrderSyncWorkerTest {
         id: Long,
         status: OrderStatus,
         kisOrderNo: String? = "ODNO$id",
+        side: OrderSide = OrderSide.SELL,
     ): OrderRequest =
         OrderRequest(
             id = id,
@@ -302,7 +348,7 @@ class ExpiredDayOrderSyncWorkerTest {
             signalId = 0L,
             strategyId = 8L,
             code = "005930",
-            side = OrderSide.SELL,
+            side = side,
             priceType = OrderPriceType.LIMIT,
             quantity = 7,
             limitPrice = java.math.BigDecimal("73500"),
