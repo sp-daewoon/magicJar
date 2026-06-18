@@ -29,6 +29,12 @@ import kotlin.concurrent.withLock
 class RealtimeSubscriptionRouter(
     private val kisWsPort: KisWsPort,
     private val todayCandleSeedPort: TodayCandleSeedPort,
+    /**
+     * unsubscribe grace 윈도우(ms) — demand가 비워진 뒤 실제 KIS UNSUBSCRIBE까지 sticky 유지 시간 (churn 억제).
+     * default 90s. 0 이하면 grace 비활성(즉시 unsubscribe — 기존 동작으로 롤백 toggle).
+     */
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.kis.ws.unsubscribe-grace-ms:90000}")
+    private val unsubscribeGraceMs: Long = 90_000L,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSubscriptionRouter::class.java)
     private val lock = ReentrantLock()
@@ -48,6 +54,22 @@ class RealtimeSubscriptionRouter(
 
     private val demandsByCode: MutableMap<String, MutableMap<OwnerKey, Demand>> = linkedMapOf()
     private val pendingDebounce: MutableMap<String, Long> = mutableMapOf()
+
+    /**
+     * unsubscribe grace 마감 시각(epoch ms) — code별 (churn 억제, REAL canary 2026-06-18 후성 093370 결함).
+     *
+     * ## 왜 즉시 unsubscribe하지 않고 grace를 두는가 (churn-stuck 근본 억제)
+     * 단타 전략(예: strategy 86·47)이 포지션을 분 단위로 flip하면 같은 종목의 STRATEGY/HOLDING demand가
+     * sub→unsub→sub를 5분에 3회씩 반복한다(실측: 12:45:48 SUB → 12:46:53 UNSUB → 12:48:37 SUB).
+     * 이 rapid churn이 KIS per-(tr_id,tr_key) 스트리밍 상태를 "acked but not streaming"으로 stuck시켜
+     * 후성 시세가 영구 굶었다. demand가 잠깐 비더라도 **grace 윈도우 안에 다시 요구되면 unsubscribe를 취소**해
+     * WS 구독을 sticky하게 유지하면 churn 자체가 사라진다.
+     *
+     * slot 예산 침해 0: grace는 "이미 잡은 구독을 짧게 더 유지"할 뿐 신규 구독을 늘리지 않는다. 신규 종목이
+     * slot 한도(40)에 막히면 grace 잔류 구독은 [findEvictionCandidateLocked]의 정상 evict 후보가 된다
+     * (demand 없는 잔여 구독이므로). HOLDING demand는 grace와 무관하게 evict 금지 LOCK 유지(ADR 0114).
+     */
+    private val pendingUnsubscribeAtMs: MutableMap<String, Long> = mutableMapOf()
 
     /**
      * 구독 수립 시점 today-Hash 시드 전용 executor (단일 스레드).
@@ -232,6 +254,11 @@ class RealtimeSubscriptionRouter(
         priority: Int,
     ): Boolean {
         kisWsPort.connect()
+        // churn 억제: demand가 돌아왔으므로 진행 중이던 pending unsubscribe(grace)를 취소한다.
+        // 같은 종목 sub→(잠깐 비움)→sub flip 시 실제 KIS UNSUBSCRIBE/SUBSCRIBE wire 왕복(churn) 자체를 없앤다.
+        if (pendingUnsubscribeAtMs.remove(code) != null) {
+            log.info("realtime demand re-entered within grace — pending unsubscribe 취소(churn 억제): code={}", code)
+        }
         val subscribed = kisWsPort.subscribedCodes()
         if (code in subscribed) return false
 
@@ -248,6 +275,7 @@ class RealtimeSubscriptionRouter(
                 return false
             }
             kisWsPort.unsubscribe(listOf(victim))
+            pendingUnsubscribeAtMs.remove(victim)
             log.info("realtime demand evict unowned: victim={} new={} priority={}", victim, code, priority)
         }
 
@@ -271,10 +299,44 @@ class RealtimeSubscriptionRouter(
 
     private fun releaseIfUnownedLocked(code: String) {
         if (demandsByCode[code]?.isNotEmpty() == true) return
+        if (code !in kisWsPort.subscribedCodes()) {
+            pendingUnsubscribeAtMs.remove(code)
+            return
+        }
 
-        if (code in kisWsPort.subscribedCodes()) {
+        // churn 억제: grace 비활성(≤0)이면 기존처럼 즉시 해제. 활성이면 grace 마감만 마킹하고 sweep에 위임한다.
+        if (unsubscribeGraceMs <= 0L) {
             kisWsPort.unsubscribe(listOf(code))
             log.info("realtime demand unsubscribed: code={}", code)
+            return
+        }
+        if (code !in pendingUnsubscribeAtMs) {
+            pendingUnsubscribeAtMs[code] = System.currentTimeMillis() + unsubscribeGraceMs
+            log.info("realtime demand empty — unsubscribe grace 예약(churn 억제): code={} graceMs={}", code, unsubscribeGraceMs)
+        }
+    }
+
+    /**
+     * unsubscribe grace 만료 sweep — demand가 끝내 돌아오지 않은 종목만 실제 KIS UNSUBSCRIBE (churn 억제 2단계).
+     *
+     * grace 윈도우 안에 demand가 재진입하면 [ensureSubscribedLocked]가 pending을 이미 취소했으므로,
+     * 여기서는 마감이 지났고 여전히 demand 0인 종목만 실제 해제한다(이중 안전: demand 재확인).
+     */
+    @Scheduled(fixedDelay = 15_000, initialDelay = 15_000)
+    fun sweepUnsubscribeGrace() {
+        if (unsubscribeGraceMs <= 0L) return
+        lock.withLock {
+            val now = System.currentTimeMillis()
+            val due = pendingUnsubscribeAtMs.filter { (_, deadline) -> now >= deadline }.keys.toList()
+            due.forEach { code ->
+                pendingUnsubscribeAtMs.remove(code)
+                // grace 동안 demand가 돌아왔으면 해제하지 않는다(재진입은 pending 취소하나 이중 안전).
+                if (demandsByCode[code]?.isNotEmpty() == true) return@forEach
+                if (code in kisWsPort.subscribedCodes()) {
+                    kisWsPort.unsubscribe(listOf(code))
+                    log.info("realtime demand unsubscribed (grace 만료): code={}", code)
+                }
+            }
         }
     }
 

@@ -18,12 +18,16 @@ class RealtimeSubscriptionRouterTest {
     @BeforeEach
     fun setUp() {
         kisWsPort = TestKisWsPort()
-        router =
-            RealtimeSubscriptionRouter(
-                kisWsPort = kisWsPort,
-                todayCandleSeedPort = todayCandleSeedPort,
-            )
+        // grace 0 = 기존 즉시 해제 동작(대부분 기존 시나리오 테스트가 이 의미를 검증). churn 테스트는 별도 grace router.
+        router = newRouter(graceMs = 0L)
     }
+
+    private fun newRouter(graceMs: Long): RealtimeSubscriptionRouter =
+        RealtimeSubscriptionRouter(
+            kisWsPort = kisWsPort,
+            todayCandleSeedPort = todayCandleSeedPort,
+            unsubscribeGraceMs = graceMs,
+        )
 
     @Test
     fun `DETAIL 진입은 watchlist 없이도 가격 WS를 구독한다`() {
@@ -185,6 +189,57 @@ class RealtimeSubscriptionRouterTest {
         router.request(RealtimeDemandOwner.STRATEGY, "86", "005930", priority = 10)
         val secondSince = router.snapshotDemands().first { it.code == "005930" }.sinceMs
         assertTrue(firstSince == secondSince)
+    }
+
+    // ===== churn 억제 (unsubscribe grace) — REAL canary 2026-06-18 후성 093370 stuck =====
+
+    @Test
+    fun `churn 억제 - demand가 grace 안에 재진입하면 KIS UNSUBSCRIBE 없이 sticky 유지`() {
+        val r = newRouter(graceMs = 90_000L)
+        // 단타 flip 모사: STRATEGY sub → release(잠깐 비움) → 다시 sub.
+        r.request(RealtimeDemandOwner.STRATEGY, "86", "093370", priority = 10)
+        assertTrue(kisWsPort.priceSubscribed.contains("093370"))
+
+        r.release(RealtimeDemandOwner.STRATEGY, "86", "093370") // demand 0 → grace 예약(즉시 해제 X)
+        assertFalse(kisWsPort.priceUnsubscribed.contains("093370")) // 아직 unsubscribe 안 함
+        assertTrue(kisWsPort.priceSubscribed.contains("093370")) // WS 구독 sticky 유지
+
+        r.request(RealtimeDemandOwner.STRATEGY, "86", "093370", priority = 10) // grace 안에 재진입
+        // pending 취소 → sweep가 와도 해제 안 함. churn wire 왕복 0.
+        r.sweepUnsubscribeGrace()
+        assertFalse(kisWsPort.priceUnsubscribed.contains("093370"))
+        assertTrue(kisWsPort.priceSubscribed.contains("093370"))
+    }
+
+    @Test
+    fun `grace 만료 sweep - demand가 끝내 돌아오지 않으면 실제 UNSUBSCRIBE`() {
+        val r = newRouter(graceMs = 1L) // 1ms grace → 즉시 만료.
+        r.request(RealtimeDemandOwner.STRATEGY, "86", "093370", priority = 10)
+        r.release(RealtimeDemandOwner.STRATEGY, "86", "093370")
+        assertFalse(kisWsPort.priceUnsubscribed.contains("093370")) // grace 예약(아직)
+
+        Thread.sleep(5)
+        r.sweepUnsubscribeGrace()
+
+        assertTrue(kisWsPort.priceUnsubscribed.contains("093370")) // 끝내 미복귀 → 실제 해제.
+        assertFalse(kisWsPort.priceSubscribed.contains("093370"))
+    }
+
+    @Test
+    fun `churn 억제 - HOLDING+STRATEGY 동시 release 후 재진입도 sticky (후성 시나리오)`() {
+        val r = newRouter(graceMs = 90_000L)
+        // 후성: HOLDING + STRATEGY 둘 다 보유. 단타 flip이 둘을 잠깐 동시에 비운 뒤 재진입.
+        r.request(RealtimeDemandOwner.HOLDING, "093370", "093370")
+        r.request(RealtimeDemandOwner.STRATEGY, "86", "093370", priority = 10)
+
+        r.release(RealtimeDemandOwner.STRATEGY, "86", "093370")
+        r.release(RealtimeDemandOwner.HOLDING, "093370", "093370") // demand 0 → grace
+        assertFalse(kisWsPort.priceUnsubscribed.contains("093370"))
+
+        r.request(RealtimeDemandOwner.HOLDING, "093370", "093370") // 재매수 체결 모사 — grace 안 재진입
+        r.sweepUnsubscribeGrace()
+        assertFalse(kisWsPort.priceUnsubscribed.contains("093370")) // churn wire 왕복 0
+        assertTrue(kisWsPort.priceSubscribed.contains("093370"))
     }
 
     class TestKisWsPort : KisWsPort {

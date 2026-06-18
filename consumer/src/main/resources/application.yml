@@ -225,6 +225,16 @@ magicjar:
       no-tick-resubscribe-seconds: ${MAGICJAR_KIS_WS_NO_TICK_RESUBSCRIBE_SECONDS:180}
       # 무tick self-heal 재구독 종목별 cooldown(ms) — 동일 종목 재발사 최소 간격(KIS SUBSCRIBE 폭주 방지).
       no-tick-resubscribe-cooldown-ms: ${MAGICJAR_KIS_WS_NO_TICK_RESUBSCRIBE_COOLDOWN_MS:120000}
+      # 무tick self-heal **풀 리셋** UNSUBSCRIBE→SUBSCRIBE 지연(ms) — REAL canary 2026-06-18 후성 093370.
+      #   bare 재구독은 KIS dedupe(rt_cd=1·"ALREADY IN SUBSCRIBE" no-op)로 stuck 스트림을 못 살린다.
+      #   UNSUBSCRIBE(tr_type=2)로 채널을 비운 뒤 이 지연 후 SUBSCRIBE(tr_type=1)로 fresh 재등록해 스트림 재개.
+      #   KIS 공식 WS 샘플도 연속 프레임 사이 0.5s 지연을 둔다. 0 이하면 지연 없이 즉시 SUBSCRIBE.
+      no-tick-reset-resubscribe-delay-ms: ${MAGICJAR_KIS_WS_NO_TICK_RESET_RESUBSCRIBE_DELAY_MS:1500}
+      # unsubscribe grace(ms) — demand 0이 돼도 이 시간 sticky 유지 후 실제 KIS UNSUBSCRIBE (churn 억제).
+      #   단타 전략 포지션 flip(sub→unsub→sub 분 단위 반복)이 KIS 스트리밍 상태를 stuck시키는 근본 churn을 없앤다.
+      #   grace 안에 demand 재진입 시 unsubscribe 취소(wire 왕복 0). slot 예산 침해 0(잔류 구독은 evict 후보).
+      #   0 이하면 grace 비활성(즉시 unsubscribe — 롤백 toggle).
+      unsubscribe-grace-ms: ${MAGICJAR_KIS_WS_UNSUBSCRIBE_GRACE_MS:90000}
       # watchlist 시세 5초 REST polling 폐지 (ADR 0124 amend · 2026-06-15 최고 관리자 결재).
       #   기존 throttle 설정(max-codes-per-tick·inter-call-delay-ms·rate-limit-cooldown-ms)은 worker 가
       #   더 이상 KIS REST 를 호출하지 않으므로 제거했다. watchlist 화면 시세 polling 은 KIS quota(EGW00201)
