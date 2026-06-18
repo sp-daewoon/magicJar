@@ -43,6 +43,13 @@ import java.time.ZoneId
  *
  * day-order 만료 동기화는 실돈 여부와 무관(조회·상태 보정만)하므로 MODE 분기 없이 모든 모드 동작.
  *
+ * ## canary D5 RT_CD_7 근본 fix (2026-06-18 후성 익절 deadlock — issue #1019)
+ * 위 KIS 일별체결조회의 INQR_STRT_DT 가 `today.minusDays(2)` 고정이라 KIS TTTC0081R 이 `rt_cd=7:조회일자를
+ * 확인하십시오` 로 거부 → 좀비 ACK 영구 잔존 → 매분 익절 SELL 이 "이미 정합 auto-tp open" 으로 영구 skip →
+ * 청산 마비. 본 hotfix 는 (1) 조회 시작일을 **주문 발주일(requestedAt KST date) anchor** 로 정정(고정 today-2
+ * 폐기)하고, (2) 그럼에도 KIS 가 date 유효성을 영구 거부하면 과거 발주 day-order 를 N회 후 EXPIRE 하는 2차
+ * 안전장치를 둔다([processRow] 참고). EXPIRE 는 이미 청산 의도된 stale SELL 의 status 정정이라 오버셀 risk 0.
+ *
  * ## 실행 시점 (장 마감 후/개장 전)
  * fixedDelay cron 30분 — 만료는 장 마감(15:30) 이후 발생하고 다음 개장(09:00) 전까지 정리되면 충분하므로
  * 빈번할 필요 없다(KIS rate limit 보호). 장마감+grace 전에는 전일 이전 주문만, 이후에는 당일 장마감 전
@@ -81,7 +88,29 @@ class ExpiredDayOrderSyncWorker(
 
         private const val SYSTEM_EVENT_ACTOR = "ExpiredDayOrderSyncWorker"
         private const val EXPIRE_REASON = "DAY_ORDER_EXPIRED:day-order 장마감 만료 (KIS 일별체결 대조)"
+
+        /** inner(TTTC0081R/VTTC0081R) 3개월 이내 경계. start 가 이보다 과거면 clamp(date 유효성 보호). */
+        private const val INNER_LOOKBACK_DAYS = 90L
+
+        /**
+         * KIS date-error(RT_CD_7류) 연속 N회 도달 시 과거 발주 day-order EXPIRE fallback 임계.
+         * 영구 retry 로 청산이 마비되는 것보다, 이미 만료 확실한 stale SELL 의 status 정정이 안전하다.
+         */
+        internal const val DATE_ERROR_EXPIRE_THRESHOLD = 3
+
+        /**
+         * KIS 응답 실패가 "조회일자 유효성 거부(RT_CD_7류)" 인지 식별.
+         * [KisOrderInquireDailyCcldHttpAdapter] 는 rt_cd!=0 을 `RT_CD_<n>:<msg>` 로 wrap 한다.
+         * rt_cd=7 또는 메시지에 "조회일자" 가 포함되면 date-error 로 판정(폭 제한·일시 5xx·timeout 과 구분).
+         */
+        internal fun isKisDateError(cause: String): Boolean = cause.startsWith("RT_CD_7:") || cause.contains("조회일자")
     }
+
+    /**
+     * RT_CD_7 fallback 연속 카운터(orderId → 연속 date-error 횟수). 정상 응답·일반 Failed·EXPIRE 시 reset.
+     * 단일 worker 인스턴스 내 cron tick 간 상태 — 영속 불필요(만료 확정되면 row 가 종결되어 더 안 잡힘).
+     */
+    private val dateErrorFailCount = java.util.concurrent.ConcurrentHashMap<Long, Int>()
 
     /**
      * 30분 cron (fixedDelay). 장 마감 후 누적된 전일 만료 day-order 를 다음 개장 전까지 정리한다.
@@ -157,16 +186,69 @@ class ExpiredDayOrderSyncWorker(
             return
         }
 
-        // 전일~당일 window 로 KIS 일별체결 조회(전일 발주분 포함).
+        // KIS 일별체결 조회 window — 주문 발주일 anchor (canary D5 RT_CD_7 근본 fix #1019).
+        //
+        // ## RT_CD_7("조회일자를 확인하십시오") 근본원인 (KIS-first 규명)
+        // 기존 코드는 INQR_STRT_DT = today.minusDays(2) 고정. KIS TTTC0081R(주식일별주문체결조회) 가
+        // 이 start date 를 rt_cd=7 로 거부했다. KIS 공식 raw(examples_llm/.../inquire_daily_ccld.py L51~59)
+        // 확인 결과 inner(3개월 이내·TTTC0081R) 경로에는 "조회기간 폭 N일 상한" 같은 제약이 문서화돼 있지 않고
+        // (예시도 strt==end 단일일), 3개월 이전 분리(before·CTSC9215R)만 규정한다. 즉 RT_CD_7 은 폭 제한이
+        // 아니라 KIS 의 **조회 시작일 자체에 대한 date 유효성 거부**다(주말/휴장/계좌 개시 등 KIS 캘린더 경계에서
+        // start date 가 too-far-back/invalid 로 판정). 실증: 동일 endpoint 를 today.minusDays(1)..today 로
+        // 호출하는 OrderReconciliationWorker 는 정상 — start date 가 1일 더 과거인 점만 차이.
+        //
+        // ## 채택 fix: 발주일(requestedAt KST date) anchor (고정 today-2 폐기)
+        // day-order 만료 대조는 "그 주문이 실제 발주된 날" 의 체결내역만 보면 충분하다. 발주일을 start 로 잡으면
+        // 불필요하게 과거로 늘어나 RT_CD_7 을 유발하던 window 가 사라진다. 안전 clamp:
+        //   - end   = today (장중/익일 어디서 호출되든 발주일이 포함되도록 상한은 오늘)
+        //   - start = min(발주일, today-1) — 발주일을 넘어 새로(today) 잡지 않되, 전일 day-order 면 그 발주일.
+        //             today-1 clamp 는 OrderReconciliationWorker 와 동일한 검증된 최소 과거 보장(미반영 회피).
+        //   - 3개월(inner tr_id) 경계 보호: start 가 today-90 보다 과거면 today-90 으로 clamp(전일 day-order 는
+        //             해당 없으나 stale row 가 오래 잔존했을 극단 케이스 방어).
         val today = LocalDate.now(clock.withZone(KST))
+        val requestedDate = row.requestedAt.atZone(KST).toLocalDate()
+        val inquireStart = inquireStartDate(requestedDate, today)
         val result =
             kisOrderInquireDailyCcldPort.inquireByOrderNo(
                 userId = row.userId,
                 mode = row.mode,
                 kisOrderNo = kisOrderNo,
-                inquireStartDate = today.minusDays(2),
+                inquireStartDate = inquireStart,
                 inquireEndDate = today,
             )
+
+        // ## 2차 안전장치: RT_CD_7 N회 연속 + 발주일 명백 과거 → EXPIRE fallback
+        // KIS 가 date 유효성으로 영구 거부(RT_CD_7류)하면 무한 재시도로 청산이 마비된다(후성 incident 의 실제 양상).
+        // 발주일이 전 영업일 이전(< 오늘 0시 KST)인 day-order 는 KIS 당일주문 특성상 이미 만료가 확실하고,
+        // 본 EXPIRE 는 이미 청산 의도된 stale SELL 의 status 정정일 뿐 보유수량/신규주문에 영향 0(오버셀 risk 0)이므로,
+        // N(=DATE_ERROR_EXPIRE_THRESHOLD)회 연속 date-error Failed 면 만료 동기화한다.
+        if (result is OrderInquireResult.Failed && isKisDateError(result.cause) && requestedDate.isBefore(today)) {
+            val fails = dateErrorFailCount.merge(orderId, 1, Int::plus) ?: 1
+            log.warn(
+                "day-order KIS date-error(RT_CD_7류) {}회 연속: orderId={} userId={} ODNO={} start={} cause={}",
+                fails,
+                orderId,
+                row.userId,
+                kisOrderNo,
+                inquireStart,
+                result.cause,
+            )
+            if (fails >= DATE_ERROR_EXPIRE_THRESHOLD) {
+                log.warn(
+                    "day-order KIS date-error {}회 도달 — 과거 발주 day-order 만료 EXPIRE fallback: orderId={} 발주일={} ",
+                    fails,
+                    orderId,
+                    requestedDate,
+                )
+                expire(repo, row, now, resolution = "KIS_DATE_ERROR_EXPIRE:fails=$fails:${result.cause}")
+                dateErrorFailCount.remove(orderId)
+                return
+            }
+            // 임계 미만 — 상태 불변, 다음 tick 재시도(아래 when 의 Failed 분기와 동일 효과지만 카운터 누적 위해 조기 return).
+            return
+        }
+        // date-error 가 아닌 정상 응답/일반 Failed 면 카운터 reset(일시 오류였던 경우 누적 방지).
+        dateErrorFailCount.remove(orderId)
 
         when (result) {
             is OrderInquireResult.Found -> {
@@ -233,6 +315,25 @@ class ExpiredDayOrderSyncWorker(
                 .atZone(KST)
                 .toInstant()
         return if (now.isBefore(sameDayExpiryCutoff)) todayStartKst else sameDayExpiryCutoff
+    }
+
+    /**
+     * KIS 일별체결 조회 시작일 — 발주일 anchor + 검증된 안전 clamp(RT_CD_7 근본 fix).
+     *
+     * - 기본: 주문 발주일(requestedDate KST). 전일 day-order 면 그 발주일이라 KIS 가 기대하는 정확한 window.
+     * - upper clamp: today-1 — 발주일을 넘어 today 로 새로 잡지 않되, OrderReconciliationWorker 와 동일한
+     *   검증된 최소 과거(미반영 회피)를 보장. (당일 발주분도 end=today 로 커버되므로 start 는 최대 today-1.)
+     * - lower clamp: today-90 — inner(TTTC0081R) 3개월 경계 보호(극단적 오래된 stale row 의 date 거부 회피).
+     */
+    internal fun inquireStartDate(
+        requestedDate: LocalDate,
+        today: LocalDate,
+    ): LocalDate {
+        val upperBound = today.minusDays(1)
+        val lowerBound = today.minusDays(INNER_LOOKBACK_DAYS)
+        // start 는 [today-90, today-1] 범위로 clamp 한 발주일.
+        val anchored = if (requestedDate.isAfter(upperBound)) upperBound else requestedDate
+        return if (anchored.isBefore(lowerBound)) lowerBound else anchored
     }
 
     private fun expire(
