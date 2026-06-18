@@ -14,6 +14,8 @@ import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
@@ -495,6 +497,119 @@ class RiskGatewayEvaluatorTest {
         assertThat(expectedQty).isEqualTo(20) // 100만 ÷ 5만
     }
 
+    // ───────────────────────────────────────────────────────────────────────────
+    // 분할매수(scale-in) 회차 비중 수량 산정 — P0 hotfix 2026-06-18 (라이브 canary 전량매수 결함)
+    //   산식: 회차예산 = floor(buyable × sliceWeights[filledLots]% / 100), 수량 = floor(회차예산 / price)
+    //   (JvmBacktestEngine.evaluateScaleInExitSlice 와 동일 — 단일 진실원). 반올림 = DOWN(보수적 매수).
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * buyable 100만 고정 컨텍스트 — 총한도 100만(비율 한도 큼)·노출 0·예수금 충분.
+     * priceAtSignal 1만 → 전량이면 100주. 분할이면 회차 비중만큼.
+     */
+    private fun scaleInContext() =
+        sampleContext(
+            config = sampleConfig(maxPositionAmount = BigDecimal("1000000"), maxPositionPercent = BigDecimal("100.00")),
+            currentCapital = BigDecimal("100000000"),
+            orderableCash = BigDecimal("100000000"),
+        )
+
+    private val threeSlicePlan =
+        ScaleInPlan(
+            totalSlices = 3,
+            sliceWeights = listOf(BigDecimal("40"), BigDecimal("35"), BigDecimal("25")),
+            reentryTrigger = ReentryTrigger.SIGNAL_REPEAT,
+            minSliceIntervalSec = 180,
+        )
+
+    @Test
+    fun `scale-in 1회차 — filledLots=0 이면 buyable의 40%만 매수(전량매수 결함 가드)`() {
+        // 라이브 결함 재현 방지: 전량 100주가 아니라 첫 회 40% = 40주여야 한다.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        // 첫 진입 — strategyPosition 부재(null) → filledLots=0 으로 간주.
+        val context = scaleInContext()
+
+        val qty = evaluator.resolveBuyQuantity(signal, context, scaleIn = threeSlicePlan)
+
+        // floor(1,000,000 × 40 / 100) = 400,000 → floor(400,000 / 10,000) = 40
+        assertThat(qty).isEqualTo(40)
+    }
+
+    @Test
+    fun `scale-in 2회차 — filledLots=1 이면 35%`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val context = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 40, filledLots = 1))
+
+        val qty = evaluator.resolveBuyQuantity(signal, context, scaleIn = threeSlicePlan)
+
+        // floor(1,000,000 × 35 / 100) = 350,000 → 35주
+        assertThat(qty).isEqualTo(35)
+    }
+
+    @Test
+    fun `scale-in 3회차 — filledLots=2 이면 25%`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val context = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 75, filledLots = 2))
+
+        val qty = evaluator.resolveBuyQuantity(signal, context, scaleIn = threeSlicePlan)
+
+        // floor(1,000,000 × 25 / 100) = 250,000 → 25주
+        assertThat(qty).isEqualTo(25)
+    }
+
+    @Test
+    fun `scale-in 균등 분할(sliceWeights 생략) — 3분할이면 각 회차 약 33퍼센트`() {
+        // resolvedWeights(): [33.3333, 33.3333, 33.3334] — 마지막 회차가 잔여 흡수.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT)
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+
+        // 1회차 — floor(1,000,000 × 33.3333 / 100) = floor(333,333) = 333,333 → floor(/10,000) = 33
+        val qty0 = evaluator.resolveBuyQuantity(signal, scaleInContext(), scaleIn = plan)
+        assertThat(qty0).isEqualTo(33)
+    }
+
+    @Test
+    fun `scale-in filledLots가 totalSlices 이상이면 마지막 회차 가중으로 방어(범위 초과 클램프)`() {
+        // generator 가 EnterSlice 를 안 내므로 정상 경로엔 도달하지 않지만, 방어적으로 마지막 가중(25%)을 쓴다.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val context = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 100, filledLots = 5))
+
+        val qty = evaluator.resolveBuyQuantity(signal, context, scaleIn = threeSlicePlan)
+
+        // weights.lastOrNull() = 25% → 25주
+        assertThat(qty).isEqualTo(25)
+    }
+
+    @Test
+    fun `scale-in 미설정(null) — 현행 전량 경로 그대로(zero-regression)`() {
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val context = scaleInContext()
+
+        // scaleIn 미전달(default null) == 기존 시그니처와 byte 동일.
+        assertThat(evaluator.resolveBuyQuantity(signal, context)).isEqualTo(100) // 100만 ÷ 1만 = 전량 100주
+        assertThat(evaluator.resolveBuyQuantity(signal, context, scaleIn = null)).isEqualTo(100)
+    }
+
+    @Test
+    fun `scale-in 회차 합 — 3분할 40·35·25 수량 합이 전량(100주)과 일치(잔여 없음)`() {
+        // 비중 합 100% + 가격·buyable 가 회차 간 불변이면 회차 수량 합 = 전량(반올림 잔여 0 케이스).
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val q1 = evaluator.resolveBuyQuantity(signal, scaleInContext(), scaleIn = threeSlicePlan)
+        val q2 =
+            evaluator.resolveBuyQuantity(
+                signal,
+                scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = q1, filledLots = 1)),
+                scaleIn = threeSlicePlan,
+            )
+        val q3 =
+            evaluator.resolveBuyQuantity(
+                signal,
+                scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = q1 + q2, filledLots = 2)),
+                scaleIn = threeSlicePlan,
+            )
+        assertThat(q1 + q2 + q3).isEqualTo(100)
+    }
+
     @Test
     fun `7 ALLOWED happy path — 6 룰 모두 통과`() {
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("50000"))
@@ -913,6 +1028,8 @@ class RiskGatewayEvaluatorTest {
         code: String = "005930",
         strategyId: Long = 100L,
         quantity: Int,
+        filledLots: Int = 0,
+        avgPrice: BigDecimal = BigDecimal("10000"),
     ): kr.spdaewoon.magicjar.domain.position.StrategyPosition =
         kr.spdaewoon.magicjar.domain.position.StrategyPosition(
             id = 1L,
@@ -920,7 +1037,8 @@ class RiskGatewayEvaluatorTest {
             strategyId = strategyId,
             code = code,
             quantity = quantity,
-            avgPrice = BigDecimal("10000"),
+            avgPrice = avgPrice,
+            filledLots = filledLots,
             openedAt = now,
             updatedAt = now,
         )

@@ -90,7 +90,10 @@ class RealtimeSignalGenerator(
     // ADR 0114 §4-4 P4 — market-hours gate SELL(청산) 분리 env. default true(현행 보존 — NXT 유동성 보수).
     // false면 NXT 시간대(08~09시·15:30~20시) 보유 포지션 SELL 평가는 시간대 무관 진행(BUY는 항상 게이트).
     @Value("\${magicjar.signal.market-hours-gate.sell-enabled:true}") private val marketHoursSellEnabled: Boolean = true,
-    @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
+    // 2026-06-18 P0 hotfix — @Value default 를 yml(`MAGICJAR_STRATEGY_SCALE_IN_ENABLED:true`)과 일치시킨다.
+    // 기존 default false 는 property 키 부재 시 generator 만 scale-in 을 silent OFF 시키는 landmine 이었다
+    // (yml 바인딩이 있으면 true 로 덮이므로 운영 런타임은 ON 이었지만, 키 부재 경로(일부 테스트 컨텍스트)에서 불일치).
+    @Value("\${magicjar.strategy.scale-in.enabled:true}") private val scaleInEnabled: Boolean = true,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSignalGenerator::class.java)
