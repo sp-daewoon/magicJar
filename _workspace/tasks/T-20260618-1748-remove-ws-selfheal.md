@@ -3,10 +3,10 @@ id: T-20260618-1748-remove-ws-selfheal
 agent: backend-core
 model: opus
 branch: agent/backend-core/remove-ws-selfheal
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T17:48:50.391+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T17:56:12.346+09:00
+pr: #1055
 parentPhase: ?
 ---
 
