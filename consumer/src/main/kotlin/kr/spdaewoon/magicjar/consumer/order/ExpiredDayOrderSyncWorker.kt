@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEvent
 import kr.spdaewoon.magicjar.domain.order.execution.OrderAuditEventType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
+import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderStatus
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderInquireDailyCcldPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
@@ -101,9 +102,11 @@ class ExpiredDayOrderSyncWorker(
         /**
          * KIS 응답 실패가 "조회일자 유효성 거부(RT_CD_7류)" 인지 식별.
          * [KisOrderInquireDailyCcldHttpAdapter] 는 rt_cd!=0 을 `RT_CD_<n>:<msg>` 로 wrap 한다.
-         * rt_cd=7 또는 메시지에 "조회일자" 가 포함되면 date-error 로 판정(폭 제한·일시 5xx·timeout 과 구분).
+         * **rt_cd=7 prefix 만으로 판정**한다. (이전엔 메시지 "조회일자" 글자매칭도 OR 했으나, "조회일자"는
+         * 흔한 단어라 RT_CD_7 이 아닌 일반 메시지까지 date-error 로 오판해 EXPIRE fallback 을 잘못 발동시킬
+         * 위험이 있어 제거 — 자본 안전 hotfix.)
          */
-        internal fun isKisDateError(cause: String): Boolean = cause.startsWith("RT_CD_7:") || cause.contains("조회일자")
+        internal fun isKisDateError(cause: String): Boolean = cause.startsWith("RT_CD_7:")
     }
 
     /**
@@ -217,12 +220,20 @@ class ExpiredDayOrderSyncWorker(
                 inquireEndDate = today,
             )
 
-        // ## 2차 안전장치: RT_CD_7 N회 연속 + 발주일 명백 과거 → EXPIRE fallback
+        // ## 2차 안전장치: RT_CD_7 N회 연속 + 발주일 명백 과거 + **SELL 전용** → EXPIRE fallback
         // KIS 가 date 유효성으로 영구 거부(RT_CD_7류)하면 무한 재시도로 청산이 마비된다(후성 incident 의 실제 양상).
-        // 발주일이 전 영업일 이전(< 오늘 0시 KST)인 day-order 는 KIS 당일주문 특성상 이미 만료가 확실하고,
-        // 본 EXPIRE 는 이미 청산 의도된 stale SELL 의 status 정정일 뿐 보유수량/신규주문에 영향 0(오버셀 risk 0)이므로,
-        // N(=DATE_ERROR_EXPIRE_THRESHOLD)회 연속 date-error Failed 면 만료 동기화한다.
-        if (result is OrderInquireResult.Failed && isKisDateError(result.cause) && requestedDate.isBefore(today)) {
+        // 발주일이 전 영업일 이전(< 오늘 0시 KST)인 day-order 는 KIS 당일주문 특성상 이미 만료가 확실하다.
+        //
+        // ★ SELL 전용 가드 (자본 안전 hotfix): EXPIRE 는 status 를 CANCELLED 로 정정한다. 매도(롱온리 청산)는
+        //   체결 누락 상태로 잔존하더라도 보유수량을 줄이지 않으므로 EXPIRE 해도 안전하다(오버셀 risk 0). 그러나
+        //   **매수(BUY)** 는 KIS 에서 실제 체결됐는데 체결통보를 놓쳐 DB 에 미체결로 남았을 수 있고, 그 경우
+        //   EXPIRE(CANCELLED)로 지우면 보유수량이 어긋난다. 따라서 BUY 는 조회가 성공할 때까지 보수적으로
+        //   재시도만 하고 EXPIRE fallback 대상에서 제외한다(체결 누락 오삭제 회피).
+        if (result is OrderInquireResult.Failed &&
+            isKisDateError(result.cause) &&
+            requestedDate.isBefore(today) &&
+            row.side == OrderSide.SELL
+        ) {
             val fails = dateErrorFailCount.merge(orderId, 1, Int::plus) ?: 1
             log.warn(
                 "day-order KIS date-error(RT_CD_7류) {}회 연속: orderId={} userId={} ODNO={} start={} cause={}",
