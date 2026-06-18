@@ -56,6 +56,7 @@ class KisWebSocketBridgeNoTickResubscribeTest {
         noTickWatchdogSeconds: Long,
         noTickResubscribeSeconds: Long,
         noTickResubscribeCooldownMs: Long = 120_000L,
+        noTickResetResubscribeDelayMs: Long = 0L,
     ): KisWebSocketBridge {
         val executionListenerProvider = mockk<ObjectProvider<KisExecutionWsListener>>(relaxed = true)
         every { executionListenerProvider.getIfAvailable() } returns null
@@ -77,6 +78,7 @@ class KisWebSocketBridgeNoTickResubscribeTest {
             noTickWatchdogSeconds = noTickWatchdogSeconds,
             noTickResubscribeSeconds = noTickResubscribeSeconds,
             noTickResubscribeCooldownMs = noTickResubscribeCooldownMs,
+            noTickResetResubscribeDelayMs = noTickResetResubscribeDelayMs,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,
@@ -116,6 +118,24 @@ class KisWebSocketBridgeNoTickResubscribeTest {
         val m = KisWebSocketBridge::class.java.getDeclaredMethod("recordTickReceived", String::class.java)
         m.isAccessible = true
         m.invoke(bridge, code)
+    }
+
+    /**
+     * sendSink를 capturing sink로 주입하고 emit된 wire JSON을 수집한다.
+     * 풀 리셋 사이클(UNSUBSCRIBE tr_type="2" → SUBSCRIBE tr_type="1") wire 프레임을 직접 검증하기 위함.
+     */
+    private fun installCapturingSink(bridge: KisWebSocketBridge): MutableList<String> {
+        val captured = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val sink =
+            reactor.core.publisher.Sinks
+                .many()
+                .unicast()
+                .onBackpressureBuffer<String>()
+        sink.asFlux().subscribe { captured.add(it) }
+        val f = KisWebSocketBridge::class.java.getDeclaredField("sendSink")
+        f.isAccessible = true
+        f.set(bridge, sink)
+        return captured
     }
 
     private fun isInSessionNow(): Boolean {
@@ -185,5 +205,52 @@ class KisWebSocketBridgeNoTickResubscribeTest {
 
         // tick 복구 → cooldown 해제(다음 stale 윈도우 즉시 재구독 가능).
         assertThat(resubscribeMap(bridge)).doesNotContainKey("093370")
+    }
+
+    @Test
+    fun `풀리셋 사이클 - UNSUBSCRIBE(tr_type 2) 후 SUBSCRIBE(tr_type 1) 두 프레임을 순서대로 발사 (지연 0)`() {
+        // delay 0 → 같은 점검 흐름에서 UNSUB→SUB 동기 발사.
+        val bridge =
+            newBridge(
+                noTickWatchdogSeconds = 1L,
+                noTickResubscribeSeconds = 2L,
+                noTickResubscribeCooldownMs = 60_000L,
+                noTickResetResubscribeDelayMs = 0L,
+            )
+        getSession(bridge).onConnected()
+        val captured = installCapturingSink(bridge)
+        bridge.subscribe(listOf("093370"))
+        captured.clear() // 초기 subscribe 프레임 제거 — 이후 self-heal 프레임만 검증.
+        lastTickMap(bridge)["093370"] = System.currentTimeMillis() - 5_000L
+
+        bridge.runNoTickWatchdogCheck()
+
+        if (isInSessionNow()) {
+            // 1) UNSUBSCRIBE(tr_type "2") 먼저, 2) SUBSCRIBE(tr_type "1") 나중 — 채널 비움→fresh 재등록.
+            val unsubIdx = captured.indexOfFirst { it.contains("\"tr_type\":\"2\"") && it.contains("093370") }
+            val subIdx = captured.indexOfLast { it.contains("\"tr_type\":\"1\"") && it.contains("093370") }
+            assertThat(unsubIdx).isGreaterThanOrEqualTo(0)
+            assertThat(subIdx).isGreaterThan(unsubIdx)
+            // 두 프레임 모두 H0UNCNT0 채널.
+            assertThat(captured.filter { it.contains("093370") }).allMatch { it.contains("H0UNCNT0") }
+            // logical 구독은 보존(라우터 경합 방지).
+            assertThat(getSession(bridge).subscribedCodes).contains("093370")
+        } else {
+            assertThat(captured).isEmpty()
+        }
+    }
+
+    @Test
+    fun `풀리셋 2단계 - 지연 중 logical 구독 해제되면 SUBSCRIBE 재발사 skip`() {
+        val bridge = newBridge(noTickWatchdogSeconds = 1L, noTickResubscribeSeconds = 2L, noTickResetResubscribeDelayMs = 0L)
+        getSession(bridge).onConnected()
+        val captured = installCapturingSink(bridge)
+        // logical 구독에 없는 종목으로 직접 2단계 호출 — stale 발사 방지 가드 검증.
+        val m = KisWebSocketBridge::class.java.getDeclaredMethod("fireSelfHealResubscribe", String::class.java)
+        m.isAccessible = true
+        m.invoke(bridge, "093370")
+
+        // subscribedCodes에 없으므로 SUBSCRIBE 프레임 0.
+        assertThat(captured).isEmpty()
     }
 }
