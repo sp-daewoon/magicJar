@@ -3,10 +3,10 @@ id: T-20260618-1744-expire-sell-only-guard
 agent: backend-core
 model: opus
 branch: agent/backend-core/expire-sell-only-guard
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T17:44:45.373+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T17:49:11.990+09:00
+pr: #1054
 parentPhase: ?
 ---
 
