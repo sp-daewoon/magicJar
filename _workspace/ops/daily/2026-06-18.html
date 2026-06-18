@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>magicJar 일일 운영 보고 — 2026-06-18 (canary 7일차)</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:24px; line-height:1.6; }
+  h1 { font-size:22px; border-bottom:2px solid #6366f1; padding-bottom:8px; }
+  h2 { font-size:17px; color:#a5b4fc; margin-top:28px; border-left:4px solid #6366f1; padding-left:10px; }
+  .banner { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
+  .stat { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:12px 16px; min-width:130px; }
+  .stat .v { font-size:22px; font-weight:700; }
+  .stat .l { font-size:11px; color:#94a3b8; }
+  .green { color:#34d399; } .red { color:#f87171; } .amber { color:#fbbf24; } .blue { color:#60a5fa; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:12.5px; }
+  th,td { border:1px solid #334155; padding:6px 9px; text-align:left; }
+  th { background:#1e293b; color:#cbd5e1; }
+  tr:nth-child(even){ background:#16203a; }
+  code { background:#1e293b; padding:1px 5px; border-radius:4px; font-size:11.5px; color:#a5b4fc; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; }
+  .t-fix{background:#312e81;color:#c7d2fe;} .t-feat{background:#064e3b;color:#a7f3d0;} .t-ops{background:#7c2d12;color:#fed7aa;}
+  .note { font-size:12px; color:#94a3b8; }
+</style>
+</head>
+<body>
+
+<h1>🫙 magicJar 일일 운영 보고 — 2026-06-18 (목, canary 7일차)</h1>
+<p class="note">작성: orchestrator · 장중 09:00~15:30 + 장외 정리 · 거래 종목 1(후성 093370) · 코워크 세션 공유(분할 P0 + 옆 세션 RT_CD_7/WS self-heal 동시 진행)</p>
+
+<!-- ① 요약 배너 -->
+<h2>① 요약</h2>
+<div class="banner">
+  <div class="stat"><div class="v blue">25건</div><div class="l">주문(후성 093370)</div></div>
+  <div class="stat"><div class="v red">-2,940</div><div class="l">전략47 실현손익(분할검증비용)</div></div>
+  <div class="stat"><div class="v green">+23,480</div><div class="l">전략86 실현손익(오전)</div></div>
+  <div class="stat"><div class="v green">4건</div><div class="l">P0 결함 해소(분할2단·캔들·owner가드)</div></div>
+  <div class="stat"><div class="v green">0건</div><div class="l">신규 ERROR</div></div>
+  <div class="stat"><div class="v amber">2건</div><div class="l">잔존 WARN(멀티시세·RT_CD_7)</div></div>
+  <div class="stat"><div class="v blue">v3.13.7</div><div class="l">릴리즈(v3.13.6→.7)</div></div>
+</div>
+<p>핵심: <b>분할매수 첫 회차 전량매수 P0를 2단(비중 산정 + lookup 적재 누락)으로 근본 수정하고 라이브 검증(1회 40%→8주·2회 35%→4주) 통과</b>. 전략 시작화면+템플릿 데이터화(DB화) 배포, 캔들 손상 795→13 보정(대한전선 정상화). 옆 세션이 RT_CD_7 익절 deadlock·WS 무tick self-heal·ADR 0127(TP tick failsafe) 병행.</p>
+
+<!-- ② 거래 전수 -->
+<h2>② 거래 전수 + 체인 무결성</h2>
+<p class="note">오전: 전략86(정상 매매, +23,480). 오후: 전략47(qa_scalein, 분할 fix 라이브 검증 — whipsaw로 진입↔청산 반복 + 수동청산 다회).</p>
+<table>
+<tr><th>시각</th><th>주문</th><th>side</th><th>수량</th><th>판정/트리거</th><th>비고</th></tr>
+<tr><td>11:02</td><td>#433 BUY</td><td>BUY</td><td>21</td><td>STRATEGY_SIGNAL(전략86)</td><td>오전 진입</td></tr>
+<tr><td>11:57</td><td>#435 SELL</td><td>SELL</td><td>21</td><td>STOP_LOSS(86)</td><td>자동 손절 0.08초</td></tr>
+<tr><td>12:49~13:11</td><td>#436~441</td><td>혼합</td><td>21</td><td>STRATEGY_SIGNAL(47)</td><td>whipsaw 진입↔청산(분할 미적용 발견)</td></tr>
+<tr><td>13:54</td><td>#442 BUY</td><td>BUY</td><td>21</td><td>STRATEGY_SIGNAL(47)</td><td>1차 fix(v3.13.6) 후에도 <b>전량 21</b> → 미작동 포착</td></tr>
+<tr><td>14:05/14:31</td><td>#445/448</td><td>SELL</td><td>21/20</td><td>MANUAL</td><td>수동 지정가 청산</td></tr>
+<tr><td>14:52</td><td>#449 BUY</td><td>BUY</td><td><b>8</b></td><td>STRATEGY_SIGNAL(47)</td><td>2차 fix(v3.13.7) <b>1회차 40%=8주 ✅</b></td></tr>
+<tr><td>15:19</td><td>#452 BUY</td><td>BUY</td><td><b>8</b></td><td>STRATEGY_SIGNAL(47)</td><td>1회차 재진입(수동청산으로 리셋)</td></tr>
+<tr><td>15:27</td><td>#454 BUY</td><td>BUY</td><td><b>4</b></td><td>STRATEGY_SIGNAL(47)</td><td><b>2회차 35%=4주 산정 ✅</b>(체결은 미체결 취소)</td></tr>
+</table>
+<p class="note">체인 무결성: 모든 SELL이 직전 BUY 보유분 청산(공매도/롱온리 위반 0). ORDER_FILLED 알람 14건 = 체결 1:1 정합. 오버나잇: 후성 8주(@18,830, 실보유=전략원장 정합).</p>
+
+<!-- ③ 알람 분류 -->
+<h2>③ 알람 전수 분류</h2>
+<table>
+<tr><th>이벤트</th><th>세부</th><th>건수</th><th>status</th><th>판정</th></tr>
+<tr><td>ORDER_FILLED</td><td>—</td><td>14</td><td>SENT</td><td>🟢 체결 정합</td></tr>
+<tr><td>RISK_VIOLATION</td><td>POSITION_LIMIT</td><td>7</td><td>SENT</td><td>🟢 계좌 풀 한도 정상 차단</td></tr>
+<tr><td>RECONCILE_RUN</td><td>—</td><td>1</td><td>SENT</td><td>🟢 09:00 정합</td></tr>
+</table>
+<p class="green">미지의 알람 0건 = GREEN.</p>
+
+<!-- ④ ERROR 분류 -->
+<h2>④ ERROR / WARN 분류</h2>
+<table>
+<tr><th>레벨</th><th>항목</th><th>빈도</th><th>판정</th></tr>
+<tr><td>ERROR</td><td>신규/기지 전부</td><td>0건</td><td>🟢</td></tr>
+<tr><td>WARN</td><td>KIS 멀티시세 PrematureClose (<code>ActiveStrategyCandleFeedPoller</code> degraded feed)</td><td>76/h</td><td>🟡 주채널 WS커버, connection pool 안정화 권장</td></tr>
+<tr><td>WARN</td><td>RT_CD_7 조회일자 (<code>ExpiredDayOrderSyncWorker</code>, #453 좀비)</td><td>2/h</td><td>🟡 옆세션 fix(20f40288) 후에도 #453 재발 — 점검중</td></tr>
+</table>
+
+<!-- ⑤ 결함·조치·PR -->
+<h2>⑤ 발견 결함 · 조치 · PR 매트릭스</h2>
+<table>
+<tr><th>결함</th><th>근본</th><th>조치</th><th>PR/태그</th></tr>
+<tr><td><span class="tag t-fix">P0</span> 분할매수 첫회 전량매수</td><td>① resolveBuyQuantity 비중 미적용 ② ConsumerStrategyJpaEntity scale_in_config 매핑 누락(drift)</td><td>회차 비중 산정 + consumer 엔티티 컬럼 적재. 라이브 검증 통과</td><td>#1050(v3.13.6)·#1052(v3.13.7)</td></tr>
+<tr><td><span class="tag t-feat">기능</span> 전략 시작화면+데이터화</td><td>프리셋 하드코딩·즐겨찾기 localStorage</td><td>strategy.owner 통합·strategy_favorite·V88/V89 시드10·시작화면 UI</td><td>#1043/44/45</td></tr>
+<tr><td><span class="tag t-ops">데이터</span> 캔들 OHL=0 손상</td><td>6/9~12 멀티시세 OHL=0 적재(가드 전)</td><td>DateRepair 2패스 795→13(대한전선 정상화)</td><td>admin repair</td></tr>
+<tr><td><span class="tag t-fix">P0</span> 익절 deadlock(옆세션)</td><td>ExpiredDayOrderSyncWorker 조회일자 RT_CD_7</td><td>조회일자 fix</td><td>20f40288·ADR 0127</td></tr>
+<tr><td><span class="tag t-fix">회귀</span> WS 무tick(옆세션)</td><td>후성 093370 silent 구독누락</td><td>self-heal 재구독 + 풀 리셋</td><td>#1048·#1049</td></tr>
+</table>
+
+<!-- ⑥ 인프라 -->
+<h2>⑥ 인프라 상태</h2>
+<ul>
+  <li><b>배포</b>: consumer 다회 재배포(분할 fix 2단·owner가드·WS self-heal), api·frontend 배포. 4모듈 healthy, 배포 후 ERROR 0.</li>
+  <li><b>WS</b>: H0UNCNT0·H0STCNI0 재구독 정상. 무tick self-heal·watchdog 가동. 장외 단발 재연결 다수(정상).</li>
+  <li><b>릴리즈</b>: v3.13.6(분할 1차) → <b>v3.13.7</b>(분할 2차·진짜 fix). README 57 tags·master.html 갱신.</li>
+  <li><b>Flyway</b>: V87 → V88(owner·favorite) → V89(SYSTEM 시드10) 적용 성공.</li>
+</ul>
+
+<!-- ⑥-2 오후 추가 hotfix (코드점검 후속) -->
+<h2>⑥-2 오후 추가 hotfix (코드 점검 결과 반영)</h2>
+<table>
+<tr><th>조치</th><th>내용</th><th>PR</th></tr>
+<tr><td><span class="tag t-fix">자본안전</span> EXPIRE 매도전용 가드</td><td>ExpiredDayOrderSyncWorker EXPIRE fallback에 <code>side==SELL</code> 조건 — 매수 주문이 체결 누락으로 미체결 잔존 시 오삭제(보유 어긋남) 방지. + RT_CD_7 글자매칭("조회일자") 제거(prefix만)</td><td>#1054</td></tr>
+<tr><td><span class="tag t-ops">정리</span> WS self-heal 삭제</td><td>무tick self-heal 재구독(풀리셋) 제거 — 라이브 실효 0(후성 ageSeconds=208 고정·tick 0회 회복) + 장외 churn. <b>감지 watchdog·1m REST 보완·degraded poller 안전망은 보존</b></td><td>#1055</td></tr>
+</table>
+<p class="note">배포 검증: consumer healthy·ERROR 0·self-heal 풀리셋 로그 0·무tick watchdog+1m REST hook 보존 확인. main=c684700a.</p>
+
+<!-- ⑦ 익일 인계 -->
+<h2>⑦ 익일 인계 (잔여 과제)</h2>
+<ol>
+  <li>🔭 <b>self-heal 제거 후 관찰</b> — silent 끊김 시 보존된 안전망(1m REST 보완·degraded poller)이 충분한지, 시세 stale→평가/손절 영향 없는지 모니터.</li>
+  <li>🟡 <b>RT_CD_7 조회범위 근본</b> — #453 재발은 fix(20f40288)가 multi-day(today-1..today)로 보내 KIS 거부, 성공 레시피는 단일일(start==end==today). 글자매칭/side가드는 했으나 <b>조회범위 근본은 보류</b>(자본손실 0·내일 #453 전일주문되면 EXPIRE 자동청소). 노이즈 거슬리면 단일일 수정.</li>
+  <li>🟡 <b>NotFound→CANCELLED BUY 잠재 risk</b> — EXPIRE fallback 외 정상경로 NotFound 즉시취소도 매수 체결흡수 전 일시미존재 오삭제 여지(backend-core 지적). 별도 사이클 검토.</li>
+  <li>🟡 <b>KIS 멀티시세 connection 오류</b> — <code>ActiveStrategyCandleFeedPoller</code> reactor.netty PrematureClose 76/h. pool maxIdleTime/retry 안정화 (market-data).</li>
+  <li>🟡 <b>strategy_position drift</b> — 수동청산(strategy_id=0)이 전략 원장 미반영. 정합 점검.</li>
+  <li>🟡 <b>기술부채</b> — consumer가 api strategy 엔티티/매퍼 복제 → 컬럼추가 drift 근본(이번 분할 P0 뿌리). <code>persistence-shared</code> 추출.</li>
+  <li>🟢 <b>전략 47</b> — ma3/ma8 whipsaw 부적합, 재설계/폐기. 현재 PAUSED.</li>
+  <li>🟢 <b>오버나잇</b> — 후성 8주 @18,830(전략47, 익절예약 #453 ACK). 익일 처리/정리.</li>
+  <li>🟢 <b>거래이력 DSL 조건</b> — "직전 매도가 대비 %" 등 후속 트랙(평가엔진 확장).</li>
+</ol>
+
+<p class="note">— 분할 fix는 1차가 라이브에서 미작동한 것을 실증으로 잡아 2차에서 진짜 근본(consumer 엔티티 drift)을 닫은 게 핵심. 단위테스트 GREEN ≠ 라이브 작동 교훈.</p>
+
+</body>
+</html>
