@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.13.7** | 2026-06-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.7) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.6** | 2026-06-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.6) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.5** | 2026-06-15 | REAL canary 3일차 운영 정비 패치 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.5) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.4** | 2026-06-15 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.4) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
