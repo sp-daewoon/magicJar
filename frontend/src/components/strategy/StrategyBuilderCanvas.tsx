@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react'
 import type { BlockNode as BlockNodeType, BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
-import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
+import type { StrategyStartItem } from '../../api/strategy'
 import { BlockNode } from './BlockNode'
 
 type TreeTab = 'entry' | 'exit'
@@ -41,10 +41,10 @@ interface StrategyBuilderCanvasProps {
   onSave?: () => void
   /** 평가 버튼 */
   onEvaluate?: () => void
-  /** 전략 후보 프리셋 */
-  presets?: SmartMoneyStrategyPreset[]
+  /** 전략 후보 프리셋 — 시작화면 데이터(DB) 공급 */
+  presets?: StrategyStartItem[]
   /** 프리셋 적용 */
-  onPresetApply?: (preset: SmartMoneyStrategyPreset) => void
+  onPresetApply?: (preset: StrategyStartItem) => void
   /** 저장된 strategyId — 평가 활성화 여부 */
   strategyId?: string
   /** 유효성 검사 로딩 */
@@ -140,9 +140,9 @@ export function StrategyBuilderCanvas({
               type="button"
               className="shrink-0 rounded-md border border-gray-700 bg-gray-900 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:border-teal-500 hover:bg-teal-950/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-400"
               onClick={() => onPresetApply?.(preset)}
-              title={`${preset.description} · 추천 기준봉 ${preset.suggestedInterval}`}
+              title={`${preset.dslEntry} · 추천 기준봉 ${preset.tf}`}
             >
-              {preset.label}
+              {preset.nameKo || preset.name}
             </button>
           ))}
         </div>

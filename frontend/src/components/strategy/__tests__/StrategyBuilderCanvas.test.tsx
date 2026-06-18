@@ -12,7 +12,19 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { StrategyBuilderCanvas } from '../StrategyBuilderCanvas'
 import type { BlockTree } from '../../../lib/dsl/blockTree'
-import { SMART_MONEY_STRATEGY_PRESETS } from '../../../lib/dsl/smartMoneyPresets'
+import type { StrategyStartItem } from '../../../api/strategy'
+
+const samplePreset: StrategyStartItem = {
+  id: 101,
+  name: 'fvg-bullish-reclaim',
+  nameKo: 'FVG 매수 후보',
+  tf: '3m',
+  dslEntry: 'fvg(50).bullish_active == 1 AND close > fvg(50).bullish_mid',
+  dslExit: 'close < fvg(50).bullish_bottom',
+  takeProfitPct: 5,
+  fixedStopLossPct: 3,
+  favorite: false,
+}
 
 const noop = () => {}
 
@@ -117,12 +129,12 @@ describe('StrategyBuilderCanvas', () => {
       <StrategyBuilderCanvas
         tree={{}}
         onTreeChange={noop}
-        presets={SMART_MONEY_STRATEGY_PRESETS.slice(0, 1)}
+        presets={[samplePreset]}
         onPresetApply={onPresetApply}
       />,
     )
 
     fireEvent.click(screen.getByText('FVG 매수 후보'))
-    expect(onPresetApply).toHaveBeenCalledWith(SMART_MONEY_STRATEGY_PRESETS[0])
+    expect(onPresetApply).toHaveBeenCalledWith(samplePreset)
   })
 })
