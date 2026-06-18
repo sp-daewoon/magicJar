@@ -14,10 +14,12 @@ import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderInquireDailyCcl
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderAuditEventRepository
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderInquireResult
 import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -184,6 +186,107 @@ class ExpiredDayOrderSyncWorkerTest {
         verify(exactly = 1) { orderRepo.updateStatus(334L, OrderStatus.CANCELLED, match { it.contains("DAY_ORDER_EXPIRED") }) }
         verify(exactly = 1) { orderRepo.markCompleted(334L, any(), OrderStatus.CANCELLED) }
         verify(exactly = 1) { auditRepo.save(match { it.eventType == OrderAuditEventType.KIS_RECONCILE_RESOLVED }) }
+    }
+
+    // ── canary D5 RT_CD_7 근본 fix (#1019) ──────────────────────────────────
+
+    @Test
+    fun `RT_CD_7 fix — KIS 조회를 발주일(today-2 아님) anchor 로 호출한다`() {
+        // 전일(2026-06-11 KST) 발주 day-order. today=2026-06-12 KST.
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 600L, status = OrderStatus.ACK))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns
+            OrderInquireResult.Found(odno = "ODNO600", krxFwdgOrdOrgno = "00950", filledQty = 0, orderQty = 7, ccldStatus = "01")
+
+        worker().expireTick()
+
+        // start = 발주일(06-11) = min(06-11, today-1=06-11), end = today(06-12). 기존 결함의 06-10(today-2) 아님.
+        verify(exactly = 1) {
+            kisPort.inquireByOrderNo(
+                userId = "user-A",
+                mode = TradingMode.MOCK,
+                kisOrderNo = "ODNO600",
+                inquireStartDate = LocalDate.of(2026, 6, 11),
+                inquireEndDate = LocalDate.of(2026, 6, 12),
+            )
+        }
+    }
+
+    @Test
+    fun `inquireStartDate clamp — 발주일을 today-1 상한 today-90 하한으로 clamp`() {
+        val w = worker()
+        val today = LocalDate.of(2026, 6, 12)
+        // 전일 발주 → 그대로.
+        assertThat(w.inquireStartDate(LocalDate.of(2026, 6, 11), today)).isEqualTo(LocalDate.of(2026, 6, 11))
+        // 당일 발주 → today-1 로 상한 clamp(발주일을 넘어 today 로 새로 잡지 않음).
+        assertThat(w.inquireStartDate(today, today)).isEqualTo(LocalDate.of(2026, 6, 11))
+        // 100일 전 stale → today-90 하한 clamp(inner 3개월 경계 보호).
+        assertThat(w.inquireStartDate(today.minusDays(100), today)).isEqualTo(today.minusDays(90))
+    }
+
+    @Test
+    fun `RT_CD_7 fallback — date-error 임계 미만이면 상태 불변(재시도)`() {
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 700L, status = OrderStatus.ACK))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns
+            OrderInquireResult.Failed("RT_CD_7:조회일자를 확인하십시오")
+
+        val w = worker()
+        // 1·2회차(임계 3 미만) — 잘못된 CANCELLED 회피, 상태 불변.
+        w.expireTick()
+        w.expireTick()
+
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+    }
+
+    @Test
+    fun `RT_CD_7 fallback — date-error 3회 연속 + 발주일 과거 → EXPIRE 동기화`() {
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 701L, status = OrderStatus.ACK))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns
+            OrderInquireResult.Failed("RT_CD_7:조회일자를 확인하십시오")
+
+        val w = worker()
+        w.expireTick() // 1
+        w.expireTick() // 2
+        w.expireTick() // 3 → 임계 도달 EXPIRE
+
+        // 청산 의도된 stale SELL → CANCELLED 정정(오버셀 risk 0). 사유에 date-error 명시.
+        verify(exactly = 1) {
+            orderRepo.updateStatus(701L, OrderStatus.CANCELLED, match { it.contains("DAY_ORDER_EXPIRED") })
+        }
+        verify(exactly = 1) { orderRepo.markCompleted(701L, any(), OrderStatus.CANCELLED) }
+        verify(exactly = 1) { auditRepo.save(match { it.payloadJson.contains("KIS_DATE_ERROR_EXPIRE") }) }
+    }
+
+    @Test
+    fun `RT_CD_7 fallback — date-error 아닌 일반 Failed(TIMEOUT)는 EXPIRE 하지 않는다`() {
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.ACK, any(), any()) } returns
+            listOf(priorDayOrder(id = 702L, status = OrderStatus.ACK))
+        every { orderRepo.findByStatusAndRequestedAtBefore(OrderStatus.REQUESTED, any(), any()) } returns emptyList()
+        every { kisPort.inquireByOrderNo(any(), any(), any(), any(), any()) } returns OrderInquireResult.Failed("TIMEOUT")
+
+        val w = worker()
+        w.expireTick()
+        w.expireTick()
+        w.expireTick()
+        w.expireTick() // 4회차여도 date-error 아니므로 EXPIRE 금지.
+
+        verify(exactly = 0) { orderRepo.updateStatus(any(), any(), any()) }
+        verify(exactly = 0) { orderRepo.markCompleted(any(), any(), any()) }
+    }
+
+    @Test
+    fun `isKisDateError 식별 — RT_CD_7 와 조회일자 메시지만 date-error`() {
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_7:조회일자를 확인하십시오")).isTrue()
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_1:조회일자 오류")).isTrue()
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("TIMEOUT")).isFalse()
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("HTTP_500")).isFalse()
+        assertThat(ExpiredDayOrderSyncWorker.isKisDateError("RT_CD_1:잔고 부족")).isFalse()
     }
 
     // ── fixtures ───────────────────────────────────────────────────────────
