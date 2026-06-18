@@ -3,10 +3,10 @@ id: T-20260618-1258-ws-notick-resub-reset
 agent: market-data
 model: opus
 branch: agent/market-data/ws-notick-resub-reset
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T12:58:02.605+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T13:09:10.367+09:00
+pr: #1049
 parentPhase: ?
 ---
 
