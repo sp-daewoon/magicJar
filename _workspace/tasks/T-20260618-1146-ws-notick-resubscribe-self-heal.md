@@ -3,10 +3,10 @@ id: T-20260618-1146-ws-notick-resubscribe-self-heal
 agent: market-data
 model: opus
 branch: agent/market-data/ws-notick-resubscribe-self-heal
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T11:46:24.829+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T11:50:38.508+09:00
+pr: #1048
 parentPhase: ?
 ---
 
