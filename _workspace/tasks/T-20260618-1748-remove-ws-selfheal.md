@@ -14,10 +14,10 @@ parentPhase: ?
 WS 무tick self-heal 제거(실효0·churn) — 감지로그 보존·degraded poller 유지
 
 ## 결과물 체크리스트
-- [ ] self-heal제거
-- [ ] 관측로그보존
-- [ ] degraded안전망확인
-- [ ] 테스트
+- [x] self-heal제거
+- [x] 관측로그보존
+- [x] degraded안전망확인
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)
