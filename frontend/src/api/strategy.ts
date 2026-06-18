@@ -391,6 +391,81 @@ export const sigStrategyApi = {
   },
 }
 
+// ──────────────────────────────────────────────
+// 전략 시작 화면 (spec 2026-06-18 §6) — 검증 템플릿(SYSTEM) + 내 전략 + 즐겨찾기
+// 백엔드 계약: StrategyStartResponse.kt / StrategyStartItem (PR #1043 R1·R2)
+//   GET    /api/strategies/start?userId=
+//   POST   /api/strategies/{id}/favorite?userId=  → 201 (UNIQUE 충돌 멱등)
+//   DELETE /api/strategies/{id}/favorite?userId=  → 204
+// ──────────────────────────────────────────────
+
+/** 시작 화면 카드 1건 — 템플릿·내 전략 공통 (백엔드 StrategyStartItem 정합) */
+export interface StrategyStartItem {
+  id: number
+  name: string
+  nameKo: string | null
+  tf: string
+  dslEntry: string
+  dslExit: string | null
+  takeProfitPct: number | null
+  fixedStopLossPct: number | null
+  favorite: boolean
+}
+
+/** GET /api/strategies/start 응답 (백엔드 StrategyStartResponse 정합) */
+export interface StrategyStartResponse {
+  templates: StrategyStartItem[]
+  myStrategies: StrategyStartItem[]
+  favoriteIds: number[]
+}
+
+/** 백엔드 BigDecimal은 string으로 직렬화될 수 있어 number로 정규화 */
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizeStartItem(raw: unknown): StrategyStartItem {
+  const r = (raw ?? {}) as Record<string, unknown>
+  return {
+    id: Number(r.id ?? 0),
+    name: String(r.name ?? ''),
+    nameKo: r.nameKo != null ? String(r.nameKo) : null,
+    tf: String(r.tf ?? ''),
+    dslEntry: String(r.dslEntry ?? ''),
+    dslExit: r.dslExit != null ? String(r.dslExit) : null,
+    takeProfitPct: toNumberOrNull(r.takeProfitPct),
+    fixedStopLossPct: toNumberOrNull(r.fixedStopLossPct),
+    favorite: r.favorite === true,
+  }
+}
+
+export const strategyStartApi = {
+  /** GET /api/strategies/start?userId= — 시작 화면 세 재료 단일 조회 */
+  getStart: async (userId: number): Promise<StrategyStartResponse> => {
+    const res = await apiClient.get<unknown>('/strategies/start', { params: { userId } })
+    const data = (res.data ?? {}) as Record<string, unknown>
+    return {
+      templates: Array.isArray(data.templates) ? data.templates.map(normalizeStartItem) : [],
+      myStrategies: Array.isArray(data.myStrategies) ? data.myStrategies.map(normalizeStartItem) : [],
+      favoriteIds: Array.isArray(data.favoriteIds)
+        ? data.favoriteIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+        : [],
+    }
+  },
+
+  /** POST /api/strategies/{id}/favorite?userId= — 즐겨찾기 추가(멱등) */
+  addFavorite: async (id: number, userId: number): Promise<void> => {
+    await apiClient.post(`/strategies/${id}/favorite`, null, { params: { userId } })
+  },
+
+  /** DELETE /api/strategies/{id}/favorite?userId= — 즐겨찾기 해제 */
+  removeFavorite: async (id: number, userId: number): Promise<void> => {
+    await apiClient.delete(`/strategies/${id}/favorite`, { params: { userId } })
+  },
+}
+
 function toSigStrategyRequestBody(req: CreateSigStrategyRequest | UpdateSigStrategyRequest) {
   const entry = req.entry ?? req.buyCondition
   if (!entry) {

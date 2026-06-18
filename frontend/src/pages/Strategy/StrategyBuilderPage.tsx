@@ -33,16 +33,11 @@ import { DslTextEditor } from '../../components/strategy/DslTextEditor'
 import type { StrategyBuilderAiGenerateItem } from '../../api/strategyBuilderAiGenerate'
 import { cloneNode, type BlockNode, type BlockTree } from '../../lib/dsl/blockTree'
 import { serializeBlockTree } from '../../lib/dsl/serializer'
-import {
-  clonePresetTree,
-  SMART_MONEY_STRATEGY_PRESETS,
-  type SmartMoneyStrategyPreset,
-} from '../../lib/dsl/smartMoneyPresets'
-import { MINERVINI_STRATEGY_FAVORITES } from '../../lib/dsl/minerviniFavorites'
 import { kisYamlExport, kisYamlImport } from '../../lib/dsl/yaml'
 import { useStrategyValidate, useStrategyEvaluate } from '../../api/hooks/useStrategy'
 import { useSigStrategy } from '../../api/hooks/useSigStrategy'
-import type { StrategyComplexityDto, EvaluateResponse } from '../../api/strategy'
+import { useStrategyStart, useToggleFavorite } from '../../api/hooks/useStrategyStart'
+import type { StrategyComplexityDto, EvaluateResponse, StrategyStartItem } from '../../api/strategy'
 import { symbolApi, type CandleInterval } from '../../api/symbol'
 import { parseDslText, parseDslTextToTree } from '../../lib/dsl/parser'
 import {
@@ -50,6 +45,7 @@ import {
   type StrategyResearchBuilderDraft,
 } from '../../lib/strategyResearch/builderDraft'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
+import { StrategyStartScreen } from '../../components/strategy/StrategyStartScreen'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { InstrumentSearchInput } from '../../components/InstrumentSearchInput'
 
@@ -75,52 +71,46 @@ const EVAL_INTERVAL_OPTIONS = [
   { value: '1y', label: '1y' },
 ]
 
+// localStorage 즐겨찾기는 DB(strategy_favorite)로 승격됨 (spec 2026-06-18 §5.2·§7-3).
+// 마운트 시 1회 흡수 마이그레이션 후 키 제거.
 const STRATEGY_FAVORITES_STORAGE_KEY = 'magicjar.strategyBuilder.customFavorites.v1'
 const STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY = 'magicjar.strategyBuilder.hiddenDefaultFavorites.v1'
+const STRATEGY_FAVORITES_MIGRATED_KEY = 'magicjar.strategyBuilder.favoritesMigrated.v1'
 
-function loadCustomFavorites(): SmartMoneyStrategyPreset[] {
+/**
+ * localStorage 잔존 즐겨찾기 → DB 흡수 (베스트에포트, 실패 무해).
+ * 식별 가능한 strategyId 항목만 흡수 — 옛 항목은 strategy로 존재하지 않을 수 있으므로
+ * `strategyId`/`id`(숫자) 필드로 식별 가능한 것만 대상, 나머지는 무시(로그만).
+ * @returns 흡수할 strategyId 목록(중복 제거)
+ */
+function collectMigratableFavoriteIds(): number[] {
   if (typeof window === 'undefined') return []
+  const ids = new Set<number>()
   try {
     const raw = window.localStorage.getItem(STRATEGY_FAVORITES_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item): item is SmartMoneyStrategyPreset => {
-      if (!item || typeof item !== 'object') return false
-      const candidate = item as Partial<SmartMoneyStrategyPreset>
-      return (
-        typeof candidate.id === 'string' &&
-        typeof candidate.label === 'string' &&
-        typeof candidate.description === 'string' &&
-        typeof candidate.suggestedInterval === 'string' &&
-        !!candidate.tree
-      )
-    })
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue
+      const candidate = item as Record<string, unknown>
+      // 식별 가능한 strategyId: 숫자거나 숫자 문자열
+      const rawId = candidate.strategyId ?? candidate.id
+      const numId = typeof rawId === 'number' ? rawId : Number(rawId)
+      if (Number.isFinite(numId) && numId > 0) ids.add(numId)
+      else console.info('[strategyBuilder] localStorage 즐겨찾기 흡수 불가(식별 불가) — 무시', candidate.id)
+    }
   } catch {
     return []
   }
+  return Array.from(ids)
 }
 
-function saveCustomFavorites(favorites: SmartMoneyStrategyPreset[]) {
+function clearLocalFavoriteStorage() {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(STRATEGY_FAVORITES_STORAGE_KEY, JSON.stringify(favorites))
-}
-
-function loadHiddenDefaultFavoriteIds(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    return Array.isArray(parsed) ? parsed.map((id) => String(id)).filter(Boolean) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHiddenDefaultFavoriteIds(ids: string[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY, JSON.stringify(ids))
+  window.localStorage.removeItem(STRATEGY_FAVORITES_STORAGE_KEY)
+  window.localStorage.removeItem(STRATEGY_HIDDEN_DEFAULT_FAVORITES_STORAGE_KEY)
+  window.localStorage.setItem(STRATEGY_FAVORITES_MIGRATED_KEY, '1')
 }
 
 function insertBlockIntoFirstEmptySlot(root: BlockNode, block: BlockNode): BlockNode | null {
@@ -174,10 +164,11 @@ export function StrategyBuilderPage() {
   const [isPreparingEvaluation, setIsPreparingEvaluation] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [customFavorites, setCustomFavorites] = useState<SmartMoneyStrategyPreset[]>(loadCustomFavorites)
-  const [hiddenDefaultFavoriteIds, setHiddenDefaultFavoriteIds] = useState<string[]>(loadHiddenDefaultFavoriteIds)
+  // 시작 화면 → 빌더 진입 여부 (빈 트리 + 미로드 시 시작 화면, "빈 캔버스로"·카드 선택 시 빌더)
+  const [started, setStarted] = useState(false)
   const [researchDraftMeta, setResearchDraftMeta] = useState<StrategyResearchBuilderDraft | null>(null)
   const importedResearchDraftIdRef = useRef<string | null>(null)
+  const favoritesMigratedRef = useRef(false)
 
   // 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false)
@@ -185,6 +176,8 @@ export function StrategyBuilderPage() {
   const [showAiGenerate, setShowAiGenerate] = useState(false)
   // AI 생성 후보를 빌더로 불러올 때 name·riskPlan을 저장 모달 초기값으로 전달 (researchDraftMeta 패턴)
   const [aiDraftMeta, setAiDraftMeta] = useState<StrategyBuilderAiGenerateItem | null>(null)
+  // 시작 화면 카드(템플릿·내 전략)에서 불러온 항목 — 저장 모달 기본값(name·tf·리스크플랜) 전달 (ADR 0112 자동 저장 0)
+  const [startItemMeta, setStartItemMeta] = useState<StrategyStartItem | null>(null)
   const [showDslEditor, setShowDslEditor] = useState(false)
   const [dslEditorTab, setDslEditorTab] = useState<'entry' | 'exit'>('entry')
   const [validateError, setValidateError] = useState<string | null>(null)
@@ -205,17 +198,18 @@ export function StrategyBuilderPage() {
   const { mutateAsync: evaluateAsync, isPending: isEvaluating } = useStrategyEvaluate()
   const { width: paletteWidth, handleMouseDown: handlePaletteResizeDown, isDragging: isPaletteResizing } = usePaletteResize()
 
-  const defaultFavoritePresets = useMemo(
-    () => [...SMART_MONEY_STRATEGY_PRESETS, ...MINERVINI_STRATEGY_FAVORITES],
-    [],
-  )
-  const favoritePresets = useMemo(() => {
-    const hiddenIds = new Set(hiddenDefaultFavoriteIds)
-    return [
-      ...defaultFavoritePresets.filter((preset) => !hiddenIds.has(preset.id)),
-      ...customFavorites,
-    ]
-  }, [customFavorites, defaultFavoritePresets, hiddenDefaultFavoriteIds])
+  // 시작 화면 데이터(DB) — 즐겨찾기는 templates+myStrategies 중 favorite=true 합집합 (localStorage 폐기)
+  const { data: startData } = useStrategyStart(registeredUserId)
+  const { mutate: toggleFavoriteMutate, isPending: isTogglingFavorite } = useToggleFavorite(registeredUserId)
+  const favoritePresets = useMemo<StrategyStartItem[]>(() => {
+    if (!startData) return []
+    const seen = new Set<number>()
+    return [...startData.myStrategies, ...startData.templates].filter((item) => {
+      if (!item.favorite || seen.has(item.id)) return false
+      seen.add(item.id)
+      return true
+    })
+  }, [startData])
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg)
@@ -233,6 +227,7 @@ export function StrategyBuilderPage() {
       setTree(parseDslTextToTree(loadedStrategy.buyCondition, loadedStrategy.sellCondition))
       setStrategyId(loadedStrategy.id)
       setAiDraftMeta(null)
+      setStartItemMeta(null)
       setComplexity(loadedStrategy.complexity ?? null)
       setEvalResult(null)
       setValidateError(null)
@@ -268,6 +263,7 @@ export function StrategyBuilderPage() {
       setTree(parseDslTextToTree(draft.entryDsl, draft.exitDsl))
       setResearchDraftMeta(draft)
       setAiDraftMeta(null)
+      setStartItemMeta(null)
       setStrategyId(undefined)
       setComplexity(null)
       setEvalResult(null)
@@ -287,6 +283,26 @@ export function StrategyBuilderPage() {
     }
   }, [isLoadStrategyError, loadStrategyError, showToast])
 
+  // localStorage 즐겨찾기 1회 흡수 마이그레이션 (spec §7-3) — 식별 가능한 strategyId만, 베스트에포트.
+  useEffect(() => {
+    if (favoritesMigratedRef.current) return
+    if (registeredUserId === null || registeredUserId === undefined) return
+    if (typeof window === 'undefined') return
+    if (window.localStorage.getItem(STRATEGY_FAVORITES_MIGRATED_KEY)) {
+      favoritesMigratedRef.current = true
+      return
+    }
+    favoritesMigratedRef.current = true
+    const ids = collectMigratableFavoriteIds()
+    for (const id of ids) {
+      toggleFavoriteMutate({ id, on: true }) // 멱등 — 실패해도 무해
+    }
+    clearLocalFavoriteStorage()
+    if (ids.length > 0) {
+      console.info(`[strategyBuilder] localStorage 즐겨찾기 ${ids.length}건 DB 흡수 완료`)
+    }
+  }, [registeredUserId, toggleFavoriteMutate])
+
   // 팔레트에서 블록 선택 → 캔버스 현재 탭 루트에 추가
   // hotfix 2026-05-14: canvasTab 인식 — 매수/매도 탭에 따라 분기 (이전 결함: 항상 entry 에만 추가)
   const handlePaletteSelect = (block: BlockNode) => {
@@ -305,64 +321,53 @@ export function StrategyBuilderPage() {
     ))
   }
 
-  const applyPresetTree = (
-    preset: SmartMoneyStrategyPreset,
-    options: { useSuggestedInterval: boolean },
-  ) => {
+  /**
+   * 시작 화면 카드(템플릿·내 전략·즐겨찾기) → 빌더 로드 (spec §6.3).
+   * DSL 파싱 실패 시 throw하지 않고 토스트 경고만 — 한 템플릿이 깨져도 나머지 사용 가능 (spec §9, AI dslValid=false 패턴).
+   * 리스크플랜(tp/sl)은 자동 저장 안 함, 저장 모달 기본값으로만 전달 (ADR 0112).
+   */
+  const loadFromStartItem = (item: StrategyStartItem) => {
     if (tree.entry || tree.exit) {
-      const ok = window.confirm('현재 조건을 프리셋 후보로 교체할까요?')
+      const ok = window.confirm('현재 조건을 선택한 전략으로 교체할까요?')
       if (!ok) return
     }
-    setTree(clonePresetTree(preset.tree))
-    setCanvasTab('entry')
-    setStrategyId(undefined)
-    setAiDraftMeta(null)
-    setComplexity(null)
-    setEvalResult(null)
-    setValidateError(null)
-    if (options.useSuggestedInterval) {
-      setEvalForm((prev) => ({ ...prev, interval: preset.suggestedInterval }))
+    const label = item.nameKo || item.name
+    try {
+      const parsed = parseDslTextToTree(item.dslEntry, item.dslExit ?? undefined)
+      if (!parsed.entry) {
+        showToast(`${label}: 매수 조건을 해석하지 못했습니다`, 'error')
+        return
+      }
+      setTree(parsed)
+      setCanvasTab('entry')
+      setStrategyId(undefined)
+      setAiDraftMeta(null)
+      setComplexity(null)
+      setEvalResult(null)
+      setValidateError(null)
+      setStartItemMeta(item)
+      loadedStrategyIdRef.current = null
+      if (item.tf) setEvalForm((prev) => ({ ...prev, interval: item.tf }))
+      setStarted(true)
+      showToast(`${label} 불러옴`)
+    } catch (err) {
+      // 파서 버전 불일치 등 — 카드 경고(토스트)로 처리, 빌더 진입은 막지 않음
+      showToast(`${label} 조건 해석 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
     }
-    showToast(`${preset.label} 적용됨`)
   }
 
-  const handleFavoriteApply = (preset: SmartMoneyStrategyPreset) => {
-    applyPresetTree(preset, { useSuggestedInterval: false })
+  const handleFavoriteApply = (item: StrategyStartItem) => {
+    loadFromStartItem(item)
   }
 
-  const handleAddFavorite = () => {
-    const { entry } = serializeBlockTree(tree)
-    if (!entry) {
-      showToast('즐겨찾기에 추가할 매수 조건이 없습니다', 'error')
-      return
-    }
-    const label = window.prompt('즐겨찾기 이름을 입력하세요', '나의 전략 후보')?.trim()
-    if (!label) return
-    const nextFavorite: SmartMoneyStrategyPreset = {
-      id: `custom-${Date.now()}`,
-      label,
-      description: entry.length > 72 ? `${entry.slice(0, 72)}...` : entry,
-      suggestedInterval: evalForm.interval,
-      tree: clonePresetTree(tree),
-    }
-    const next = [nextFavorite, ...customFavorites]
-    setCustomFavorites(next)
-    saveCustomFavorites(next)
-    showToast(`${label} 즐겨찾기 추가됨`)
-  }
-
-  const handleRemoveFavorite = (id: string) => {
-    if (customFavorites.some((favorite) => favorite.id === id)) {
-      const next = customFavorites.filter((favorite) => favorite.id !== id)
-      setCustomFavorites(next)
-      saveCustomFavorites(next)
-      showToast('즐겨찾기에서 삭제했습니다')
-      return
-    }
-    const next = Array.from(new Set([...hiddenDefaultFavoriteIds, id]))
-    setHiddenDefaultFavoriteIds(next)
-    saveHiddenDefaultFavoriteIds(next)
-    showToast('즐겨찾기에서 삭제했습니다')
+  const handleFavoriteRemove = (id: number) => {
+    toggleFavoriteMutate(
+      { id, on: false },
+      {
+        onSuccess: () => showToast('즐겨찾기에서 삭제했습니다'),
+        onError: (err) => showToast(`즐겨찾기 삭제 실패: ${err.message}`, 'error'),
+      },
+    )
   }
 
   // 검증
@@ -446,6 +451,7 @@ export function StrategyBuilderPage() {
       setTree(parseDslTextToTree(item.entryDsl, item.exitDsl ?? undefined))
       setAiDraftMeta(item)
       setResearchDraftMeta(null)
+      setStartItemMeta(null)
       setStrategyId(undefined)
       setComplexity(null)
       setEvalResult(null)
@@ -527,6 +533,56 @@ export function StrategyBuilderPage() {
 
   const { entry: entryDsl, exit: exitDsl } = serializeBlockTree(tree)
 
+  // 시작 화면 분기 (spec 2026-06-18 §4.1) — 빈 트리 + 미로드 + URL deeplink 없음 + 미시작일 때만.
+  const hasDeepLink = !!routeStrategyId || !!searchParams.get('researchDraftId')
+  const isFresh =
+    !started &&
+    !hasDeepLink &&
+    !tree.entry &&
+    !tree.exit &&
+    !strategyId &&
+    !researchDraftMeta &&
+    !aiDraftMeta &&
+    !startItemMeta
+  const showStartScreen = isFresh
+
+  if (showStartScreen) {
+    return (
+      <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
+        <StrategyStartScreen
+          userId={registeredUserId}
+          onPick={loadFromStartItem}
+          onBlank={() => setStarted(true)}
+          onDescribe={() => {
+            setStarted(true)
+            setShowAiGenerate(true)
+          }}
+        />
+        {/* 시작 화면에서 "말로 설명" 시 AI 생성 모달 */}
+        {showAiGenerate && (
+          <StrategyAiGenerateModal
+            userId={registeredUserId}
+            defaultInterval={evalForm.interval}
+            onLoadDraft={handleAiDraftLoad}
+            onClose={() => setShowAiGenerate(false)}
+          />
+        )}
+        {/* 토스트 알림 (시작 화면에서도 노출) */}
+        {toast && (
+          <div
+            className={[
+              'fixed bottom-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-medium shadow-lg transition-all',
+              toastType === 'success' ? 'bg-emerald-900 text-emerald-200' : 'bg-red-900 text-red-200',
+            ].join(' ')}
+            role="status"
+          >
+            {toast}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
       {/* 모바일 안내 (DoD #26 — 768px 이하) */}
@@ -543,10 +599,9 @@ export function StrategyBuilderPage() {
         <BlockPalette
           onSelect={handlePaletteSelect}
           favorites={favoritePresets}
-          hasFavoriteSource={!!entryDsl}
           onFavoriteApply={handleFavoriteApply}
-          onFavoriteAddCurrent={handleAddFavorite}
-          onFavoriteRemove={handleRemoveFavorite}
+          onFavoriteRemove={handleFavoriteRemove}
+          favoriteRemovePending={isTogglingFavorite}
           width={paletteWidth}
         />
         {/* ResizeHandle — col-resize 핸들 */}
@@ -736,18 +791,18 @@ export function StrategyBuilderPage() {
           userId={registeredUserId}
           entry={entryDsl}
           exit={exitDsl}
-          initialName={loadedStrategy?.name ?? researchDraftMeta?.name ?? aiDraftMeta?.name}
-          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo ?? aiDraftMeta?.name}
+          initialName={loadedStrategy?.name ?? researchDraftMeta?.name ?? aiDraftMeta?.name ?? startItemMeta?.name}
+          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo ?? aiDraftMeta?.name ?? startItemMeta?.nameKo ?? undefined}
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
           initialCodes={loadedStrategy?.codes}
           initialCodeNames={loadedStrategy?.codeNames}
           initialStopLossPct={
-            loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? undefined
+            loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? startItemMeta?.fixedStopLossPct ?? undefined
           }
           initialTakeProfitPct={
-            loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct ?? aiDraftMeta?.riskPlan.takeProfitPct ?? undefined
+            loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct ?? aiDraftMeta?.riskPlan.takeProfitPct ?? startItemMeta?.takeProfitPct ?? undefined
           }
           initialMinHoldBars={loadedStrategy?.minHoldBars ?? aiDraftMeta?.riskPlan.minHoldBars ?? null}
           initialViActionPolicy={loadedStrategy?.viActionPolicy ?? null}

@@ -14,11 +14,11 @@ parentPhase: ?
 전략 시작화면 UI + 즐겨찾기 API 전환 + 하드코딩 프리셋 제거 R3
 
 ## 결과물 체크리스트
-- [ ] StrategyStartScreen
-- [ ] useStrategyStart
-- [ ] 즐겨찾기API전환
-- [ ] 하드코딩프리셋제거
-- [ ] 시나리오테스트
+- [x] StrategyStartScreen
+- [x] useStrategyStart
+- [x] 즐겨찾기API전환
+- [x] 하드코딩프리셋제거
+- [x] 시나리오테스트
 
 ## 의존성
 - (필요 시 기록)

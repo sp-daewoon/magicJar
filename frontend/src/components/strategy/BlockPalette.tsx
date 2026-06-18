@@ -15,7 +15,7 @@ import { useState, useMemo } from 'react'
 import { INDICATOR_CATALOG, type IndicatorCatalogItem } from '../../api/indicator'
 import { PATTERN_CATALOG, type PatternCatalogItem } from '../../api/patterns'
 import type { BlockNode } from '../../lib/dsl/blockTree'
-import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
+import type { StrategyStartItem } from '../../api/strategy'
 import { StrategyFavoritePanel } from './StrategyFavoritePanel'
 
 type PaletteTab = 'indicator' | 'favorite' | 'pattern' | 'candle' | 'operator'
@@ -23,16 +23,14 @@ type PaletteTab = 'indicator' | 'favorite' | 'pattern' | 'candle' | 'operator'
 interface BlockPaletteProps {
   /** 블록 선택 시 콜백 — 선택된 BlockNode 반환 */
   onSelect: (block: BlockNode) => void
-  /** 전략 즐겨찾기 후보 */
-  favorites?: SmartMoneyStrategyPreset[]
-  /** 현재 트리를 즐겨찾기에 추가할 수 있는지 */
-  hasFavoriteSource?: boolean
-  /** 즐겨찾기 적용 */
-  onFavoriteApply?: (preset: SmartMoneyStrategyPreset) => void
-  /** 현재 전략을 즐겨찾기에 추가 */
-  onFavoriteAddCurrent?: () => void
-  /** 즐겨찾기 삭제 */
-  onFavoriteRemove?: (id: string) => void
+  /** 전략 즐겨찾기 후보 — 시작화면 데이터(DB) 공급 (spec 2026-06-18) */
+  favorites?: StrategyStartItem[]
+  /** 즐겨찾기 적용(빌더 로드) */
+  onFavoriteApply?: (item: StrategyStartItem) => void
+  /** 즐겨찾기 해제 (DELETE /favorite) */
+  onFavoriteRemove?: (id: number) => void
+  /** 즐겨찾기 토글 진행 중 */
+  favoriteRemovePending?: boolean
   /** 패널 폭(px) — usePaletteResize hook에서 주입. 미전달 시 224px(w-56) 기본값 */
   width?: number
 }
@@ -142,10 +140,9 @@ const ITEM_BTN =
 export function BlockPalette({
   onSelect,
   favorites = [],
-  hasFavoriteSource = false,
   onFavoriteApply,
-  onFavoriteAddCurrent,
   onFavoriteRemove,
+  favoriteRemovePending = false,
   width = 224,
 }: BlockPaletteProps) {
   const [tab, setTab] = useState<PaletteTab>('indicator')
@@ -271,10 +268,9 @@ export function BlockPalette({
         {tab === 'favorite' && (
           <StrategyFavoritePanel
             favorites={favorites}
-            hasEntry={hasFavoriteSource}
-            onApply={(preset) => onFavoriteApply?.(preset)}
-            onAddCurrent={() => onFavoriteAddCurrent?.()}
+            onApply={(item) => onFavoriteApply?.(item)}
             onRemove={(id) => onFavoriteRemove?.(id)}
+            removePending={favoriteRemovePending}
           />
         )}
 

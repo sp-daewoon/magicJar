@@ -1,21 +1,23 @@
 import { useState } from 'react'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
-import type { SmartMoneyStrategyPreset } from '../../lib/dsl/smartMoneyPresets'
+import type { StrategyStartItem } from '../../api/strategy'
 
 interface StrategyFavoritePanelProps {
-  favorites: SmartMoneyStrategyPreset[]
-  hasEntry: boolean
-  onApply: (preset: SmartMoneyStrategyPreset) => void
-  onAddCurrent: () => void
-  onRemove: (id: string) => void
+  /** 즐겨찾기 후보 — 시작화면 데이터(DB) 공급 (localStorage 폐기, spec 2026-06-18 §5.2) */
+  favorites: StrategyStartItem[]
+  /** 즐겨찾기 적용(빌더 로드) */
+  onApply: (item: StrategyStartItem) => void
+  /** 즐겨찾기 해제 (DELETE /favorite) */
+  onRemove: (id: number) => void
+  /** 토글 진행 중(중복 클릭 방지) */
+  removePending?: boolean
 }
 
 export function StrategyFavoritePanel({
   favorites,
-  hasEntry,
   onApply,
-  onAddCurrent,
   onRemove,
+  removePending = false,
 }: StrategyFavoritePanelProps) {
   const [showGuide, setShowGuide] = useState(false)
 
@@ -26,59 +28,50 @@ export function StrategyFavoritePanel({
     <section className="p-2" aria-label="전략 즐겨찾기">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-gray-200">전략 즐겨찾기</h3>
-        <div className="flex shrink-0 gap-1">
-          <button
-            type="button"
-            onClick={() => setShowGuide(true)}
-            className="rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:border-blue-500 hover:bg-blue-950/30 hover:text-blue-100"
-          >
-            가이드
-          </button>
-          <button
-            type="button"
-            onClick={onAddCurrent}
-            disabled={!hasEntry}
-            className="rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:border-amber-500 hover:bg-amber-950/30 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
-            title={!hasEntry ? '매수 조건을 먼저 구성하세요' : undefined}
-          >
-            현재 추가
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowGuide(true)}
+          className="shrink-0 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:border-blue-500 hover:bg-blue-950/30 hover:text-blue-100"
+        >
+          가이드
+        </button>
       </div>
 
       <div className="space-y-2">
-        {favorites.map((preset) => (
-          <div key={preset.id} className="flex min-w-0 gap-2">
-            <button
-              type="button"
-              onClick={() => onApply(preset)}
-              aria-label={`${preset.label} 적용`}
-              className="min-w-0 flex-1 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-left transition-colors hover:border-amber-500 hover:bg-amber-950/30 focus:outline-none focus:ring-2 focus:ring-amber-400"
-              title={`${preset.description} · 추천 기준봉 ${preset.suggestedInterval}`}
-            >
-              <span className="block break-words text-xs font-semibold text-gray-100">
-                {preset.label}
-              </span>
-              <span className="mt-1 block break-words text-[11px] leading-4 text-gray-500">
-                {preset.description}
-              </span>
-              <span className="mt-1 block text-[11px] text-amber-300">
-                추천 {preset.suggestedInterval}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onRemove(preset.id)}
-              className="self-start rounded-md border border-gray-800 px-2 py-1 text-[11px] text-gray-500 hover:border-red-700 hover:bg-red-950/30 hover:text-red-200"
-              aria-label={`${preset.label} 즐겨찾기 삭제`}
-            >
-              삭제
-            </button>
-          </div>
-        ))}
+        {favorites.map((item) => {
+          const label = item.nameKo || item.name
+          return (
+            <div key={item.id} className="flex min-w-0 gap-2">
+              <button
+                type="button"
+                onClick={() => onApply(item)}
+                aria-label={`${label} 적용`}
+                className="min-w-0 flex-1 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-left transition-colors hover:border-amber-500 hover:bg-amber-950/30 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                title={`${item.dslEntry} · 추천 기준봉 ${item.tf}`}
+              >
+                <span className="block break-words text-xs font-semibold text-gray-100">
+                  {label}
+                </span>
+                <span className="mt-1 block break-words font-mono text-[11px] leading-4 text-gray-500">
+                  {item.dslEntry || '(매수 조건 없음)'}
+                </span>
+                <span className="mt-1 block text-[11px] text-amber-300">추천 {item.tf}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemove(item.id)}
+                disabled={removePending}
+                className="self-start rounded-md border border-gray-800 px-2 py-1 text-[11px] text-gray-500 hover:border-red-700 hover:bg-red-950/30 hover:text-red-200 disabled:opacity-40"
+                aria-label={`${label} 즐겨찾기 삭제`}
+              >
+                삭제
+              </button>
+            </div>
+          )
+        })}
         {favorites.length === 0 && (
           <p className="rounded-md border border-dashed border-gray-800 px-3 py-4 text-center text-xs text-gray-500">
-            즐겨찾기가 없습니다
+            즐겨찾기가 없습니다. 시작 화면에서 ★를 눌러 추가하세요.
           </p>
         )}
       </div>
