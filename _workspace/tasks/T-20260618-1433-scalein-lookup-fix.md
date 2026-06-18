@@ -3,10 +3,10 @@ id: T-20260618-1433-scalein-lookup-fix
 agent: backend-core
 model: opus
 branch: agent/backend-core/scalein-lookup-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T14:33:56.229+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-18T14:38:50.650+09:00
+pr: #1052
 parentPhase: ?
 ---
 
@@ -17,7 +17,7 @@ parentPhase: ?
 - [x] 근본진단
 - [x] lookup scaleIn적재
 - [x] 테스트
-- [ ] PR
+- [x] PR
 
 ## 의존성
 - (필요 시 기록)
