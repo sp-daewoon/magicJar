@@ -8,6 +8,7 @@ import kr.spdaewoon.magicjar.domain.risk.RiskGatewayResult
 import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -356,15 +357,72 @@ class RiskGatewayEvaluator {
         context: RiskContext,
     ): Boolean = signal.side == SignalSide.BUY && holdingQuantity(signal, context) <= 0
 
+    /**
+     * BUY 매수 수량 산정 — **분할매수(scale-in) 비중 반영** (P0 hotfix 2026-06-18).
+     *
+     * ## 결함 (이 hotfix가 닫는 것 — 라이브 canary 실증)
+     * 분할매수 전략(scale_in_config 설정 + 토글 ON)이 첫 회차에 **전량 매수**했다. [RealtimeSignalGenerator]의
+     * scale-in 경로([ScaleInExitDecision.EnterSlice])가 BUY 시그널의 `reason`에 `sliceWeightPct`만 실어 발행하고,
+     * 실제 수량은 listener([SignalGeneratedKafkaListener.resolveOrderQuantity]) → 본 함수가 다시 `buyable/price`로
+     * **전량 재계산**했다. 회차 비중(`sliceWeights[filledLots]`)이 어디에서도 곱해지지 않아 첫 회 40%가 100%로 부풀었다.
+     * (ScaleInExitInput.sliceBudgetQuantity 는 generator·live 경로에서 0으로만 채워져 회차 수량 산정의 권위가 아니었다 —
+     *  generator 주석 "회차 수량은 호출자가 budget으로 산정"의 그 호출자가 본 함수다.)
+     *
+     * ## 정합 — 백테스트와 동일 산식(단일 진실원)
+     * [JvmBacktestEngine.evaluateScaleInExitSlice] 가 쓰는 `회차예산 = floor(종목예산 × weight%/100)` →
+     * `수량 = floor(회차예산 / price)` 와 **동일 산식**으로 통일한다(결정론·리플레이 정합). 여기서 종목예산(base)은
+     * 계좌 전체 공유 풀 사이징([resolveBuyBudget].buyable = min(남은한도, 예수금) — 2026-06-16 결재) 그 자체다.
+     * 분할은 그 위에 회차 비중을 곱하는 구조(메모리 `feedback_position_limit_account_wide` 정합).
+     *
+     * - `scaleIn == null`(분할 미설정 전략) → 현행 전량 경로 그대로(zero-regression — byte 동일).
+     * - `scaleIn != null` → 진행 회차 인덱스 = `context.strategyPosition?.filledLots ?: 0`(체결 회차 카운터).
+     *   회차 비중 = `scaleIn.resolvedWeights()[sliceIndex]`(범위 초과 시 마지막 가중·없으면 100). filledLots >=
+     *   totalSlices(분할 완료)면 추가 진입은 generator 가 EnterSlice 를 안 내므로 이 경로엔 도달하지 않지만, 방어적으로
+     *   마지막 가중을 쓴다(상한 클램프는 buyable 이 이미 보장).
+     *
+     * @param scaleIn 분할매수 정책(listener 가 strategy.definition.scaleIn 을 주입). null = 단일 진입(현행).
+     */
     fun resolveBuyQuantity(
         signal: Signal,
         context: RiskContext,
+        scaleIn: ScaleInPlan? = null,
     ): Int {
         val buyBudget = resolveBuyBudget(context)
-        return buyBudget.buyable
-            .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
-            .toInt()
-            .coerceAtLeast(0)
+        if (signal.priceAtSignal <= BigDecimal.ZERO) return 0
+
+        if (scaleIn == null) {
+            // 분할 미설정 — 현행 전량 경로(zero-regression).
+            return buyBudget.buyable
+                .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
+                .toInt()
+                .coerceAtLeast(0)
+        }
+
+        // 분할매수 — 진행 회차 비중을 buyable(종목 예산)에 곱해 회차 예산 산정(백테스트와 동일 산식).
+        val sliceIndex = (context.strategyPosition?.filledLots ?: 0).coerceAtLeast(0)
+        val weights = scaleIn.resolvedWeights()
+        val weight = weights.getOrElse(sliceIndex) { weights.lastOrNull() ?: BigDecimal("100") }
+        val sliceBudget =
+            buyBudget.buyable
+                .multiply(weight)
+                .divide(BigDecimal("100"), 0, RoundingMode.DOWN)
+        val quantity =
+            sliceBudget
+                .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
+                .toInt()
+                .coerceAtLeast(0)
+        log.info(
+            "scale-in 회차 수량 산정: strategyId={} code={} sliceIndex={} weightPct={} buyable={} sliceBudget={} price={} qty={}",
+            signal.strategyId,
+            signal.code,
+            sliceIndex,
+            weight.toPlainString(),
+            buyBudget.buyable.toPlainString(),
+            sliceBudget.toPlainString(),
+            signal.priceAtSignal.toPlainString(),
+            quantity,
+        )
+        return quantity
     }
 
     fun resolveSellQuantity(

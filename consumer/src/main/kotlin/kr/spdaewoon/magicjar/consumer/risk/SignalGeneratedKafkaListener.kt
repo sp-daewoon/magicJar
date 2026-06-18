@@ -114,6 +114,10 @@ class SignalGeneratedKafkaListener(
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
+    // 2026-06-18 P0 hotfix — 분할매수 회차 비중 적용 게이트. generator(RealtimeSignalGenerator.scaleInEnabled)와
+    // 동일 키·동일 default(true=yml 정합)로 정렬. OFF 면 scaleIn 설정 전략도 현행 전량 경로(zero-regression).
+    @Value("\${magicjar.strategy.scale-in.enabled:true}")
+    private val scaleInEnabled: Boolean = true,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(SignalGeneratedKafkaListener::class.java)
@@ -1321,7 +1325,13 @@ class SignalGeneratedKafkaListener(
     ): Int =
         when (signal.side) {
             SignalSide.BUY -> {
-                riskGatewayEvaluator.resolveBuyQuantity(signal, context)
+                // 2026-06-18 P0 hotfix — 분할매수 전략은 회차 비중(sliceWeights[filledLots])을 반영한 수량을 산정한다.
+                //   진행 회차 인덱스는 RiskContext.strategyPosition.filledLots(체결 회차 카운터, buildContext가 이미 로드).
+                //   scaleIn 설정은 strategy.definition.scaleIn(toggle ON일 때만 적용 — generator isScaleInExitActive 정합).
+                //   분할 미설정(또는 토글 OFF) 전략은 scaleIn=null → 현행 전량 경로(zero-regression).
+                val scaleIn =
+                    if (scaleInEnabled) lookupStrategyOrNull(signal)?.definition?.scaleIn else null
+                riskGatewayEvaluator.resolveBuyQuantity(signal, context, scaleIn)
             }
             SignalSide.SELL -> riskGatewayEvaluator.resolveSellQuantity(signal, context)
             SignalSide.HOLD -> 0
