@@ -219,17 +219,9 @@ magicjar:
       # WARN(silent 누락 차단 §11-2 — 2026-06-15 403870 silent 누락 결함 ②). 정규장(08:00~20:00 KST)만 점검.
       # 0 이하면 watchdog 비활성(롤백 toggle).
       no-tick-watchdog-seconds: ${MAGICJAR_KIS_WS_NO_TICK_WATCHDOG_SECONDS:120}
-      # 무tick self-heal 재구독 임계(초) — 이 시간 초과 무tick 종목에 H0UNCNT0 SUBSCRIBE 1프레임 재발사로
-      #   silent 구독 누락 자가 복구 (REAL canary 2026-06-18 후성 093370 결함 — quote:last WS 전용 write 영구 공백).
-      #   watchdog 임계(120s)보다 길게(180s) — 저유동 자연 무거래 즉시 재발사 폭주 방지. 0 이하면 self-heal 비활성.
-      no-tick-resubscribe-seconds: ${MAGICJAR_KIS_WS_NO_TICK_RESUBSCRIBE_SECONDS:180}
-      # 무tick self-heal 재구독 종목별 cooldown(ms) — 동일 종목 재발사 최소 간격(KIS SUBSCRIBE 폭주 방지).
-      no-tick-resubscribe-cooldown-ms: ${MAGICJAR_KIS_WS_NO_TICK_RESUBSCRIBE_COOLDOWN_MS:120000}
-      # 무tick self-heal **풀 리셋** UNSUBSCRIBE→SUBSCRIBE 지연(ms) — REAL canary 2026-06-18 후성 093370.
-      #   bare 재구독은 KIS dedupe(rt_cd=1·"ALREADY IN SUBSCRIBE" no-op)로 stuck 스트림을 못 살린다.
-      #   UNSUBSCRIBE(tr_type=2)로 채널을 비운 뒤 이 지연 후 SUBSCRIBE(tr_type=1)로 fresh 재등록해 스트림 재개.
-      #   KIS 공식 WS 샘플도 연속 프레임 사이 0.5s 지연을 둔다. 0 이하면 지연 없이 즉시 SUBSCRIBE.
-      no-tick-reset-resubscribe-delay-ms: ${MAGICJAR_KIS_WS_NO_TICK_RESET_RESUBSCRIBE_DELAY_MS:1500}
+      # NOTE: 무tick self-heal 재구독(no-tick-resubscribe-* / no-tick-reset-resubscribe-*)은 2026-06-18 제거됨.
+      #   라이브 실증에서 효과 0(후성 093370 self-heal 111회 전부 ageSeconds=208 고정·tick 0회 회복) + churn 잔소음.
+      #   무tick 감지·WARN·1m REST 보완은 watchdog가 유지하며, WS stale 보강은 ActiveStrategyCandleFeedPoller가 담당.
       # unsubscribe grace(ms) — demand 0이 돼도 이 시간 sticky 유지 후 실제 KIS UNSUBSCRIBE (churn 억제).
       #   단타 전략 포지션 flip(sub→unsub→sub 분 단위 반복)이 KIS 스트리밍 상태를 stuck시키는 근본 churn을 없앤다.
       #   grace 안에 demand 재진입 시 unsubscribe 취소(wire 왕복 0). slot 예산 침해 0(잔류 구독은 evict 후보).

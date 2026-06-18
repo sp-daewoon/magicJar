@@ -132,40 +132,6 @@ class KisWebSocketBridge(
     @Value("\${magicjar.kis.ws.no-tick-watchdog-seconds:120}")
     private val noTickWatchdogSeconds: Long = 120L,
     /**
-     * 무tick self-heal 재구독 임계(초) — SUBSCRIBE SUCCESS 후 이 시간 동안 체결 프레임 0건이면 KIS로
-     * H0UNCNT0 SUBSCRIBE 1프레임을 재발사해 silent 구독 누락을 자가 복구한다 (REAL canary 2026-06-18 후성 093370).
-     *
-     * watchdog 임계(120s)보다 보수적으로 길게 둔다 — 저유동 종목 자연 무거래에 즉시 재구독 폭주하지 않도록.
-     * default 180s. 0 이하면 self-heal 비활성(WARN/1m REST 보완만 — 기존 관측 전용 동작으로 롤백).
-     * 종목별 cooldown([noTickResubscribeCooldownMs])으로 재발사 빈도를 제한한다.
-     */
-    @Value("\${magicjar.kis.ws.no-tick-resubscribe-seconds:180}")
-    private val noTickResubscribeSeconds: Long = 180L,
-    /**
-     * 무tick self-heal 재구독 종목별 cooldown(ms) — 동일 종목 재구독 최소 간격.
-     * 한 번 재발사 후 KIS가 프레임을 다시 줄 시간을 준 뒤에만 재시도(폭주 방지). default 120s.
-     */
-    @Value("\${magicjar.kis.ws.no-tick-resubscribe-cooldown-ms:120000}")
-    private val noTickResubscribeCooldownMs: Long = 120_000L,
-    /**
-     * 무tick self-heal 풀 리셋 사이클 UNSUBSCRIBE→SUBSCRIBE 지연(ms) — REAL canary 2026-06-18 후성 093370.
-     *
-     * ## 왜 단순 재구독이 아니라 풀 리셋인가 (KIS-first 규명)
-     * 이미 등록된 tr_key에 SUBSCRIBE(tr_type="1")를 재전송하면 KIS는 dedupe 처리하여 `rt_cd="1"` +
-     * `msg1="ALREADY IN SUBSCRIBE"`(no-op)를 돌려준다 — **스트림 상태를 새로 살리지 않는다**.
-     * (raw: open-trading-api `legacy/websocket/python/ws_domestic_overseas_all.py` L1426 — KIS 공식 샘플이
-     *  `msg1 != 'ALREADY IN SUBSCRIBE'` 분기로 이 응답을 정상 무시한다 = 재SUBSCRIBE는 멱등 no-op 확정.)
-     * 따라서 churn(rapid sub/unsub)으로 KIS per-(tr_id,tr_key) 스트리밍 상태가 "acked but not streaming"으로
-     * stuck되면, **UNSUBSCRIBE(tr_type="2")로 등록을 먼저 비운 뒤 N초 지연 후 SUBSCRIBE를 재발사**해야 KIS가
-     * 채널을 fresh 재등록하고 스트림을 다시 흘린다. bare 재구독(#1048)이 후성 시세를 못 살린 근본원인이 이것이다.
-     *
-     * 지연을 두는 이유: KIS 공식 WS 샘플도 연속 구독 프레임 사이에 `asyncio.sleep(0.5)`를 둔다
-     * (raw: `ws_domestic_overseas_all.py` L1151). UNSUBSCRIBE ACK 처리·내부 상태 정리에 서버 시간을 준다.
-     * default 1500ms(보수적). 0 이하면 지연 없이 즉시 SUBSCRIBE(테스트·긴급 toggle).
-     */
-    @Value("\${magicjar.kis.ws.no-tick-reset-resubscribe-delay-ms:1500}")
-    private val noTickResetResubscribeDelayMs: Long = 1_500L,
-    /**
      * KIS WS 체결통보(H0STCNI0/H0STCNI9) 수신 시 위임 listener (ADR 0068 §14-6 LOCK).
      *
      * ObjectProvider 사용 사유 (graceful 합류):
@@ -352,23 +318,6 @@ class KisWebSocketBridge(
      * tick이 다시 들어오면([recordTickReceived]) 제거 → 재무장(다음 stale 시 1회 다시 WARN).
      */
     private val noTickWarned: MutableSet<String> = ConcurrentHashMap.newKeySet()
-
-    /**
-     * 무tick self-heal 재구독 마지막 발사 시각(epoch ms) — 종목별 (REAL canary 2026-06-18 후성 093370 결함).
-     *
-     * ## 왜 필요한가 (자체 구독 누락 self-heal)
-     * KIS가 SUBSCRIBE SUCCESS를 준 뒤(또는 재연결 재구독 프레임이 silent drop된 뒤) 특정 종목 H0UNCNT0 체결
-     * 프레임을 0건 보내는 silent 누락이 발생하면, `session.subscribedCodes`에는 그 code가 남아있어
-     * [RealtimeSubscriptionRouter.ensureSubscribedLocked]의 `code in subscribed` 단락으로 영구히 재구독이
-     * 발사되지 않는다. 무tick watchdog은 WARN/1m REST 보완만 했고 재구독 액션이 없어 `quote:last`(WS 전용 write)가
-     * 영구 공백 → 평가손익 LIVE 강등 + TP tick watcher(market.tick.v1) 무력화. 본 self-heal이 그 공백을 닫는다.
-     *
-     * 종목별 cooldown([noTickResubscribeCooldownMs])으로 KIS SUBSCRIBE 폭주를 막는다(저빈도 1프레임 재발사).
-     * 재구독은 KIS 계약상 idempotent한 tr_type="1" SUBSCRIBE 1프레임(tr_id=H0UNCNT0·tr_key=code)이다
-     * (raw: open-trading-api domestic_stock_functions_ws.py ccnl_total). unsubscribe→subscribe 토글이 아니라
-     * 단순 재발사라 stuck 상태에서 안전(unsubscribe가 OPSP8997로 거부되어도 영향 0).
-     */
-    private val lastResubscribeAtMsByCode = ConcurrentHashMap<String, Long>()
 
     /**
      * 최근 unsubscribe 전송 이력 (결함③ 진단 관측 전용 — 부작용 0).
@@ -598,7 +547,6 @@ class KisWebSocketBridge(
                     slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
                     lastTickAtMsByCode.remove(code)
                     noTickWarned.remove(code)
-                    lastResubscribeAtMsByCode.remove(code)
                 }
                 return
             }
@@ -610,7 +558,6 @@ class KisWebSocketBridge(
                 session.subscribedCodes.remove(code)
                 lastTickAtMsByCode.remove(code)
                 noTickWarned.remove(code)
-                lastResubscribeAtMsByCode.remove(code)
                 log.info("KIS WS unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_TICK)
             }
         }
@@ -1329,8 +1276,6 @@ class KisWebSocketBridge(
     private fun recordTickReceived(code: String) {
         lastTickAtMsByCode[code] = System.currentTimeMillis()
         noTickWarned.remove(code)
-        // tick 복구 → self-heal cooldown 해제(다음 stale 윈도우에 즉시 재구독 가능하도록 재무장).
-        lastResubscribeAtMsByCode.remove(code)
     }
 
     /**
@@ -1890,11 +1835,15 @@ class KisWebSocketBridge(
      *
      * - 정규장 외(야간·주말)는 자연 무거래이므로 점검 skip(오탐 방지).
      * - 종목별 1 stale 윈도우당 WARN 1회([noTickWarned] 차단) — tick 복구 시 재무장.
-     * - 1차 단계는 **관측 WARN + 1m REST 보완**([onNoTickDetected] hook)이다(silent 누락을 "보이게" 만든다).
-     * - 2차 단계 self-heal 재구독([maybeSelfHealResubscribe]) — REAL canary 2026-06-18 후성 093370 결함으로
-     *   더 긴 임계([noTickResubscribeSeconds]) 초과 + 종목별 cooldown 통과 시 H0UNCNT0 SUBSCRIBE 1프레임을
-     *   재발사해 silent 구독 누락(session.subscribedCodes에 남아 라우터가 재구독을 단락하는 stuck 상태)을 자가 복구한다.
-     *   noTickResubscribeSeconds ≤ 0 이면 self-heal 비활성(1차 관측 동작으로 롤백 toggle).
+     * - 본 watchdog는 **관측 WARN + 1m REST 보완**([onNoTickDetected] hook 경유 [NoTickMinuteFallbackService])만
+     *   수행한다(silent 누락을 "보이게" + degraded 캔들 보완). **능동 재구독(self-heal)은 하지 않는다.**
+     *
+     * ## 능동 재구독(self-heal) 제거 사유 (2026-06-18 사용자 결재)
+     * 무tick self-heal(UNSUB→delay→SUB 풀 리셋 재구독, #1048·#1049)은 라이브 실증에서 효과 0으로 확인됐다:
+     * 후성(093370) self-heal 111회 발동 전부 `ageSeconds=208 고정` = 재구독해도 KIS측 silent라 tick 0회 회복.
+     * 게다가 정규장 가드가 self-heal 임계까지 cover하지 못해 장 마감 후에도 재발동(churn 잔소음). 효과 0 +
+     * churn만 남아 삭제. 무tick **감지·기록·1m REST 보완**은 유지하되 능동 복구 행동만 제거한다.
+     * (degraded 안전망은 [ActiveStrategyCandleFeedPoller]의 WS stale 시 멀티시세 polling 보강이 계속 담당.)
      *
      * 점검 주기 = max(10s, noTickWatchdogSeconds/4) — 임계의 1/4 빈도(과도한 wakeup 방지). 0 이하면 비활성.
      */
@@ -1964,119 +1913,9 @@ class KisWebSocketBridge(
                         ageSeconds,
                     )
                 }
-
-                // self-heal 재구독 — 더 긴 임계(noTickResubscribeSeconds) 초과 + 종목별 cooldown 통과 시 1프레임 재발사.
-                maybeSelfHealResubscribe(code, ageMs, nowMs)
+                // 능동 재구독(self-heal)은 제거됨(2026-06-18) — 효과 0·churn. 관측 WARN + onNoTickDetected 1m REST 보완만.
             }
         }
-    }
-
-    /**
-     * 무tick self-heal **풀 리셋 사이클** — stuck 스트림 자가 복구 (REAL canary 2026-06-18 후성 093370 결함).
-     *
-     * ## #1048 bare 재구독이 후성을 못 살린 근본원인 (KIS-first 규명)
-     * #1048은 stuck 상태에서 SUBSCRIBE(tr_type="1") 1프레임만 재발사했다. 그러나 KIS는 이미 등록된 tr_key에
-     * 대한 SUBSCRIBE를 **dedupe**하여 `rt_cd="1"` + `msg1="ALREADY IN SUBSCRIBE"`(no-op)로 응답하고 스트림을
-     * 새로 살리지 않는다 (raw: open-trading-api `legacy/websocket/python/ws_domestic_overseas_all.py` L1422-1426 —
-     * 공식 샘플이 이 응답을 정상 무시). 즉 bare 재구독은 churn-stuck 채널에 무효였다(실측: 12:51:46 재발사 후에도
-     * quote:last 0). 본 함수는 그래서 **UNSUBSCRIBE(tr_type="2") → 지연 → SUBSCRIBE(tr_type="1")** 풀 사이클로
-     * KIS per-(tr_id,tr_key) 채널을 비웠다 다시 등록해 스트림을 fresh 재개시킨다.
-     *
-     * ## logical subscribedCodes 보존 (라우터 경합 방지)
-     * UNSUBSCRIBE를 emit하되 `session.subscribedCodes`에서 code를 **제거하지 않는다**. 제거하면
-     * [RealtimeSubscriptionRouter]가 별도 경로로 즉시 SUBSCRIBE를 쏴 지연 없는 재구독→다시 dedupe no-op이 될 수
-     * 있고, slot 회계(ledger)도 흔들린다. 본 self-heal은 같은 KisWebSocketBridge 내부에서 지연 SUBSCRIBE를
-     * 직접 책임지므로 logical 상태를 건드리지 않고 wire 채널만 리셋한다(자본 owner demand는 그대로 유지).
-     *
-     * KIS-first:
-     * - open-trading-api `examples_user/domestic_stock/domestic_stock_functions_ws.py` ccnl_total() — H0UNCNT0,
-     *   tr_type="1"=subscribe / tr_type="2"=unsubscribe, tr_key=code.
-     * - 연속 프레임 사이 지연: `ws_domestic_overseas_all.py` L1151 `asyncio.sleep(0.5)`.
-     *
-     * 가드:
-     * - noTickResubscribeSeconds ≤ 0 이면 비활성(WARN/REST 보완만 — 관측 전용 롤백 toggle).
-     * - ageMs < resubscribe 임계이면 아직 watchdog WARN 단계 — 리셋 보류(저유동 자연 무거래 즉시 발사 방지).
-     * - 종목별 cooldown([noTickResubscribeCooldownMs]) 내 재시도 skip(UNSUB/SUB 폭주 방지).
-     * - approval_key 미발급 시 graceful skip.
-     * - 지연 SUBSCRIBE 발사 직전 code가 logical 구독에서 빠졌으면(그 사이 unsubscribe) 재구독 skip(stale 발사 방지).
-     */
-    private fun maybeSelfHealResubscribe(
-        code: String,
-        ageMs: Long,
-        nowMs: Long,
-    ) {
-        if (noTickResubscribeSeconds <= 0L) return
-        if (ageMs < noTickResubscribeSeconds * 1000L) return
-
-        val lastResub = lastResubscribeAtMsByCode[code]
-        if (lastResub != null && nowMs - lastResub < noTickResubscribeCooldownMs) return
-
-        val approvalKey =
-            getApprovalKey() ?: run {
-                log.warn("KIS WS 무tick self-heal 풀리셋 skip — approval_key 발급 불가: code={}", code)
-                return
-            }
-        // cooldown 마킹은 사이클 시작 시점에 — UNSUB 단계만 발사돼도 다음 점검에서 폭주하지 않게.
-        lastResubscribeAtMsByCode[code] = nowMs
-
-        // 1단계: UNSUBSCRIBE(tr_type="2") — KIS per-(tr_id,tr_key) 채널 등록을 비운다(logical 상태는 보존).
-        runCatching {
-            emitUnsubscribeMessage(approvalKey, code, trId = TR_ID_UNIFIED_TICK)
-        }.onFailure { e ->
-            log.warn("KIS WS 무tick self-heal UNSUBSCRIBE 발사 실패(graceful): code={} err={}", code, e.message)
-            return
-        }
-        log.warn(
-            "KIS WS 무tick self-heal 풀리셋 1/2 UNSUBSCRIBE 발사 — stuck 스트림 채널 비움: code={} trId={} ageSeconds={} (resubDelay={}ms, cooldown={}s)",
-            code,
-            TR_ID_UNIFIED_TICK,
-            ageMs / 1000L,
-            noTickResetResubscribeDelayMs,
-            noTickResubscribeCooldownMs / 1000L,
-        )
-
-        // 2단계: 지연 후 SUBSCRIBE(tr_type="1") — fresh 재등록으로 스트림 재개. 지연 ≤ 0 이면 즉시.
-        val resubscribeTask = Runnable { fireSelfHealResubscribe(code) }
-        if (noTickResetResubscribeDelayMs <= 0L) {
-            resubscribeTask.run()
-        } else {
-            scheduler.schedule(resubscribeTask, noTickResetResubscribeDelayMs, TimeUnit.MILLISECONDS)
-        }
-    }
-
-    /**
-     * 풀 리셋 사이클 2단계 — 지연 후 SUBSCRIBE 재발사 (UNSUBSCRIBE로 비운 채널 fresh 재등록).
-     *
-     * UNSUBSCRIBE→지연 사이에 owner demand가 사라져 정상 unsubscribe된 경우([session.subscribedCodes]에서 제거)에는
-     * 재구독을 쏘지 않는다(이미 안 필요한 종목 stale 재구독 방지). approval_key·연결 상태도 발사 직전 재확인한다.
-     */
-    private fun fireSelfHealResubscribe(code: String) {
-        if (code !in session.subscribedCodes) {
-            log.info("KIS WS 무tick self-heal 풀리셋 2/2 SUBSCRIBE skip — 지연 중 logical 구독 해제됨: code={}", code)
-            return
-        }
-        if (!session.connected) {
-            log.warn("KIS WS 무tick self-heal 풀리셋 2/2 SUBSCRIBE skip — 세션 미연결(재연결 재구독에 위임): code={}", code)
-            return
-        }
-        val approvalKey =
-            getApprovalKey() ?: run {
-                log.warn("KIS WS 무tick self-heal 풀리셋 2/2 SUBSCRIBE skip — approval_key 발급 불가: code={}", code)
-                return
-            }
-        runCatching {
-            sendTickSubscribe(approvalKey, code, trType = TR_TYPE_SUBSCRIBE)
-        }.onFailure { e ->
-            log.warn("KIS WS 무tick self-heal 풀리셋 2/2 SUBSCRIBE 발사 실패(graceful): code={} err={}", code, e.message)
-            return
-        }
-        // 재구독 발사 시점 = 새 stale 윈도우 기준선. 이 SUBSCRIBE에도 tick이 0이면 다음 cooldown 경과 후 재시도.
-        lastTickAtMsByCode[code] = System.currentTimeMillis()
-        log.warn(
-            "KIS WS 무tick self-heal 풀리셋 2/2 SUBSCRIBE 발사 — fresh 재등록으로 스트림 재개 시도: code={} trId={}",
-            code,
-            TR_ID_UNIFIED_TICK,
-        )
     }
 
     /**
