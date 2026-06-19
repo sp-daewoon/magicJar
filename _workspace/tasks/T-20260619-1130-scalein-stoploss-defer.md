@@ -3,10 +3,10 @@ id: T-20260619-1130-scalein-stoploss-defer
 agent: strategy
 model: opus
 branch: agent/strategy/scalein-stoploss-defer
-status: RUNNING
+status: DONE
 startedAt: 2026-06-19T11:30:21.335+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-19T11:44:01.256+09:00
+pr: #1058
 parentPhase: ?
 ---
 
@@ -17,7 +17,7 @@ parentPhase: ?
 - [x] ScaleInExit손절보류
 - [x] tickWatcher정합
 - [x] 무한물타기가드
-- [ ] worst-case분석
+- [x] worst-case분석
 - [x] 테스트
 
 ## 의존성
