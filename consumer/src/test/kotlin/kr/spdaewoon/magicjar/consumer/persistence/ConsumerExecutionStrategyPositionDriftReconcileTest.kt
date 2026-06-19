@@ -51,7 +51,10 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
 
     @Test
     fun `초과 drift 7 vs position 5 — strategy_position 5로 보정 UPDATE + realized_pnl 불변`() {
-        // strategy_position 7주(체결 직후 leg 합) vs KIS position 5주 권위 → 2주 초과 내림.
+        // strategy_position 7주 vs KIS position 5주 권위 → 2주 초과 내림.
+        // 2026-06-19 (#1057): 체결 직후(postExecution=true) 경로는 "권위 < legSum"(깎는 방향)을 stale 미반영으로
+        // 보고 skip 한다(분할 N회차 익절누락 근본 fix). 따라서 "진짜 초과 drift" 의 down-correction 은
+        // **주기 reconcile**(원장이 BalanceReconcile 로 이미 채워진 뒤 = 확정 권위) 경로에서 검증한다.
         port.legs =
             listOf(
                 leg(strategyId = 100L, quantity = 7, realizedPnl = "30000", avgPrice = "10000"),
@@ -59,16 +62,13 @@ class ConsumerExecutionStrategyPositionDriftReconcileTest {
         whenever(positionRepo.findByUserIdAndCodeAndSource(eq("user-A"), eq("005930"), any()))
             .thenReturn(positionEntity(quantity = 5))
 
-        // SELL 체결(1주) — applySell 이 1차 upsert, 그 후 reconcileDrift 가 보정 2차 upsert.
+        // 주기 reconcile(postExecution=false) — 권위 5 < legSum 7 → 2주 초과 내림 Adjust 1회.
         port.preset = port.legs.first()
-        adapter(enabled = true).applyExecution(
-            request(side = OrderSide.SELL, strategyId = 100L),
-            execution(quantity = 1, price = "10000"),
-        )
+        adapter(enabled = true).reconcileStrategyPositionDrift("user-A", "005930", "MOCK")
 
         val corrected = port.lastUpsert!!
         assertThat(corrected.quantity).isEqualTo(5)
-        // realized_pnl 은 보정으로 건드리지 않는다(보정 직전 applySell 이 산정한 값 그대로 — 수량만 정렬).
+        // realized_pnl 은 보정으로 건드리지 않는다(수량만 권위에 정렬).
         assertThat(corrected.realizedPnl).isEqualByComparingTo(BigDecimal("30000"))
         assertThat(corrected.avgPrice).isEqualByComparingTo(BigDecimal("10000"))
     }
