@@ -43,6 +43,27 @@ data class StrategyPosition(
     val realizedPnl: BigDecimal = BigDecimal.ZERO,
     /** 이미 발화·체결된 PartialExit 단계 인덱스 집합 — 부분 익절 중복 발화 방지. filledLots와 대칭. */
     val executedExitStages: Set<Int> = emptySet(),
+    /**
+     * **분할매수 base 고정값**(원) — 1차 진입 시점의 매수가능액([RiskBudgetCalculator.BuyBudget.buyable])을 저장해
+     * 2·3차 회차 예산을 `고정 base × 회차 비중%`으로 산정한다 (2026-06-19 사용자 결재 ①, ADR 0128).
+     *
+     * ## 왜 고정하나
+     * 회차마다 buyable 을 재계산하면, 1차 매수가 전체노출을 늘려 남은 한도가 줄고 → 2·3차 회차 예산이 의도보다
+     * 작아진다(분할 비중 왜곡). 1차 시점 base 를 1회 박제해 회차 비중만 곱하면 [40,35,25] 의도가 정확히 보존된다.
+     *
+     * ## 외부 주입 추상화 (미래 목표금액 매집 호환)
+     * 이 필드는 "1차 시점 buyable"의 박제값이지만, 그 의미는 **"분할 전체에 쓸 종목 예산"**으로 추상화돼 있다.
+     * 미래 "지정 가격 + 목표 금액" 매집 트랙에선 base = 사용자 지정 목표 금액으로 채워 넣으면 회차 산식 변경 0으로 호환된다.
+     *
+     * null = 아직 1차 미진입(또는 분할 미사용 전략). quantity=0 전량 청산 시 reset(다음 사이클 새 base).
+     */
+    val scaleInBaseBudget: BigDecimal? = null,
+    /**
+     * **부분 매수 잔여 수량**(주) — 회차 예산이 살 수 있는 수량보다 자금이 부족해 일부만 체결됐을 때, 못 산 잔여
+     * 수량을 기억한다 (2026-06-19 사용자 결재 ②, ADR 0128). 자금이 생기면 다음 boundary 에서 마저 채운다.
+     * 0 = 잔여 없음(정상). quantity=0 전량 청산 시 reset.
+     */
+    val scaleInRemainderQty: Int = 0,
     val openedAt: Instant,
     val updatedAt: Instant,
 ) {
