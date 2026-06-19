@@ -79,6 +79,8 @@ class PositionStopLossTickWatcherTest {
         qty: Int = 10,
         strategyId: Long = 100L,
         code: String = "005930",
+        filledLots: Int = 0,
+        scaleInTotalSlices: Int? = null,
     ) = HoldingPositionIndex.HeldPosition(
         userId = "user-A",
         strategyId = strategyId,
@@ -88,6 +90,8 @@ class PositionStopLossTickWatcherTest {
         stopLossPct = stopLossPct?.let { BigDecimal(it) },
         takeProfitPct = BigDecimal("5"),
         updatedAtEpoch = 1_700_000_000L,
+        filledLots = filledLots,
+        scaleInTotalSlices = scaleInTotalSlices,
     )
 
     private fun tickRecord(
@@ -405,6 +409,61 @@ class PositionStopLossTickWatcherTest {
 
         watcher().onTick(tickRecord(price = "48000"))
 
+        verify(
+            exactly = 1,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    // ── 분할 미완 손절 보류 (2026-06-19 사용자 결재 — tick 안전망 정합) ──────────
+
+    @Test
+    fun `분할 미완(filledLots 1of3) — 평단 손절선 도달해도 tick 손절 보류(발화 0)`() {
+        // scale-in 3분할, 1회차만 체결(filledLots=1<3). 평단 50,000 stop 3%(=48,500). tick 48,000 ≤ stop 이지만 분할 미완 → 보류.
+        every { index.heldBy("005930") } returns listOf(held(filledLots = 1, scaleInTotalSlices = 3))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "48000"))
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `분할 완료(filledLots 3of3) — 최종 평단 손절선 도달 시 tick 손절 정상 발화`() {
+        every { index.heldBy("005930") } returns listOf(held(filledLots = 3, scaleInTotalSlices = 3))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "48000"))
+        verify(
+            exactly = 1,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `분할 미완이어도 catastrophic floor(평단 -15%) 도달 시 tick 손절 발화(교착 방지)`() {
+        // 평단 50,000 floor 15% → 42,500. tick 42,000 ≤ floor → 분할 미완(1/3)이어도 청산.
+        every { index.heldBy("005930") } returns listOf(held(filledLots = 1, scaleInTotalSlices = 3))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "42000"))
+        verify(
+            exactly = 1,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `분할 미완 + floor 미도달(평단 -10%) — 여전히 보류(발화 0)`() {
+        // floor 42,500 직전 43,000 → 통상 물타기 구간 → 보류.
+        every { index.heldBy("005930") } returns listOf(held(filledLots = 1, scaleInTotalSlices = 3))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "43000"))
+        verify(
+            exactly = 0,
+        ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `scale-in 미설정(scaleInTotalSlices null) — 분할 보류 없이 현행 손절(zero-regression)`() {
+        every { index.heldBy("005930") } returns listOf(held(filledLots = 0, scaleInTotalSlices = null))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        watcher().onTick(tickRecord(price = "48000"))
         verify(
             exactly = 1,
         ) { intentProducer.publishExitIntent(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }

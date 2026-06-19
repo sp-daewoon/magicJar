@@ -228,4 +228,165 @@ class ScaleInExitCalculatorTest {
             )
         assertTrue(decision is ScaleInExitDecision.Hold)
     }
+
+    // ── 분할 미완 손절 보류 (2026-06-19 사용자 결재) ──────────────────────────
+
+    @Test
+    fun `scale-in incomplete defers stop-loss even when stop price reached`() {
+        // 3분할, 1회차만 체결(filledLots=1<3). 평단 1000 stop 5%(=950). 현재가 940 → stop 도달이지만 분할 미완 → 보류.
+        // EnterSlice 도 buySignalFired=false 라 없음 → Hold.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("940"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold) { "분할 미완(1/3)이면 손절선 도달해도 보류" }
+    }
+
+    @Test
+    fun `scale-in incomplete on buy boundary enters next slice instead of stop-loss`() {
+        // 분할 미완 + BUY 재발화 → 손절(보류) 대신 다음 회차 진입(라이브 09:11 의도: 물타기).
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("940"), // stop 도달
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = true,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.EnterSlice)
+        assertEquals(1, (decision as ScaleInExitDecision.EnterSlice).sliceIndex)
+    }
+
+    @Test
+    fun `scale-in complete fires stop-loss at final avg`() {
+        // 분할 완료(filledLots=3==totalSlices). 평단 1000 stop 5%. 현재가 940 → 정상 손절(보류 해제).
+        val plan = ScaleInPlan(totalSlices = 3, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 20, avgPrice = "1000", filledLots = 3),
+                    currentPrice = BigDecimal("940"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss)
+        assertEquals(20, (decision as ScaleInExitDecision.StopLoss).quantity)
+    }
+
+    @Test
+    fun `scale-in incomplete fires stop-loss when catastrophic floor reached`() {
+        // 분할 미완(1/3)이지만 평단 -15% floor(=850) 도달 → 교착 방지 catastrophic 손절 발동.
+        // 평단 1000, floor default 15% → 850. 현재가 840 ≤ 850 → 손절.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("840"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss) { "분할 미완이어도 floor(-15%) 도달 시 청산(교착 방지)" }
+    }
+
+    @Test
+    fun `scale-in incomplete does not fire when just above floor`() {
+        // floor 850 직전 851 → 아직 보류(통상 물타기 구간). buySignalFired=false → Hold.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("851"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold)
+    }
+
+    @Test
+    fun `custom floor overrides default`() {
+        // floor 10% 명시 → 평단 1000 floor 900. 현재가 895 ≤ 900 → 분할 미완이어도 손절.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("895"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    scaleInStopLossFloorPct = BigDecimal("10"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss)
+    }
+
+    @Test
+    fun `floor disabled (zero) means pure defer until slices complete`() {
+        // floor 0(비활성) → 분할 미완이면 아무리 깊게 하락해도 손절 0(순수 보류). 평단 1000, 현재가 100(-90%) → Hold.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("100"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    scaleInStopLossFloorPct = BigDecimal.ZERO,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold)
+    }
+
+    @Test
+    fun `null scaleIn fires stop-loss as before (zero-regression)`() {
+        // scaleIn 미설정(일반 전략) — filledLots 무관 현행 손절 그대로.
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 10, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("940"),
+                    scaleIn = null,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss)
+        assertEquals(10, (decision as ScaleInExitDecision.StopLoss).quantity)
+    }
+
+    @Test
+    fun `single-slice scaleIn (totalSlices 1) fires stop-loss immediately`() {
+        // totalSlices=1 → 첫 체결로 즉시 분할 완료(filledLots=1>=1) → 보류 없이 손절 정상.
+        val plan = ScaleInPlan(totalSlices = 1, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 10, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("940"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss)
+    }
 }

@@ -138,6 +138,26 @@ class PositionStopLossTickWatcher(
             return
         }
 
+        // ★ 분할 미완 손절 보류 (2026-06-19 사용자 결재 — 1m 경로 [ScaleInExitCalculator]와 동일 의미 정합).
+        //   scale-in 전략이 분할 미완(filledLots < totalSlices)이면 평단 기준 tick 손절을 보류한다(물타기 기회 보존).
+        //   단, catastrophic floor(평단 -[SCALE_IN_STOP_LOSS_FLOOR_PCT]%) 도달 시엔 분할 중이라도 발동(무한 보류·교착 방지).
+        //   scale-in 미설정(totalSlices null)이면 보류 없이 현행 손절(zero-regression).
+        if (shouldDeferStopLossForScaleIn(position, tickPrice)) {
+            log.debug(
+                "stop-loss 분할 미완 보류(평단 손절선 도달했으나 분할 진행 중): userId={} strategyId={} code={} filledLots={} totalSlices={} tick={} stopPrice={}",
+                position.userId,
+                position.strategyId,
+                position.code,
+                position.filledLots,
+                position.scaleInTotalSlices,
+                tickPrice,
+                stopPrice,
+            )
+            // 보류 중에도 cooldown 은 손절가 미도달 복귀 시처럼 비워, 추후 분할 완료 후 정당한 손절이 즉시 가능하게 둔다.
+            intentCooldown.remove(cooldownKey(position))
+            return
+        }
+
         // ADR 0115 §P2-1 cooldown — 같은 포지션 상태에 대해 이미 발행했고 cooldown 내면 재발행 skip(폭주 원천 차단).
         if (isCoolingDown(position)) {
             log.debug(
@@ -261,6 +281,28 @@ class PositionStopLossTickWatcher(
             true
         }
 
+    /**
+     * 분할 미완 손절 보류 판정 (2026-06-19 사용자 결재 — tick 안전망 정합).
+     *
+     * 1m 경로 [kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator.shouldFireStopLoss] 와 **같은 의미**:
+     * - scale-in 미설정([HeldPosition.scaleInTotalSlices] null) → 보류 안 함(현행 손절 — zero-regression).
+     * - 분할 완료(filledLots >= totalSlices) → 보류 안 함(최종 평단 손절 정상).
+     * - 분할 미완(filledLots < totalSlices) → 보류(true). 단 평단 대비 손실이 catastrophic floor
+     *   ([SCALE_IN_STOP_LOSS_FLOOR_PCT], 평단 -15%) 이상이면 보류 해제(false → 손절 발동 — 무한 보류·교착 방지).
+     *
+     * floor 산정 실패(평단/floor 비정상)면 보류 해제(false) — 안전망 우선(보류로 손절을 막는 fail-open 회피).
+     */
+    private fun shouldDeferStopLossForScaleIn(
+        position: HoldingPositionIndex.HeldPosition,
+        tickPrice: BigDecimal,
+    ): Boolean {
+        val totalSlices = position.scaleInTotalSlices ?: return false // scale-in 미설정 — 보류 없음
+        if (position.filledLots >= totalSlices) return false // 분할 완료 — 손절 정상
+        // 분할 미완 — catastrophic floor 미도달이면 보류. floor 도달이면 보류 해제(손절 발동).
+        val floorPrice = stopPriceOf(position.avgPrice, SCALE_IN_STOP_LOSS_FLOOR_PCT) ?: return false
+        return tickPrice > floorPrice
+    }
+
     private fun cooldownKey(position: HoldingPositionIndex.HeldPosition): String =
         "${position.userId}:${position.strategyId}:${position.code}"
 
@@ -312,6 +354,14 @@ class PositionStopLossTickWatcher(
         const val GROUP = "magicjar-consumer-position-stop-loss"
         const val SOURCE_KIS_POLLING = "KIS-POLLING"
         const val SOURCE_KIS_NOTICK_FALLBACK = "KIS-NOTICK-FALLBACK"
+
+        /**
+         * 분할 미완 손절 보류의 catastrophic floor%(평단 대비 손실폭). 1m 경로
+         * [kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]
+         * 와 **동일 값 정합**(tick 안전망과 1m 경로가 같은 floor 로 발동 — 의심 원천 차단).
+         */
+        val SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal =
+            kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
 
         /**
          * 손절가 = 평단 × (1 - stopLossPct/100) → KRX 호가단위 내림(R1 [KrxTickSize] 단일 출처).

@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.order
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
@@ -39,6 +40,7 @@ import kotlin.concurrent.withLock
 class HoldingPositionIndex(
     private val strategyPositionRepository: StrategyPositionJpaRepository,
     private val strategyRepository: ConsumerStrategyJpaRepository,
+    private val objectMapper: ObjectMapper,
     @Value("\${magicjar.autotrading.stop-loss.tick-watch-enabled:true}")
     private val enabled: Boolean = true,
 ) {
@@ -83,6 +85,9 @@ class HoldingPositionIndex(
      * @param stopLossPct 전략 fixed stop-loss%(null이면 손절 미설정 → watcher가 평가 skip).
      * @param viActionPolicy 전략별 VI 행동 정책. EXIT_MARKET만 주문 발행, ALERT_ONLY는 알림/관측만.
      * @param updatedAtEpoch 평단 변동 추적(멱등 키 입력). position.updatedAt.epochSecond.
+     * @param filledLots 이 전략 포지션의 체결된 분할 회차 수(StrategyPosition.filledLots). 분할 미완 손절 보류 판정용.
+     * @param scaleInTotalSlices scale-in 총 회차 수(scale_in_config.totalSlices). null이면 scale-in 미설정 →
+     *   분할 보류 없이 현행 손절(zero-regression). 분할 미완(filledLots < totalSlices) 동안 watcher 손절 보류.
      */
     data class HeldPosition(
         val userId: String,
@@ -94,12 +99,15 @@ class HoldingPositionIndex(
         val takeProfitPct: BigDecimal?,
         val updatedAtEpoch: Long,
         val viActionPolicy: ViActionPolicy = ViActionPolicy.ALERT_ONLY,
+        val filledLots: Int = 0,
+        val scaleInTotalSlices: Int? = null,
     )
 
     private data class StrategyExitMeta(
         val stopLossPct: BigDecimal?,
         val takeProfitPct: BigDecimal?,
         val viActionPolicy: ViActionPolicy,
+        val scaleInTotalSlices: Int?,
     )
 
     /** 부팅 직후 1회 + 60초 주기 refresh. tick 폭주 전에 인덱스를 채운다. */
@@ -125,6 +133,7 @@ class HoldingPositionIndex(
                         stopLossPct = strategy?.fixedStopLossPct,
                         takeProfitPct = strategy?.takeProfitPct,
                         viActionPolicy = safeViActionPolicy(strategy?.viActionPolicy),
+                        scaleInTotalSlices = parseTotalSlices(strategy?.scaleInConfig),
                     )
                 }
             next.getOrPut(p.code) { mutableListOf() }.add(
@@ -138,6 +147,8 @@ class HoldingPositionIndex(
                     takeProfitPct = meta.takeProfitPct,
                     updatedAtEpoch = p.updatedAt.epochSecond,
                     viActionPolicy = meta.viActionPolicy,
+                    filledLots = p.filledLots,
+                    scaleInTotalSlices = meta.scaleInTotalSlices,
                 ),
             )
         }
@@ -190,6 +201,7 @@ class HoldingPositionIndex(
                                 stopLossPct = strategy?.fixedStopLossPct,
                                 takeProfitPct = strategy?.takeProfitPct,
                                 viActionPolicy = safeViActionPolicy(strategy?.viActionPolicy),
+                                scaleInTotalSlices = parseTotalSlices(strategy?.scaleInConfig),
                             )
                         }
                     HeldPosition(
@@ -202,6 +214,8 @@ class HoldingPositionIndex(
                         takeProfitPct = meta.takeProfitPct,
                         updatedAtEpoch = p.updatedAt.epochSecond,
                         viActionPolicy = meta.viActionPolicy,
+                        filledLots = p.filledLots,
+                        scaleInTotalSlices = meta.scaleInTotalSlices,
                     )
                 }
         // ★ writeLock — refresh 의 retainAll 과 원자화. 추가 시퀀스를 기록해 동시 진행 중인 refresh 가 이 code 를 보존하게 한다.
@@ -235,4 +249,24 @@ class HoldingPositionIndex(
             ?.uppercase()
             ?.let { runCatching { ViActionPolicy.valueOf(it) }.getOrNull() }
             ?: ViActionPolicy.ALERT_ONLY
+
+    /**
+     * `scale_in_config` JSONB raw → totalSlices(Int). 분할 미완 손절 보류 판정용(2026-06-19).
+     *
+     * 미설정·역직렬화 실패·비정상 값(<1)은 null → scale-in 미설정 취급(분할 보류 없이 현행 손절, zero-regression).
+     * ConsumerStrategyLookupJpaAdapter.deserializeScaleIn 과 동일 키(`totalSlices`)만 본다(전체 plan 파싱 불요 —
+     * watcher 는 totalSlices 만 필요). 손절 안전망 hot-cache 빌드라 실패 흡수가 안전(`safe*` 패턴 정합).
+     */
+    private fun parseTotalSlices(scaleInConfig: String?): Int? {
+        if (scaleInConfig.isNullOrBlank()) return null
+        return runCatching {
+            val node = objectMapper.readTree(scaleInConfig)
+            if (!node.isObject) return null
+            node
+                .get("totalSlices")
+                ?.takeIf { it.isNumber }
+                ?.asInt()
+                ?.takeIf { it >= 1 }
+        }.getOrNull()
+    }
 }
