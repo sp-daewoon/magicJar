@@ -110,6 +110,35 @@ data class ScaleInPlan(
         val last = ScaleInLimits.WEIGHT_TOTAL - even.multiply(BigDecimal(totalSlices - 1))
         return head + last
     }
+
+    /**
+     * **실효 회차 수** = 비중 0% 회차를 제외한 양수 비중 회차의 개수 (2026-06-19 사용자 결재 ⑨).
+     *
+     * [50,50,0] → 2. 0% 회차는 회차 예산 0 → 0주이므로 분할 진행에 기여하지 않는다. `filledLots`(체결 회차 카운터)는
+     * 양수 비중 회차만 증가하므로, **분할 완료 판정·진입 가부**는 totalSlices 가 아니라 이 실효 회차 수를 기준으로 한다
+     * (totalSlices=3 [50,50,0] 이 totalSlices=2 [50,50] 과 동일 결과가 되도록). 모든 비중 0이면 0(진입 불가).
+     */
+    fun effectiveSliceCount(): Int = resolvedWeights().count { it > BigDecimal.ZERO }
+
+    /**
+     * `filledLots`번째(0-기반) 체결에 해당하는 **실제 회차 인덱스**와 그 비중을 반환한다 — 0% 회차 skip 정합 ⑨.
+     *
+     * `filledLots`는 양수 비중 회차만 센다. [50,0,50] 에서 filledLots=0 → (index 0, 50%), filledLots=1 → (index 2, 50%)
+     * (중간 0% index 1 은 건너뜀). filledLots 가 실효 회차 수 이상(분할 완료)이면 null(추가 진입 없음 — ⑧ 초과 가드).
+     *
+     * @return (sliceIndex, weightPct) 또는 null(완료/모두 0%). sliceIndex 는 reason 표기·audit 용 원본 회차 번호.
+     */
+    fun sliceAt(filledLots: Int): Pair<Int, BigDecimal>? {
+        if (filledLots < 0) return null
+        var positiveSeen = 0
+        resolvedWeights().forEachIndexed { index, weight ->
+            if (weight > BigDecimal.ZERO) {
+                if (positiveSeen == filledLots) return index to weight
+                positiveSeen++
+            }
+        }
+        return null
+    }
 }
 
 /**

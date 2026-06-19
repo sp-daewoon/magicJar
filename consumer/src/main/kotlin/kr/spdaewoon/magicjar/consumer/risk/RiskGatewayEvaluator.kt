@@ -368,17 +368,25 @@ class RiskGatewayEvaluator {
      * (ScaleInExitInput.sliceBudgetQuantity 는 generator·live 경로에서 0으로만 채워져 회차 수량 산정의 권위가 아니었다 —
      *  generator 주석 "회차 수량은 호출자가 budget으로 산정"의 그 호출자가 본 함수다.)
      *
+     * ## ① base = 1차 진입 시점 가용액 **고정** (2026-06-19 사용자 결재, ADR 0128)
+     * 회차마다 buyable 을 재계산하면, 1차 매수가 전체노출을 늘려 남은 한도가 줄고 → 2·3차 회차 예산이 의도보다
+     * 작아진다(분할 비중 왜곡). 1차 시점 base 를 [StrategyPosition.scaleInBaseBudget] 에 박제하고(체결 listener 책임),
+     * 2·3차는 그 **고정 base × 회차 비중**으로 산정한다. base 가 박제돼 있으면(slice ≥ 1) 그것을 쓰고, 1차(또는 박제
+     * 부재)면 라이브 buyable 을 base 로 쓴다(그 값이 listener 가 박제할 후보). **외부 주입 추상화** — 미래 "지정 가격 +
+     * 목표 금액" 매집은 base 를 그 목표 금액으로 채워 넣으면 회차 산식 변경 0으로 호환된다.
+     *
      * ## 정합 — 백테스트와 동일 산식(단일 진실원)
-     * [JvmBacktestEngine.evaluateScaleInExitSlice] 가 쓰는 `회차예산 = floor(종목예산 × weight%/100)` →
-     * `수량 = floor(회차예산 / price)` 와 **동일 산식**으로 통일한다(결정론·리플레이 정합). 여기서 종목예산(base)은
-     * 계좌 전체 공유 풀 사이징([resolveBuyBudget].buyable = min(남은한도, 예수금) — 2026-06-16 결재) 그 자체다.
-     * 분할은 그 위에 회차 비중을 곱하는 구조(메모리 `feedback_position_limit_account_wide` 정합).
+     * `회차예산 = floor(고정 base × weight%/100)` → `수량 = floor(회차예산 / price)`. weight 는 0% 회차 skip 정합
+     * ([ScaleInPlan.sliceAt] — ⑨)으로 산출한다.
      *
      * - `scaleIn == null`(분할 미설정 전략) → 현행 전량 경로 그대로(zero-regression — byte 동일).
-     * - `scaleIn != null` → 진행 회차 인덱스 = `context.strategyPosition?.filledLots ?: 0`(체결 회차 카운터).
-     *   회차 비중 = `scaleIn.resolvedWeights()[sliceIndex]`(범위 초과 시 마지막 가중·없으면 100). filledLots >=
-     *   totalSlices(분할 완료)면 추가 진입은 generator 가 EnterSlice 를 안 내므로 이 경로엔 도달하지 않지만, 방어적으로
-     *   마지막 가중을 쓴다(상한 클램프는 buyable 이 이미 보장).
+     * - `scaleIn != null`:
+     *   - **⑧ totalSlices 초과 진입 0** — `filledLots`가 실효 회차 수 이상이면 [ScaleInPlan.sliceAt]가 null → **수량 0**
+     *     (이전 `weights.getOrElse(sliceIndex){weights.last()}` 가 4회차에도 마지막 가중으로 계속 매수하던 라이브 버그 fix).
+     *   - **⑨ weight 0% 회차 skip** — sliceAt 가 0% 회차를 건너뛰어 양수 비중 회차의 (index, weight)만 반환 → 0% 회차는
+     *     산정 대상이 아니다(빈 주문·filledLots 꼬임 없음).
+     *   - **② 부분 매수 잔여** — 직전 회차가 자금 부족으로 일부만 체결돼 [StrategyPosition.scaleInRemainderQty] 가 남아
+     *     있으면, 이번 회차 수량에 잔여를 더해(buyable 로 clamp) 마저 채운다.
      *
      * @param scaleIn 분할매수 정책(listener 가 strategy.definition.scaleIn 을 주입). null = 단일 진입(현행).
      */
@@ -398,27 +406,61 @@ class RiskGatewayEvaluator {
                 .coerceAtLeast(0)
         }
 
-        // 분할매수 — 진행 회차 비중을 buyable(종목 예산)에 곱해 회차 예산 산정(백테스트와 동일 산식).
-        val sliceIndex = (context.strategyPosition?.filledLots ?: 0).coerceAtLeast(0)
-        val weights = scaleIn.resolvedWeights()
-        val weight = weights.getOrElse(sliceIndex) { weights.lastOrNull() ?: BigDecimal("100") }
+        val position = context.strategyPosition?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId }
+        val filledLots = (position?.filledLots ?: 0).coerceAtLeast(0)
+
+        // ⑧⑨ — filledLots 번째 양수 비중 회차의 (index, weight). 완료/초과/모두 0%면 null → 진입 0.
+        val slice = scaleIn.sliceAt(filledLots)
+        if (slice == null) {
+            log.info(
+                "scale-in 회차 한도 초과·완료 — 진입 0: strategyId={} code={} filledLots={} effectiveSlices={}",
+                signal.strategyId,
+                signal.code,
+                filledLots,
+                scaleIn.effectiveSliceCount(),
+            )
+            return 0
+        }
+        val (sliceIndex, weight) = slice
+
+        // ① base 고정 — 박제된 base(slice ≥ 1)가 있으면 그것을, 없으면(1차) 라이브 buyable 을 base 로.
+        val fixedBase = position?.scaleInBaseBudget?.takeIf { it > BigDecimal.ZERO }
+        val base = fixedBase ?: buyBudget.buyable
+
+        // 회차 예산 = floor(고정 base × weight% / 100). 백테스트와 동일 산식.
         val sliceBudget =
-            buyBudget.buyable
+            base
                 .multiply(weight)
                 .divide(BigDecimal("100"), 0, RoundingMode.DOWN)
-        val quantity =
+        val sliceQty =
             sliceBudget
                 .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
                 .toInt()
                 .coerceAtLeast(0)
+
+        // ② 부분 매수 잔여 — 직전 회차 미체결분을 더한다(실제 매수가능 buyable 로 상한 clamp — 자금 없으면 못 산다).
+        val remainder = (position?.scaleInRemainderQty ?: 0).coerceAtLeast(0)
+        val maxAffordable =
+            buyBudget.buyable
+                .divide(signal.priceAtSignal, 0, RoundingMode.DOWN)
+                .toInt()
+                .coerceAtLeast(0)
+        val quantity = (sliceQty + remainder).coerceAtMost(maxAffordable)
+
         log.info(
-            "scale-in 회차 수량 산정: strategyId={} code={} sliceIndex={} weightPct={} buyable={} sliceBudget={} price={} qty={}",
+            "scale-in 회차 수량 산정: strategyId={} code={} filledLots={} sliceIndex={} weightPct={} base={} fixedBase={} " +
+                "sliceBudget={} sliceQty={} remainder={} maxAffordable={} price={} qty={}",
             signal.strategyId,
             signal.code,
+            filledLots,
             sliceIndex,
             weight.toPlainString(),
-            buyBudget.buyable.toPlainString(),
+            base.toPlainString(),
+            (fixedBase != null),
             sliceBudget.toPlainString(),
+            sliceQty,
+            remainder,
+            maxAffordable,
             signal.priceAtSignal.toPlainString(),
             quantity,
         )
