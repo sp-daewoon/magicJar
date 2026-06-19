@@ -3,10 +3,10 @@ id: T-20260619-1620-scalein-capital-redesign
 agent: strategy
 model: opus
 branch: agent/strategy/scalein-capital-redesign
-status: RUNNING
+status: DONE
 startedAt: 2026-06-19T16:20:24.490+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-19T16:45:09.551+09:00
+pr: #1060
 parentPhase: ?
 ---
 
