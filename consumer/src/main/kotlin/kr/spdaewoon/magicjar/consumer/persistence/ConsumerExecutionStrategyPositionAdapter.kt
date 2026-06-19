@@ -313,10 +313,22 @@ class ConsumerExecutionStrategyPositionAdapter(
             currentNotional
                 .add(fillNotional)
                 .divide(BigDecimal(nextQty), 4, RoundingMode.HALF_UP)
+
+        // ② 부분 매수 잔여 갱신 (ADR 0128 ②) — 이번 회차 주문(request.quantity = sizing 시 sliceQty + 직전 잔여를
+        //   buyable 로 clamp 한 값)이 체결 부족이면 못 산 잔여를 기록해 다음 회차에서 마저 채운다.
+        //   newRemainder = max(0, 주문수량 − 이번 체결수량). 완전 체결이면 0(잔여 해소). request.quantity ≤ 0(미상)면 보존.
+        val nextRemainder =
+            if (request.quantity > 0) {
+                (request.quantity - fillQty).coerceAtLeast(0)
+            } else {
+                current?.scaleInRemainderQty ?: 0
+            }
+
         return baseOf(request, current, now).copy(
             quantity = nextQty,
             avgPrice = nextAvg,
             filledLots = (current?.filledLots ?: 0) + 1,
+            scaleInRemainderQty = nextRemainder,
         )
     }
 
@@ -352,12 +364,15 @@ class ConsumerExecutionStrategyPositionAdapter(
 
         return if (nextQty == 0) {
             // 전량 청산 — avgPrice·filledLots·executedExitStages reset (행 유지, 재진입 새 사이클).
+            // ADR 0128 ①② — 분할 base·잔여도 reset(다음 진입은 새 1차 buyable 로 새 base 박제).
             baseOf(request, current, now).copy(
                 quantity = 0,
                 avgPrice = BigDecimal.ZERO,
                 filledLots = 0,
                 realizedPnl = nextRealized,
                 executedExitStages = emptySet(),
+                scaleInBaseBudget = null,
+                scaleInRemainderQty = 0,
             )
         } else {
             baseOf(request, current, now).copy(
@@ -409,6 +424,9 @@ class ConsumerExecutionStrategyPositionAdapter(
             filledLots = current?.filledLots ?: 0,
             realizedPnl = current?.realizedPnl ?: BigDecimal.ZERO,
             executedExitStages = current?.executedExitStages ?: emptySet(),
+            // ADR 0128 ①② — base 고정·잔여는 기본 보존(applyBuy 잔여 차감·applySell 전량청산 reset 만 명시 변경).
+            scaleInBaseBudget = current?.scaleInBaseBudget,
+            scaleInRemainderQty = current?.scaleInRemainderQty ?: 0,
             openedAt = current?.openedAt ?: now,
             updatedAt = now,
         )
@@ -819,6 +837,9 @@ class ConsumerExecutionStrategyPositionAdapter(
                         avgPrice = BigDecimal.ZERO,
                         filledLots = 0,
                         executedExitStages = emptySet(),
+                        // 전량 청산 도달 — 분할 base·잔여도 reset (applySell nextQty==0 정합, ADR 0128 ①②).
+                        scaleInBaseBudget = null,
+                        scaleInRemainderQty = 0,
                         updatedAt = now,
                     )
                 } else {

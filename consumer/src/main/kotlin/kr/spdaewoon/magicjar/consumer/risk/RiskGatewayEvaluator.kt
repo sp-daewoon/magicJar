@@ -467,6 +467,30 @@ class RiskGatewayEvaluator {
         return quantity
     }
 
+    /**
+     * **분할매수 base 박제 후보값 산정** — 1차 진입 시점 라이브 buyable (ADR 0128 ① R2 wiring).
+     *
+     * ## 왜 sizing 시점(listener)이 박제 지점인가
+     * base = "1차 진입 시점 가용액"([RiskBudgetCalculator.BuyBudget.buyable])이다. 이 값은 1차 BUY 시그널을
+     * 사이징하는 바로 이 시점([resolveBuyQuantity] 가 slice 1 을 `buyable × weight%` 로 자른 그 순간)에만 정확히
+     * 존재한다. 체결(KIS WS)은 Kafka order.intent → 주문 → 비동기 체결로 **시점이 분리**되며, 그 사이 보유·예수금이
+     * 바뀌어 체결 직후 재계산한 buyable 은 1차 시점 값과 다르다. 따라서 [resolveBuyQuantity] 와 **동일한 budget 산식**
+     * (단일 진실원 [resolveBuyBudget])으로 산출한 buyable 을 sizing 시점에 박제해야 한다.
+     *
+     * R1 설계 주석(본 클래스 [resolveBuyQuantity] KDoc — "1차면 라이브 buyable 을 base 로 쓴다. 그 값이 **listener 가
+     * 박제할 후보**") 의 그 후보값을 본 함수가 반환한다. 박제 자체(strategy_position write)는 listener
+     * ([SignalGeneratedKafkaListener.captureScaleInBaseIfFirstSlice]) 책임이고, 전량 청산 reset 은 체결
+     * listener([ConsumerExecutionStrategyPositionAdapter.applySell]) 책임이다.
+     *
+     * ## 박제 조건 (listener 가드)
+     * - scaleIn 활성 전략 + BUY + `filledLots == 0`(1차) + 기존 박제 부재(`scaleInBaseBudget == null`) 일 때만.
+     * - 이미 박제됐으면(2·3차) 재계산 0 — 고정 base 보존(분할 비중 왜곡 방지 핵심).
+     *
+     * @return 1차 시점 buyable(원, > 0). buyable ≤ 0(예수금/한도 소진)이면 null(박제 안 함 — 진입 0 케이스).
+     */
+    fun resolveScaleInBaseBudget(context: RiskContext): BigDecimal? =
+        resolveBuyBudget(context).buyable.takeIf { it > BigDecimal.ZERO }
+
     fun resolveSellQuantity(
         signal: Signal,
         context: RiskContext,
