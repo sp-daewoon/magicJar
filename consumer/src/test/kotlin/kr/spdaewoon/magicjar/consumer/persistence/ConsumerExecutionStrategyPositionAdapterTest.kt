@@ -139,6 +139,90 @@ class ConsumerExecutionStrategyPositionAdapterTest {
         assertThat(saved.executedExitStages).containsExactlyInAnyOrder(0, 1)
     }
 
+    // ── ADR 0128 ①② R2 — base 고정·부분매수 잔여·전량청산 reset ──────────────────
+
+    @Test
+    fun `① BUY 체결 — 박제된 scaleInBaseBudget 은 회차 매수에도 보존된다(고정 base 불변)`() {
+        // 2회차 체결 — 1차에서 박제된 base 100만이 회차 매수로 사라지면 안 된다(2·3차 산정 기준).
+        port.preset =
+            strategyPosition(quantity = 9, avgPrice = "17283", filledLots = 1)
+                .copy(scaleInBaseBudget = BigDecimal("1000000"))
+
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 100L, orderedQty = 4),
+            execution(quantity = 4, price = "17283"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.filledLots).isEqualTo(2)
+        assertThat(saved.scaleInBaseBudget).isEqualByComparingTo(BigDecimal("1000000"))
+    }
+
+    @Test
+    fun `② BUY 완전 체결 — 잔여 0 (주문수량 == 체결수량)`() {
+        port.preset =
+            strategyPosition(quantity = 10, avgPrice = "10000", filledLots = 1)
+                .copy(scaleInBaseBudget = BigDecimal("1000000"), scaleInRemainderQty = 0)
+
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 100L, orderedQty = 10),
+            execution(quantity = 10, price = "10000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.scaleInRemainderQty).isEqualTo(0)
+    }
+
+    @Test
+    fun `② BUY 부분 체결 — 못 산 잔여(주문 10 - 체결 7 = 3)를 기록한다`() {
+        port.preset =
+            strategyPosition(quantity = 0, avgPrice = "0", filledLots = 0)
+                .copy(scaleInBaseBudget = BigDecimal("1000000"))
+
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 100L, orderedQty = 10),
+            execution(quantity = 7, price = "10000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(7)
+        assertThat(saved.scaleInRemainderQty).isEqualTo(3)
+    }
+
+    @Test
+    fun `①② SELL 전량 청산 — base·잔여도 reset(다음 진입 새 base 박제)`() {
+        port.preset =
+            strategyPosition(quantity = 10, avgPrice = "10000", filledLots = 3)
+                .copy(scaleInBaseBudget = BigDecimal("1000000"), scaleInRemainderQty = 2)
+
+        adapter.applyExecution(
+            request(side = OrderSide.SELL, strategyId = 100L, signalId = 0L, orderedQty = 10),
+            execution(quantity = 10, price = "11000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(0)
+        assertThat(saved.scaleInBaseBudget).isNull()
+        assertThat(saved.scaleInRemainderQty).isEqualTo(0)
+    }
+
+    @Test
+    fun `①② SELL 부분 청산 — base·잔여 보존(전량 청산 아님)`() {
+        port.preset =
+            strategyPosition(quantity = 20, avgPrice = "10000", filledLots = 2)
+                .copy(scaleInBaseBudget = BigDecimal("1000000"), scaleInRemainderQty = 5)
+
+        adapter.applyExecution(
+            request(side = OrderSide.SELL, strategyId = 100L, signalId = 0L, orderedQty = 5),
+            execution(quantity = 5, price = "12000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(15)
+        assertThat(saved.scaleInBaseBudget).isEqualByComparingTo(BigDecimal("1000000"))
+        assertThat(saved.scaleInRemainderQty).isEqualTo(5)
+    }
+
     @Test
     fun `MANUAL sentinel(strategyId=0) — upsert skip`() {
         adapter.applyExecution(
@@ -186,6 +270,7 @@ class ConsumerExecutionStrategyPositionAdapterTest {
         side: OrderSide,
         strategyId: Long,
         signalId: Long = 1L,
+        orderedQty: Int = 10,
     ): OrderRequest =
         OrderRequest(
             id = 7L,
@@ -195,7 +280,7 @@ class ConsumerExecutionStrategyPositionAdapterTest {
             code = "005930",
             side = side,
             priceType = OrderPriceType.MARKET,
-            quantity = 10,
+            quantity = orderedQty,
             limitPrice = null,
             status = OrderStatus.ACK,
             mode = TradingMode.MOCK,

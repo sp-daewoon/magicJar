@@ -632,6 +632,25 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
+    fun `① resolveScaleInBaseBudget — 1차 박제 후보 = 라이브 buyable(resolveBuyQuantity 동일 budget)`() {
+        // R2 listener 가 1차 진입 시 strategy_position 에 박제할 base = 그 시점 buyable(100만).
+        val base = evaluator.resolveScaleInBaseBudget(scaleInContext())
+        assertThat(base).isEqualByComparingTo(BigDecimal("1000000"))
+    }
+
+    @Test
+    fun `① resolveScaleInBaseBudget — buyable 0(예수금 소진)이면 null(박제 안 함)`() {
+        // 예수금 0 → buyable = min(남은한도, 예수금) = 0 → 박제하지 않는다(진입 0 케이스). listener 가 null 이면 no-op.
+        val noBudget =
+            sampleContext(
+                config = sampleConfig(maxPositionAmount = BigDecimal("1000000"), maxPositionPercent = BigDecimal("100.00")),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal.ZERO,
+            )
+        assertThat(evaluator.resolveScaleInBaseBudget(noBudget)).isNull()
+    }
+
+    @Test
     fun `② 부분매수 잔여 — 직전 회차 미체결 잔여를 이번 회차에 더해 채운다(buyable로 clamp)`() {
         // 1차에서 자금부족으로 5주 못 샀다(remainder=5). 2차 35주 + 잔여 5주 = 40주(buyable 충분).
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))

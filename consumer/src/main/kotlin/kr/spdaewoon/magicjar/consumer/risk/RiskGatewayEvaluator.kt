@@ -488,8 +488,7 @@ class RiskGatewayEvaluator {
      *
      * @return 1차 시점 buyable(원, > 0). buyable ≤ 0(예수금/한도 소진)이면 null(박제 안 함 — 진입 0 케이스).
      */
-    fun resolveScaleInBaseBudget(context: RiskContext): BigDecimal? =
-        resolveBuyBudget(context).buyable.takeIf { it > BigDecimal.ZERO }
+    fun resolveScaleInBaseBudget(context: RiskContext): BigDecimal? = resolveBuyBudget(context).buyable.takeIf { it > BigDecimal.ZERO }
 
     fun resolveSellQuantity(
         signal: Signal,
