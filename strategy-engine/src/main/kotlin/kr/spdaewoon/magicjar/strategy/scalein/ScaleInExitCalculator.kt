@@ -25,6 +25,22 @@ import java.math.RoundingMode
  *
  * 1. **STOP_LOSS** (최우선 — 보수적). 현재가 ≤ 평단 × (1 - stopLossPct/100) → 전량 SELL.
  *    동시 터치(stop·take 동시 조건) 시 손절 우선(ADR 0107 §2-6).
+ *
+ *    ### ★ 분할 미완 손절 보류 (2026-06-19 사용자 결재 — 자본 경로 critical 변경)
+ *    분할매수(scale-in)는 "하락 시 물타기로 평단을 낮추는" 전략이다. 1회차(filledLots=1/3)에서 평단×0.95
+ *    손절선에 닿았다고 즉시 청산하면 2·3회차 물타기 기회가 사라져 분할의 의미가 무력화된다(라이브 실증 2026-06-19
+ *    09:11 — 전략 47 3분할[40,35,25] 1회차 8주@18830 갭하락 17850→손절선 17880 도달→청산, 분할 미완).
+ *    따라서 **scaleIn 설정 + `filledLots < totalSlices`(분할 미완)** 동안에는 평단 기준 손절을 **보류**한다.
+ *    분할 완료(`filledLots >= totalSlices`) 후 최종 평단 -stopLossPct%에서 비로소 손절이 정상 발동한다(현행).
+ *
+ *    ### ★★ 무한 물타기 교착 방지 — catastrophic floor ([ScaleInExitInput.scaleInStopLossFloorPct])
+ *    손절 보류가 **무한**이 되면 "분할도 안 되고(SIGNAL_REPEAT 인데 BUY 재발화 없음) 손절도 안 되는" 교착이 생긴다.
+ *    단일 평가에서 "EnterSlice가 앞으로 영영 불가능"은 결정론적으로 증명할 수 없다(미래 BUY 시그널·가격 미지).
+ *    그래서 보류 자체에 **상한**을 둔다: 평단 대비 손실이 [scaleInStopLossFloorPct]%(default
+ *    [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) 이상으로 깊어지면 분할 미완이라도 손절을 발동한다(catastrophic exit).
+ *    이 floor 는 통상 stopLossPct 보다 **충분히 깊게**(예: 평단 -15%) 잡아, 정상 물타기 구간(-5%)에선 절대 닿지
+ *    않고 진짜 붕괴(급락 지속·분할 진척 0)에서만 발동한다. 이로써 손실 상한 = max(분할 전량 매수액 평가손,
+ *    floor 도달 청산) 로 명확히 bound 된다(worst-case 분석은 PR 본문).
  * 2. **PARTIAL_TP** — `partialExits`의 미발화 단계 중 trigger 도달한 **가장 높은 trigger** 1단계 청산.
  *    `stageIndex !in executedExitStages` AND `profitPct >= triggerProfitPct`. 보유 수량 × weight% SELL.
  * 3. **TAKE_PROFIT** — profitPct >= takeProfitPct → 잔량 전량 SELL.
@@ -48,6 +64,16 @@ object ScaleInExitCalculator {
     private val HUNDRED: BigDecimal = BigDecimal("100")
 
     /**
+     * 분할 미완 손절 보류의 catastrophic floor default(%, 양수 = 평단 대비 손실폭).
+     *
+     * 분할 미완(filledLots<totalSlices) 동안 평단 기준 손절을 보류하되, 평단 대비 손실이 이 값 이상으로
+     * 깊어지면 분할 미완이라도 손절을 발동한다(교착·무한 보류 방지). 통상 fixedStopLossPct(예 5)의 약 3배로
+     * 잡아, 정상 물타기 구간에선 절대 닿지 않고 진짜 붕괴에서만 발동한다. 호출자가 명시하지 않으면 이 default.
+     * 라이브 실증(전략 47)은 stopLossPct=5% 이므로 floor 15% = 평단 -15%(급락) 시 분할 중에도 청산.
+     */
+    val DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal = BigDecimal("15")
+
+    /**
      * 단일 평가 진입점. exit(청산) 우선 → 진입(scale-in) 순으로 평가하고 단일 액션을 반환한다.
      */
     fun evaluate(input: ScaleInExitInput): ScaleInExitDecision {
@@ -59,7 +85,7 @@ object ScaleInExitCalculator {
             // 1-a. STOP_LOSS (최우선 — 보수적, 동시 터치 시 손절 우선)
             input.fixedStopLossPct?.let { stopPct ->
                 val stopPrice = stopLossPrice(position.avgPrice, stopPct)
-                if (input.currentPrice <= stopPrice) {
+                if (input.currentPrice <= stopPrice && shouldFireStopLoss(input, position)) {
                     return ScaleInExitDecision.StopLoss(quantity = quantity)
                 }
             }
@@ -116,6 +142,38 @@ object ScaleInExitCalculator {
         avgPrice.multiply(
             BigDecimal.ONE.subtract(stopPct.divide(HUNDRED, 8, RoundingMode.HALF_UP)),
         )
+
+    /**
+     * 평단 손절선 도달 시 실제로 손절을 발동할지 판정 — 분할 미완 보류 + catastrophic floor (2026-06-19 사용자 결재).
+     *
+     * 반환 규칙(순수·결정론):
+     * - **scaleIn 미설정(null)** → 항상 true(현행 손절 그대로 — zero-regression).
+     * - **분할 완료(filledLots >= totalSlices)** → true(최종 평단 -stopLossPct%에서 손절 정상).
+     * - **분할 미완(filledLots < totalSlices)** → 평단 기준 손절을 보류(false). 단, 평단 대비 손실이 catastrophic
+     *   floor([ScaleInExitInput.scaleInStopLossFloorPct], default [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) 이상이면
+     *   true(무한 보류·교착 방지 — 진짜 붕괴 청산).
+     *
+     * ## 교착(deadlock) 회피 근거 (사용자 정밀검토 요청 응답)
+     * "분할도 안 되고(SIGNAL_REPEAT 인데 BUY 재발화 없음) 손절도 안 되는" 교착은, 단일 평가에서 "EnterSlice가
+     * 앞으로 영영 불가능"을 결정론적으로 증명할 수 없으므로 *직접* 감지하지 않는다(미래 BUY/가격 미지).
+     * 대신 보류 자체에 **손실폭 상한(floor)**을 둬 모든 경로에서 손실이 bound 되게 한다:
+     *   ① PRICE_DROP_PCT — 하락이 지속되면 추가 회차가 빠르게 채워져 곧 filledLots>=totalSlices(보류 자연 종료) → 손절 정상.
+     *   ② SIGNAL_REPEAT — BUY 재발화가 끊겨 분할이 멈춰도, 급락이 floor(평단 -15%)에 닿으면 청산되어 손실 상한 보장.
+     * 즉 "EnterSlice 불가능을 푸는 조건" = "손실이 floor에 도달" 로 환원한다(코드 근거 결정).
+     */
+    private fun shouldFireStopLoss(
+        input: ScaleInExitInput,
+        position: StrategyPosition,
+    ): Boolean {
+        val scaleIn = input.scaleIn ?: return true // scale-in 미설정 — 현행 손절(zero-regression)
+        if (position.filledLots >= scaleIn.totalSlices) return true // 분할 완료 — 최종 평단 손절 정상
+
+        // 분할 미완 — 평단 기준 손절 보류. catastrophic floor 도달 시에만 발동(교착 방지).
+        val floorPct = input.scaleInStopLossFloorPct ?: DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
+        if (floorPct <= ZERO) return false // floor 비활성(≤0) — 순수 보류(분할 완료까지 손절 0)
+        val floorPrice = stopLossPrice(position.avgPrice, floorPct) // 평단 × (1 - floorPct/100)
+        return input.currentPrice <= floorPrice
+    }
 
     /** 청산 수량 = floor(보유수량 × weight% / 100). 0..quantity로 clamp. */
     private fun exitQuantity(
@@ -229,6 +287,9 @@ object ScaleInExitCalculator {
  * @param lastSliceFillPrice 직전 회차 체결가(PRICE_DROP_PCT 평가용). 없으면 null(추가 회차 평가 보류).
  * @param lastSliceEpochSec 직전 회차 체결 epoch 초(minSliceInterval 평가용). 없으면 null(간격 가드 skip).
  * @param nowEpochSec 현재 epoch 초(minSliceInterval 평가용 — 호출자 주입). 없으면 null.
+ * @param scaleInStopLossFloorPct 분할 미완 손절 보류의 catastrophic floor%(양수). null이면
+ *   [ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]. ≤0이면 floor 비활성(분할 완료까지 순수 보류).
+ *   scaleIn 미설정 전략에는 무의미(보류 자체가 없음).
  */
 data class ScaleInExitInput(
     val position: StrategyPosition?,
@@ -242,6 +303,7 @@ data class ScaleInExitInput(
     val lastSliceFillPrice: BigDecimal? = null,
     val lastSliceEpochSec: Long? = null,
     val nowEpochSec: Long? = null,
+    val scaleInStopLossFloorPct: BigDecimal? = null,
 )
 
 /**

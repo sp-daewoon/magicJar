@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.order
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
@@ -66,6 +67,7 @@ class HoldingPositionIndexConcurrencyTest {
             HoldingPositionIndex(
                 strategyPositionRepository = positionRepo,
                 strategyRepository = strategyRepo,
+                objectMapper = ObjectMapper(),
                 enabled = true,
             )
 
@@ -99,6 +101,7 @@ class HoldingPositionIndexConcurrencyTest {
             HoldingPositionIndex(
                 strategyPositionRepository = positionRepo,
                 strategyRepository = strategyRepo,
+                objectMapper = ObjectMapper(),
                 enabled = true,
             )
         index.onFillRefresh("000001")

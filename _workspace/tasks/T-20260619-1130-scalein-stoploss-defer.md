@@ -14,11 +14,11 @@ parentPhase: ?
 분할 미완 시 손절 보류 — 분할 완료 후 손절(사용자 의도)
 
 ## 결과물 체크리스트
-- [ ] ScaleInExit손절보류
-- [ ] tickWatcher정합
-- [ ] 무한물타기가드
+- [x] ScaleInExit손절보류
+- [x] tickWatcher정합
+- [x] 무한물타기가드
 - [ ] worst-case분석
-- [ ] 테스트
+- [x] 테스트
 
 ## 의존성
 - (필요 시 기록)
