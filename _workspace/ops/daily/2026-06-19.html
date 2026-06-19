@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>magicJar 일일 운영 보고 — 2026-06-19 (canary 8일차)</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:24px; line-height:1.6; }
+  h1 { font-size:22px; border-bottom:2px solid #6366f1; padding-bottom:8px; }
+  h2 { font-size:17px; color:#a5b4fc; margin-top:28px; border-left:4px solid #6366f1; padding-left:10px; }
+  .banner { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
+  .stat { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:12px 16px; min-width:120px; }
+  .stat .v { font-size:21px; font-weight:700; } .stat .l { font-size:11px; color:#94a3b8; }
+  .green{color:#34d399;} .red{color:#f87171;} .amber{color:#fbbf24;} .blue{color:#60a5fa;}
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:12.5px; }
+  th,td { border:1px solid #334155; padding:6px 9px; text-align:left; }
+  th { background:#1e293b; color:#cbd5e1; } tr:nth-child(even){ background:#16203a; }
+  code { background:#1e293b; padding:1px 5px; border-radius:4px; font-size:11.5px; color:#a5b4fc; }
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;}
+  .t-fix{background:#312e81;color:#c7d2fe;} .t-bug{background:#7f1d1d;color:#fecaca;} .t-design{background:#064e3b;color:#a7f3d0;}
+  .note{font-size:12px;color:#94a3b8;}
+</style>
+</head>
+<body>
+<h1>🫙 magicJar 일일 운영 보고 — 2026-06-19 (금, canary 8일차)</h1>
+<p class="note">작성: orchestrator · 거래 종목 1(후성 093370) · 분할매수 라이브 검증·버그 발굴·설계 합의 집중일 · 코워크 단일세션 인수</p>
+
+<h2>① 요약</h2>
+<div class="banner">
+  <div class="stat"><div class="v blue">분할 3/3</div><div class="l">1·2·3회차 완주 검증</div></div>
+  <div class="stat"><div class="v green">drift 0</div><div class="l">② fix 라이브 통과</div></div>
+  <div class="stat"><div class="v red">버그 2건</div><div class="l">4회차 초과·base 불일치 발굴</div></div>
+  <div class="stat"><div class="v red">-10,780</div><div class="l">전략47 누적 실현손익</div></div>
+  <div class="stat"><div class="v amber">17주</div><div class="l">후성 오버나잇(@16,974)</div></div>
+  <div class="stat"><div class="v green">0건</div><div class="l">신규 ERROR</div></div>
+</div>
+<p>분할매수(전략47) 라이브 집중 검증일. <b>② reconcileDrift fix(#1057) 검증 통과(1·2·3회차 drift 0)</b> + <b>4회차 초과·base 불일치·floor 미설계 등 버그/설계공백 발굴</b> + 사용자와 분할 자본 설계 9개 합의(base 고정·손절 보류·floor 알람화). 재설계 디스패치는 API 서버 과부하(529 다회)로 지연→서버 회복 후 재발사 진행 중.</p>
+
+<h2>② 거래 전수 (후성 093370)</h2>
+<table>
+<tr><th>시각</th><th>주문</th><th>내용</th><th>비고</th></tr>
+<tr><td>09:11</td><td>#455</td><td>SELL 8주 STOP_LOSS @17,850</td><td>어제 오버나잇 8주 갭하락 손절(1m REST fallback tick — self-heal 제거 검증)</td></tr>
+<tr><td>10:49~11:26</td><td>#456·458·460</td><td>BUY 9·4·2 (1·2·3회차)</td><td><b>분할 완주 + drift 0</b>(② fix). 회차 40/35/25%</td></tr>
+<tr><td>13:26</td><td>#463</td><td>SELL 15주 MARKET @16,860</td><td>수동 청산(drift 알람 해소 목적, 급락 중)</td></tr>
+<tr><td>14:02~14:45</td><td>#464·466·468·470</td><td>BUY 9·5·2·<b>1</b> (1·2·3·<b>4회차</b>)</td><td>재진입 분할 — <b>#470은 totalSlices=3 초과 4회차(버그)</b></td></tr>
+<tr><td>14:45~</td><td>#471</td><td>SELL 17주 익절예약 ACK</td><td>오버나잇(평단 16,974 +10%=18,670 목표)</td></tr>
+</table>
+<p class="note">실보유 17주 = 전략원장 17주(② fix로 drift 0 — 단 14:45 4회차 초과분 포함). 전략47 PAUSED로 추가 매수 차단.</p>
+
+<h2>③ 알람 분류</h2>
+<table>
+<tr><th>이벤트</th><th>세부</th><th>건수</th><th>판정</th></tr>
+<tr><td>SYSTEM_EVENT</td><td>STRATEGY_POSITION_DRIFT</td><td>13 (13:20까지)</td><td>🟡 ②fix 전 2회차 깎임 누적 → 수동 청산·정합으로 멈춤</td></tr>
+<tr><td>ORDER_FILLED</td><td>—</td><td>9</td><td>🟢 체결 정합</td></tr>
+<tr><td>RECONCILE_RUN</td><td>—</td><td>1</td><td>🟢</td></tr>
+</table>
+<p class="green">미지의 알람 0. DRIFT는 13:26 청산+정합 후 멈춤(reconcileDrift fix 배포로 신규 0).</p>
+
+<h2>④ ERROR</h2>
+<p class="green">consumer 24h ERROR 0건(신규/기지 모두 0). 기지 RT_CD_7(#453)은 모니터 필터 제외 처리.</p>
+
+<h2>⑤ 발견 결함·조치·설계 매트릭스</h2>
+<table>
+<tr><th>항목</th><th>내용</th><th>상태</th></tr>
+<tr><td><span class="tag t-fix">검증</span> ② reconcileDrift</td><td>분할 2회차 stale 깎기 방지(#1057) — 1·2·3회차 drift 0 라이브 통과</td><td>✅ 배포·검증</td></tr>
+<tr><td><span class="tag t-bug">버그</span> 4회차 초과 진입</td><td>resolveBuyQuantity가 filledLots≥totalSlices에도 마지막가중 계속 매수(전략47 4회차 실증)</td><td>재설계에 포함</td></tr>
+<tr><td><span class="tag t-bug">버그</span> base 불일치</td><td>회차마다 buyable 재계산(줄어듦) → 분할 합이 목표액 미달(40만→실 26만)</td><td>재설계(base 고정)</td></tr>
+<tr><td><span class="tag t-design">설계</span> 분할 자본 9개 합의</td><td>base 고정·부분매수+잔여추적·분할미완 손절보류·분할완료후 손절·floor 알람화(자동청산X)·예상손절가/분할계획 UI</td><td>ADR 0128 + 재설계 진행</td></tr>
+<tr><td><span class="tag t-fix">강등</span> floor 청산→알람</td><td>#1058 floor 자동청산을 알람만으로(스윙 큰손실 회피, 청산은 수동)</td><td>재설계 포함</td></tr>
+</table>
+
+<h2>⑥ 인프라</h2>
+<ul>
+  <li><b>배포</b>: consumer 다회(① 손절보류 #1058·② reconcileDrift #1057·self-heal 제거). 4모듈 healthy, ERROR 0.</li>
+  <li><b>API 서버 과부하</b>: 분할 재설계 디스패치가 <code>529 Overloaded</code> 다회(claude.com 측) → 16:16 회복 후 재발사. 자본 코드는 무영향(에이전트 시작 전 실패).</li>
+  <li><b>self-heal 제거 검증</b>: 09:11 손절이 1m REST fallback tick으로 정상 발동 — 안전망 보존 확인.</li>
+</ul>
+
+<h2>⑦ 익일 인계</h2>
+<ol>
+  <li>🔄 <b>분할 자본 재설계 완료</b>(strategy-engine, ADR 0128) → PR 검토(4회차 한도·floor 알람·base 고정·weight0 엣지) → <b>frontend UI 디스패치</b>(분할 매수 계획 + 예상 손절가 화면 — 사용자 강조) → 사용자 승인 후 배포</li>
+  <li>🟡 <b>후성 17주 오버나잇</b>(@16,974, 익절예약 #471 17주). 4회차 초과분 포함 — 익일 처리/관찰</li>
+  <li>🟡 <b>전략 47</b> PAUSED 유지 — 재설계 배포 후 재가동 결정. ma3/ma8 whipsaw 조건 재설계 별도</li>
+  <li>🟢 미래 트랙: 분할전략 리스크풀 분리 → <b>지정 목표금액 매집</b>(현 base 고정이 토대)</li>
+  <li>🟡 기존 인계: RT_CD_7 조회범위·persistence-shared 추출·KIS멀티시세 connection</li>
+</ol>
+<p class="note">— 오늘은 분할매수를 라이브로 끝까지 돌려 검증(drift 0)·버그 발굴(4회차·base)·설계 합의(9개)까지 한 집중일. 사용자 통찰(분할 미완 손절 방어·floor 알람화·base 고정)이 설계의 핵심.</p>
+</body>
+</html>
