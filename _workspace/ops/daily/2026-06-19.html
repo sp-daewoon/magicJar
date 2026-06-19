@@ -73,11 +73,14 @@
   <li><b>배포</b>: consumer 다회(① 손절보류 #1058·② reconcileDrift #1057·self-heal 제거). 4모듈 healthy, ERROR 0.</li>
   <li><b>API 서버 과부하</b>: 분할 재설계 디스패치가 <code>529 Overloaded</code> 다회(claude.com 측) → 16:16 회복 후 재발사. 자본 코드는 무영향(에이전트 시작 전 실패).</li>
   <li><b>self-heal 제거 검증</b>: 09:11 손절이 1m REST fallback tick으로 정상 발동 — 안전망 보존 확인.</li>
+  <li><b>★ 분할 자본 재설계 R1~R3 전부 배포(17:3x)</b>: R1(#1060 floor 알람화·4회차 한도·weight0 엣지)·R2(#1061 base 1차박제·잔여추적·<code>scalein-plan</code> API·V90 컬럼)·R3(#1062 frontend "예상 매수 계획" 패널). 4모듈 healthy, 신규 ERROR 0, API 응답 정합(회차 40/35/25%·평단연동). ADR 0128 LOCK.</li>
 </ul>
 
 <h2>⑦ 익일 인계</h2>
 <ol>
-  <li>🔄 <b>분할 자본 재설계 완료</b>(strategy-engine, ADR 0128) → PR 검토(4회차 한도·floor 알람·base 고정·weight0 엣지) → <b>frontend UI 디스패치</b>(분할 매수 계획 + 예상 손절가 화면 — 사용자 강조) → 사용자 승인 후 배포</li>
+  <li>✅ <b>분할 자본 재설계 R1~R3 배포 완료</b>(ADR 0128) — R1 #1060·R2 #1061·R3 #1062 전부 머지·배포. "예상 매수 계획" 패널(회차별 수량/조건 + 예상 손절가 + floor 알람선) 라이브.</li>
+  <li>🔴 <b>floor 후속 보정 2건(다음 세션 1순위 — 전략 빌더 고도화와 묶음)</b>: ① <code>DEFAULT_STOP_LOSS_FLOOR_PCT=15%</code> 코드 하드코딩 제거(사용자 "코드 강제 0, 미설정이면 알람도 없이 -99%까지 보유 자유") ② floor <b>자동청산 on/off 토글</b>을 전략 설정에 추가(현재 항상 알람만). 둘 다 floor=알람만이라 <b>자본 위험 0</b>(주문 연동 없음). brainstorming/spec 대상. 갭③(SIGNAL_REPEAT floor 검증 skip)은 이미 해소(ScaleInExitValidationTest:112).</li>
+  <li>🟡 <b>전략 목록 UX 개선 제안</b>(사용자 "전략 몇 개 안 되는데 화면에 다 안 보임" — 나중에 제안 요청). 전략 빌더 고도화와 함께 다음 세션 제안.</li>
   <li>🟡 <b>후성 17주 오버나잇</b>(@16,974, 익절예약 #471 17주). 4회차 초과분 포함 — 익일 처리/관찰</li>
   <li>🟡 <b>전략 47</b> PAUSED 유지 — 재설계 배포 후 재가동 결정. ma3/ma8 whipsaw 조건 재설계 별도</li>
   <li>🟢 미래 트랙: 분할전략 리스크풀 분리 → <b>지정 목표금액 매집</b>(현 base 고정이 토대)</li>
