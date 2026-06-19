@@ -267,9 +267,15 @@ class ConsumerExecutionStrategyPositionAdapterTest {
  * 0(원장은 BalanceReconcile 주기에 뒤늦게 채워짐) → legs > authority(0) = 초과 → Adjust 로 방금 더한 물량 삭제.
  * 기존 가드(authorityRow==null)는 "행 부재"만 막아 "행 존재 + quantity=0"(체결 직후)은 뚫렸다.
  *
+ * 2026-06-19 확장(분할 N회차 stale 양수 잔고 P0): 권위가 0 이 아니라 양수라도 체결 직후엔 stale(직전 회차값) 일 수 있다.
+ * 분할 2회차 실측(전략 47, 11:17): applyBuy 가 nextQty=13 정확 산정했으나 KIS 잔고는 아직 1회차값 9 → legSum(13) >
+ * authority(9) 초과 Adjust 로 13→9 깎임 → 익절 4주 누락. 같은 뿌리(원장 미반영) 의 양수판이므로 postExecution 에서
+ * 권위<legSum(깎는 방향) 전체를 skip 한다.
+ *
  * 검증:
  * 1. 체결 직후 원장 0(행 존재) 빈틈 — strategy_position 이 깎이지 않고 보존된다(다음 주기 회복).
- * 2. 주기 reconcile 진짜 미보유(원장 0) — 정상 초과 정정(0 으로 깎임)된다.
+ * 2. 체결 직후 stale 양수(원장 9, leg 13) — nextQty(13) 보존(초과 깎기 금지 — 익절 누락 방지).
+ * 3. 주기 reconcile 정합(원장 13) — 무동작 / 진짜 drift(원장 9·0) — 정상 초과 정정.
  */
 class ConsumerExecutionStrategyPositionDriftGuardTest {
     private val port = ReconcileCapturingPort()
@@ -316,6 +322,95 @@ class ConsumerExecutionStrategyPositionDriftGuardTest {
         val saved = port.lastUpsert!!
         assertThat(saved.strategyId).isEqualTo(88L)
         assertThat(saved.quantity).isEqualTo(1)
+    }
+
+    @Test
+    fun `분할 2회차 체결 직후 stale 양수 잔고(원장 9) — nextQty(13) 보존(초과 깎기 금지)`() {
+        // given — 전략 47, 1회차 9주 보유(leg). 2회차 4주 매수 체결 직후 leg=13 upsert 되지만,
+        //   KIS 잔고(positionQty)는 아직 1회차값 9(2회차 4주 미반영 — 라이브 실측 11:17).
+        port.preset =
+            StrategyPosition(
+                id = 1L,
+                userId = "user-A",
+                strategyId = 47L,
+                code = "005930",
+                quantity = 9,
+                avgPrice = BigDecimal("17283"),
+                filledLots = 1,
+                realizedPnl = BigDecimal.ZERO,
+                executedExitStages = emptySet(),
+                openedAt = NOW,
+                updatedAt = NOW,
+            )
+        whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))
+            .thenReturn(positionRow(quantity = 9))
+
+        // when — 2회차 4주 매수 체결 → applyBuy 가 9+4=13 upsert, 직후 reconcileDrift(postExecution=true) 호출.
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 47L),
+            execution(quantity = 4, price = "17283"),
+        )
+
+        // then — drift 가 legSum(13) > authority(9 stale) 를 초과로 깎지 않고 보존. 익절 4주 누락 방지.
+        val saved = port.lastUpsert!!
+        assertThat(saved.strategyId).isEqualTo(47L)
+        assertThat(saved.quantity).isEqualTo(13)
+    }
+
+    @Test
+    fun `주기 reconcile 진짜 보유(원장 13 반영 후) — leg 13 정합이면 무동작`() {
+        // given — 분할 2회차 leg=13, 원장도 BalanceReconcile 이 13 으로 채운 뒤(정합).
+        port.preset =
+            StrategyPosition(
+                id = 1L,
+                userId = "user-A",
+                strategyId = 47L,
+                code = "005930",
+                quantity = 13,
+                avgPrice = BigDecimal("17283"),
+                filledLots = 2,
+                realizedPnl = BigDecimal.ZERO,
+                executedExitStages = emptySet(),
+                openedAt = NOW,
+                updatedAt = NOW,
+            )
+        whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))
+            .thenReturn(positionRow(quantity = 13))
+
+        // when — 주기 reconcile(postExecution=false). 권위 13 == legSum 13.
+        adapter.reconcileStrategyPositionDrift("user-A", "005930", TradingMode.MOCK.name)
+
+        // then — 정합이라 보정 upsert 미발생(leg 13 보존).
+        assertThat(port.lastUpsert).isNull()
+    }
+
+    @Test
+    fun `주기 reconcile 진짜 drift(원장 9 반영 후 leg 13) — 초과 leg 가 9 로 정상 정정된다`() {
+        // given — 원장이 BalanceReconcile 로 9 까지만 채워진 진짜 drift(예: 2회차 미체결·취소). 주기 경로는 양수 권위 신뢰.
+        port.preset =
+            StrategyPosition(
+                id = 1L,
+                userId = "user-A",
+                strategyId = 47L,
+                code = "005930",
+                quantity = 13,
+                avgPrice = BigDecimal("17283"),
+                filledLots = 2,
+                realizedPnl = BigDecimal.ZERO,
+                executedExitStages = emptySet(),
+                openedAt = NOW,
+                updatedAt = NOW,
+            )
+        whenever(positionRepo.findByUserIdAndCodeAndSource(any(), any(), any()))
+            .thenReturn(positionRow(quantity = 9))
+
+        // when — 주기 reconcile(postExecution=false). 원장 9 = 권위 신뢰 → 진짜 초과 정정.
+        adapter.reconcileStrategyPositionDrift("user-A", "005930", TradingMode.MOCK.name)
+
+        // then — 유령 4주가 9 로 정정(원장 권위 정렬).
+        val saved = port.lastUpsert!!
+        assertThat(saved.strategyId).isEqualTo(47L)
+        assertThat(saved.quantity).isEqualTo(9)
     }
 
     @Test

@@ -110,7 +110,8 @@ class ConsumerExecutionStrategyPositionAdapter(
 
         // 체결 직후 경로 — postExecution=true. 이 시점 position(원장) 권위는 아직 이 체결을 반영하지 않았을
         // 수 있다(원장은 BalanceReconcile 주기에 뒤늦게 채워짐 — 실측 15:10 체결 vs 15:51 원장 반영). 따라서
-        // "원장 0 + 방금 귀속한 leg 양수"를 초과로 깎으면 정상 물량을 즉시 파괴한다(아래 reconcileDrift 가드).
+        // "원장 stale(0 또는 직전 회차 양수) + 방금 귀속한 leg 합이 더 큼"을 초과로 깎으면 정상 물량을 즉시 파괴한다
+        // (분할 2회차 실측 13→9 익절누락 — 아래 reconcileDrift 가 권위<legSum 깎는 방향을 skip).
         reconcileDrift(request.userId, request.code, request.mode.name, postExecution = true)
     }
 
@@ -436,6 +437,13 @@ class ConsumerExecutionStrategyPositionAdapter(
      *   (다음 정합 주기에 회복 — 부족 방향 WARN-only 와 동일 철학으로 정상 물량 보존). 주기 reconcile
      *   ([reconcileStrategyPositionDrift], postExecution=false)는 원장이 이미 채워진 뒤이므로 권위 0=진짜 미보유로
      *   신뢰 → 정상 정정(미체결·미보유 케이스와 구분).
+     *
+     * ## 분할 N회차 stale 양수 잔고 가드 (2026-06-19 — 자본 path P0)
+     * 위 "권위 0" 빈틈의 양수판. 분할 2회차 실측(전략 47, 11:17): applyBuy 가 nextQty=13 정확 산정했으나 KIS
+     *   잔고(positionQty)는 아직 1회차값 9(2회차 4주 미반영) → legSum(13) > authority(9) = 초과 Adjust 로 13→9 깎임
+     *   → 익절 4주 누락. 같은 뿌리(원장 미반영)이므로 [postExecution]=true 에서 **권위 < legSum(깎는 방향)** 전체를
+     *   stale 미반영으로 보고 skip 한다(positionQty==0 은 0<legSum 으로 자연 포함). 늘리는 방향(권위 ≥ legSum)은
+     *   초과 깎기가 없으므로 통과 — 정상 처리.
      */
     private fun reconcileDrift(
         userId: String,
@@ -469,6 +477,7 @@ class ConsumerExecutionStrategyPositionAdapter(
             }
 
         val positionQty = authorityRow?.quantity ?: 0
+        val legSum = legs.sumOf { it.quantity }
         val hasPositiveLeg = legs.any { it.quantity > 0 }
 
         // hotfix 2026-06-11 (D1): 이 source(REAL/MOCK) 의 position 행 자체가 **부재**면 "확정 0 보유"가 아니다.
@@ -481,10 +490,20 @@ class ConsumerExecutionStrategyPositionAdapter(
         // 체결 직후 reconcile 은 권위 0 + 방금 귀속한 leg 양수를 초과로 깎으면 정상 물량을 즉시 파괴한다.
         // → 보정하지 않고 skip(다음 정합 주기에 회복). 주기 reconcile(postExecution=false)은 원장이 채워진 뒤이므로
         //   권위 0=진짜 미보유로 신뢰 → 가드 없이 정상 정정(미체결·미보유와 구분).
-        val authorityUnreliableZero = authorityRow == null || (postExecution && positionQty == 0)
-        if (authorityUnreliableZero && hasPositiveLeg) {
+        //
+        // 2026-06-19 확장(분할 N회차 stale 양수 잔고 근본 fix · 자본 path P0): 권위가 **0 이 아니라 양수라도**
+        // 체결 직후엔 stale(직전 회차값) 일 수 있다. 분할 2회차 실측(전략 47, 11:17): applyBuy 가 nextQty=13 정확
+        // 산정했으나 KIS 잔고(positionQty)는 아직 1회차값 9(2회차 4주 미반영) → legSum(13) > authority(9) =
+        // 초과 Adjust 로 13->9 로 깎임 → 익절 4주 누락. 즉 "권위 0" 빈틈과 같은 뿌리(원장 미반영) 의 양수판.
+        // → 체결 직후(postExecution=true) 에 **권위가 방금 귀속한 leg 합보다 작으면(깎는 방향)** stale 미반영으로
+        //   보고 skip(다음 정합 주기에 회복). positionQty==0 케이스는 0 < 양수 legSum 으로 자연 포함된다.
+        //   늘리는 방향(authority ≥ legSum)은 애초에 초과 깎기가 발생하지 않으므로 가드 불필요(통과시켜 정상 처리).
+        //   주기 reconcile(postExecution=false)은 원장이 채워진 뒤이므로 양수 권위를 신뢰 → 진짜 drift 정상 정정.
+        val authorityRowAbsent = authorityRow == null && hasPositiveLeg
+        val postExecutionStaleShrink = postExecution && positionQty < legSum && hasPositiveLeg
+        if (authorityRowAbsent || postExecutionStaleShrink) {
             log.warn(
-                "strategy_position drift skip(권위 0 신뢰불가 — 확정 0 아님): userId={} code={} source={} " +
+                "strategy_position drift skip(권위 신뢰불가 — 체결 직후 미반영 stale): userId={} code={} source={} " +
                     "authorityRowPresent={} positionQty={} postExecution={} legSum={} (다음 정합 주기 회복)",
                 maskUserId(userId),
                 code,
@@ -492,7 +511,7 @@ class ConsumerExecutionStrategyPositionAdapter(
                 authorityRow != null,
                 positionQty,
                 postExecution,
-                legs.sumOf { it.quantity },
+                legSum,
             )
             return
         }
