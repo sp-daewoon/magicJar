@@ -286,9 +286,9 @@ class ScaleInExitCalculatorTest {
     }
 
     @Test
-    fun `scale-in incomplete fires stop-loss when catastrophic floor reached`() {
-        // 분할 미완(1/3)이지만 평단 -15% floor(=850) 도달 → 교착 방지 catastrophic 손절 발동.
-        // 평단 1000, floor default 15% → 850. 현재가 840 ≤ 850 → 손절.
+    fun `⑦ scale-in incomplete at catastrophic floor emits alert only (NO auto-liquidation)`() {
+        // 분할 미완(1/3) + 평단 -15% floor(=850) 도달 → 자동 청산이 아니라 **FloorBreachAlert(알람만)**.
+        // 평단 1000, floor default 15% → 850. 현재가 840 ≤ 850 → 알람.
         val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
         val decision =
             ScaleInExitCalculator.evaluate(
@@ -300,7 +300,14 @@ class ScaleInExitCalculatorTest {
                     buySignalFired = false,
                 ),
             )
-        assertTrue(decision is ScaleInExitDecision.StopLoss) { "분할 미완이어도 floor(-15%) 도달 시 청산(교착 방지)" }
+        assertTrue(decision is ScaleInExitDecision.FloorBreachAlert) { "floor 도달=알람만, 자동 청산 X (⑦)" }
+        val alert = decision as ScaleInExitDecision.FloorBreachAlert
+        assertEquals(8, alert.quantity)
+        assertEquals(BigDecimal("1000"), alert.avgPrice)
+        assertEquals(BigDecimal("840"), alert.currentPrice)
+        assertEquals(BigDecimal("15"), alert.floorPct)
+        // 손실률% = (840-1000)/1000 = -16% → SELL 미발행(StopLoss 아님)을 위 타입으로 보장.
+        assertTrue(alert.lossPct < BigDecimal.ZERO)
     }
 
     @Test
@@ -321,8 +328,8 @@ class ScaleInExitCalculatorTest {
     }
 
     @Test
-    fun `custom floor overrides default`() {
-        // floor 10% 명시 → 평단 1000 floor 900. 현재가 895 ≤ 900 → 분할 미완이어도 손절.
+    fun `custom floor overrides default — emits alert at custom depth`() {
+        // floor 10% 명시 → 평단 1000 floor 900. 현재가 895 ≤ 900 → 분할 미완이어도 알람(자동 청산 X).
         val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
         val decision =
             ScaleInExitCalculator.evaluate(
@@ -335,7 +342,8 @@ class ScaleInExitCalculatorTest {
                     buySignalFired = false,
                 ),
             )
-        assertTrue(decision is ScaleInExitDecision.StopLoss)
+        assertTrue(decision is ScaleInExitDecision.FloorBreachAlert)
+        assertEquals(BigDecimal("10"), (decision as ScaleInExitDecision.FloorBreachAlert).floorPct)
     }
 
     @Test
@@ -388,5 +396,119 @@ class ScaleInExitCalculatorTest {
                 ),
             )
         assertTrue(decision is ScaleInExitDecision.StopLoss)
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // ⑧ totalSlices 한도 초과 진입 차단 + ⑨ weight 0 회차 skip (2026-06-19 결재, ADR 0128)
+    // ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `⑧ enter-slice returns null when filledLots reaches effective slice count (no overflow entry)`() {
+        // 3분할 완료(filledLots=3) — buySignalFired=true 여도 추가 진입 0(이전 마지막 가중 계속매수 버그 fix).
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 30, avgPrice = "1000", filledLots = 3),
+                    currentPrice = BigDecimal("1000"),
+                    scaleIn = plan,
+                    buySignalFired = true,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold) { "분할 완료 후 BUY 재발화는 진입 0 (⑧)" }
+    }
+
+    @Test
+    fun `⑨ weight-0 trailing slice — 50_50_0 completes at slice 2 (no entry for slice 3)`() {
+        val plan =
+            ScaleInPlan(
+                totalSlices = 3,
+                sliceWeights = listOf(BigDecimal("50"), BigDecimal("50"), BigDecimal.ZERO),
+                reentryTrigger = ReentryTrigger.SIGNAL_REPEAT,
+                minSliceIntervalSec = 0,
+            )
+        // filledLots=0 → index 0 weight 50.
+        val d0 =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(position = null, currentPrice = BigDecimal("1000"), scaleIn = plan, buySignalFired = true),
+            )
+        assertTrue(d0 is ScaleInExitDecision.EnterSlice)
+        assertEquals(0, (d0 as ScaleInExitDecision.EnterSlice).sliceIndex)
+        assertEquals(BigDecimal("50"), d0.weightPct)
+
+        // filledLots=1 → index 1 weight 50.
+        val d1 =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 5, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("1000"),
+                    scaleIn = plan,
+                    buySignalFired = true,
+                ),
+            )
+        assertTrue(d1 is ScaleInExitDecision.EnterSlice)
+        assertEquals(1, (d1 as ScaleInExitDecision.EnterSlice).sliceIndex)
+
+        // filledLots=2 → 실효 회차수 2 도달 → 진입 0(0% 회차 skip = totalSlices 2 와 동일).
+        val d2 =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 10, avgPrice = "1000", filledLots = 2),
+                    currentPrice = BigDecimal("1000"),
+                    scaleIn = plan,
+                    buySignalFired = true,
+                ),
+            )
+        assertTrue(d2 is ScaleInExitDecision.Hold) { "0% 회차는 skip — 진입 0 (⑨)" }
+    }
+
+    @Test
+    fun `⑨ weight-0 middle slice — 50_0_50 maps filledLots 1 to slice index 2`() {
+        val plan =
+            ScaleInPlan(
+                totalSlices = 3,
+                sliceWeights = listOf(BigDecimal("50"), BigDecimal.ZERO, BigDecimal("50")),
+                reentryTrigger = ReentryTrigger.SIGNAL_REPEAT,
+                minSliceIntervalSec = 0,
+            )
+        // filledLots=1 → 중간 0% index 1 건너뛰고 index 2(50%) 진입.
+        val d =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 5, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("1000"),
+                    scaleIn = plan,
+                    buySignalFired = true,
+                ),
+            )
+        assertTrue(d is ScaleInExitDecision.EnterSlice)
+        assertEquals(2, (d as ScaleInExitDecision.EnterSlice).sliceIndex)
+        assertEquals(BigDecimal("50"), d.weightPct)
+    }
+
+    @Test
+    fun `⑦ floor alert never sells — stop-loss completion still sells (boundary)`() {
+        // 동일 가격에서 분할 완료면 StopLoss, 미완이면 FloorBreachAlert — 청산 여부가 갈린다.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val incomplete =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("800"), // -20% (floor 15% 초과)
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                ),
+            )
+        val complete =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 24, avgPrice = "1000", filledLots = 3),
+                    currentPrice = BigDecimal("800"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                ),
+            )
+        assertTrue(incomplete is ScaleInExitDecision.FloorBreachAlert) { "분할 미완 → 알람만" }
+        assertTrue(complete is ScaleInExitDecision.StopLoss) { "분할 완료 → 손절 청산" }
     }
 }

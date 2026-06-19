@@ -834,6 +834,9 @@ class JvmBacktestEngine(
                 }
             }
 
+            // ⑦ catastrophic floor 도달은 **알람만**(주문 연동 0 — ADR 0128). 백테스트엔 알람 채널이 없으므로 no-op(HOLD).
+            is ScaleInExitDecision.FloorBreachAlert -> null
+
             ScaleInExitDecision.Hold -> null
         }
     }

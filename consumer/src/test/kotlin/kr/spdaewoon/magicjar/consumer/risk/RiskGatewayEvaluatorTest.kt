@@ -569,15 +569,111 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
-    fun `scale-in filledLots가 totalSlices 이상이면 마지막 회차 가중으로 방어(범위 초과 클램프)`() {
-        // generator 가 EnterSlice 를 안 내므로 정상 경로엔 도달하지 않지만, 방어적으로 마지막 가중(25%)을 쓴다.
+    fun `⑧ scale-in filledLots가 totalSlices 이상이면 진입 0 (마지막 가중 계속매수 버그 fix)`() {
+        // 라이브 버그: 이전엔 weights.getOrElse(idx){last()} 로 4·5회차에도 마지막 25% 가중으로 계속 매수했다(전략47 실증).
+        // fix: filledLots(3) >= 실효 회차수(3) → sliceAt(3)=null → 수량 0.
         val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
-        val context = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 100, filledLots = 5))
+        val ctx3 = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 100, filledLots = 3))
+        val ctx5 = scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 100, filledLots = 5))
 
-        val qty = evaluator.resolveBuyQuantity(signal, context, scaleIn = threeSlicePlan)
+        assertThat(evaluator.resolveBuyQuantity(signal, ctx3, scaleIn = threeSlicePlan)).isEqualTo(0)
+        assertThat(evaluator.resolveBuyQuantity(signal, ctx5, scaleIn = threeSlicePlan)).isEqualTo(0)
+    }
 
-        // weights.lastOrNull() = 25% → 25주
-        assertThat(qty).isEqualTo(25)
+    @Test
+    fun `⑨ weight 0 회차 — 50_50_0 은 50_50 과 동일 결과(0퍼센트 회차 skip, 3회차 진입 0)`() {
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = listOf(BigDecimal("50"), BigDecimal("50"), BigDecimal.ZERO))
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+
+        // 1회차(filledLots=0) → 50% = 50주. 2회차(filledLots=1) → 50% = 50주.
+        val q0 = evaluator.resolveBuyQuantity(signal, scaleInContext(), scaleIn = plan)
+        val q1 =
+            evaluator.resolveBuyQuantity(
+                signal,
+                scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 50, filledLots = 1)),
+                scaleIn = plan,
+            )
+        // 3회차(filledLots=2) → 실효 회차수 2 도달 → sliceAt(2)=null → 0주(빈 주문·꼬임 없음).
+        val q2 =
+            evaluator.resolveBuyQuantity(
+                signal,
+                scaleInContext().copy(strategyPosition = sampleStrategyPosition(quantity = 100, filledLots = 2)),
+                scaleIn = plan,
+            )
+        assertThat(q0).isEqualTo(50)
+        assertThat(q1).isEqualTo(50)
+        assertThat(q2).isEqualTo(0)
+    }
+
+    @Test
+    fun `① base 고정 — 박제 base가 있으면 줄어든 buyable 대신 고정 base로 회차 산정`() {
+        // 2회차 시점에 buyable 이 (1차 노출로) 60만으로 줄었어도, 박제 base 100만 × 35% 로 산정해야 한다.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        // buyable 을 60만으로 만든다(노출 40만): 총한도 100만 − 노출 40만 = 남은 60만.
+        val shrunk =
+            sampleContext(
+                config = sampleConfig(maxPositionAmount = BigDecimal("1000000"), maxPositionPercent = BigDecimal("100.00")),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("100000000"),
+                currentPositions = listOf(samplePositionAt("005930", quantity = 40, avgPrice = BigDecimal("10000"))),
+            ).copy(
+                strategyPosition =
+                    sampleStrategyPosition(
+                        quantity = 40,
+                        filledLots = 1,
+                        scaleInBaseBudget = BigDecimal("1000000"), // 1차 시점 박제 base
+                    ),
+            )
+
+        val qty = evaluator.resolveBuyQuantity(signal, shrunk, scaleIn = threeSlicePlan)
+
+        // 고정 base 100만 × 35% = 35만 → 35주. (박제 없으면 60만 × 35% = 21주가 됐을 것 — 비중 왜곡 방지.)
+        assertThat(qty).isEqualTo(35)
+    }
+
+    @Test
+    fun `② 부분매수 잔여 — 직전 회차 미체결 잔여를 이번 회차에 더해 채운다(buyable로 clamp)`() {
+        // 1차에서 자금부족으로 5주 못 샀다(remainder=5). 2차 35주 + 잔여 5주 = 40주(buyable 충분).
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val ctx =
+            scaleInContext().copy(
+                strategyPosition =
+                    sampleStrategyPosition(
+                        quantity = 40,
+                        filledLots = 1,
+                        scaleInBaseBudget = BigDecimal("1000000"),
+                        scaleInRemainderQty = 5,
+                    ),
+            )
+
+        val qty = evaluator.resolveBuyQuantity(signal, ctx, scaleIn = threeSlicePlan)
+
+        // 35주(회차) + 5주(잔여) = 40주.
+        assertThat(qty).isEqualTo(40)
+    }
+
+    @Test
+    fun `② 부분매수 잔여 — buyable 부족 시 잔여 포함 합이 maxAffordable로 clamp(못 사는 만큼은 못 산다)`() {
+        // buyable 이 30만(=30주)뿐인데 회차+잔여 합이 40주여도 30주로 clamp.
+        val signal = sampleSignal(side = SignalSide.BUY, priceAtSignal = BigDecimal("10000"))
+        val ctx =
+            sampleContext(
+                config = sampleConfig(maxPositionAmount = BigDecimal("1000000"), maxPositionPercent = BigDecimal("100.00")),
+                currentCapital = BigDecimal("100000000"),
+                orderableCash = BigDecimal("300000"), // 예수금 30만 → maxAffordable 30주
+            ).copy(
+                strategyPosition =
+                    sampleStrategyPosition(
+                        quantity = 40,
+                        filledLots = 1,
+                        scaleInBaseBudget = BigDecimal("1000000"),
+                        scaleInRemainderQty = 5,
+                    ),
+            )
+
+        val qty = evaluator.resolveBuyQuantity(signal, ctx, scaleIn = threeSlicePlan)
+
+        assertThat(qty).isEqualTo(30)
     }
 
     @Test
@@ -1030,6 +1126,8 @@ class RiskGatewayEvaluatorTest {
         quantity: Int,
         filledLots: Int = 0,
         avgPrice: BigDecimal = BigDecimal("10000"),
+        scaleInBaseBudget: BigDecimal? = null,
+        scaleInRemainderQty: Int = 0,
     ): kr.spdaewoon.magicjar.domain.position.StrategyPosition =
         kr.spdaewoon.magicjar.domain.position.StrategyPosition(
             id = 1L,
@@ -1039,6 +1137,8 @@ class RiskGatewayEvaluatorTest {
             quantity = quantity,
             avgPrice = avgPrice,
             filledLots = filledLots,
+            scaleInBaseBudget = scaleInBaseBudget,
+            scaleInRemainderQty = scaleInRemainderQty,
             openedAt = now,
             updatedAt = now,
         )
