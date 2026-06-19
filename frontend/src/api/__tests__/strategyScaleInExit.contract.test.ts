@@ -61,6 +61,35 @@ const server = setupServer(
     ]),
   ),
   http.get('/api/strategies/8/position', () => HttpResponse.json([])),
+  // 분할 매수 계획 (ADR 0128 R3) — currentPrice 전달 시 목표 수량 계산 mock
+  http.get('/api/strategies/7/scalein-plan', ({ request }) => {
+    const cp = new URL(request.url).searchParams.get('currentPrice')
+    const hasPrice = cp !== null
+    return HttpResponse.json({
+      strategyId: 7,
+      code: '005930',
+      held: true,
+      filledLots: 1,
+      avgPrice: '70000.0000',
+      baseBudget: '1000000.0000',
+      referencePrice: hasPrice ? cp : '70000',
+      totalSlices: 3,
+      effectiveSlices: 3,
+      slices: [
+        { sliceIndex: 0, displayOrder: 1, weightPct: '50', targetQuantity: hasPrice ? 7 : null, triggerDescription: '1차 진입 — BUY 시그널 발화 시 즉시' },
+        { sliceIndex: 1, displayOrder: 2, weightPct: '30', targetQuantity: hasPrice ? 4 : null, triggerDescription: '2차 — 시그널 재발화 시' },
+        { sliceIndex: 2, displayOrder: 3, weightPct: '20', targetQuantity: hasPrice ? 2 : null, triggerDescription: '3차 — 시그널 재발화 시' },
+      ],
+      expectedStopLossPrice: '66500.0000',
+      fixedStopLossPct: '5.00',
+      floorPct: '30.00',
+      floorPrice: '49000.0000',
+    })
+  }),
+  // 분할 미설정 전략 — 서버 400
+  http.get('/api/strategies/9/scalein-plan', () =>
+    HttpResponse.json({ message: '분할 매수가 설정되지 않은 전략입니다: id=9' }, { status: 400 }),
+  ),
 )
 
 beforeAll(() => server.listen())
@@ -124,5 +153,35 @@ describe('strategyPositionApi.get — 전략별 포지션', () => {
   it('보유 0건이면 빈 배열 (mock 합성 0건)', async () => {
     const positions = await strategyPositionApi.get('8')
     expect(positions).toEqual([])
+  })
+})
+
+describe('strategyPositionApi.getScaleInPlan — 분할 매수 계획 (ADR 0128 R3)', () => {
+  it('BigDecimal(string) 응답을 number로 정규화한다', async () => {
+    const plan = await strategyPositionApi.getScaleInPlan('7', 70000)
+    expect(plan.strategyId).toBe(7)
+    expect(plan.held).toBe(true)
+    expect(plan.avgPrice).toBe(70000)
+    expect(plan.baseBudget).toBe(1000000)
+    expect(plan.expectedStopLossPrice).toBe(66500)
+    expect(plan.fixedStopLossPct).toBe(5)
+    expect(plan.floorPct).toBe(30)
+    expect(plan.floorPrice).toBe(49000)
+  })
+
+  it('currentPrice 전달 시 회차별 목표 수량을 number로 받는다', async () => {
+    const plan = await strategyPositionApi.getScaleInPlan('7', 70000)
+    expect(plan.slices).toHaveLength(3)
+    expect(plan.slices[0]).toMatchObject({ displayOrder: 1, weightPct: 50, targetQuantity: 7 })
+    expect(plan.slices[2].targetQuantity).toBe(2)
+  })
+
+  it('currentPrice 미전달(미진입 미리보기) 시 목표 수량은 null', async () => {
+    const plan = await strategyPositionApi.getScaleInPlan('7')
+    expect(plan.slices.every((s) => s.targetQuantity === null)).toBe(true)
+  })
+
+  it('분할 미설정 전략은 400 → reject (호출 측 게이트 책임)', async () => {
+    await expect(strategyPositionApi.getScaleInPlan('9')).rejects.toBeDefined()
   })
 })

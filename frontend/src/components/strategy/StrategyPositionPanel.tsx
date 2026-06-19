@@ -15,10 +15,11 @@
  */
 import { useStrategyPosition } from '../../api/hooks/useStrategyPosition'
 import type { ScaleInDto } from '../../api/strategy'
+import { StrategyScaleInPlanPanel } from './StrategyScaleInPlanPanel'
 
 interface StrategyPositionPanelProps {
   strategyId: string
-  /** 분할 매수 설정 (진행 회차 N/M 표기용) */
+  /** 분할 매수 설정 (진행 회차 N/M 표기 + 분할 매수 계획 패널 게이트) */
   scaleIn?: ScaleInDto | null
   className?: string
 }
@@ -46,9 +47,15 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
   const { data, isLoading, isError } = useStrategyPosition(strategyId)
 
   const held = (data ?? []).filter((p) => p.quantity > 0)
+  // 분할 매수 계획 미진입 미리보기 시 목표 수량 산정 기준가 — 첫 보유 currentPrice(LIVE/CLOSE).
+  // 보유 중이면 서버가 박제 base·평단으로 정확 계산하므로 null이어도 무방.
+  const planReferencePrice = held[0]?.currentPrice ?? null
+  // 분할 매수 설정이 있을 때만 계획 패널 마운트 (서버 400 회피)
+  const hasScaleIn = !!scaleIn && scaleIn.totalSlices > 1
 
   return (
-    <section className={['rounded-lg border border-gray-800 bg-gray-950/40 p-3', className].filter(Boolean).join(' ')} aria-label="전략별 보유 현황">
+    <div className={['space-y-2', className].filter(Boolean).join(' ')}>
+    <section className="rounded-lg border border-gray-800 bg-gray-950/40 p-3" aria-label="전략별 보유 현황">
       <div className="mb-2 text-xs font-semibold text-gray-300">전략 보유 현황</div>
 
       {isLoading && <p className="text-xs text-gray-500">불러오는 중...</p>}
@@ -127,5 +134,11 @@ export function StrategyPositionPanel({ strategyId, scaleIn, className = '' }: S
         </ul>
       )}
     </section>
+
+      {/* 분할 매수 계획 (ADR 0128 R3 — 예상 매수 계획·손절가·floor 알람선) */}
+      {hasScaleIn && (
+        <StrategyScaleInPlanPanel strategyId={strategyId} currentPrice={planReferencePrice} />
+      )}
+    </div>
   )
 }
