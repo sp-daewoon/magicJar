@@ -33,14 +33,14 @@ import java.math.RoundingMode
  *    따라서 **scaleIn 설정 + `filledLots < totalSlices`(분할 미완)** 동안에는 평단 기준 손절을 **보류**한다.
  *    분할 완료(`filledLots >= totalSlices`) 후 최종 평단 -stopLossPct%에서 비로소 손절이 정상 발동한다(현행).
  *
- *    ### ★★ 무한 물타기 교착 방지 — catastrophic floor ([ScaleInExitInput.scaleInStopLossFloorPct])
- *    손절 보류가 **무한**이 되면 "분할도 안 되고(SIGNAL_REPEAT 인데 BUY 재발화 없음) 손절도 안 되는" 교착이 생긴다.
- *    단일 평가에서 "EnterSlice가 앞으로 영영 불가능"은 결정론적으로 증명할 수 없다(미래 BUY 시그널·가격 미지).
- *    그래서 보류 자체에 **상한**을 둔다: 평단 대비 손실이 [scaleInStopLossFloorPct]%(default
- *    [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) 이상으로 깊어지면 분할 미완이라도 손절을 발동한다(catastrophic exit).
- *    이 floor 는 통상 stopLossPct 보다 **충분히 깊게**(예: 평단 -15%) 잡아, 정상 물타기 구간(-5%)에선 절대 닿지
- *    않고 진짜 붕괴(급락 지속·분할 진척 0)에서만 발동한다. 이로써 손실 상한 = max(분할 전량 매수액 평가손,
- *    floor 도달 청산) 로 명확히 bound 된다(worst-case 분석은 PR 본문).
+ *    ### ★★ catastrophic floor = **알람만, 자동 청산 X** (2026-06-19 사용자 결재 ⑦ — ADR 0128, #1058 강등)
+ *    이전(#1058)엔 분할 미완 중 평단 대비 손실이 floor([ScaleInExitInput.scaleInStopLossFloorPct]) 이상으로
+ *    깊어지면 **자동 청산**(StopLoss)했다. 사용자 결재로 이를 **[FloorBreachAlert](알람만)로 강등**한다 — floor 도달은
+ *    Slack 알람만 발행하고 **주문 연동 0**이다. 사유: 스윙 매매라 변동성이 커서 floor 에서 기계적 청산하면 반등을
+ *    놓치고 큰 손실만 확정한다. 청산은 사용자 수동 판단에 맡긴다. 결과적으로 "분할 미완 + 시그널無 + 폭락" 시
+ *    **자동 손절 0(알람만)** = 의도된 수동 리스크 관리다. floor 가 ≤0 이면 floor 비활성(알람도 없는 순수 보류).
+ *    저장 시 `floor < 분할 최저 진입가`([ScaleInLimits.validateFloorBelowDeepestEntry]) 검증으로 floor 가 분할을
+ *    막지 않게 보장한다.
  * 2. **PARTIAL_TP** — `partialExits`의 미발화 단계 중 trigger 도달한 **가장 높은 trigger** 1단계 청산.
  *    `stageIndex !in executedExitStages` AND `profitPct >= triggerProfitPct`. 보유 수량 × weight% SELL.
  * 3. **TAKE_PROFIT** — profitPct >= takeProfitPct → 잔량 전량 SELL.
@@ -64,12 +64,12 @@ object ScaleInExitCalculator {
     private val HUNDRED: BigDecimal = BigDecimal("100")
 
     /**
-     * 분할 미완 손절 보류의 catastrophic floor default(%, 양수 = 평단 대비 손실폭).
+     * 분할 미완 catastrophic floor default(%, 양수 = 평단 대비 손실폭).
      *
-     * 분할 미완(filledLots<totalSlices) 동안 평단 기준 손절을 보류하되, 평단 대비 손실이 이 값 이상으로
-     * 깊어지면 분할 미완이라도 손절을 발동한다(교착·무한 보류 방지). 통상 fixedStopLossPct(예 5)의 약 3배로
-     * 잡아, 정상 물타기 구간에선 절대 닿지 않고 진짜 붕괴에서만 발동한다. 호출자가 명시하지 않으면 이 default.
-     * 라이브 실증(전략 47)은 stopLossPct=5% 이므로 floor 15% = 평단 -15%(급락) 시 분할 중에도 청산.
+     * 분할 미완(filledLots<effectiveSliceCount) 동안 평단 기준 손절을 보류하되, 평단 대비 손실이 이 값 이상으로
+     * 깊어지면 **알람만** 발행한다(자동 청산 X — 2026-06-19 사용자 결재 ⑦). 통상 fixedStopLossPct(예 5)의 약 3배로
+     * 잡아, 정상 물타기 구간에선 절대 닿지 않고 진짜 붕괴에서만 알람이 뜬다. 호출자가 명시하지 않으면 이 default
+     * (= domain [kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT] 15% 와 동일 값).
      */
     val DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal = BigDecimal("15")
 
@@ -85,8 +85,24 @@ object ScaleInExitCalculator {
             // 1-a. STOP_LOSS (최우선 — 보수적, 동시 터치 시 손절 우선)
             input.fixedStopLossPct?.let { stopPct ->
                 val stopPrice = stopLossPrice(position.avgPrice, stopPct)
-                if (input.currentPrice <= stopPrice && shouldFireStopLoss(input, position)) {
-                    return ScaleInExitDecision.StopLoss(quantity = quantity)
+                if (input.currentPrice <= stopPrice) {
+                    when (stopLossVerdict(input, position)) {
+                        // 손절 발동 — 평단 -stopLossPct% 도달 + (분할 미설정 OR 분할 완료).
+                        StopLossVerdict.FIRE -> return ScaleInExitDecision.StopLoss(quantity = quantity)
+                        // 분할 미완 + catastrophic floor 도달 → 알람만(자동 청산 X — ⑦).
+                        StopLossVerdict.FLOOR_ALERT -> {
+                            val floorPct = input.scaleInStopLossFloorPct ?: DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
+                            return ScaleInExitDecision.FloorBreachAlert(
+                                quantity = quantity,
+                                avgPrice = position.avgPrice,
+                                currentPrice = input.currentPrice,
+                                floorPct = floorPct,
+                                lossPct = profitPct(position.avgPrice, input.currentPrice),
+                            )
+                        }
+                        // 분할 미완 + floor 미도달 → 손절 보류(다른 청산/진입 평가로 진행).
+                        StopLossVerdict.DEFER -> Unit
+                    }
                 }
             }
 
@@ -143,36 +159,47 @@ object ScaleInExitCalculator {
             BigDecimal.ONE.subtract(stopPct.divide(HUNDRED, 8, RoundingMode.HALF_UP)),
         )
 
+    /** 평단 손절선 도달 시 처리 판정 — 손절 발동 / floor 알람 / 보류 3분기 (2026-06-19 사용자 결재 ⑤⑥⑦). */
+    private enum class StopLossVerdict {
+        /** 평단 -stopLossPct% 손절 발동(전량 SELL). 분할 미설정 또는 분할 완료. */
+        FIRE,
+
+        /** 분할 미완 + catastrophic floor 도달 — 알람만(자동 청산 X — ⑦). */
+        FLOOR_ALERT,
+
+        /** 분할 미완 + floor 미도달 — 손절 보류(⑤). */
+        DEFER,
+    }
+
     /**
-     * 평단 손절선 도달 시 실제로 손절을 발동할지 판정 — 분할 미완 보류 + catastrophic floor (2026-06-19 사용자 결재).
+     * 평단 손절선 도달 시 처리 판정 — 분할 미완 보류(⑤) + 분할 완료 손절(⑥) + catastrophic floor **알람 강등**(⑦).
      *
      * 반환 규칙(순수·결정론):
-     * - **scaleIn 미설정(null)** → 항상 true(현행 손절 그대로 — zero-regression).
-     * - **분할 완료(filledLots >= totalSlices)** → true(최종 평단 -stopLossPct%에서 손절 정상).
-     * - **분할 미완(filledLots < totalSlices)** → 평단 기준 손절을 보류(false). 단, 평단 대비 손실이 catastrophic
-     *   floor([ScaleInExitInput.scaleInStopLossFloorPct], default [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) 이상이면
-     *   true(무한 보류·교착 방지 — 진짜 붕괴 청산).
+     * - **scaleIn 미설정(null)** → [StopLossVerdict.FIRE](현행 손절 그대로 — zero-regression).
+     * - **분할 완료(filledLots >= effectiveSliceCount)** → FIRE(최종 평단 -stopLossPct%에서 손절 정상 ⑥).
+     * - **분할 미완(filledLots < effectiveSliceCount)**:
+     *     - 평단 대비 손실이 floor 이상으로 깊으면 → [StopLossVerdict.FLOOR_ALERT](알람만 — 자동 청산 X ⑦).
+     *     - 그 외 → [StopLossVerdict.DEFER](손절 보류 ⑤).
+     *   floor([ScaleInExitInput.scaleInStopLossFloorPct], default [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) ≤0 이면
+     *   FLOOR_ALERT 도 없는 순수 보류(항상 DEFER) — 분할 완료까지 손절·알람 0.
      *
-     * ## 교착(deadlock) 회피 근거 (사용자 정밀검토 요청 응답)
-     * "분할도 안 되고(SIGNAL_REPEAT 인데 BUY 재발화 없음) 손절도 안 되는" 교착은, 단일 평가에서 "EnterSlice가
-     * 앞으로 영영 불가능"을 결정론적으로 증명할 수 없으므로 *직접* 감지하지 않는다(미래 BUY/가격 미지).
-     * 대신 보류 자체에 **손실폭 상한(floor)**을 둬 모든 경로에서 손실이 bound 되게 한다:
-     *   ① PRICE_DROP_PCT — 하락이 지속되면 추가 회차가 빠르게 채워져 곧 filledLots>=totalSlices(보류 자연 종료) → 손절 정상.
-     *   ② SIGNAL_REPEAT — BUY 재발화가 끊겨 분할이 멈춰도, 급락이 floor(평단 -15%)에 닿으면 청산되어 손실 상한 보장.
-     * 즉 "EnterSlice 불가능을 푸는 조건" = "손실이 floor에 도달" 로 환원한다(코드 근거 결정).
+     * ## 분할 완료 판정 = `effectiveSliceCount`(⑨ 정합)
+     * totalSlices 가 아니라 **양수 비중 회차 수**([ScaleInPlan.effectiveSliceCount])를 쓴다. [50,50,0] 처럼 0% 회차가
+     * 있으면 그 회차는 체결되지 않아 filledLots 가 totalSlices 에 영영 못 닿는다(분할 완료 판정 불가 → 손절 영구 보류).
+     * 실효 회차 수로 판정하면 0% 회차 제외 후 정확히 완료된다.
      */
-    private fun shouldFireStopLoss(
+    private fun stopLossVerdict(
         input: ScaleInExitInput,
         position: StrategyPosition,
-    ): Boolean {
-        val scaleIn = input.scaleIn ?: return true // scale-in 미설정 — 현행 손절(zero-regression)
-        if (position.filledLots >= scaleIn.totalSlices) return true // 분할 완료 — 최종 평단 손절 정상
+    ): StopLossVerdict {
+        val scaleIn = input.scaleIn ?: return StopLossVerdict.FIRE // scale-in 미설정 — 현행 손절(zero-regression)
+        if (position.filledLots >= scaleIn.effectiveSliceCount()) return StopLossVerdict.FIRE // 분할 완료 — 손절 정상 ⑥
 
-        // 분할 미완 — 평단 기준 손절 보류. catastrophic floor 도달 시에만 발동(교착 방지).
+        // 분할 미완 — 평단 기준 손절 보류 ⑤. catastrophic floor 도달 시 알람만 ⑦.
         val floorPct = input.scaleInStopLossFloorPct ?: DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
-        if (floorPct <= ZERO) return false // floor 비활성(≤0) — 순수 보류(분할 완료까지 손절 0)
+        if (floorPct <= ZERO) return StopLossVerdict.DEFER // floor 비활성 — 순수 보류(알람도 없음)
         val floorPrice = stopLossPrice(position.avgPrice, floorPct) // 평단 × (1 - floorPct/100)
-        return input.currentPrice <= floorPrice
+        return if (input.currentPrice <= floorPrice) StopLossVerdict.FLOOR_ALERT else StopLossVerdict.DEFER
     }
 
     /** 청산 수량 = floor(보유수량 × weight% / 100). 0..quantity로 clamp. */
@@ -210,8 +237,17 @@ object ScaleInExitCalculator {
      *
      * - `scaleIn == null` → 미보유 + BUY 시그널이면 ENTER_SLICE(회차 0, weight 100) — 단일 진입 호환.
      *   이미 보유 중이면 추가 진입 X(현행 동작 보존).
-     * - `filledLots >= totalSlices` → null(scale-in 완료 — 평단 오염 방지).
+     * - `filledLots >= effectiveSliceCount` → null(scale-in 완료 — 평단 오염 방지 ⑧ 초과 진입 차단).
      * - ReentryTrigger·회차 간격 충족 시 ENTER_SLICE(다음 회차 인덱스·weight·trigger).
+     *
+     * ### ⑧ totalSlices 한도 초과 진입 차단 (2026-06-19 라이브 버그 fix)
+     * 이전엔 `weights.getOrElse(filledLots){weights.last()}` 로 filledLots 가 totalSlices 이상이어도 마지막 가중으로
+     * 계속 진입했다(전략47 4회차 sliceIndex=3 초과 실증). 분할 완료([ScaleInPlan.sliceAt] null)면 EnterSlice 를 내지
+     * 않아 초과 진입을 0으로 만든다.
+     *
+     * ### ⑨ weight 0% 회차 skip (2026-06-19 결재)
+     * [ScaleInPlan.sliceAt]가 0% 회차를 건너뛰어 filledLots 번째 **양수 비중** 회차의 (index, weight)만 반환한다.
+     * [50,50,0] 은 실효 2회차에서 sliceAt(2)=null → 진입 종료(totalSlices=2 [50,50]와 동일 결과).
      */
     private fun resolveScaleInSlice(input: ScaleInExitInput): ScaleInExitDecision.EnterSlice? {
         val scaleIn = input.scaleIn
@@ -232,7 +268,8 @@ object ScaleInExitCalculator {
             }
         }
 
-        if (filledLots >= scaleIn.totalSlices) return null
+        // ⑧⑨ — filledLots 번째 양수 비중 회차의 (index, weight). 완료/모두 0%면 null → 진입 0.
+        val slice = scaleIn.sliceAt(filledLots) ?: return null
 
         // 회차 간 최소 간격 가드 (첫 회차 제외)
         val minIntervalSec = scaleIn.minSliceIntervalSec ?: 0
@@ -261,9 +298,7 @@ object ScaleInExitCalculator {
             }
         }
 
-        val weights = scaleIn.resolvedWeights()
-        val sliceIndex = filledLots
-        val weight = weights.getOrElse(sliceIndex) { weights.lastOrNull() ?: HUNDRED }
+        val (sliceIndex, weight) = slice
         return ScaleInExitDecision.EnterSlice(
             sliceIndex = sliceIndex,
             weightPct = weight,
@@ -327,6 +362,26 @@ sealed interface ScaleInExitDecision {
     /** 손절 청산 — 전량 SELL(reason `STOP_LOSS`). */
     data class StopLoss(
         val quantity: Int,
+    ) : ScaleInExitDecision
+
+    /**
+     * **catastrophic floor 도달 알람** — 분할 미완 중 평단 대비 손실이 floor 이상으로 깊어졌다 (2026-06-19 결재 ⑦).
+     *
+     * **주문 연동 0** — SELL 을 발행하지 않는다. 호출자(RealtimeSignalGenerator)는 이 결정을 받으면 Slack 알람만
+     * 송출하고 매매 경로로 흘리지 않는다. 청산 여부는 사용자 수동 판단. 같은 알람의 반복 폭주는 호출자가 idempotency
+     * (예: 포지션·floor 단위 1회/일)로 제어한다(엔진은 결정론적으로 매 boundary 마다 동일 결정을 반환).
+     */
+    data class FloorBreachAlert(
+        /** 현재 보유 수량(알람 메시지용). */
+        val quantity: Int,
+        /** 평단. */
+        val avgPrice: BigDecimal,
+        /** floor 도달 시점 현재가. */
+        val currentPrice: BigDecimal,
+        /** 적용된 floor%(양수, 평단 대비 손실폭). */
+        val floorPct: BigDecimal,
+        /** 평단 대비 현재 손실률%(음수). */
+        val lossPct: BigDecimal,
     ) : ScaleInExitDecision
 
     /** 분할 익절 — 보유분 weight% SELL(reason `PARTIAL_TAKE_PROFIT#{stageIndex}`). */

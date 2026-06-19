@@ -79,6 +79,8 @@ class RealtimeSignalGenerator(
     private val riskPositionPortProvider: ObjectProvider<RiskPositionPort>,
     private val strategyPositionPortProvider: ObjectProvider<StrategyPositionPort>,
     private val auditTrailRepositoryProvider: ObjectProvider<ConsumerAuditTrailJpaRepository>,
+    // 분할 미완 catastrophic floor 도달 시 **알람만**(자동 청산 X — 2026-06-19 결재 ⑦, ADR 0128). bean 부재 시 graceful(로그만).
+    private val systemEventLoggerProvider: ObjectProvider<kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -793,6 +795,8 @@ class RealtimeSignalGenerator(
                 // 회차 수량(budget 산정)·직전 체결가·회차 epoch 은 R2-2 어댑터(체결 listener)가 채운다.
                 // R2-1 시그널 단계에서는 진입 여부·청산 판정만 수행하고 수량은 0(어댑터가 budget으로 확정).
                 sliceBudgetQuantity = 0,
+                // ⑦ floor = 전략 설정값(없으면 default 15%). null이면 엔진 default — 동일 값이므로 안전.
+                scaleInStopLossFloorPct = strategy.definition.scaleIn?.stopLossFloorPct,
             )
 
         return when (val decision = ScaleInExitCalculator.evaluate(input)) {
@@ -866,8 +870,65 @@ class RealtimeSignalGenerator(
                     ),
                 )
 
+            // ⑦ catastrophic floor 도달 — **알람만**(주문 연동 0). SELL 발행하지 않고 null 반환(매매 경로로 안 흘림).
+            is ScaleInExitDecision.FloorBreachAlert -> {
+                emitFloorBreachAlert(strategy, code, decision)
+                null
+            }
+
             ScaleInExitDecision.Hold -> null
         }
+    }
+
+    /**
+     * 분할 미완 catastrophic floor 알람 발행 — Slack(SYSTEM_EVENT WARN)만, 자동 청산 X (2026-06-19 결재 ⑦, ADR 0128).
+     *
+     * 매매 경로(시그널/주문)로 흘리지 않고 [SystemEventLogger]로만 WARN 을 emit 한다(routing 은 SYSTEM_EVENT → Slack).
+     * bean 부재(어댑터 미머지·일부 테스트 컨텍스트)면 graceful — 로그만 남기고 진행한다. emit 자체 예외도 매매 평가
+     * thread 를 죽이지 않도록 runCatching wrap(SystemEventLogger 계약). 알람 반복 폭주는 후속 idempotency 로 제어한다
+     * (엔진은 결정론적으로 매 boundary 마다 동일 결정을 반환하므로, dedupe 는 알람 어댑터·후속 PR 책임 — PR 본문 명시).
+     */
+    private fun emitFloorBreachAlert(
+        strategy: Strategy,
+        code: String,
+        alert: ScaleInExitDecision.FloorBreachAlert,
+    ) {
+        val strategyId = strategy.id
+        log.warn(
+            "scale-in catastrophic floor 도달(알람만·자동청산X): strategyId={} code={} qty={} avgPrice={} currentPrice={} floorPct={} lossPct={}",
+            strategyId,
+            code,
+            alert.quantity,
+            alert.avgPrice.toPlainString(),
+            alert.currentPrice.toPlainString(),
+            alert.floorPct.toPlainString(),
+            alert.lossPct.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+        )
+        val logger = systemEventLoggerProvider.ifAvailable ?: return
+        runCatching {
+            logger.emit(
+                kr.spdaewoon.magicjar.domain.event.SystemEvent(
+                    category = kr.spdaewoon.magicjar.domain.event.SystemEventCategory.OTHER,
+                    severity = kr.spdaewoon.magicjar.domain.event.SystemEventSeverity.WARN,
+                    actor = "RealtimeSignalGenerator",
+                    action = "SCALE_IN_FLOOR_BREACH",
+                    userId = strategy.userId.toString(),
+                    detailJson =
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "strategyId" to strategyId,
+                                "code" to code,
+                                "quantity" to alert.quantity,
+                                "avgPrice" to alert.avgPrice.toPlainString(),
+                                "currentPrice" to alert.currentPrice.toPlainString(),
+                                "floorPct" to alert.floorPct.toPlainString(),
+                                "lossPct" to alert.lossPct.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                                "note" to "분할 미완 catastrophic floor 도달 — 자동 청산 안 함(사용자 수동 판단). ⑦ ADR 0128",
+                            ),
+                        ),
+                ),
+            )
+        }.onFailure { e -> log.error("scale-in floor 알람 emit 실패(매매 평가 영향 0): strategyId={} err={}", strategyId, e.message) }
     }
 
     private fun avgPriceReason(position: StrategyPosition?): Map<String, Any> =
