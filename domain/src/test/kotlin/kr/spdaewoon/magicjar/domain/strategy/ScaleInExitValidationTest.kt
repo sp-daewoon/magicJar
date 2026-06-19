@@ -49,10 +49,67 @@ class ScaleInExitValidationTest {
     }
 
     @Test
-    fun `sliceWeights must be positive`() {
+    fun `sliceWeights must be non-negative (negative rejected)`() {
         assertThrows<IllegalArgumentException> {
-            ScaleInPlan(totalSlices = 2, sliceWeights = listOf(bd("100"), bd("0")))
+            ScaleInPlan(totalSlices = 2, sliceWeights = listOf(bd("110"), bd("-10")))
         }
+    }
+
+    // ⑨ weight 0 회차 허용 — [50,50,0] 유효(엔진이 skip). 음수만 금지.
+    @Test
+    fun `⑨ weight 0 slice is allowed (50_50_0 valid)`() {
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = listOf(bd("50"), bd("50"), bd("0")))
+        plan.effectiveSliceCount() shouldBe 2
+        plan.sliceAt(0) shouldBe (0 to bd("50"))
+        plan.sliceAt(1) shouldBe (1 to bd("50"))
+        plan.sliceAt(2) shouldBe null // 0% 회차 skip → 진입 종료
+    }
+
+    @Test
+    fun `⑨ sliceAt skips middle 0 weight (50_0_50 maps filledLots 1 to index 2)`() {
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = listOf(bd("50"), bd("0"), bd("50")))
+        plan.effectiveSliceCount() shouldBe 2
+        plan.sliceAt(0) shouldBe (0 to bd("50"))
+        plan.sliceAt(1) shouldBe (2 to bd("50"))
+        plan.sliceAt(2) shouldBe null
+    }
+
+    @Test
+    fun `⑧ sliceAt returns null beyond effective slice count`() {
+        val plan = ScaleInPlan(totalSlices = 3, sliceWeights = listOf(bd("40"), bd("35"), bd("25")))
+        plan.sliceAt(3) shouldBe null
+        plan.sliceAt(5) shouldBe null
+    }
+
+    // ── ⑦ catastrophic floor (전략 설정값) ──────────────────────────────
+    @Test
+    fun `floor pct defaults to 15 and rejects negative`() {
+        ScaleInPlan(totalSlices = 3).resolvedFloorPct() shouldBe bd("15")
+        ScaleInPlan(totalSlices = 3, stopLossFloorPct = bd("10")).resolvedFloorPct() shouldBe bd("10")
+        assertThrows<IllegalArgumentException> {
+            ScaleInPlan(totalSlices = 3, stopLossFloorPct = bd("-1"))
+        }
+    }
+
+    @Test
+    fun `validateFloorBelowDeepestEntry — floor too shallow for price-drop plan is rejected`() {
+        // PRICE_DROP_PCT -10%, 3분할 → 최저 진입 누적 하락 ≈ 1-(0.9)^2 = 19%. floor 15% < 19% → 위반.
+        val shallow =
+            ScaleInPlan(
+                totalSlices = 3,
+                reentryTrigger = ReentryTrigger.PRICE_DROP_PCT,
+                priceDropPct = bd("-10"),
+                stopLossFloorPct = bd("15"),
+            )
+        ScaleInLimits.validateFloorBelowDeepestEntry(shallow)!!.contains("deeper") shouldBe true
+
+        // floor 25% > 19% → 통과.
+        val deep = shallow.copy(stopLossFloorPct = bd("25"))
+        ScaleInLimits.validateFloorBelowDeepestEntry(deep) shouldBe null
+
+        // SIGNAL_REPEAT 은 가격 조건 없음 → 항상 통과.
+        val signalRepeat = ScaleInPlan(totalSlices = 3, stopLossFloorPct = bd("5"))
+        ScaleInLimits.validateFloorBelowDeepestEntry(signalRepeat) shouldBe null
     }
 
     // ── ScaleInPlan: PRICE_DROP_PCT requires negative priceDropPct ─────

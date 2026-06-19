@@ -238,6 +238,10 @@ class ScenarioReplayService(
                     reason = "리플레이 전략 평가 TAKE_PROFIT: 평단 기준 잔량 전량 익절",
                 )
 
+            // ⑦ catastrophic floor 도달은 **알람만**(주문 연동 0 — ADR 0128). 리플레이/백테스트엔 알람 채널이 없으므로 HOLD.
+            is ScaleInExitDecision.FloorBreachAlert ->
+                ScenarioSignalDecision.hold(reasonText("SCALE_IN_FLOOR_BREACH_ALERT", buyResult.reason))
+
             ScaleInExitDecision.Hold -> ScenarioSignalDecision.hold(reasonText("SCALE_IN_HOLD", buyResult.reason))
         }
     }

@@ -1122,6 +1122,7 @@ class RealtimeSignalGeneratorTest {
                     ?.let { providerOf(it) }
                     ?: emptyProvider(),
             auditTrailRepositoryProvider = emptyProvider(),
+            systemEventLoggerProvider = emptyProvider(),
             jvmStrategyEvaluator = evaluator,
             signalDedupeGuard = dedupeGuard,
             signalKafkaProducer = signalKafkaProducer,
