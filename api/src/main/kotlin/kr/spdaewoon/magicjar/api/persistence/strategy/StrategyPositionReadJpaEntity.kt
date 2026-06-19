@@ -43,6 +43,12 @@ class StrategyPositionReadJpaEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "executed_exit_stages", columnDefinition = "jsonb", nullable = false)
     val executedExitStages: String = "[]",
+    /** 분할매수 base 고정값(원) — 1차 시점 buyable 박제(ADR 0128 ①, V90). NULL=미진입/분할미사용. 쓰기는 consumer 책임. */
+    @Column(name = "scale_in_base_budget", precision = 19, scale = 4)
+    val scaleInBaseBudget: BigDecimal? = null,
+    /** 부분 매수 잔여 수량(주) — 자금 부족으로 회차 일부만 체결된 미체결 잔여(ADR 0128 ②, V90). 0=잔여 없음. */
+    @Column(name = "scale_in_remainder_qty", nullable = false)
+    val scaleInRemainderQty: Int = 0,
     @Column(name = "opened_at", nullable = false)
     val openedAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

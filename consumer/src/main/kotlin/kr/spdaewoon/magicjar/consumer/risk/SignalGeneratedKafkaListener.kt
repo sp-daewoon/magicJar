@@ -322,6 +322,11 @@ class SignalGeneratedKafkaListener(
                 publishSell(signal, quantity)
             }
 
+        // 2-b. 분할매수 base 박제 — 1차 진입 BUY intent 발행 성공 시 그 시점 buyable 을 strategy_position 에 고정 (ADR 0128 ① R2).
+        if (signal.side == SignalSide.BUY && intentPublished) {
+            captureScaleInBaseIfFirstSlice(signal, context)
+        }
+
         // 3. TradeFrequencyGuard 누적 — **신규 포지션 오픈(왕복 개시) BUY + 주문 intent 발행 성공** 둘 다일 때만.
         //    ▸ 왕복 단위 재정의(사용자 결재 2026-06-16): 거래빈도는 "포지션 신규 오픈당 1". 진입(BUY-from-flat)만 카운트하고
         //      스케일인 추가매수(이미 보유 중 BUY)·모든 SELL(청산)은 미카운트한다. record(누적)와 check(게이트, isNewPositionOpen)가
@@ -1336,6 +1341,80 @@ class SignalGeneratedKafkaListener(
             SignalSide.SELL -> riskGatewayEvaluator.resolveSellQuantity(signal, context)
             SignalSide.HOLD -> 0
         }
+
+    /**
+     * 분할매수 base 박제 — 1차 진입(filledLots=0) BUY 발행 성공 시 그 시점 buyable 을 strategy_position 에 고정한다
+     * (ADR 0128 ① R2 wiring · 2026-06-19 사용자 결재 "1차 매수 직전에 저장해 고정").
+     *
+     * ## 왜 sizing 시점에 박제하나 (체결 시점이 아니라)
+     * base = 1차 진입 시점 buyable. 이 값은 [RiskGatewayEvaluator.resolveBuyQuantity] 가 slice 1 을 잘랐던 바로 이
+     * 시점에만 정확하다. 체결은 Kafka order.intent → 주문 → KIS WS 비동기 체결로 분리되어, 체결 직후엔 보유·예수금이
+     * 바뀌어 buyable 이 달라진다. 그래서 sizing 시점(여기)에서 [RiskGatewayEvaluator.resolveScaleInBaseBudget]
+     * (=resolveBuyQuantity 와 동일 budget 산식)으로 박제한다. 이후 회차는 이 고정 base × 회차비중으로 산정(왜곡 0).
+     *
+     * ## 멱등·가드 (오염 방지)
+     * - scaleIn 활성 전략만(`scaleInEnabled` 토글 + `definition.scaleIn != null`). 아니면 no-op(zero-regression).
+     * - **filledLots == 0**(1차)이고 **기존 박제 부재**(`scaleInBaseBudget == null`)일 때만 write. 2·3차·재발행은 보존.
+     * - port 부재(어댑터 미합류)·조회/저장 실패는 graceful(현행 흐름 무손상 — base 부재 시 resolveBuyQuantity 가 라이브
+     *   buyable fallback 으로 zero-regression). 1차 미체결로 끝나도 다음 1차에서 filledLots=0 유지 → 동일 envelope 재박제,
+     *   전량 청산 시 [ConsumerExecutionStrategyPositionAdapter.applySell] 가 reset → 새 사이클 새 base.
+     */
+    private fun captureScaleInBaseIfFirstSlice(
+        signal: Signal,
+        context: RiskContext,
+    ) {
+        if (!scaleInEnabled) return
+        val hasScaleIn = lookupStrategyOrNull(signal)?.definition?.scaleIn != null
+        if (!hasScaleIn) return
+
+        val current =
+            context.strategyPosition?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId }
+        // 1차(filledLots=0)이고 아직 박제 안 된 경우만 — 2·3차·이미 박제는 고정 base 보존.
+        if (current != null && (current.filledLots > 0 || current.scaleInBaseBudget != null)) return
+
+        val base = riskGatewayEvaluator.resolveScaleInBaseBudget(context) ?: return
+        val port = strategyPositionPortProvider.ifAvailable ?: return
+
+        try {
+            val now = clock.now()
+            val target =
+                (current ?: emptyStrategyPosition(signal, now)).copy(
+                    scaleInBaseBudget = base,
+                    updatedAt = now,
+                )
+            port.upsert(target)
+            log.info(
+                "scale-in base 박제(1차 진입 buyable 고정): strategyId={} code={} base={} filledLots={}",
+                signal.strategyId,
+                signal.code,
+                base.toPlainString(),
+                current?.filledLots ?: 0,
+            )
+        } catch (e: Exception) {
+            // 2차 ledger 격리 — base 박제 실패해도 권위 흐름 무손상(resolveBuyQuantity 가 라이브 buyable fallback).
+            log.warn(
+                "scale-in base 박제 실패 — 라이브 buyable fallback 유지(zero-regression): strategyId={} code={} err={}",
+                signal.strategyId,
+                signal.code,
+                e.message,
+            )
+        }
+    }
+
+    /** 1차 진입 전 strategy_position 행이 없을 때 base 만 채울 빈 lot(quantity=0). 체결 listener 가 평단·수량을 채운다. */
+    private fun emptyStrategyPosition(
+        signal: Signal,
+        now: Instant,
+    ): kr.spdaewoon.magicjar.domain.position.StrategyPosition =
+        kr.spdaewoon.magicjar.domain.position.StrategyPosition(
+            userId = signal.userId,
+            strategyId = signal.strategyId,
+            code = signal.code,
+            quantity = 0,
+            avgPrice = BigDecimal.ZERO,
+            openedAt = now,
+            updatedAt = now,
+        )
 
     private fun deserialize(value: String): Signal? =
         try {

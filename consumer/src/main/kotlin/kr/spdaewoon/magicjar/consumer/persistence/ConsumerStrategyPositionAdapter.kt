@@ -74,6 +74,8 @@ class ConsumerStrategyPositionAdapter(
             filledLots = domain.filledLots,
             realizedPnl = domain.realizedPnl,
             executedExitStages = serializeStages(domain.executedExitStages),
+            scaleInBaseBudget = domain.scaleInBaseBudget,
+            scaleInRemainderQty = domain.scaleInRemainderQty,
             // 신규 행만 openedAt 채움 — 기존 행은 보존(재진입 사이클에서도 최초 진입 시각 유지).
             openedAt = existing?.openedAt ?: (domain.openedAt.toJavaInstant()),
             updatedAt = Instant.now(),
@@ -90,6 +92,8 @@ class ConsumerStrategyPositionAdapter(
             filledLots = entity.filledLots,
             realizedPnl = entity.realizedPnl,
             executedExitStages = deserializeStages(entity.executedExitStages),
+            scaleInBaseBudget = entity.scaleInBaseBudget,
+            scaleInRemainderQty = entity.scaleInRemainderQty,
             openedAt = entity.openedAt.toKotlinInstant(),
             updatedAt = entity.updatedAt.toKotlinInstant(),
         )
