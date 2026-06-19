@@ -27,6 +27,8 @@ import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyFavoritePort
 import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInPlanPreview
+import kr.spdaewoon.magicjar.strategy.scalein.ScaleInPlanProjector
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -408,6 +410,117 @@ class StrategiesController(
             )
         }
     }
+
+    // ─── GET /api/strategies/{id}/scalein-plan ──────────────────────────────────
+
+    @Operation(
+        summary = "분할 매수 계획 조회 (회차별 목표 수량·진입 조건·예상 손절가·floor)",
+        description =
+            "분할 매수 전략의 회차별 계획을 조회합니다 (ADR 0128 R3 · ScaleInPlanProjector 투영). " +
+                "1차 진입 시점 buyable 박제값(고정 base)이 있으면(보유 중) 회차별 목표 수량을 정확히 계산하고, " +
+                "미진입(박제 부재)이면 비중·진입 조건만 노출하는 미리 보기입니다(targetQuantity=null). " +
+                "0% 비중 회차는 제외하며(⑨), floor는 알람만(자동 청산 X ⑦)입니다. " +
+                "분할 매수 미설정 전략은 400을 반환합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "분할 매수 계획 조회 성공"),
+        ApiResponse(
+            responseCode = "400",
+            description = "분할 매수가 설정되지 않은 전략",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "404",
+            description = "전략 없음",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/{id}/scalein-plan")
+    fun getScaleInPlan(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+        @Parameter(
+            description =
+                "회차 수량·가격 산정 기준가(원). 생략 시 보유 평단 → 라이브 현재가(WS 캐시·종가) 순으로 폴백. " +
+                    "모두 없으면 목표 수량·가격류는 null(비중·조건만 노출).",
+            example = "70000",
+        )
+        @RequestParam(required = false) currentPrice: BigDecimal? = null,
+    ): ScaleInPlanResponse {
+        val strategy =
+            strategyService.findById(id)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        val plan =
+            strategy.definition.scaleIn
+                ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "분할 매수가 설정되지 않은 전략입니다: id=$id")
+
+        // 보유 행(전략당 종목 1개 가정 — 다종목이면 보유 중인 첫 행). 박제된 고정 base·평단을 회차 산정 기준으로 사용.
+        val held = strategyPositionReadJpaRepository.findByStrategyId(id).firstOrNull { it.quantity > 0 }
+        val baseBudget = held?.scaleInBaseBudget?.takeIf { it > BigDecimal.ZERO }
+
+        // 기준가: 명시 currentPrice > 보유 평단 > 라이브 현재가(WS 캐시→종가) 순. 모두 없으면 null(목표 수량 미산출).
+        val livePrice =
+            held?.code?.let { code -> livePriceCacheReader.resolvePrices(listOf(code))[code]?.price }
+        val referencePrice = currentPrice ?: held?.avgPrice?.takeIf { it > BigDecimal.ZERO } ?: livePrice
+        // 손절가·floor 기준 평단: 보유 평단(진행 중) > 기준가(1차 미진입 미리 보기).
+        val referenceAvgPrice = held?.avgPrice?.takeIf { it > BigDecimal.ZERO } ?: referencePrice
+
+        val preview =
+            ScaleInPlanProjector.project(
+                plan = plan,
+                fixedStopLossPct = strategy.definition.fixedStopLoss,
+                baseBudget = baseBudget,
+                referencePrice = referencePrice,
+                referenceAvgPrice = referenceAvgPrice,
+            )
+
+        return toScaleInPlanResponse(
+            strategyId = id,
+            code = held?.code,
+            held = held != null,
+            filledLots = held?.filledLots ?: 0,
+            avgPrice = held?.avgPrice?.takeIf { it > BigDecimal.ZERO },
+            baseBudget = baseBudget,
+            referencePrice = referencePrice,
+            preview = preview,
+        )
+    }
+
+    private fun toScaleInPlanResponse(
+        strategyId: Long,
+        code: String?,
+        held: Boolean,
+        filledLots: Int,
+        avgPrice: BigDecimal?,
+        baseBudget: BigDecimal?,
+        referencePrice: BigDecimal?,
+        preview: ScaleInPlanPreview,
+    ): ScaleInPlanResponse =
+        ScaleInPlanResponse(
+            strategyId = strategyId,
+            code = code,
+            held = held,
+            filledLots = filledLots,
+            avgPrice = avgPrice,
+            baseBudget = baseBudget,
+            referencePrice = referencePrice,
+            totalSlices = preview.totalSlices,
+            effectiveSlices = preview.effectiveSlices,
+            slices =
+                preview.slices.map {
+                    ScaleInSlicePlanResponse(
+                        sliceIndex = it.sliceIndex,
+                        displayOrder = it.displayOrder,
+                        weightPct = it.weightPct,
+                        targetQuantity = it.targetQuantity,
+                        triggerDescription = it.triggerDescription,
+                    )
+                },
+            expectedStopLossPrice = preview.expectedStopLossPrice,
+            fixedStopLossPct = preview.fixedStopLossPct,
+            floorPct = preview.floorPct,
+            floorPrice = preview.floorPrice,
+        )
 
     /**
      * 미실현 평가손익 = (현재가 − 평단) × 수량. currentPrice null 이면 null.
@@ -870,4 +983,66 @@ data class StrategyPositionResponse(
     val unrealizedPnlPct: BigDecimal? = null,
     @field:Schema(description = "마지막 갱신 시각 (ISO-8601 UTC)", example = "2026-06-05T09:30:00Z")
     val updatedAt: String,
+)
+
+@Schema(description = "분할 매수 계획 응답 — ADR 0128 R3 (ScaleInPlanProjector 투영). 0% 회차 제외 · floor 알람만")
+data class ScaleInPlanResponse(
+    @field:Schema(description = "전략 ID", example = "1")
+    val strategyId: Long,
+    @field:Schema(description = "보유 종목 코드(보유 중일 때). 미보유면 null", example = "005930", nullable = true)
+    val code: String? = null,
+    @field:Schema(description = "보유 여부 — true면 박제 base·평단으로 정확 계산, false면 미리 보기", example = "true")
+    val held: Boolean,
+    @field:Schema(description = "현재 진행 회차(filledLots). 미보유=0", example = "1")
+    val filledLots: Int,
+    @field:Schema(description = "현재 평단(보유 중). 미보유면 null", example = "70000.0000", nullable = true)
+    val avgPrice: BigDecimal? = null,
+    @field:Schema(
+        description = "고정 base(원) — 1차 진입 시점 buyable 박제값(ADR 0128 ①). 미진입(미박제)이면 null → 목표 수량 미산출",
+        example = "1000000.0000",
+        nullable = true,
+    )
+    val baseBudget: BigDecimal? = null,
+    @field:Schema(description = "회차 수량 산정 기준가(원) — currentPrice→평단→라이브 폴백. 없으면 null", example = "70000", nullable = true)
+    val referencePrice: BigDecimal? = null,
+    @field:Schema(description = "설정된 총 회차 수(0% 포함)", example = "3")
+    val totalSlices: Int,
+    @field:Schema(description = "실효 회차 수(0% 제외 — slices.size와 동일)", example = "3")
+    val effectiveSlices: Int,
+    @field:Schema(description = "회차별 계획(0% 회차 제외)")
+    val slices: List<ScaleInSlicePlanResponse>,
+    @field:Schema(
+        description = "예상 손절가 = 기준 평단 × (1 − 손절%/100). 분할 완료 후 적용(⑥). 평단·손절% 미정 시 null",
+        example = "66500.0000",
+        nullable = true,
+    )
+    val expectedStopLossPrice: BigDecimal? = null,
+    @field:Schema(description = "손절%(전략 fixedStopLoss). null이면 미설정", example = "5.00", nullable = true)
+    val fixedStopLossPct: BigDecimal? = null,
+    @field:Schema(description = "catastrophic floor%(양수)", example = "30.00")
+    val floorPct: BigDecimal,
+    @field:Schema(
+        description = "floor 도달가 = 기준 평단 × (1 − floor%/100). 알람만(자동 청산 X ⑦). 평단 미정 시 null",
+        example = "49000.0000",
+        nullable = true,
+    )
+    val floorPrice: BigDecimal? = null,
+)
+
+@Schema(description = "분할 매수 회차 1건 계획 — ADR 0128 R3")
+data class ScaleInSlicePlanResponse(
+    @field:Schema(description = "0-기반 원본 회차 인덱스(reason #{sliceIndex+1} 정합). 0% skip 시 비연속 가능", example = "0")
+    val sliceIndex: Int,
+    @field:Schema(description = "화면 표시 순번(1-기반, 0% 제외 후)", example = "1")
+    val displayOrder: Int,
+    @field:Schema(description = "회차 비중%", example = "50")
+    val weightPct: BigDecimal,
+    @field:Schema(
+        description = "목표 수량 = floor(고정 base × weight% / 100 / 기준가). base·기준가 미정 시 null",
+        example = "7",
+        nullable = true,
+    )
+    val targetQuantity: Long? = null,
+    @field:Schema(description = "진입 조건 사람 설명", example = "1차 진입 — BUY 시그널 발화 시 즉시")
+    val triggerDescription: String,
 )
