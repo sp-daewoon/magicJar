@@ -165,4 +165,50 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     fun findAutopilotHeldCodesByUser(
         @Param("userId") userId: String,
     ): List<String>
+
+    /**
+     * magicjar-autopilot **청산 대상 보유 lot** — owner=AUTOPILOT 전략이 보유(quantity>0)한 lot 단위 목록
+     * (spec 2026-06-22 §Task 5 · [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotLiquidationService] 입력).
+     *
+     * 롤백/kill 시 루프 자본을 회수하기 위해 청산할 (user, strategy, code, quantity)를 lot 단위로 뽑는다.
+     * 같은 종목을 여러 owner=AUTOPILOT 전략이 보유하면 각 전략 lot 이 별 행으로 나오며, 청산 service 가
+     * lot 단위로 SELL intent 를 발행한다(전략별 ledger 정합 — strategy_position UQ=(user,strategy,code)).
+     *
+     * - userId not null → 해당 user 의 owner=AUTOPILOT lot.
+     * - userId null → 전체 owner=AUTOPILOT lot(account-wide 롤백).
+     *
+     * 격리 LOCK: `s.owner = 'AUTOPILOT'` 조인으로 사용자 수동 전략·후성 lot 은 구조적으로 제외된다.
+     * native query(strategy join). @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        value =
+            "SELECT sp.user_id AS userId, sp.strategy_id AS strategyId, sp.code AS code, " +
+                "sp.quantity AS quantity, sp.avg_price AS avgPrice " +
+                "FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.quantity > 0 AND s.owner = 'AUTOPILOT' " +
+                "AND (:userId IS NULL OR sp.user_id = :userId)",
+        nativeQuery = true,
+    )
+    fun findAutopilotHeldPositions(
+        @Param("userId") userId: String?,
+    ): List<AutopilotHeldLotProjection>
+}
+
+/**
+ * owner=AUTOPILOT 보유 lot 투영 — [StrategyPositionJpaRepository.findAutopilotHeldPositions] 결과.
+ *
+ * Spring Data 인터페이스 기반 projection(native query alias → getter 매핑). 청산 service 가
+ * 종목별 시장가 SELL OrderIntent 발행에 사용한다(avgPrice 는 priceAtSignal 단가 source).
+ */
+interface AutopilotHeldLotProjection {
+    fun getUserId(): String
+
+    fun getStrategyId(): Long
+
+    fun getCode(): String
+
+    fun getQuantity(): Int
+
+    fun getAvgPrice(): java.math.BigDecimal
 }

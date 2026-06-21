@@ -45,10 +45,21 @@ internal object AutoOrderIdempotencyKeys {
      */
     fun takeProfitTick(vararg parts: Any?): String = shortKey(PREFIX_TAKE_PROFIT_TICK, parts.asList())
 
+    /**
+     * magicjar-autopilot 루프 청산 MARKET 키 — `auto-lq:<digest>`. parts: userId·strategyId·code·quantity·**reason·epochSecond**.
+     *
+     * spec 2026-06-22 §Task 5 — kill·롤백 시 owner=AUTOPILOT 포지션 전량 청산 SELL intent 의 멱등 키.
+     * reason+epochSecond 차원을 섞어, **한 번의 청산 호출**(동일 reason·ts) 내 중복 발행은 OrderRouter
+     * `idem:order:{key}` 가 흡수하되, 후속 재청산(다른 reason 또는 시각)은 새 키로 자연 재발사된다
+     * (익절 tick 패턴 정합 — F1 영구 차단 함정 회피).
+     */
+    fun autopilotLiquidation(vararg parts: Any?): String = shortKey(PREFIX_AUTOPILOT_LIQUIDATION, parts.asList())
+
     const val PREFIX_TAKE_PROFIT: String = "auto-tp"
     const val PREFIX_STOP_LOSS: String = "auto-sl"
     const val PREFIX_VI_AUTO_EXIT: String = "auto-vi"
     const val PREFIX_TAKE_PROFIT_TICK: String = "auto-tpt"
+    const val PREFIX_AUTOPILOT_LIQUIDATION: String = "auto-lq"
 
     private fun shortKey(
         prefix: String,
