@@ -12,7 +12,7 @@
 <!-- pr-?-slot-architect -->
 | 2026-05-?? | **TBD — PR-? backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.14.0 | PR-? backend-core 2 파일 |
 <!-- pr-?-slot-backend-core -->
-| 2026-05-?? | **TBD — PR-? market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.14.0 | PR-? market-data 1 파일 |
+| 2026-06-21 | **docs(baseline): v3.14.0 market-data — 03-use-sequences (KIS-first raw 출처)** — 시나리오 S-23·S-24 2건 신규(add-only). **S-23 분할매수 floor 운영화(ADR 0128 amend)** — 갭① floor 운영 default `magicjar.strategy.scale-in.floor-default-pct`(default 15) yml 외부화 + api 저장 시 floor null→default 주입(저장 전략 항상 명시 floor) + `GET /api/strategies/scale-in-defaults` 빌더 prefill 계약 + 도메인 상수 last-resort 강등 / 갭② `ScaleInPlan.floorAutoLiquidate`(default false) 전략 단위 opt-in 자동청산(false=FloorBreachAlert 알람만·SELL 0 / true=StopLoss→order-cash MARKET SELL) + JSONB 라운드트립 복원 fix. **S-24 전략 목록 검색·정렬** — `GET /api/strategies?q=&sort=` LOCKED CONTRACT(q 부분일치·sort recent\|name\|status·zero-regression·헌법 §6 Repository abstract fun body 0) + 목록 검색(debounce 300ms)·카드 분할/floor 배지·빌더 UX(KIS 0·DB read). **raw 신규 0** — S-23 SELL=R12(`TTTC0011U`/`VTTC0011U`)·잔고=R30(`TTTC8434R`/`VTTC8434R`) reuse(endpoint/tr_id 무변경)·S-24 KIS 0(5단계 "해당 없음"). v3.13.0 시나리오 1~23+S-1~S-22+raw R1~R30 add-only 보존. AI 호출 0·자본 path 정합 검증. (market-data) | baseline/v3.14.0 | PR-? market-data 1 파일 (KIS endpoint 인용 2 reuse·신규 0) |
 <!-- pr-?-slot-market-data -->
 | 2026-05-?? | **TBD — PR-? frontend: 05-ui-inventory** | baseline/v3.14.0 | PR-? frontend 1 파일 |
 <!-- pr-?-slot-frontend -->
