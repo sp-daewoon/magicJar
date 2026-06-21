@@ -6,6 +6,7 @@ import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.MinHoldLimits
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
@@ -60,6 +61,9 @@ class StrategyService(
     @Value("\${magicjar.dsl.node-count-limit:10000}") private val nodeCountLimit: Int,
     @Value("\${magicjar.dsl.indicator-call-limit:50}") private val indicatorCallLimit: Int,
     @Value("\${magicjar.strategy.scale-in.enabled:false}") private val scaleInEnabled: Boolean = false,
+    // ADR 0128 amend 갭① — catastrophic floor 운영 default. scaleIn 의 stopLossFloorPct 가 null 이면 저장 시 이 값으로
+    // 채워 항상 명시 floor 로 persist. yml(magicjar.strategy.scale-in.floor-default-pct) → 운영 중 튜닝, 컴파일 상수 회피.
+    @Value("\${magicjar.strategy.scale-in.floor-default-pct:15}") private val floorDefaultPct: BigDecimal = BigDecimal("15"),
     private val realtimeDemandPublisher: StrategyRealtimeDemandPublisher? = null,
 ) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
@@ -123,6 +127,8 @@ class StrategyService(
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
         val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
+        // ADR 0128 amend 갭① — floor null → yml default 채워 항상 명시 floor 로 persist + floor 깊이 검증.
+        val resolvedScaleIn = resolveScaleIn(scaleIn)
 
         val dsl =
             DslStrategyDefinition(
@@ -140,8 +146,8 @@ class StrategyService(
                 tf = tf,
                 fixedStopLoss = normalizedStopLossPct,
                 takeProfitPct = normalizedTakeProfitPct,
-                // ADR 0111 scale-in/partial-exit — 도메인 init이 cap·weight 검증(분할매수 R3-a).
-                scaleIn = scaleIn,
+                // ADR 0111 scale-in/partial-exit — 도메인 init이 cap·weight 검증(분할매수 R3-a). floor 는 resolveScaleIn 가 명시화.
+                scaleIn = resolvedScaleIn,
                 partialExits = partialExits?.takeIf { it.isNotEmpty() },
                 minHoldBars = normalizedMinHoldBars,
                 viActionPolicy = viActionPolicy ?: defaultViActionPolicy(name),
@@ -195,6 +201,8 @@ class StrategyService(
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
         val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
+        // ADR 0128 amend 갭① — floor null → yml default 채워 항상 명시 floor 로 persist + floor 깊이 검증.
+        val resolvedScaleIn = resolveScaleIn(scaleIn)
         val dsl =
             DslStrategyDefinition(
                 name = name,
@@ -214,8 +222,8 @@ class StrategyService(
                         tf = tf,
                         fixedStopLoss = normalizedStopLossPct,
                         takeProfitPct = normalizedTakeProfitPct,
-                        // ADR 0111 scale-in/partial-exit (분할매수 R3-a).
-                        scaleIn = scaleIn,
+                        // ADR 0111 scale-in/partial-exit (분할매수 R3-a). floor 는 resolveScaleIn 가 명시화.
+                        scaleIn = resolvedScaleIn,
                         partialExits = partialExits?.takeIf { it.isNotEmpty() },
                         minHoldBars = normalizedMinHoldBars,
                         viActionPolicy = viActionPolicy ?: existing.definition.viActionPolicy,
@@ -458,6 +466,35 @@ class StrategyService(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
         }
         return value
+    }
+
+    /**
+     * 분할매수(scale-in) 저장 전 정규화 — catastrophic floor 명시화 (ADR 0128 amend 갭①).
+     *
+     * ## 왜 채우나
+     * floor 운영 default 가 컴파일 상수(domain [ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT])였던 것을 yml
+     * (`magicjar.strategy.scale-in.floor-default-pct`)로 외부화했다. 저장 시 `stopLossFloorPct == null` 이면 yml
+     * 값으로 **채워서 persist** → 저장된 [ScaleInPlan]은 항상 명시 floor 를 갖는다(consumer 평가가 엔진 default 에
+     * 암묵 의존하지 않고, 운영 중 yml 튜닝이 신규 저장에 즉시 반영). null 이 아니면 사용자 명시값을 그대로 존중한다.
+     *
+     * 채운 뒤 [ScaleInLimits.validateFloorBelowDeepestEntry]로 floor 가 분할 최저 진입가보다 얕아 분할이 깨지는
+     * 잘못된 설정을 저장 시점에 400 으로 차단한다. (≤0 명시 = floor 비활성 의도이므로 채우지 않고 검증도 skip.)
+     *
+     * @return floor 채운(혹은 그대로인) ScaleInPlan. null in → null out(scaleIn 미설정).
+     * @throws ResponseStatusException 400 — floor 가 분할 최저 진입가보다 얕음(validateFloorBelowDeepestEntry 위반).
+     */
+    private fun resolveScaleIn(scaleIn: ScaleInPlan?): ScaleInPlan? {
+        if (scaleIn == null) return null
+        val resolved =
+            if (scaleIn.stopLossFloorPct == null) {
+                scaleIn.copy(stopLossFloorPct = floorDefaultPct)
+            } else {
+                scaleIn
+            }
+        ScaleInLimits.validateFloorBelowDeepestEntry(resolved)?.let { reason ->
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "분할매수 floor 설정 오류: $reason")
+        }
+        return resolved
     }
 
     /**

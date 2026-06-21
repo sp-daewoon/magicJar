@@ -30,6 +30,7 @@ import kr.spdaewoon.magicjar.strategy.KisYamlDslParser
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInPlanPreview
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInPlanProjector
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -67,6 +68,8 @@ class StrategiesController(
     private val livePriceCacheReader: LivePriceCacheReader,
     private val strategyStartService: StrategyStartService,
     private val favoritePort: StrategyFavoritePort,
+    // ADR 0128 amend 갭① — floor 운영 default. 빌더가 floor 필드 prefill 에 쓰는 LOCKED CONTRACT 값 source.
+    @Value("\${magicjar.strategy.scale-in.floor-default-pct:15}") private val floorDefaultPct: BigDecimal = BigDecimal("15"),
 ) {
     private val log = LoggerFactory.getLogger(StrategiesController::class.java)
 
@@ -86,6 +89,26 @@ class StrategiesController(
         @Parameter(description = "사용자 ID", example = "1", required = true)
         @RequestParam userId: Long,
     ): StrategyStartResponse = strategyStartService.load(userId)
+
+    // ─── GET /api/strategies/scale-in-defaults ────────────────────────────────
+
+    @Operation(
+        summary = "분할매수 운영 default 조회",
+        description =
+            "분할매수 catastrophic floor 운영 default(%)를 반환합니다 (ADR 0128 amend 갭①). " +
+                "전략 빌더는 사용자가 floor 를 직접 입력하지 않을 때 이 값을 floor 필드 prefill 에 사용합니다. " +
+                "값 source 는 yml `magicjar.strategy.scale-in.floor-default-pct`(운영 중 튜닝 가능)이며, " +
+                "전략 저장 시 floor 미지정이면 서버가 이 값으로 채워 항상 명시 floor 로 persist 합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(
+            responseCode = "200",
+            description = "운영 default 조회 성공",
+            content = [Content(schema = Schema(implementation = ScaleInDefaultsResponse::class))],
+        ),
+    )
+    @GetMapping("/scale-in-defaults")
+    fun getScaleInDefaults(): ScaleInDefaultsResponse = ScaleInDefaultsResponse(floorDefaultPct = floorDefaultPct)
 
     // ─── POST /api/strategies/{id}/favorite ───────────────────────────────────
 
@@ -909,6 +932,12 @@ data class ScaleInResponse(
     val priceDropPct: BigDecimal? = null,
     @field:Schema(description = "회차 간 최소 간격(초)", example = "60")
     val minSliceIntervalSec: Int? = null,
+)
+
+@Schema(description = "분할매수 운영 default 응답 — ADR 0128 amend 갭① (LOCKED CONTRACT: 빌더 floor prefill source)")
+data class ScaleInDefaultsResponse(
+    @field:Schema(description = "catastrophic floor 운영 default(평단 대비 손실폭%)", example = "15")
+    val floorDefaultPct: BigDecimal,
 )
 
 @Schema(description = "분할 익절(partial take-profit) 단계 요청 — ADR 0111 §2-2")

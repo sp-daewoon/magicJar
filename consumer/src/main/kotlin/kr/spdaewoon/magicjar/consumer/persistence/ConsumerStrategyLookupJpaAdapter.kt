@@ -221,12 +221,19 @@ class ConsumerStrategyLookupJpaAdapter(
                     ?: ReentryTrigger.SIGNAL_REPEAT
             val priceDropPct = node.get("priceDropPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
             val minSliceIntervalSec = node.get("minSliceIntervalSec")?.takeIf { it.isNumber }?.asInt()
+            // ADR 0128 — catastrophic floor 필드 복원(api StrategyEntityMapper 정합). write 측은 전 필드 직렬화하므로
+            // consumer read 측도 동일 복원해야 floorAutoLiquidate 토글이 매매 평가(RealtimeSignalGenerator)에 전달된다
+            //   — 누락 시 갭② 자동청산 wiring 이 영구 dead(항상 false). stopLossFloorPct 도 평가 floor 정합 위해 복원.
+            val stopLossFloorPct = node.get("stopLossFloorPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
+            val floorAutoLiquidate = node.get("floorAutoLiquidate")?.takeIf { it.isBoolean }?.asBoolean() ?: false
             ScaleInPlan(
                 totalSlices = totalSlices,
                 sliceWeights = sliceWeights,
                 reentryTrigger = reentryTrigger,
                 priceDropPct = priceDropPct,
                 minSliceIntervalSec = minSliceIntervalSec,
+                stopLossFloorPct = stopLossFloorPct,
+                floorAutoLiquidate = floorAutoLiquidate,
             )
         }.getOrNull()
     }

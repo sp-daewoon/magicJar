@@ -356,12 +356,14 @@ class PositionStopLossTickWatcher(
         const val SOURCE_KIS_NOTICK_FALLBACK = "KIS-NOTICK-FALLBACK"
 
         /**
-         * 분할 미완 손절 보류의 catastrophic floor%(평단 대비 손실폭). 1m 경로
-         * [kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]
-         * 와 **동일 값 정합**(tick 안전망과 1m 경로가 같은 floor 로 발동 — 의심 원천 차단).
+         * 분할 미완 손절 보류의 catastrophic floor%(평단 대비 손실폭). tick 안전망 last-resort 값으로,
+         * floor 단일 출처인 domain [kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]
+         * 를 직접 참조한다(2026-06-19 ADR 0128 amend — strategy-engine `@Deprecated` alias 경유 제거). 1m 경로·엔진과
+         * **동일 값 정합**(tick 안전망과 1m 경로가 같은 floor 로 발동 — 의심 원천 차단). 안전망 성격상 yml default 가 아닌
+         * 컴파일 상수를 last-resort 로 고정한다(전략 미주입·이상 상황에서도 결정론적 발동 보장).
          */
         val SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal =
-            kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
+            kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT
 
         /**
          * 손절가 = 평단 × (1 - stopLossPct/100) → KRX 호가단위 내림(R1 [KrxTickSize] 단일 출처).
