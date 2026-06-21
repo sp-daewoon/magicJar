@@ -76,6 +76,20 @@
 
 **⚠ 한계**: REAL 체결로 이미 지출된 자본은 되돌릴 수 없다. 그래서 §2-0-A 하드 칭이 최대 손실을 bound 하는 것이 유일한 자본 보호다.
 
+## 3-bis. 폐기 철학 — 2-tier 선택적 롤백 (2026-06-22 사용자 PO 위임)
+
+"v3.14.0 복귀"는 **전량 리셋이 아니다.** autopilot 시도는 쉽게 버리되, 수행 중 **수 회 검증된 진짜 좋은 개선은 살린다.** 2계층:
+
+- **Tier A — autopilot 전용 (쉽게 폐기)**: autopilot 패키지(`**/autopilot/*`)·`MAGICJAR_AUTOPILOT_ENABLED`(default **false**) 게이트·`owner=AUTOPILOT` 데이터. 폐기 = 플래그 off + autopilot 패키지 제거 + owner=AUTOPILOT 데이터 정리. **기존 매매 동작은 v3.14.0 그대로** (autopilot 미설정 시 zero-regression).
+- **Tier B — 검증된 개선 (폐기에서 생존)**: autopilot 작업 중 일반적으로도 가치있다고 **반복 검증된** 개선(버그 fix·리팩터·관측 향상)은 autopilot 패키지 **밖**에 두고 `// [AUTOPILOT-PROVEN <date>] <근거·검증횟수>` 주석. 폐기 시 보존·promote.
+- **폐기 매니페스트**: `_workspace/autopilot/DISCARD-MANIFEST.md` — Tier A(폐기)/Tier B(보존) 추적. 매 검증 사이클 갱신 → 폐기 시 이 문서가 권위.
+
+### 규율 (PO 자율 운영)
+- **커밋**: autopilot 변경은 `feat(autopilot):`/`fix(autopilot):` prefix 일관 → `git log --grep autopilot`로 전체 추적·일괄 revert 용이. 커밋 메시지에 무엇을·왜·검증여부 상세.
+- **Flyway**: 모든 테이블/데이터 변경은 up SQL과 함께 **되돌림 노트**(rollback SQL 주석) 동봉. autopilot 테이블은 `autopilot_` prefix로 명확 격리.
+- **자율 패치**: 빌드·충돌·ktlint·인터페이스 호환은 사용자 의제 아님 — 자율 처리(feedback_conflict_resolution_autonomy 정합).
+- **검증 승격**: 페이퍼/실증으로 N회(권장 ≥3) 검증된 개선만 Tier B 승격(주석 + 매니페스트 기록).
+
 ## 4. 자원 audit (architect 정합 의무 — feedback_spec_audit)
 
 - **Flyway**: `autopilot_state`(kill·풀·누적손실 추적) 신규 테이블 1 + `strategy.owner` enum에 `AUTOPILOT` 값 추가(V88 재사용). 다음 V번호 확인 의무(현 V90 최신).
