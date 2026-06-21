@@ -156,4 +156,55 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
         @Param("userId") userId: Long,
         pageable: Pageable,
     ): Page<StrategyJpaEntity>
+
+    /**
+     * 내 전략 목록 — 검색(q)·정렬(sort) 파라미터 반영 (LIST 트랙 LOCKED CONTRACT).
+     *
+     * ## 왜 native 인가
+     * 검색 대상에 `codes`(JSONB)가 포함되는데, JPQL은 PostgreSQL `jsonb::text ILIKE` 부분일치를 표현하지 못한다.
+     * 그래서 q·sort 가 모두 한 SQL 안에서 평가되도록 native query 1건으로 통합하고, q 없음+recent/status 의 현행
+     * 경로는 [findAllByUserIdActiveFirst](JPQL)를 그대로 호출해 **완전 동일 동작(zero-regression)** 을 보존한다.
+     * 이 메서드는 q 가 있거나 sort=name 일 때만 사용한다.
+     *
+     * ## 파라미터
+     * - `qLike`: `%키워드%`(소문자) 또는 null. null/빈값이면 필터 안 함(전체).
+     *   부분일치 대상 = name / name_ko / codes(JSONB ::text) 모두 `LOWER(...) LIKE`.
+     * - `sort`: `recent`·`name`·`status`. 정렬 식은 CASE WHEN 으로 단일 SQL 안에서 분기.
+     *   - `name`: COALESCE(name_ko, name) 가나다/알파벳 오름차순(NULLS LAST), tie-break updated_at DESC.
+     *   - 그 외(recent·status): status 우선순위(ACTIVE>BUY_BLOCKED>PAUSED>DISABLED) 그룹 → updated_at DESC
+     *     (= findAllByUserIdActiveFirst 와 동일 규칙. recent·status 모두 동일 그룹 정렬을 사용한다).
+     *
+     * DELETED 제외. ORDER BY 포함이라 countQuery 명시.
+     * 헌법 §6 (ADR 0051): Repository interface 내부 abstract fun (body 0) — 정렬·필터 로직은 @Query 위임.
+     */
+    @Query(
+        value =
+            "SELECT * FROM strategy s " +
+                "WHERE s.user_id = :userId AND s.status <> 'DELETED' " +
+                "AND (:qLike IS NULL OR " +
+                "  LOWER(s.name) LIKE :qLike OR " +
+                "  LOWER(COALESCE(s.name_ko, '')) LIKE :qLike OR " +
+                "  LOWER(COALESCE(s.codes::text, '')) LIKE :qLike) " +
+                "ORDER BY " +
+                "  CASE WHEN :sort = 'name' THEN LOWER(COALESCE(s.name_ko, s.name)) END ASC NULLS LAST, " +
+                "  CASE WHEN :sort <> 'name' THEN " +
+                "    CASE s.status WHEN 'ACTIVE' THEN 0 WHEN 'BUY_BLOCKED' THEN 1 " +
+                "      WHEN 'PAUSED' THEN 2 WHEN 'DISABLED' THEN 3 ELSE 4 END " +
+                "  END ASC, " +
+                "  s.updated_at DESC",
+        countQuery =
+            "SELECT COUNT(*) FROM strategy s " +
+                "WHERE s.user_id = :userId AND s.status <> 'DELETED' " +
+                "AND (:qLike IS NULL OR " +
+                "  LOWER(s.name) LIKE :qLike OR " +
+                "  LOWER(COALESCE(s.name_ko, '')) LIKE :qLike OR " +
+                "  LOWER(COALESCE(s.codes::text, '')) LIKE :qLike)",
+        nativeQuery = true,
+    )
+    fun searchByUserId(
+        @Param("userId") userId: Long,
+        @Param("qLike") qLike: String?,
+        @Param("sort") sort: String,
+        pageable: Pageable,
+    ): Page<StrategyJpaEntity>
 }

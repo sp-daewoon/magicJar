@@ -285,14 +285,57 @@ class StrategyService(
         userId: Long,
         page: Int,
         size: Int,
+    ): Page<Strategy> = listByUserId(userId, page, size, q = null, sort = null)
+
+    /**
+     * 전략 목록 페이징 조회 (DELETED 제외) — 검색(q)·정렬(sort) 지원 (LIST 트랙 LOCKED CONTRACT).
+     *
+     * ## zero-regression 경로
+     * `q` 가 null/빈값이고 `sort` 가 null·`recent`·`status` 이면 현행 [StrategyJpaRepository.findAllByUserIdActiveFirst]
+     * (JPQL CASE)를 **그대로** 호출한다 → q·sort 미지정 기존 클라이언트는 완전 동일 동작.
+     *
+     * ## 검색·정렬 경로
+     * `q` 가 있거나 `sort=name` 이면 [StrategyJpaRepository.searchByUserId](native)로 위임한다.
+     * - `q`: name·nameKo·codes(종목코드) 대소문자 무시 부분일치(contains). `%q%` 로 변환·LOWER 비교.
+     * - `sort`: recent(default)·name·status. recent·status 는 현행과 동일한 status 우선순위+updatedAt DESC 규칙.
+     *
+     * 정렬은 모두 DB(@Query) 위임 — 페이지 정합 유지를 위해 PageRequest 에 Sort 를 박지 않는다.
+     */
+    @Transactional(readOnly = true)
+    fun listByUserId(
+        userId: Long,
+        page: Int,
+        size: Int,
+        q: String?,
+        sort: String?,
     ): Page<Strategy> {
         val pageable = PageRequest.of(page, size)
-        return strategyJpaRepository
-            .findAllByUserIdActiveFirst(userId, pageable)
-            .map { entity ->
-                strategyRepositoryPort.findById(entity.id!!) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+        val normalizedSort = normalizeListSort(sort)
+        val qLike = q?.trim()?.takeIf { it.isNotBlank() }?.let { "%${it.lowercase()}%" }
+
+        // 현행 경로 보존(zero-regression): q 없음 + recent/status 는 기존 JPQL 메서드 그대로.
+        val entityPage =
+            if (qLike == null && normalizedSort != ListSort.NAME) {
+                strategyJpaRepository.findAllByUserIdActiveFirst(userId, pageable)
+            } else {
+                strategyJpaRepository.searchByUserId(userId, qLike, normalizedSort.param, pageable)
             }
+        return entityPage.map { entity ->
+            strategyRepositoryPort.findById(entity.id!!) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+        }
     }
+
+    /** 목록 정렬 옵션 — 미지정·미지원 값은 default(recent)로 흡수(하위호환). */
+    private enum class ListSort(
+        val param: String,
+    ) {
+        RECENT("recent"),
+        NAME("name"),
+        STATUS("status"),
+    }
+
+    private fun normalizeListSort(sort: String?): ListSort =
+        sort?.trim()?.lowercase()?.let { v -> ListSort.entries.firstOrNull { it.param == v } } ?: ListSort.RECENT
 
     fun deleteById(id: Long) {
         strategyRepositoryPort.deleteById(id)
