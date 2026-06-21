@@ -5,6 +5,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-06-22 | **feat(autopilot): Phase 0 Task 4 — 제어 API + kill-recovery + 스냅샷/롤백 스크립트** — `/api/autopilot/{status,stop,resume,rollback}` 제어 평면(api `AutopilotController`+`AutopilotControlProducer`, Kafka `kafka.api.cmd.autopilot.control.v1` → consumer `AutopilotControlListener`). RESUME 하드 플로어(lifetime 손실 ≥ 풀 전소 시 코드로 해제 거부·사용자 재가 필요), net worth 미상 fail-closed. `AutopilotStateStore.deactivateKill`(멱등·envelope 리셋·lifetime 보존·correctedLimits 부분 patch). V92(`autopilot_kill_journal` 사후분석 저널 + `autopilot_state.lifetime_realized_loss` 하드 플로어 컬럼), kill 발동 시 스냅샷 1행·resume 시 해제 갱신. `AutopilotLiquidator` 포트 선언(T5 market-data 구현). `scripts/autopilot-{snapshot,rollback}.mjs`. enabled=false zero-regression LOCK. (backend-core) | api+consumer/autopilot | autopilot Phase 0 Task 4 |
 
 | 2026-06-21 | **chore(meta): PR-? v3.14.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.14.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-? v3.14.0 baseline 슬롯 발행 |
 <!-- pr-?-slot-orchestrator -->

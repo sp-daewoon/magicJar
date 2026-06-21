@@ -21,6 +21,7 @@ class AutopilotKillSwitchTest {
     private val strategyRepo = mockk<ConsumerStrategyJpaRepository>()
     private val slackSender = mockk<SlackWebhookSender>(relaxed = true)
     private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
+    private val killJournalService = mockk<AutopilotKillJournalService>(relaxed = true)
 
     private val slackProvider = providerOf(slackSender)
     private val eventProvider = providerOf(systemEventLogger)
@@ -31,6 +32,7 @@ class AutopilotKillSwitchTest {
             strategyRepository = strategyRepo,
             slackSenderProvider = slackProvider,
             systemEventLoggerProvider = eventProvider,
+            killJournalService = killJournalService,
         )
 
     @Test
@@ -45,6 +47,7 @@ class AutopilotKillSwitchTest {
         verify(exactly = 1) { strategyRepo.pauseAllAutopilotStrategies() }
         verify(exactly = 1) { slackSender.sendDirect(any()) }
         verify(exactly = 1) { systemEventLogger.emit(any()) }
+        verify(exactly = 1) { killJournalService.recordTrigger("누적 손실 한도 도달", any(), 2) }
     }
 
     @Test

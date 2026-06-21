@@ -30,6 +30,7 @@ package kr.spdaewoon.magicjar.domain.messaging
  * - [System]    : 시스템이벤트·KIS키변경·watchlist·종목상세
  * - [Data]      : instrument·corp_action·disclosure·news
  * - [Ai]        : AI 코멘트 요청/응답
+ * - [Autopilot] : 자율 루프 제어 평면 (stop·resume·rollback — api cmd → consumer 제어 리스너)
  * - [Dlt]       : Dead Letter Topic 4종 (main + ".DLT")
  *
  * 순수 Kotlin object — Spring/JPA import 0 (domain 모듈 제약 준수).
@@ -131,6 +132,19 @@ object KafkaTopics {
         const val COMMENT_REQUESTED = "kafka.api.cmd.ai.comment-requested.v1"
 
         const val COMMENT_RESPONDED = "kafka.consumer.evt.ai.comment-responded.v1"
+    }
+
+    /**
+     * magicjar-autopilot 자율 루프 **제어 평면** (spec 2026-06-22 §2-0-B·§3 · Phase 0 Task 4).
+     *
+     * api `/api/autopilot/{stop,resume,rollback}` 컨트롤러가 [CONTROL]에 cmd 를 publish 하고, consumer
+     * `AutopilotControlListener` 가 소비해 kill switch trigger / kill 해제(deactivate) / 청산+롤백을 수행한다.
+     * api 는 consumer 모듈 의존 0(모듈 경계 LOCK)이므로 Kafka 가 유일한 제어 채널이다(`ReconcileManualTrigger` 패턴).
+     *
+     * owner=`api`·kind=`cmd`(다른 모듈에 일을 시킴) — 명명규칙 `kafka.api.cmd.autopilot.control.v1`.
+     */
+    object Autopilot {
+        const val CONTROL = "kafka.api.cmd.autopilot.control.v1"
     }
 
     /**

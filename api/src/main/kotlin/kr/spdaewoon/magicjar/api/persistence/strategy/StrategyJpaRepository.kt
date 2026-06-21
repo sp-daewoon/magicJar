@@ -128,6 +128,15 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     fun findAllByOwner(owner: String): List<StrategyJpaEntity>
 
     /**
+     * owner 별 미삭제 전략 수 — magicjar-autopilot `/api/autopilot/status` owner=AUTOPILOT 전략수 표시용
+     * (spec 2026-06-22 Task 4). 헌법 §6 (ADR 0051): query inference abstract fun (body 0).
+     */
+    fun countByOwnerAndStatusNot(
+        owner: String,
+        status: String,
+    ): Long
+
+    /**
      * 내 전략 목록 — "자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순" 정렬.
      *
      * Spring Data [org.springframework.data.domain.Sort]는 CASE식 정렬을 표현하지 못하므로 @Query JPQL로 처리.

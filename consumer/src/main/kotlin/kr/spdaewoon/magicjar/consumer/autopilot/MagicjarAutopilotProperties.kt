@@ -41,6 +41,19 @@ data class MagicjarAutopilotProperties(
     val dailyLossPct: BigDecimal = AutopilotState.DEFAULT_DAILY_LOSS_PCT,
     /** spec §2-0-A — 누적 손실 한도 = 풀 % → kill switch. ENV `MAGICJAR_AUTOPILOT_CUM_LOSS_PCT`. */
     val cumLossPct: BigDecimal = AutopilotState.DEFAULT_CUM_LOSS_PCT,
+    /**
+     * spec §2-0-B 하드 플로어 — kill 해제(deactivate) 영구 거부 임계 = **풀 상한의 %** (default 100 = 풀 전소).
+     *
+     * `lifetimeRealizedLoss >= poolCeiling × lifetimeFloorPct/100` 이면 [AutopilotControlListener] 의 RESUME 이
+     * 코드로 거부된다(무한 reset 출혈 방어 — 사용자 재가만 해제). 풀 상한 = 순자산 × poolPct/100 이므로
+     * default 100 → 순자산의 poolPct%(=5%) 전액 소진 시 영구 kill. ENV `MAGICJAR_AUTOPILOT_LIFETIME_FLOOR_PCT`.
+     */
+    val lifetimeFloorPct: BigDecimal = DEFAULT_LIFETIME_FLOOR_PCT,
+    /**
+     * autopilot account-wide 단일 계좌 userId — 제어 평면(status·resume floor 검사)이 순자산·전략수 조회에 쓴다.
+     * autopilot 은 account-wide 단일 행(id=1)이며 canary 는 단일 사용자다. ENV `MAGICJAR_AUTOPILOT_ACCOUNT_USER_ID`.
+     */
+    val accountUserId: String = DEFAULT_ACCOUNT_USER_ID,
 ) {
     /**
      * 부트 default [AutopilotState] — `autopilot_state` 행이 부재·조회 실패 시 사용할 한도 config(손실 0·kill off).
@@ -55,4 +68,12 @@ data class MagicjarAutopilotProperties(
             dailyLossPct = dailyLossPct,
             cumLossPct = cumLossPct,
         )
+
+    companion object {
+        /** 하드 플로어 default = 풀 상한의 100%(풀 전소 = 순자산 poolPct% 전액 소진). */
+        val DEFAULT_LIFETIME_FLOOR_PCT: BigDecimal = BigDecimal("100")
+
+        /** account-wide 단일 계좌 userId default(canary 단일 사용자). */
+        const val DEFAULT_ACCOUNT_USER_ID: String = "1"
+    }
 }

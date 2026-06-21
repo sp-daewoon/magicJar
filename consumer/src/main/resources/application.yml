@@ -150,6 +150,11 @@ magicjar:
     max-positions: ${MAGICJAR_AUTOPILOT_MAX_POSITIONS:3}
     daily-loss-pct: ${MAGICJAR_AUTOPILOT_DAILY_LOSS_PCT:30}
     cum-loss-pct: ${MAGICJAR_AUTOPILOT_CUM_LOSS_PCT:50}
+    # 하드 플로어(spec §2-0-B · Task 4) — kill 해제 영구 거부 임계 = 풀 상한의 % (default 100 = 풀 전소).
+    #   lifetime_realized_loss >= poolCeiling × lifetime-floor-pct/100 이면 RESUME 을 코드로 거부(사용자 재가만 해제).
+    lifetime-floor-pct: ${MAGICJAR_AUTOPILOT_LIFETIME_FLOOR_PCT:100}
+    # account-wide 단일 계좌 userId — 제어 평면(status·resume floor 검사)의 순자산·전략수 조회 기준(canary 단일 사용자).
+    account-user-id: ${MAGICJAR_AUTOPILOT_ACCOUNT_USER_ID:1}
   # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
   #   stop-loss.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
   #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).
