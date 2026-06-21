@@ -1,6 +1,6 @@
 # ADR 0128 — 분할매수(scale-in) 자본 로직 재설계 — base 고정·잔여추적·floor 알람강등·한도/0% 버그 fix
 
-- 상태: **Accepted (2026-06-19)** — strategy-engine R1 로직(domain 필드·순수 함수·consumer 사이징·알람 강등) + V90 Flyway 컬럼. **라이브 자본 critical** — 단위테스트 GREEN 후 배포는 orchestrator가 사용자 승인 후.
+- 상태: **Accepted (2026-06-19) · Amended (2026-06-21 — §6 floor 운영 default 외부화 + floorAutoLiquidate 토글)** — strategy-engine R1 로직(domain 필드·순수 함수·consumer 사이징·알람 강등) + V90 Flyway 컬럼. **라이브 자본 critical** — 단위테스트 GREEN 후 배포는 orchestrator가 사용자 승인 후.
 - 작성자: strategy-engine
 - 결정자: 사용자(최고 관리자) — 2026-06-19 canary 후성(093370) 라이브 케이스에서 도출한 9개 설계 결재(메모리 `project_scalein_strategy_design.md` 권위).
 - 영역: 자동매매 진입(scale-in) 자본 사이징 + 청산 보류/알람 — **자본 path (사용자 결재)**
@@ -80,3 +80,53 @@ base는 "1차 시점 buyable"의 박제값이지만, 의미는 **"분할 전체�
 ## 5. 검증
 
 단위테스트(배포 X): base고정·잔여추적·분할미완 손절0·분할완료 손절·floor 알람만·floor<분할최저·⑧초과진입0·⑨weight0 skip — `ScaleInExitValidationTest`·`ScaleInExitCalculatorTest`·`ScaleInPlanProjectorTest`·`RiskGatewayEvaluatorTest`. `:domain:test :strategy-engine:test :consumer:test ktlintCheck` GREEN.
+
+---
+
+## 6. Amend (2026-06-21) — floor 운영 default 외부화 + 자동청산 토글
+
+> 결정자: 사용자(최고 관리자) — 2026-06-21 canary 8일차 세션 결재. 본 ADR 본문 §1~§5 불변, 하단 보강. 우선순위 LOCK(STOP_LOSS>PARTIAL_TP>TAKE_PROFIT>ENTER_SLICE>HOLD)·순수성 LOCK·base 고정(①)·잔여 추적(②)·⑧⑨ 불변.
+
+### 6-0. 배경 — 왜 amend 하는가
+
+§2 ⑦에서 floor(평단 -손절% catastrophic 알람선)를 두 가지로 처리했다.
+
+1. **floor 미지정 시 컴파일 상수 fallback** — `ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15`가 floor null을 채웠다. 이 상수는 사실상 "운영 default 지위"를 가졌는데, 운영 중 floor 기본값을 바꾸려면 **재컴파일·재배포**가 필요해 경직적이고, 사용자가 그 값이 무엇인지 화면에서 볼 수 없었다(가시성 0).
+2. **floor = 알람만(자동 청산 X) 고정** — 스윙 반등 보호를 위한 합리적 default지만, 일부 전략(예: 변동성이 작거나 기계적 손실 bound를 원하는 케이스)은 floor 도달 시 **자동 전량 청산**을 원한다. default를 깨지 않으면서 전략 단위로 선택할 수단이 없었다.
+
+본 amend는 두 결함(갭①·갭②)을 default 보존 + 외부화/opt-in으로 보강한다.
+
+### 6-1. 결정 — 갭①·갭② 구현 매핑 (LOCKED)
+
+| 갭 | 결정 | domain 필드 | yml key | api 주입 | 엔진 분기 | UI |
+|----|------|-------------|---------|----------|-----------|----|
+| **①** floor 운영 default 외부화 | `DEFAULT_STOP_LOSS_FLOOR_PCT` 상수의 **운영 default 지위 박탈**. 운영 default를 `application.yml` property로 외부화. floor null이면 yml default를 채워 **저장 전략은 항상 명시 floor**를 보유. 도메인 상수는 legacy/programmatic null 방어용 **last-resort 안전망**으로만 잔존(운영 default 아님). | `ScaleInPlan.stopLossFloorPct`(기존, 불변) | `magicjar.strategy.scale-in.floor-default-pct` (default 15) | api 저장 경로에서 floor null → yml default 주입 후 영속(저장값 = 명시 floor) | 불변 — 엔진은 영속된 명시 floor만 사용(상수 미참조) | 빌더 floor 필드 **항상 노출** + yml default prefill |
+| **②** floor 자동청산 토글 | ⑦ "floor=알람만"을 **opt-out 가능한 default**로 전환. 전략별 `floorAutoLiquidate` 신설. false=현행 `FloorBreachAlert`(알람만, SELL 미발행). true=floor 도달 시 자동 전량 청산(`StopLoss`). | `ScaleInPlan.floorAutoLiquidate: Boolean` (default **false**) | — (도메인 필드, yml 무관) | `scale_in_config` JSONB에 직렬화(아래 audit) | floor 도달 시 `floorAutoLiquidate` 분기 — false→`FloorBreachAlert`, true→`StopLoss`(우선순위 LOCK 내 STOP_LOSS 슬롯) | 빌더 toggle(default OFF=알람만) + 전략 카드에 모드 표기 |
+
+### 6-2. default 보존 원칙 (방향성 가드)
+
+- **갭①은 값의 위치만 이동**한다 — 운영 default 15%는 그대로 15%(yml default). 외부화의 목적은 "재컴파일 없이 튜닝 + 사용자 가시성"이지 값 변경이 아니다. 도메인 상수 `DEFAULT_STOP_LOSS_FLOOR_PCT`는 삭제하지 않고 last-resort 안전망(yml 미설정 + api 미경유 programmatic 생성)으로만 잔존 — 의미는 "운영 default"에서 "방어용 fallback"으로 강등.
+- **갭②의 default는 false(알람만)** = §2 ⑦ 현행 동작 그대로. zero-regression: 기존 저장 전략·신규 default 전략 모두 알람만 경로 유지. 기계적 손실 bound를 원하는 사용자만 toggle ON. **자본 경로 변경(알람→자동 청산)이므로 계정 전체가 아닌 전략 단위 opt-in으로 안전 확보** — 한 전략의 toggle ON이 다른 전략·다른 종목 청산에 영향 0.
+- floor < 분할 최저 진입가 저장검증(§2-2)은 toggle 무관하게 불변 — 알람이든 청산이든 floor가 분할 의미를 깨면 안 된다.
+
+### 6-3. 자원 audit
+
+- **ENV**: 신규 ENV 0. yml property 1건 추가(`magicjar.strategy.scale-in.floor-default-pct`, default 15). 기존 `MAGICJAR_STRATEGY_SCALE_IN_ENABLED` 불변. (필요 시 yml property에 `${MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT:15}` placeholder를 둘 수 있으나 ENV 신설은 backend-core R2 재량 — 운영 default는 yml 한 곳이 권위).
+- **Flyway**: **DDL 0**. `floorAutoLiquidate`는 기존 `strategy.scale_in_config` JSONB(V90 이전부터 존재)에 키 추가로 자동 흡수 — 신규 컬럼/마이그레이션 불필요. 역직렬화 시 키 부재면 default false(Jackson default value / Kotlin default param). V90(`scale_in_base_budget`·`scale_in_remainder_qty`) 불변.
+- **STOMP/Kafka**: wire 변경 0 — projector DTO에 `floorAutoLiquidate` 필드 add-only(R3 frontend 표기용).
+- **라운드 경계**:
+  - **strategy-engine** (domain/엔진): `ScaleInPlan.floorAutoLiquidate` 필드 + 엔진 floor 분기(false→`FloorBreachAlert` / true→`StopLoss`) + 도메인 상수 주석 강등(운영 default→last-resort). 순수 함수 단위테스트.
+  - **backend-core** (yml+wiring): `application.yml` `floor-default-pct` property + `@ConfigurationProperties` 바인딩 + api 저장 경로 floor null→yml default 주입 + `scale_in_config` JSONB `floorAutoLiquidate` 직렬화/역직렬화 매핑.
+  - **frontend** (UI): 빌더 floor 필드 항상 노출 + yml default prefill(저장 응답/설정 조회로 전달받음) + `floorAutoLiquidate` toggle(default OFF) + 전략 카드/보유 현황 모드 표기.
+  - **qa** (Visual): 빌더 floor 필드·toggle 시각 baseline + floor 도달 시 알람(default)/청산(toggle ON) 분기 E2E.
+
+### 6-4. 검증 계획
+
+- **strategy-engine 단위**: floor null + yml default 미주입(programmatic) → last-resort 상수 fallback / floorAutoLiquidate=false → `FloorBreachAlert` / =true → `StopLoss`(우선순위 STOP_LOSS 슬롯 정합) / floor<분할최저 저장검증 toggle 무관 불변 — `ScaleInExitCalculatorTest`·`ScaleInPlanProjectorTest`.
+- **backend-core 통합**: api 저장 시 floor null → yml `floor-default-pct`(15) 주입 후 영속 → 재조회 시 명시 floor 보유 / `scale_in_config` JSONB round-trip(`floorAutoLiquidate` 직렬화·역직렬화 default false).
+- **라이브(사용자 승인 후)**: toggle OFF 전략 floor 도달 → Slack 알람만(SELL 0) 재확인 / toggle ON 전략 floor 도달 → 자동 전량 청산 1회 + 포지션·PnL 정합. **자본 critical** — orchestrator가 단위/통합 GREEN 후 사용자 승인 받아 배포.
+- **frontend(qa Visual)**: 빌더 floor prefill·toggle baseline + 모드 표기 회귀.
+
+### 6-5. 남은 의사결정
+
+- toggle ON 전략의 floor 자동 청산이 **분할 미완 손절 보류(⑤)를 override** 하는지 명시 필요 — 결정: floor는 ⑤⑥와 독립한 catastrophic 상한이므로 **toggle ON이면 분할 미완 여부 무관하게 floor에서 청산**(floor의 본질이 worst-case bound). ⑤의 "분할 미완 손절 보류"는 평단 -손절%(⑥) 경로에만 적용되고 floor는 별도 상한 — 본 amend로 이 분리가 toggle ON에서 비로소 가시화됨. strategy-engine R 구현 시 이 분기 순서(floor 청산 우선)를 단위테스트로 LOCK.
