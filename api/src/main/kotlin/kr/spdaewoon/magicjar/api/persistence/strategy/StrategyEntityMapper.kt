@@ -216,12 +216,19 @@ object StrategyEntityMapper {
                     ?: ReentryTrigger.SIGNAL_REPEAT
             val priceDropPct = node.get("priceDropPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
             val minSliceIntervalSec = node.get("minSliceIntervalSec")?.takeIf { it.isNumber }?.asInt()
+            // ADR 0128 — catastrophic floor 필드. write 측(objectMapper.writeValueAsString)은 전 필드 직렬화하므로
+            // read 측도 반드시 동일 필드를 복원해야 라운드트립이 성립한다(없으면 floor·자동청산 설정이 조회 시 소실 = 자본 버그).
+            // stopLossFloorPct: 명시 양수·0(비활성)·null(미지정→엔진 default) 3-상태 보존. floorAutoLiquidate: 갭② 토글.
+            val stopLossFloorPct = node.get("stopLossFloorPct")?.takeIf { !it.isNull }?.let { BigDecimal(it.asText()) }
+            val floorAutoLiquidate = node.get("floorAutoLiquidate")?.takeIf { it.isBoolean }?.asBoolean() ?: false
             ScaleInPlan(
                 totalSlices = totalSlices,
                 sliceWeights = sliceWeights,
                 reentryTrigger = reentryTrigger,
                 priceDropPct = priceDropPct,
                 minSliceIntervalSec = minSliceIntervalSec,
+                stopLossFloorPct = stopLossFloorPct,
+                floorAutoLiquidate = floorAutoLiquidate,
             )
         }.getOrNull()
     }

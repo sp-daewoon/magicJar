@@ -797,6 +797,9 @@ class RealtimeSignalGenerator(
                 sliceBudgetQuantity = 0,
                 // ⑦ floor = 전략 설정값(없으면 default 15%). null이면 엔진 default — 동일 값이므로 안전.
                 scaleInStopLossFloorPct = strategy.definition.scaleIn?.stopLossFloorPct,
+                // ADR 0128 amend 갭② — floor 도달 시 자동 전량 청산 여부(전략 명시 opt-in). true면 엔진이 StopLoss 반환
+                //   → 아래 when 의 StopLoss 분기로 sellSignal(MARKET) 발행(기존 손절 경로 재사용). false면 FloorBreachAlert(알람만).
+                floorAutoLiquidate = strategy.definition.scaleIn?.floorAutoLiquidate ?: false,
             )
 
         return when (val decision = ScaleInExitCalculator.evaluate(input)) {

@@ -134,6 +134,10 @@ magicjar:
   strategy:
     scale-in:
       enabled: ${MAGICJAR_STRATEGY_SCALE_IN_ENABLED:true}
+      # catastrophic floor 운영 default(%) — 분할 미완 손절 보류의 마지노선 손실폭 (ADR 0128 amend 갭①).
+      # 전략이 stopLossFloorPct 미지정(null)이면 api 저장 시 이 값으로 채워 항상 명시 floor 로 persist 한다.
+      # 컴파일 상수(domain ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15)와 동일 default 이며 운영 중 yml 로 튜닝 가능.
+      floor-default-pct: ${MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT:15}
   # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
   screener:
     # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)

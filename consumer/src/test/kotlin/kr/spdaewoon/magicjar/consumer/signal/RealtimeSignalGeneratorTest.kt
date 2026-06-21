@@ -891,6 +891,104 @@ class RealtimeSignalGeneratorTest {
     }
 
     @Test
+    fun `ADR 0128 갭2 — 분할 미완 floor 도달 + floorAutoLiquidate=true 면 StopLoss SELL MARKET 발행`() {
+        val buyAst = ast("0", Operator.GT, "1") // BUY HOLD → 청산 평가 경로
+        val boundaryTs = Instant.parse("2026-05-20T00:21:00Z")
+        val positionPort = mockk<StrategyPositionPort>()
+        val savedSignal = slot<GeneratedSignal>()
+        // 3분할 중 1회만 체결(분할 미완) → 평단 stop-loss 보류. floor 15%(20000×0.85=17000) 도달 + 토글 true → 청산.
+        val scaleIn =
+            kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan(
+                totalSlices = 3,
+                reentryTrigger = kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger.SIGNAL_REPEAT,
+                stopLossFloorPct = BigDecimal("15"),
+                floorAutoLiquidate = true,
+            )
+
+        every { strategyLookup.findActiveByCodeAndInterval("093370", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, fixedStopLossPct = BigDecimal("5.00"), scaleIn = scaleIn))
+        every { dedupeGuard.tryAcquire(42L, "093370", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("093370", CandleInterval.ONE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:20:00Z", "20000"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { positionPort.findByUserStrategyCode("1234", 42L, "093370") } returns
+            StrategyPosition(
+                userId = "1234",
+                strategyId = 42L,
+                code = "093370",
+                quantity = 5,
+                avgPrice = BigDecimal("20000"),
+                filledLots = 1,
+                openedAt = fixedNow,
+                updatedAt = fixedNow,
+            )
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 130L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        // 현재가 16800 = floor(17000) 아래 → FLOOR_ALERT, 토글 true → StopLoss.
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "093370",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "16800"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        assertThat(savedSignal.captured.reason).isEqualTo("STOP_LOSS")
+        val ctx =
+            com.fasterxml.jackson.databind
+                .ObjectMapper()
+                .readValue(savedSignal.captured.contextJson, Map::class.java)
+        assertThat(ctx["exitPriceType"]).isEqualTo("MARKET")
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `ADR 0128 갭2 — 분할 미완 floor 도달 + floorAutoLiquidate=false(default) 면 알람만 — 시그널 0`() {
+        val buyAst = ast("0", Operator.GT, "1")
+        val boundaryTs = Instant.parse("2026-05-20T00:21:00Z")
+        val positionPort = mockk<StrategyPositionPort>()
+        val scaleIn =
+            kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan(
+                totalSlices = 3,
+                reentryTrigger = kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger.SIGNAL_REPEAT,
+                stopLossFloorPct = BigDecimal("15"),
+                floorAutoLiquidate = false,
+            )
+
+        every { strategyLookup.findActiveByCodeAndInterval("093370", CandleInterval.ONE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, fixedStopLossPct = BigDecimal("5.00"), scaleIn = scaleIn))
+        every { dedupeGuard.tryAcquire(42L, "093370", CandleInterval.ONE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("093370", CandleInterval.ONE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:20:00Z", "20000"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { positionPort.findByUserStrategyCode("1234", 42L, "093370") } returns
+            StrategyPosition(
+                userId = "1234",
+                strategyId = 42L,
+                code = "093370",
+                quantity = 5,
+                avgPrice = BigDecimal("20000"),
+                filledLots = 1,
+                openedAt = fixedNow,
+                updatedAt = fixedNow,
+            )
+
+        generator(strategyPositionPort = positionPort).onBoundaryClosed(
+            code = "093370",
+            interval = CandleInterval.ONE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "16800"),
+        )
+
+        // FloorBreachAlert → 알람만(systemEventLogger 부재 → 로그만), 시그널 저장·발행 0 (zero-regression).
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
     fun `장전 08시30분 boundary는 정규장 밖이라 strategy 평가를 skip 한다`() {
         val buyAst = ast("1", Operator.GT, "0")
         // KST 2026-05-20(수) 08:30 = UTC 2026-05-19T23:30:00Z (NXT pre-hour 캔들 마감 — 정책상 의도된 적재)
@@ -1142,6 +1240,7 @@ class RealtimeSignalGeneratorTest {
         takeProfitPct: BigDecimal? = null,
         fixedStopLossPct: BigDecimal? = null,
         minHoldBars: Int? = null,
+        scaleIn: kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan? = null,
         status: StrategyStatus = StrategyStatus.ACTIVE,
     ): Strategy =
         Strategy(
@@ -1159,6 +1258,7 @@ class RealtimeSignalGeneratorTest {
                     takeProfitPct = takeProfitPct,
                     fixedStopLoss = fixedStopLossPct,
                     minHoldBars = minHoldBars,
+                    scaleIn = scaleIn,
                 ),
             complexity =
                 StrategyComplexity(

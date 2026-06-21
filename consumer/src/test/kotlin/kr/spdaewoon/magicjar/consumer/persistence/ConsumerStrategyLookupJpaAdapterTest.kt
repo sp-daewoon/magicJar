@@ -180,6 +180,70 @@ class ConsumerStrategyLookupJpaAdapterTest {
     }
 
     @Test
+    fun `scale_in_config 의 catastrophic floor 필드가 라운드트립에서 보존된다 (ADR 0128 갭② 자동청산 wiring 가드)`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        // api write 측이 직렬화하는 전 필드 포함 — floorAutoLiquidate=true 가 consumer 평가까지 전달돼야
+        // RealtimeSignalGenerator 가 StopLoss(자동청산)로 분기한다. 누락 시 갭② wiring 영구 dead.
+        val entity =
+            jpaEntity(
+                id = 60L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                scaleInConfig =
+                    """{"totalSlices":3,"reentryTrigger":"PRICE_DROP_PCT","priceDropPct":-3.0,""" +
+                        """"stopLossFloorPct":20,"floorAutoLiquidate":true}""",
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val scaleIn =
+            adapter
+                .findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+                .single()
+                .definition.scaleIn
+        assertThat(scaleIn).isNotNull
+        assertThat(scaleIn!!.stopLossFloorPct).isEqualByComparingTo(BigDecimal("20"))
+        assertThat(scaleIn.floorAutoLiquidate).isTrue()
+    }
+
+    @Test
+    fun `floor 미지정 행은 stopLossFloorPct null 과 floorAutoLiquidate false 로 복원된다`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val entity =
+            jpaEntity(
+                id = 61L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                scaleInConfig = """{"totalSlices":2,"reentryTrigger":"SIGNAL_REPEAT"}""",
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val scaleIn =
+            adapter
+                .findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+                .single()
+                .definition.scaleIn
+        assertThat(scaleIn).isNotNull
+        assertThat(scaleIn!!.stopLossFloorPct).isNull()
+        assertThat(scaleIn.floorAutoLiquidate).isFalse()
+    }
+
+    @Test
     fun `partial_exits JSONB 는 PartialExit 리스트로 적재되어 definition partialExits 에 노출된다`() {
         val buyAst = condition("1", Operator.GT, "0")
         val entity =
