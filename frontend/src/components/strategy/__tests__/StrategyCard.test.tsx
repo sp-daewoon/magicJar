@@ -6,6 +6,7 @@
  * - RiskPlan(손절·익절) 사유는 백테스트로 보내지 않고 toast 유지
  * - 종목/인터벌 미지정 사유는 toast 유지 (버튼 disabled가 아니어도 핸드오프 X)
  */
+import type { ComponentProps } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -14,6 +15,7 @@ import type { SigStrategyDto } from '../../../api/strategy'
 const navigateMock = vi.fn()
 const showToastMock = vi.fn()
 const toggleMutateMock = vi.fn()
+const favoriteMutateMock = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -27,6 +29,7 @@ vi.mock('../../ui/ToastProvider', () => ({
 vi.mock('../../../api/hooks/useSigStrategy', () => ({
   useToggleSigStrategyStatus: () => ({ mutate: toggleMutateMock, isPending: false, isError: false }),
   useDeleteSigStrategy: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useToggleListFavorite: () => ({ mutate: favoriteMutateMock, isPending: false, isError: false }),
 }))
 
 vi.mock('../../../stores/onboarding', () => ({
@@ -60,10 +63,10 @@ const baseStrategy: SigStrategyDto = {
   createdAt: '2026-06-06T00:00:00Z',
 }
 
-function renderCard(strategy: SigStrategyDto) {
+function renderCard(strategy: SigStrategyDto, props: Partial<ComponentProps<typeof StrategyCard>> = {}) {
   render(
     <MemoryRouter>
-      <StrategyCard strategy={strategy} />
+      <StrategyCard strategy={strategy} {...props} />
     </MemoryRouter>,
   )
 }
@@ -73,6 +76,7 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     navigateMock.mockClear()
     showToastMock.mockClear()
     toggleMutateMock.mockClear()
+    favoriteMutateMock.mockClear()
   })
 
   it('백테스트 사유 "백테스트 필요" 클릭 시 백테스트 화면으로 전략 prefill 네비게이션', async () => {
@@ -175,5 +179,65 @@ describe('StrategyCard 백테스트 핸드오프', () => {
     expect(screen.getByText('LG전자(066570)')).toBeInTheDocument()
     expect(screen.getByText('셀트리온(068270)')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '종목 목록 접기' })).toBeInTheDocument()
+  })
+})
+
+describe('StrategyCard 정보 밀도·빠른 액션 (list-ux-uplift)', () => {
+  beforeEach(() => {
+    navigateMock.mockClear()
+    showToastMock.mockClear()
+    favoriteMutateMock.mockClear()
+  })
+
+  it('분할매수 + floor 알람 배지를 표시한다', () => {
+    renderCard({
+      ...baseStrategy,
+      scaleIn: { totalSlices: 3, stopLossFloorPct: 15, floorAutoLiquidate: false },
+    })
+    expect(screen.getByText('분할 3회')).toBeInTheDocument()
+    expect(screen.getByText('floor 알람 -15%')).toBeInTheDocument()
+  })
+
+  it('floor 자동청산 전략은 자동청산 배지를 표시한다', () => {
+    renderCard({
+      ...baseStrategy,
+      scaleIn: { totalSlices: 2, stopLossFloorPct: 20, floorAutoLiquidate: true },
+    })
+    expect(screen.getByText('floor 자동청산 -20%')).toBeInTheDocument()
+  })
+
+  it('단일 진입 + floor 미설정이면 배지를 표시하지 않는다', () => {
+    renderCard(baseStrategy)
+    expect(screen.queryByText(/분할 \d+회/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/floor/)).not.toBeInTheDocument()
+  })
+
+  it('즐겨찾기 버튼 클릭 시 토글 mutation 호출 (현재 미즐겨찾기 → on=true)', async () => {
+    const user = userEvent.setup()
+    renderCard(baseStrategy, { isFavorite: false })
+    await user.click(screen.getByRole('button', { name: '즐겨찾기 추가' }))
+    expect(favoriteMutateMock).toHaveBeenCalledTimes(1)
+    expect(favoriteMutateMock.mock.calls[0][0]).toEqual({ id: 48, on: true })
+  })
+
+  it('즐겨찾기 상태면 해제 버튼이 노출된다', () => {
+    renderCard(baseStrategy, { isFavorite: true })
+    expect(screen.getByRole('button', { name: '즐겨찾기 해제' })).toBeInTheDocument()
+  })
+
+  it('복제 버튼 클릭 시 빌더로 duplicate 라우팅', async () => {
+    const user = userEvent.setup()
+    renderCard(baseStrategy)
+    await user.click(screen.getByRole('button', { name: '복제' }))
+    expect(navigateMock).toHaveBeenCalledWith('/strategy/builder?strategyId=48&duplicate=1')
+  })
+
+  it('선택 모드에서 체크박스가 노출되고 onToggleSelect 가 호출된다', async () => {
+    const onToggleSelect = vi.fn()
+    const user = userEvent.setup()
+    renderCard(baseStrategy, { selectMode: true, selected: false, onToggleSelect })
+    const checkbox = screen.getByRole('checkbox', { name: 'xxx 선택' })
+    await user.click(checkbox)
+    expect(onToggleSelect).toHaveBeenCalledTimes(1)
   })
 })

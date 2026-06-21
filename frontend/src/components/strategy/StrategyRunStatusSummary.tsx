@@ -7,9 +7,13 @@ import { useRiskEvents } from '../../api/hooks/useRiskEvents'
 import { useSignals } from '../../api/hooks/useSignal'
 import { useSigStrategies } from '../../api/hooks/useSigStrategy'
 import { formatStrategyTargetLabel, isPaperStrategy } from './strategyDisplay'
+import { isFloorAlarmStrategy, isScaleInStrategy } from './strategyCardBadges'
+import { type StrategyFilterOption } from './StrategyFilterBar'
 
 interface StrategyRunStatusSummaryProps {
   userId: number
+  /** 집계 칩 클릭 시 목록 필터로 점프 */
+  onJumpToFilter?: (filter: StrategyFilterOption) => void
 }
 
 function formatCurrency(value: number | string | null | undefined): string {
@@ -40,7 +44,7 @@ function formatKst(value: string | null | undefined): string {
   })
 }
 
-export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryProps) {
+export function StrategyRunStatusSummary({ userId, onJumpToFilter }: StrategyRunStatusSummaryProps) {
   const riskWindow = useMemo(() => {
     const to = new Date()
     const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
@@ -64,6 +68,10 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
   const strategies = strategyPages?.pages.flatMap((page) => page.content) ?? []
   const activeStrategies = strategies.filter((strategy) => strategy.status === 'ACTIVE')
   const buyBlockedStrategies = strategies.filter((strategy) => strategy.status === 'BUY_BLOCKED')
+  const pausedStrategies = strategies.filter((strategy) => strategy.status === 'PAUSED')
+  // floor 알람 떠있는 전략(자동청산 제외) · 분할매수 진행(설정상 2회 이상) 전략 집계
+  const floorAlarmStrategies = strategies.filter(isFloorAlarmStrategy)
+  const scaleInStrategies = strategies.filter(isScaleInStrategy)
   const activePaperStrategies = activeStrategies.filter(isPaperStrategy)
   const activeLiveStrategies = activeStrategies.filter((strategy) => !isPaperStrategy(strategy))
   const buyBlockedPaperStrategies = buyBlockedStrategies.filter(isPaperStrategy)
@@ -181,6 +189,47 @@ export function StrategyRunStatusSummary({ userId }: StrategyRunStatusSummaryPro
               : '신호와 리스크 통과 후 여기에 표시됩니다'}
           </p>
         </div>
+      </div>
+
+      {/* 집계 칩 — 클릭 시 목록 필터 점프 (floor·분할 진행은 정보 칩) */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onJumpToFilter?.('ACTIVE')}
+          className="rounded-full border border-emerald-800 bg-emerald-950/40 px-2.5 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-900/50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        >
+          자동매매중 {activeStrategies.length.toLocaleString('ko-KR')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onJumpToFilter?.('BUY_BLOCKED')}
+          className="rounded-full border border-sky-800 bg-sky-950/40 px-2.5 py-1 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-900/50 focus:outline-none focus:ring-2 focus:ring-sky-400"
+        >
+          매수차단 {buyBlockedStrategies.length.toLocaleString('ko-KR')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onJumpToFilter?.('PAUSED')}
+          className="rounded-full border border-amber-800 bg-amber-950/40 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-900/50 focus:outline-none focus:ring-2 focus:ring-amber-400"
+        >
+          중지 {pausedStrategies.length.toLocaleString('ko-KR')}
+        </button>
+        {floorAlarmStrategies.length > 0 && (
+          <span
+            className="rounded-full border border-amber-700 bg-amber-950/50 px-2.5 py-1 text-xs font-medium text-amber-200"
+            title="분할 미완 중 평단 대비 floor 손실폭 도달 시 알람만(자동청산 없음)으로 설정된 전략"
+          >
+            floor 알람 {floorAlarmStrategies.length.toLocaleString('ko-KR')}
+          </span>
+        )}
+        {scaleInStrategies.length > 0 && (
+          <span
+            className="rounded-full border border-indigo-800 bg-indigo-950/50 px-2.5 py-1 text-xs font-medium text-indigo-300"
+            title="2회 이상 분할매수로 설정된 전략"
+          >
+            분할 진행 {scaleInStrategies.length.toLocaleString('ko-KR')}
+          </span>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-800 pt-3 text-xs text-gray-500">

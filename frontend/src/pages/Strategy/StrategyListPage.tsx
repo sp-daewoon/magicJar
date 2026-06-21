@@ -11,7 +11,7 @@
  * userId: useOnboardingStore.registeredUserId
  * - 미등록(null) 시 온보딩 안내
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useOnboardingStore } from '../../stores/onboarding'
 import { StrategyFilterBar, type StrategyFilterOption } from '../../components/strategy/StrategyFilterBar'
@@ -19,10 +19,26 @@ import { StrategyList } from '../../components/strategy/StrategyList'
 import { StrategyRunStatusSummary } from '../../components/strategy/StrategyRunStatusSummary'
 import { SignalListPanel } from '../../components/strategy/SignalListPanel'
 import { useStompSignal } from '../../api/hooks/useStompSignal'
+import { useStrategyStart } from '../../api/hooks/useStrategyStart'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { type StrategyListSort } from '../../api/strategy'
 
 export function StrategyListPage() {
   const [filterOption, setFilterOption] = useState<StrategyFilterOption>('ALL')
+  const [searchInput, setSearchInput] = useState('')
+  const [sort, setSort] = useState<StrategyListSort>('recent')
+  const debouncedSearch = useDebouncedValue(searchInput, 300)
   const userId = useOnboardingStore((s) => s.registeredUserId)
+  // 즐겨찾기 id (시작 화면 favoriteIds 권위) — 목록 카드 별표 표시
+  const { data: startData } = useStrategyStart(userId)
+  const favoriteIds = useMemo(
+    () => new Set(startData?.favoriteIds ?? []),
+    [startData?.favoriteIds],
+  )
+  const listQuery = useMemo(
+    () => ({ q: debouncedSearch, sort }),
+    [debouncedSearch, sort],
+  )
 
   // 실시간 시그널 구독 (userId 있을 때만)
   // ADR 0089 Phase 2 — userId number; 0은 sentinel (disabled 상태에서만 통과)
@@ -82,7 +98,7 @@ export function StrategyListPage() {
         </Link>
       </div>
 
-      <StrategyRunStatusSummary userId={userId} />
+      <StrategyRunStatusSummary userId={userId} onJumpToFilter={setFilterOption} />
 
       {/* 전략 목록 섹션 */}
       <section aria-labelledby="strategy-section-heading" className="mb-10">
@@ -90,9 +106,21 @@ export function StrategyListPage() {
           <h2 id="strategy-section-heading" className="text-base font-semibold text-white">
             내 전략
           </h2>
-          <StrategyFilterBar value={filterOption} onChange={setFilterOption} />
+          <StrategyFilterBar
+            value={filterOption}
+            onChange={setFilterOption}
+            search={searchInput}
+            onSearchChange={setSearchInput}
+            sort={sort}
+            onSortChange={setSort}
+          />
         </div>
-        <StrategyList userId={userId} filter={filterOption} />
+        <StrategyList
+          userId={userId}
+          filter={filterOption}
+          query={listQuery}
+          favoriteIds={favoriteIds}
+        />
       </section>
 
       {/* 구분선 */}
