@@ -77,6 +77,9 @@ object ScaleInExitSimulation {
                 lastSliceFillPrice = lastSliceFillPrice,
                 lastSliceEpochSec = lastSliceEpochSec,
                 nowEpochSec = nowEpochSec,
+                // ADR 0128 amend 갭② — 플랜 토글을 그대로 주입(라이브·리플레이·백테스트 floor 청산 동작 동일).
+                scaleInStopLossFloorPct = scaleIn?.stopLossFloorPct,
+                floorAutoLiquidate = scaleIn?.floorAutoLiquidate ?: false,
             ),
         )
 

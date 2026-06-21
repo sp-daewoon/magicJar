@@ -112,6 +112,19 @@ class ScaleInExitValidationTest {
         ScaleInLimits.validateFloorBelowDeepestEntry(signalRepeat) shouldBe null
     }
 
+    // ── 갭② floorAutoLiquidate 토글 (ADR 0128 amend) ────────────────────
+    @Test
+    fun `갭② floorAutoLiquidate defaults to false (alarm-only — zero-regression)`() {
+        ScaleInPlan(totalSlices = 3).floorAutoLiquidate shouldBe false
+    }
+
+    @Test
+    fun `갭② floorAutoLiquidate explicit true is preserved`() {
+        ScaleInPlan(totalSlices = 3, floorAutoLiquidate = true).floorAutoLiquidate shouldBe true
+        // copy 라운드트립으로 jackson 평탄 직렬화·역직렬화 호환(어노테이션 0) 전제 확인.
+        ScaleInPlan(totalSlices = 3).copy(floorAutoLiquidate = true).floorAutoLiquidate shouldBe true
+    }
+
     // ── ScaleInPlan: PRICE_DROP_PCT requires negative priceDropPct ─────
     @Test
     fun `price drop trigger requires negative priceDropPct`() {

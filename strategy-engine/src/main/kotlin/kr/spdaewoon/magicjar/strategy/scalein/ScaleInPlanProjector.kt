@@ -20,7 +20,8 @@ import java.math.RoundingMode
  *     - `triggerDescription`: 진입 조건 사람 설명(1차=즉시 / 2차↑=시그널 재발화 또는 -X% 도달).
  * - `expectedStopLossPrice`: 1차 평단 -손절% 예상 손절가(분할 완료 후 적용 — ⑥). 평단·손절% 미정 시 null.
  *   (분할 진행되며 평단이 바뀌면 화면이 갱신 호출로 재계산 — 본 함수는 referenceAvgPrice 기준 1회 계산.)
- * - `floorPrice`           : catastrophic floor 도달가 = referenceAvgPrice × (1 − floorPct/100). **알람만**(자동 청산 X ⑦).
+ * - `floorPrice`           : catastrophic floor 도달가 = referenceAvgPrice × (1 − floorPct/100).
+ * - `floorAutoLiquidate`   : floor 도달 시 자동 청산 여부(false=알람만 default ⑦ / true=자동 청산 갭②) — UI 라벨용.
  *
  * 1차 미진입(referenceAvgPrice/base 미정)이면 targetQuantity·가격류는 null 로 두고 비중·조건만 노출한다(미리 보기).
  */
@@ -93,6 +94,7 @@ object ScaleInPlanProjector {
             fixedStopLossPct = fixedStopLossPct,
             floorPct = floorPct,
             floorPrice = floorPrice,
+            floorAutoLiquidate = plan.floorAutoLiquidate,
         )
     }
 
@@ -127,8 +129,10 @@ data class ScaleInPlanPreview(
     val fixedStopLossPct: BigDecimal?,
     /** catastrophic floor% (양수). */
     val floorPct: BigDecimal,
-    /** floor 도달가 = 기준 평단 × (1 − floor%/100). **알람만**(자동 청산 X ⑦). 평단 미정 시 null. */
+    /** floor 도달가 = 기준 평단 × (1 − floor%/100). [floorAutoLiquidate]에 따라 알람만(⑦) 또는 자동 청산. 평단 미정 시 null. */
     val floorPrice: BigDecimal?,
+    /** floor 도달 시 자동 전량 청산 여부 (ADR 0128 amend 갭②). false = 알람만(default, ⑦). true = 자동 청산. UI 라벨용. */
+    val floorAutoLiquidate: Boolean = false,
 )
 
 /**
