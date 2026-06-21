@@ -229,9 +229,12 @@ export function StrategyBuilderPage() {
       showToast('불러온 전략에 매수 조건이 없습니다', 'error')
       return
     }
+    // 복제 모드(목록 카드 "복제" → ?duplicate=1): DSL·설정만 불러오고 strategyId는 비워
+    // 저장 시 기존 전략 수정이 아니라 신규 생성 흐름으로 진입한다.
+    const isDuplicate = searchParams.get('duplicate') === '1'
     try {
       setTree(parseDslTextToTree(loadedStrategy.buyCondition, loadedStrategy.sellCondition))
-      setStrategyId(loadedStrategy.id)
+      setStrategyId(isDuplicate ? undefined : loadedStrategy.id)
       setAiDraftMeta(null)
       setStartItemMeta(null)
       setComplexity(loadedStrategy.complexity ?? null)
@@ -242,11 +245,15 @@ export function StrategyBuilderPage() {
         interval: loadedStrategy.intervals[0] ?? loadedStrategy.tf ?? prev.interval,
       }))
       loadedStrategyIdRef.current = loadedStrategy.id
-      showToast(`${loadedStrategy.nameKo || loadedStrategy.name} 불러옴`)
+      showToast(
+        isDuplicate
+          ? `${loadedStrategy.nameKo || loadedStrategy.name} 복제 — 이름을 바꿔 새 전략으로 저장하세요`
+          : `${loadedStrategy.nameKo || loadedStrategy.name} 불러옴`,
+      )
     } catch (err) {
       showToast(`전략 DSL 불러오기 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
     }
-  }, [loadedStrategy, showToast])
+  }, [loadedStrategy, showToast, searchParams])
 
   useEffect(() => {
     const draftId = searchParams.get('researchDraftId')
