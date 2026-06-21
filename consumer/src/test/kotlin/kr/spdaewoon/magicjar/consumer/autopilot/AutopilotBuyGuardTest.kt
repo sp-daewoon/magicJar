@@ -41,13 +41,45 @@ class AutopilotBuyGuardTest {
         )
 
     @Test
-    fun `게이트 off 면 NotApplicable - 기존 경로 그대로 (zero-regression)`() {
+    fun `게이트 off + AUTOPILOT BUY 는 Reject - 벨트앤서스펜더 (실주문 0)`() {
+        // spec 2026-06-22 §2-B 방어 심층 — enabled=false 인데 AUTOPILOT BUY 가 어떤 경로로든 들어오면
+        // NotApplicable(Proceed→무게이트 실주문)이 아니라 Reject 해 실주문을 0 으로 막는다.
         val decision =
             guard(enabled = false)
                 .evaluate(buySignal(), autopilotStrategy(), context(), BigDecimal("1000000"))
-        assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
-        // state·노출 조회조차 하지 않음 — autopilot 전 경로 미진입.
+        assertThat(decision).isInstanceOf(AutopilotBuyDecision.Reject::class.java)
+        assertThat((decision as AutopilotBuyDecision.Reject).reason).contains("autopilot disabled")
+        // 차단이 우선 — state·노출 조회조차 하지 않음(즉시 Reject).
         verify(exactly = 0) { stateStore.load() }
+    }
+
+    @Test
+    fun `게이트 off + AUTOPILOT SELL 은 NotApplicable - 청산 무영향 (보유분 청산 보장)`() {
+        // 벨트앤서스펜더는 BUY 만 막는다. SELL(청산)은 enabled 무관 기존 경로 그대로(롱온리 청산 보장).
+        val decision =
+            guard(enabled = false)
+                .evaluate(buySignal().copy(side = SignalSide.SELL), autopilotStrategy(), context(), BigDecimal("1000000"))
+        assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
+        verify(exactly = 0) { stateStore.load() }
+    }
+
+    @Test
+    fun `게이트 off + 비 AUTOPILOT BUY 는 NotApplicable - 사용자 전략 byte 동일 (zero-regression)`() {
+        // enabled=false 라도 owner=USER 는 차단 대상이 아니다 — 기존 경로 그대로.
+        val decision =
+            guard(enabled = false)
+                .evaluate(buySignal(), userStrategy(), context(), BigDecimal("1000000"))
+        assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
+        verify(exactly = 0) { stateStore.load() }
+    }
+
+    @Test
+    fun `isAutopilotBuy 는 enabled 무관 side+owner 만 본다`() {
+        val g = guard(enabled = false)
+        assertThat(g.isAutopilotBuy(buySignal(), autopilotStrategy())).isTrue()
+        assertThat(g.isAutopilotBuy(buySignal().copy(side = SignalSide.SELL), autopilotStrategy())).isFalse()
+        assertThat(g.isAutopilotBuy(buySignal(), userStrategy())).isFalse()
+        assertThat(g.isAutopilotBuy(buySignal(), null)).isFalse()
     }
 
     @Test

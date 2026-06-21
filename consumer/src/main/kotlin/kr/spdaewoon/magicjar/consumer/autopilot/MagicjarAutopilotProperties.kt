@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.autopilot
 
 import kr.spdaewoon.magicjar.domain.autopilot.AutopilotState
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.math.BigDecimal
 
@@ -56,6 +57,18 @@ data class MagicjarAutopilotProperties(
     val accountUserId: String = DEFAULT_ACCOUNT_USER_ID,
 ) {
     /**
+     * 실시간 BUY 신호 구동 평가 쿼리에 넘길 **owner 집합** (spec 2026-06-22 §2 Phase 1 wiring · DRY 단일 출처).
+     *
+     * - [enabled]=false → `["USER"]` → AUTOPILOT 평가 0 = v3.14.0 byte 동일(zero-regression).
+     * - [enabled]=true  → `["USER","AUTOPILOT"]` → 루프 생성 전략도 BUY 구동 평가·시세 universe 진입.
+     *
+     * BUY 구동 3 호출자([ConsumerStrategyLookupJpaAdapter]·[kr.spdaewoon.magicjar.consumer.ingestion.ActiveStrategyCodeProvider]·
+     * `ManagedCandleUniverseProvider`)가 동일 집합을 공유해 평가·universe가 어긋나지 않게 한다. **청산(SELL) 쿼리는
+     * 이 게이트를 쓰지 않는다** — 청산은 보유분을 닫는 행위이므로 enabled 무관 항상 AUTOPILOT 포함(BUY/청산 비대칭).
+     */
+    fun buyEvalOwners(): List<String> = if (enabled) ENABLED_BUY_EVAL_OWNERS else DISABLED_BUY_EVAL_OWNERS
+
+    /**
      * 부트 default [AutopilotState] — `autopilot_state` 행이 부재·조회 실패 시 사용할 한도 config(손실 0·kill off).
      * DB 행이 있으면 그 행이 권위이고, 본 메서드는 시드/fallback 전용이다.
      */
@@ -75,5 +88,12 @@ data class MagicjarAutopilotProperties(
 
         /** account-wide 단일 계좌 userId default(canary 단일 사용자). */
         const val DEFAULT_ACCOUNT_USER_ID: String = "1"
+
+        /**
+         * BUY 구동 평가 owner 집합 — [StrategyOwner] enum name 과 동일 문자열(DB owner VARCHAR 값과 정합).
+         * 불변 리스트 상수로 둬 호출마다 재할당 0([buyEvalOwners] 가 enabled 분기로 둘 중 하나 반환).
+         */
+        private val DISABLED_BUY_EVAL_OWNERS: List<String> = listOf(StrategyOwner.USER.name)
+        private val ENABLED_BUY_EVAL_OWNERS: List<String> = listOf(StrategyOwner.USER.name, StrategyOwner.AUTOPILOT.name)
     }
 }
