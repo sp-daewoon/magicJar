@@ -8,7 +8,7 @@
 
 | 2026-06-21 | **chore(meta): PR-? v3.14.0 baseline 폴더 신설 + sub-agent 슬롯 4 anchor 발행** — `_workspace/baseline/v3.14.0/` 폴더 신설(README skeleton + 7 파일 인덱스). CHANGELOG sub-agent 슬롯 4 anchor(architect/backend-core/market-data/frontend). 4 sub-agent 병렬 디스패치 add-only LOCK. (orchestrator) | meta/baseline | PR-? v3.14.0 baseline 슬롯 발행 |
 <!-- pr-?-slot-orchestrator -->
-| 2026-05-?? | **TBD — PR-? architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.14.0 | PR-? architect 4 파일 |
+| 2026-06-21 | **docs(baseline): v3.14.0 architect 4파일 (README·01-architecture·06-history·07-policy)** — v3.14.0 baseline architect 산출물 완성. **README** 한 장 요약(분할매수 자본 재설계 마일스톤) + 7파일 인덱스 + v3.13.0→v3.14.0 통계 매트릭스 + minor/patch 사이클 인덱스. **01-architecture** Mermaid 5 다이어그램(9 JVM 모듈 전경·분할매수 base 박제/잔여/floor 토글 흐름·키 사슬 무결성·KIS WS H0UNCNT0 owner priority·Flyway V83~V90 gantt) + 외부 통합(KIS H0UNCNT0/H0UNASP0·DART·Naver). **06-history** PR 시계열(분할매수 ADR 0128 R1~R3 #1060~#1062·floor amend #1065~#1068·빌더/목록 #1069~#1072) + ADR 0124~0128 추적 + 라이브 incident 매트릭스 + Flyway V83~V90. **07-policy** 헌법 §1~§13 현행 매트릭스 + 분할매수 자본 정책 + floor 알람/청산 분리 + floor yml 외부화 + KIS WS owner priority + 전략 UX + **release 정책 개정(2026-06-21 feature 묶음=minor)** + ADR 진화 누적. ADR 0128 §6 amend(floor 운영 default 외부화·floorAutoLiquidate 토글) 반영. 운영 코드 0 touch(docs only) · 자본 영향 0 · KIS·AI·mock 0. (architect) | baseline/v3.14.0 | v3.14.0 architect 4 파일 |
 <!-- pr-?-slot-architect -->
 | 2026-05-?? | **TBD — PR-? backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.14.0 | PR-? backend-core 2 파일 |
 <!-- pr-?-slot-backend-core -->
