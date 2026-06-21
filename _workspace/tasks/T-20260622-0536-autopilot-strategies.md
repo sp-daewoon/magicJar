@@ -3,10 +3,10 @@ id: T-20260622-0536-autopilot-strategies
 agent: strategy
 model: opus
 branch: agent/strategy/autopilot-strategies
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T05:36:58.984+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T05:45:30.539+09:00
+pr: #1090
 parentPhase: ?
 ---
 
