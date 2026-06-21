@@ -138,6 +138,19 @@ magicjar:
       # 전략이 stopLossFloorPct 미지정(null)이면 api 저장 시 이 값으로 채워 항상 명시 floor 로 persist 한다.
       # 컴파일 상수(domain ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15)와 동일 default 이며 운영 중 yml 로 튜닝 가능.
       floor-default-pct: ${MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT:15}
+  # magicjar-autopilot 자율 루프 안전 하니스 게이트 (spec 2026-06-22 §2-0-A · §3-bis Tier A)
+  #   enabled: default false — 미설정 시 autopilot 전 기능 비활성 = v3.14.0 동작 그대로(zero-regression).
+  #     true 일 때만 owner=AUTOPILOT 전략 생성·평가·REAL 활성 경로가 동작한다.
+  #   pool/per-trade/max-positions/daily-loss/cum-loss: 코드 강제 회로차단기 한도(전부 보수적 default).
+  #     기존 RiskBudgetCalculator(계좌 전체 공유 풀) 위에 더 좁게 겹쳐 적용 — 둘 중 보수적 값이 이긴다.
+  #   폐기: enabled=false + autopilot 패키지 제거 + owner=AUTOPILOT 데이터 정리(DISCARD-MANIFEST Tier A).
+  autopilot:
+    enabled: ${MAGICJAR_AUTOPILOT_ENABLED:false}
+    pool-pct: ${MAGICJAR_AUTOPILOT_POOL_PCT:5}
+    per-trade-pct: ${MAGICJAR_AUTOPILOT_PER_TRADE_PCT:20}
+    max-positions: ${MAGICJAR_AUTOPILOT_MAX_POSITIONS:3}
+    daily-loss-pct: ${MAGICJAR_AUTOPILOT_DAILY_LOSS_PCT:30}
+    cum-loss-pct: ${MAGICJAR_AUTOPILOT_CUM_LOSS_PCT:50}
   # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
   screener:
     # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)

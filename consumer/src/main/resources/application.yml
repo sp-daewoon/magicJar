@@ -137,6 +137,19 @@ magicjar:
       # persist 하므로 consumer 평가 경로는 명시값을 쓰지만, 구버전 데이터(floor null)·1m 안전망 last-resort 의 일관성을
       # 위해 동일 default 를 등록한다. 컴파일 상수(domain ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15)와 동일.
       floor-default-pct: ${MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT:15}
+  # magicjar-autopilot 자율 루프 안전 하니스 게이트 (spec 2026-06-22 §2-0-A · §3-bis Tier A)
+  #   enabled: default false — 미설정 시 autopilot 전 기능 비활성 = v3.14.0 동작 그대로(zero-regression).
+  #     true 일 때만 owner=AUTOPILOT 전략 평가·kill switch·REAL 게이트가 동작한다.
+  #   한도(pool/per-trade/max-positions/daily-loss/cum-loss): 코드 강제 회로차단기 default(보수적).
+  #     기존 RiskBudgetCalculator(계좌 전체 공유 풀) 위에 더 좁게 겹쳐 적용 — 둘 중 보수적 값이 이긴다.
+  #   api 와 동일 등록(같은 ENV 단일 출처) — consumer 매수·kill 평가 경로 일관성.
+  autopilot:
+    enabled: ${MAGICJAR_AUTOPILOT_ENABLED:false}
+    pool-pct: ${MAGICJAR_AUTOPILOT_POOL_PCT:5}
+    per-trade-pct: ${MAGICJAR_AUTOPILOT_PER_TRADE_PCT:20}
+    max-positions: ${MAGICJAR_AUTOPILOT_MAX_POSITIONS:3}
+    daily-loss-pct: ${MAGICJAR_AUTOPILOT_DAILY_LOSS_PCT:30}
+    cum-loss-pct: ${MAGICJAR_AUTOPILOT_CUM_LOSS_PCT:50}
   # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
   #   stop-loss.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
   #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).
