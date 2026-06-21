@@ -72,6 +72,101 @@ class StrategyServiceListSortTest {
     }
 
     @Test
+    fun `q·sort 미지정이면 현행 findAllByUserIdActiveFirst 경로 그대로 - searchByUserId 미호출(zero-regression)`() {
+        every {
+            strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = null, sort = null)
+
+        verify(exactly = 1) { strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any()) }
+        verify(exactly = 0) { strategyJpaRepository.searchByUserId(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `sort=recent·status(q 없음)도 현행 경로 - searchByUserId 미호출`() {
+        every {
+            strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = " ", sort = "recent")
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = null, sort = "status")
+
+        verify(exactly = 2) { strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any()) }
+        verify(exactly = 0) { strategyJpaRepository.searchByUserId(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `q 부분일치는 LOWER %q% 로 정규화해 searchByUserId(recent)로 위임한다`() {
+        val qLike = slot<String>()
+        val sortParam = slot<String>()
+        every {
+            strategyJpaRepository.searchByUserId(1234L, capture(qLike), capture(sortParam), any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = "  삼성電子  ", sort = null)
+
+        assertThat(qLike.captured).isEqualTo("%삼성電子%")
+        assertThat(sortParam.captured).isEqualTo("recent")
+        verify(exactly = 0) { strategyJpaRepository.findAllByUserIdActiveFirst(any(), any()) }
+    }
+
+    @Test
+    fun `q에 영문 종목코드 검색은 소문자로 내려가 code 부분일치 LIKE에 쓰인다`() {
+        val qLike = slot<String>()
+        every {
+            strategyJpaRepository.searchByUserId(1234L, capture(qLike), any(), any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = "AB12", sort = "name")
+
+        assertThat(qLike.captured).isEqualTo("%ab12%")
+    }
+
+    @Test
+    fun `sort=name은 q 없어도 searchByUserId(name·qLike=null)로 위임한다`() {
+        val sortParam = slot<String>()
+        val qLike = mutableListOf<String?>()
+        every {
+            strategyJpaRepository.searchByUserId(1234L, captureNullable(qLike), capture(sortParam), any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = null, sort = "name")
+
+        assertThat(sortParam.captured).isEqualTo("name")
+        assertThat(qLike).containsExactly(null)
+        verify(exactly = 0) { strategyJpaRepository.findAllByUserIdActiveFirst(any(), any()) }
+    }
+
+    @Test
+    fun `미지원 sort 값은 recent로 흡수돼 현행 경로(q 없음)를 탄다`() {
+        every {
+            strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any())
+        } returns PageImpl(emptyList())
+
+        service.listByUserId(userId = 1234L, page = 0, size = 20, q = null, sort = "bogus")
+
+        verify(exactly = 1) { strategyJpaRepository.findAllByUserIdActiveFirst(1234L, any()) }
+        verify(exactly = 0) { strategyJpaRepository.searchByUserId(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `검색 경로도 repository 반환 순서를 도메인 매핑하며 보존한다`() {
+        val a = entity(id = 20L, status = "ACTIVE", createdAt = days(1), updatedAt = days(30))
+        val b = entity(id = 21L, status = "PAUSED", createdAt = days(2), updatedAt = days(10))
+        every {
+            strategyJpaRepository.searchByUserId(1234L, any(), any(), any())
+        } returns PageImpl(listOf(a, b))
+        listOf(a, b).forEach { e ->
+            every { strategyRepositoryPort.findById(e.id!!) } returns strategy(id = e.id!!)
+        }
+
+        val result = service.listByUserId(userId = 1234L, page = 0, size = 20, q = "test", sort = "name")
+
+        assertThat(result.content.map { it.id }).containsExactly(20L, 21L)
+    }
+
+    @Test
     fun `ACTIVE가 createdAt 더 오래됐어도 맨 앞에 오고 그룹 내 updatedAt DESC 순서를 보존한다`() {
         // repository(@Query) 가 ACTIVE 우선 + updatedAt DESC 로 돌려준 순서를 fixture 로 재현.
         // id 10: ACTIVE, 가장 오래 전에 생성됐지만 최근 토글(updated_at 최신) → 맨 앞이어야 한다.

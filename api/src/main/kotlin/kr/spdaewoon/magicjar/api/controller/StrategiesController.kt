@@ -197,8 +197,13 @@ class StrategiesController(
     // ─── GET /api/strategies ──────────────────────────────────────────────────
 
     @Operation(
-        summary = "전략 목록 조회 (페이징)",
-        description = "사용자의 전략 목록을 반환합니다. DELETED 상태 제외. userId 파라미터로 소유자 필터.",
+        summary = "전략 목록 조회 (페이징·검색·정렬)",
+        description =
+            "사용자의 전략 목록을 반환합니다. DELETED 상태 제외. userId 파라미터로 소유자 필터.\n\n" +
+                "- `q`(선택): 전략명(name)·한글명(nameKo)·감시 종목코드(codes) 부분일치 검색(대소문자 무시). " +
+                "생략·빈값이면 필터 안 함(전체).\n" +
+                "- `sort`(선택, default `recent`): `recent`=가동도(ACTIVE 우선)+최신 변경순(현행 동작), " +
+                "`name`=한글명(없으면 영문명) 가나다/알파벳 오름차순, `status`=상태 우선순위 그룹 후 최신 변경순.",
     )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "전략 목록 조회 성공"),
@@ -211,8 +216,19 @@ class StrategiesController(
         @RequestParam(defaultValue = "0") page: Int,
         @Parameter(description = "페이지 크기", example = "20")
         @RequestParam(defaultValue = "20") size: Int,
+        @Parameter(
+            description = "검색어 — 전략명·한글명·종목코드 부분일치(대소문자 무시). 생략·빈값=전체",
+            example = "삼성",
+        )
+        @RequestParam(required = false) q: String? = null,
+        @Parameter(
+            description = "정렬 기준 — recent(default)·name·status. 미지원 값은 recent로 흡수",
+            example = "recent",
+            schema = Schema(allowableValues = ["recent", "name", "status"], defaultValue = "recent"),
+        )
+        @RequestParam(required = false) sort: String? = null,
     ): StrategyPageResponse {
-        val result = strategyService.listByUserId(userId, page, size)
+        val result = strategyService.listByUserId(userId, page, size, q, sort)
         return StrategyPageResponse(
             content = result.content.map { toDetailResponse(it) },
             page = result.number,
