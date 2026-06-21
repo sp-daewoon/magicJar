@@ -11,7 +11,11 @@ import {
   type SigStrategyDto,
   type StrategyStatus,
 } from '../../api/strategy'
-import { useDeleteSigStrategy, useToggleSigStrategyStatus } from '../../api/hooks/useSigStrategy'
+import {
+  useDeleteSigStrategy,
+  useToggleListFavorite,
+  useToggleSigStrategyStatus,
+} from '../../api/hooks/useSigStrategy'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -28,6 +32,7 @@ import {
 } from './strategyDisplay'
 import { parsePositiveNumber } from './riskPlanDisplay'
 import { describeScaleIn } from './scaleInExitDisplay'
+import { floorBadge, scaleInBadgeLabel } from './strategyCardBadges'
 
 // ──────────────────────────────────────────────
 // 상태 배지 스타일
@@ -54,9 +59,23 @@ const DISABLED_REASON_LABEL: Record<string, string> = {
 
 interface StrategyCardProps {
   strategy: SigStrategyDto
+  /** 다중 선택 모드 — 체크박스 노출 */
+  selectMode?: boolean
+  /** 현재 카드 선택 여부 */
+  selected?: boolean
+  /** 선택 토글 콜백 */
+  onToggleSelect?: () => void
+  /** 즐겨찾기 여부 (시작 화면 favoriteIds 권위) */
+  isFavorite?: boolean
 }
 
-export function StrategyCard({ strategy }: StrategyCardProps) {
+export function StrategyCard({
+  strategy,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
+  isFavorite = false,
+}: StrategyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showAllCodes, setShowAllCodes] = useState(false)
   const [showPerformance, setShowPerformance] = useState(false)
@@ -71,6 +90,25 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
 
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
+  const favoriteMutation = useToggleListFavorite(userId)
+  const floorBadgeInfo = floorBadge(strategy.scaleIn)
+  const scaleInBadge = scaleInBadgeLabel(strategy.scaleIn)
+
+  function handleToggleFavorite() {
+    favoriteMutation.mutate(
+      { id: Number(strategy.id), on: !isFavorite },
+      {
+        onError: (error) => {
+          showToast(resolveStrategyMutationErrorMessage(error), 'error')
+        },
+      },
+    )
+  }
+
+  function handleDuplicate() {
+    // 기존 전략을 빌더로 불러와 복제 — 빌더가 duplicate 파라미터로 신규 저장 흐름 진입
+    navigate(`/strategy/builder?strategyId=${strategy.id}&duplicate=1`)
+  }
   const isMissingOperationalTargets = codes.length === 0 || intervals.length === 0
   const activationBlockedReason = strategyActivationBlockedReason(strategy)
   // RiskPlan(손절·익절) 사유는 백테스트 핸드오프 대상이 아님 — 빌더에서 손절/익절 설정 필요
@@ -174,11 +212,27 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
     <article
       className={[
         'flex flex-col gap-3 rounded-xl border bg-gray-900 p-5 transition-colors',
-        isPaper ? 'border-amber-800/70 hover:border-amber-700/80' : 'border-gray-800 hover:border-gray-700',
+        selected
+          ? 'border-blue-500 ring-1 ring-blue-500/60'
+          : isPaper
+            ? 'border-amber-800/70 hover:border-amber-700/80'
+            : 'border-gray-800 hover:border-gray-700',
       ].join(' ')}
     >
       {/* 헤더 */}
       <div className="flex items-start justify-between gap-2">
+        {selectMode && (
+          <label className="mt-1 flex shrink-0 cursor-pointer items-center">
+            <span className="sr-only">{strategy.name} 선택</span>
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect?.()}
+              aria-label={`${strategy.name} 선택`}
+              className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-2 focus:ring-blue-400"
+            />
+          </label>
+        )}
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold text-white" title={strategy.name}>
             {strategy.name}
@@ -234,13 +288,46 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
           </div>
         </div>
 
-        {/* 상태 배지 */}
-        <span
-          className={`shrink-0 rounded px-2 py-0.5 text-xs font-bold ${badge.cls}`}
-        >
-          {badge.label}
-        </span>
+        {/* 상태 배지 + 즐겨찾기 */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleFavorite}
+            disabled={favoriteMutation.isPending}
+            aria-pressed={isFavorite}
+            aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+            title={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+            className={[
+              'rounded p-0.5 text-base leading-none transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-gray-900 disabled:opacity-50',
+              isFavorite ? 'text-amber-300 hover:text-amber-200' : 'text-gray-600 hover:text-amber-300',
+            ].join(' ')}
+          >
+            {isFavorite ? '★' : '☆'}
+          </button>
+          <span className={`rounded px-2 py-0.5 text-xs font-bold ${badge.cls}`}>
+            {badge.label}
+          </span>
+        </div>
       </div>
+
+      {/* 한눈 상태 배지 — 분할매수 진행 · floor 알람/자동청산 (정보 밀도 개선) */}
+      {(scaleInBadge || floorBadgeInfo) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {scaleInBadge && (
+            <span className="rounded bg-indigo-950/70 px-2 py-0.5 text-xs font-medium text-indigo-300">
+              {scaleInBadge}
+            </span>
+          )}
+          {floorBadgeInfo && (
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-medium ${floorBadgeInfo.cls}`}
+              title={floorBadgeInfo.description}
+            >
+              {floorBadgeInfo.label}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 인터벌 */}
       {intervals.length > 0 && (
@@ -415,6 +502,17 @@ export function StrategyCard({ strategy }: StrategyCardProps) {
         >
           빌더에서 수정
         </Link>
+
+        {/* 복제 — 기존 전략을 빌더로 불러와 신규 전략으로 저장 */}
+        {strategy.status !== 'DELETED' && (
+          <button
+            type="button"
+            onClick={handleDuplicate}
+            className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+          >
+            복제
+          </button>
+        )}
 
         {/* 성과·메모 (T-PERF R3 — ADR 0126) */}
         <button

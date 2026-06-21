@@ -345,15 +345,43 @@ export interface UpdateSigStrategyRequest {
   partialExits?: PartialExitDto[] | null
 }
 
+/** 전략 목록 정렬 키 (backend-core LOCK — GET /api/strategies?sort=) */
+export type StrategyListSort = 'recent' | 'name' | 'status'
+
+/**
+ * 전략 목록 조회 옵션 (검색·정렬) — backend-core 병렬 트랙 LOCK 계약.
+ *   q: name/nameKo/code 부분일치
+ *   sort: recent(default) | name | status
+ * 미배포 백엔드에서는 파라미터가 무시돼도 현행(전체·기본정렬) 동작이 유지된다(graceful).
+ */
+export interface StrategyListQuery {
+  q?: string
+  sort?: StrategyListSort
+}
+
 export const sigStrategyApi = {
   /**
-   * GET /api/strategies?userId=&page=&size=
-   * 전략 목록 (페이징) — userId: Long (StrategiesController 정합)
+   * GET /api/strategies?userId=&page=&size=&q=&sort=
+   * 전략 목록 (페이징·검색·정렬) — userId: Long (StrategiesController 정합)
+   *
+   * q/sort는 backend-core 병렬 트랙이 발행한 LOCKED 계약이며, 미배포 시에도
+   * 백엔드가 모르는 파라미터를 무시할 뿐이라 현행 동작이 깨지지 않는다.
    */
-  list: async (userId: number, page = 0, size = 20): Promise<SigStrategyPage> => {
-    const res = await apiClient.get<SigStrategyBackendPage>(
-      `/strategies?userId=${userId}&page=${page}&size=${size}`,
-    )
+  list: async (
+    userId: number,
+    page = 0,
+    size = 20,
+    query?: StrategyListQuery,
+  ): Promise<SigStrategyPage> => {
+    const params = new URLSearchParams({
+      userId: String(userId),
+      page: String(page),
+      size: String(size),
+    })
+    const q = query?.q?.trim()
+    if (q) params.set('q', q)
+    if (query?.sort && query.sort !== 'recent') params.set('sort', query.sort)
+    const res = await apiClient.get<SigStrategyBackendPage>(`/strategies?${params.toString()}`)
     return normalizeSigStrategyPage(res.data, page, size)
   },
 
