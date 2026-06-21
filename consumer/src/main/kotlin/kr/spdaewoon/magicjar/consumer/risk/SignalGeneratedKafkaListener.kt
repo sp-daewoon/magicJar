@@ -49,6 +49,7 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Kafka `signal.generated.v1` listener (ADR 0067 §7-1 SignalGeneratedKafkaListener + §11-1 Phase 1 (8) + E-1).
@@ -112,6 +113,9 @@ class SignalGeneratedKafkaListener(
     private val restingSellOrderCanceller: RestingSellOrderCanceller,
     // ADR 0114 §3-1 — 진입 스킵 audit(SIGNAL_SKIPPED_*) 발사 (audit_trail = system_event).
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
+    // magicjar-autopilot Guard 매수 경로 wiring (spec 2026-06-22 §2-0-A · Task 3) — owner=AUTOPILOT BUY 전용.
+    //   ObjectProvider graceful — autopilot 패키지 미합류 시(폐기·미배선) skip = 기존 경로 그대로(zero-regression).
+    private val autopilotBuyGuardProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // 2026-06-18 P0 hotfix — 분할매수 회차 비중 적용 게이트. generator(RealtimeSignalGenerator.scaleInEnabled)와
@@ -278,7 +282,21 @@ class SignalGeneratedKafkaListener(
         context: RiskContext,
         allowed: RiskGatewayResult.Allowed,
     ) {
-        val quantity = resolveOrderQuantity(signal, context)
+        val resolvedQuantity = resolveOrderQuantity(signal, context)
+
+        // magicjar-autopilot Guard 매수 경로 wiring (spec 2026-06-22 §2-0-A · Task 3).
+        //   owner=AUTOPILOT BUY 만 추가 통과(게이트 off·non-BUY·owner≠AUTOPILOT 은 NotApplicable → 기존 경로 byte 동일·zero-regression).
+        //   Allow(approvedAmount) → 더 보수적 수량 채택 / Reject·Kill → intent 미발행(자율 REAL 회로차단기 — kill 부작용은 Guard 가 처리).
+        val gate = applyAutopilotBuyGuard(signal, context, allowed, resolvedQuantity)
+        val quantity =
+            when (gate) {
+                is AutopilotGateResult.Block -> {
+                    handleBlocked(signal, gate.blocked)
+                    return
+                }
+                is AutopilotGateResult.Proceed -> gate.quantity
+            }
+
         if (quantity <= 0) {
             handleBlocked(
                 signal,
@@ -1324,6 +1342,89 @@ class SignalGeneratedKafkaListener(
         val orderableCash: BigDecimal,
     )
 
+    /**
+     * magicjar-autopilot Guard 매수 게이트 (spec 2026-06-22 §2-0-A·§2-0-B · Task 3).
+     *
+     * owner=AUTOPILOT BUY 만 [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard] 를 통과시킨다. 게이트
+     * off·non-BUY·owner≠AUTOPILOT·provider 미배선이면 [AutopilotGateResult.Proceed](resolvedQuantity) — 기존 경로
+     * byte 동일(zero-regression).
+     *
+     * 제안 금액 = resolvedQuantity × priceAtSignal. Guard 가:
+     *  - [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable] → Proceed(resolvedQuantity).
+     *  - Allow(approvedAmount) → **더 보수적 수량** 채택: min(resolvedQuantity, floor(approvedAmount / price)).
+     *  - Reject → Block(POSITION_LIMIT, AUTOPILOT_GUARD_REJECT 사유).
+     *  - Kill → Block(KILL_SWITCH_ON, AUTOPILOT_KILL 사유) — kill 영속·PAUSE·Slack 은 Guard 가 이미 처리.
+     */
+    private fun applyAutopilotBuyGuard(
+        signal: Signal,
+        context: RiskContext,
+        allowed: RiskGatewayResult.Allowed,
+        resolvedQuantity: Int,
+    ): AutopilotGateResult {
+        if (signal.side != SignalSide.BUY) return AutopilotGateResult.Proceed(resolvedQuantity)
+        val guard = autopilotBuyGuardProvider?.getIfAvailable() ?: return AutopilotGateResult.Proceed(resolvedQuantity)
+        val strategy = lookupStrategyOrNull(signal)
+        if (!guard.applies(signal, strategy)) return AutopilotGateResult.Proceed(resolvedQuantity)
+
+        val price = signal.priceAtSignal
+        if (price <= BigDecimal.ZERO) return AutopilotGateResult.Proceed(resolvedQuantity)
+        val proposedAmount = price.multiply(BigDecimal(resolvedQuantity))
+
+        return when (val decision = guard.evaluate(signal, strategy, context, proposedAmount)) {
+            is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable ->
+                AutopilotGateResult.Proceed(resolvedQuantity)
+            is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Allow -> {
+                // 더 보수적 수량 — Guard 승인액으로 산정한 수량과 기존 사이징 중 작은 쪽(spec §2-0-A 보수적 우선).
+                val guardQty =
+                    decision.approvedAmount
+                        .divide(price, 0, RoundingMode.DOWN)
+                        .toInt()
+                        .coerceAtLeast(0)
+                val finalQty = minOf(resolvedQuantity, guardQty)
+                log.info(
+                    "autopilot Guard ALLOW (보수적 수량 채택): signalId={} code={} resolvedQty={} guardQty={} finalQty={} approvedAmount={}",
+                    signal.id,
+                    signal.code,
+                    resolvedQuantity,
+                    guardQty,
+                    finalQty,
+                    decision.approvedAmount.toPlainString(),
+                )
+                AutopilotGateResult.Proceed(finalQty)
+            }
+            is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Reject ->
+                AutopilotGateResult.Block(
+                    RiskGatewayResult.Blocked(
+                        signalId = allowed.signalId,
+                        rule = RiskRule.POSITION_LIMIT,
+                        reason = "AUTOPILOT_GUARD_REJECT:${decision.reason}",
+                        context =
+                            mapOf(
+                                "code" to signal.code,
+                                "side" to signal.side.name,
+                                "strategyId" to signal.strategyId,
+                                "autopilotReason" to decision.reason,
+                            ),
+                    ),
+                )
+            is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Kill ->
+                AutopilotGateResult.Block(
+                    RiskGatewayResult.Blocked(
+                        signalId = allowed.signalId,
+                        rule = RiskRule.KILL_SWITCH_ON,
+                        reason = "AUTOPILOT_KILL:${decision.reason}",
+                        context =
+                            mapOf(
+                                "code" to signal.code,
+                                "side" to signal.side.name,
+                                "strategyId" to signal.strategyId,
+                                "autopilotReason" to decision.reason,
+                            ),
+                    ),
+                )
+        }
+    }
+
     private fun resolveOrderQuantity(
         signal: Signal,
         context: RiskContext,
@@ -1491,4 +1592,22 @@ class SignalGeneratedKafkaListener(
         /** 동일 (user·strategy·code·rule) STOMP 알람 1회 허용 간격(매분 플러딩 완화). */
         val BLOCKED_ALARM_COOLDOWN = kotlin.time.Duration.parse("5m")
     }
+}
+
+/**
+ * magicjar-autopilot 매수 게이트 결과 (spec 2026-06-22 Task 3) — [SignalGeneratedKafkaListener.applyAutopilotBuyGuard] 전용.
+ *
+ * Guard wiring 의 두 갈래만 표현: 기존 흐름 진행([Proceed] — clamp 된 수량) / autopilot 한도 위반·kill 차단([Block]).
+ * autopilot 비대상(게이트 off·non-BUY·owner≠AUTOPILOT)도 Proceed(원 수량)로 흡수해 호출부 분기를 단순화한다.
+ */
+private sealed interface AutopilotGateResult {
+    /** 진입 진행 — [quantity]로 기존 BUY intent 경로 계속(autopilot 비대상이면 원 수량, Allow 면 보수적 clamp 수량). */
+    data class Proceed(
+        val quantity: Int,
+    ) : AutopilotGateResult
+
+    /** 차단 — autopilot Guard Reject·Kill. [blocked]를 기존 handleBlocked 경로로 흘려 intent 미발행. */
+    data class Block(
+        val blocked: RiskGatewayResult.Blocked,
+    ) : AutopilotGateResult
 }

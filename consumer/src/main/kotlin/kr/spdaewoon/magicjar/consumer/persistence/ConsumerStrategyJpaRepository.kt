@@ -89,4 +89,44 @@ interface ConsumerStrategyJpaRepository : JpaRepository<ConsumerStrategyJpaEntit
         @Param("id") id: Long,
         @Param("reason") reason: String,
     ): Int
+
+    /**
+     * magicjar-autopilot kill switch — owner='AUTOPILOT' 전략 **전부 PAUSED** (spec 2026-06-22 §2-0-B).
+     *
+     * 격리 LOCK — `owner='AUTOPILOT'` 조건으로 사용자 수동 전략(owner='USER')·후성 오버나잇과 절대 비간섭한다
+     * (spec §2-0-C). 이미 PAUSED·DELETED 인 행은 제외(멱등). [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotKillSwitch]
+     * 가 KillTriggered·수동 stop 시 호출. 헌법 §6 — 명시 @Query(native).
+     *
+     * @return PAUSED 로 전환된 행 수.
+     */
+    @Modifying
+    @Query(
+        value =
+            "UPDATE strategy " +
+                "SET status = 'PAUSED', " +
+                "paused_at = CURRENT_TIMESTAMP, " +
+                "updated_at = CURRENT_TIMESTAMP " +
+                "WHERE owner = 'AUTOPILOT' AND status NOT IN ('PAUSED', 'DELETED')",
+        nativeQuery = true,
+    )
+    fun pauseAllAutopilotStrategies(): Int
+
+    /** owner='AUTOPILOT' 활성(미삭제) 전략 수 — kill 알림·상태 가시화용. */
+    @Query(
+        value = "SELECT COUNT(*) FROM strategy WHERE owner = 'AUTOPILOT' AND status <> 'DELETED'",
+        nativeQuery = true,
+    )
+    fun countAutopilotStrategies(): Long
+
+    /**
+     * 특정 전략 id 가 owner='AUTOPILOT' 인지 (1=autopilot / 0=아님) — [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotLossAccumulator]
+     * 가 체결 손실 누적 대상 판정에 사용. status 무관(보유분 손실은 PAUSED·DISABLED 여도 누적). 헌법 §6 — 명시 @Query.
+     */
+    @Query(
+        value = "SELECT COUNT(*) FROM strategy WHERE id = :id AND owner = 'AUTOPILOT'",
+        nativeQuery = true,
+    )
+    fun countAutopilotStrategyById(
+        @Param("id") id: Long,
+    ): Long
 }

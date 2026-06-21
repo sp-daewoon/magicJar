@@ -21,12 +21,16 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 @EnableJpaRepositories(
     basePackages = [
         "kr.spdaewoon.magicjar.consumer.persistence",
+        // magicjar-autopilot 안전 하니스(autopilot_state) JPA — spec 2026-06-22 Task 3.
+        //   repository 빈은 항상 로드되나, MAGICJAR_AUTOPILOT_ENABLED=false(default)면 어떤 코드도 호출하지 않음(zero-regression).
+        "kr.spdaewoon.magicjar.consumer.autopilot",
         "kr.spdaewoon.magicjar.persistence.shared",
     ],
 )
 @EntityScan(
     basePackages = [
         "kr.spdaewoon.magicjar.consumer.persistence",
+        "kr.spdaewoon.magicjar.consumer.autopilot",
         "kr.spdaewoon.magicjar.persistence.shared",
     ],
 )

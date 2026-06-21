@@ -25,6 +25,13 @@
 |------|------|-----------|
 | 도메인 autopilot 패키지 | `domain/.../domain/autopilot/**` (예: `AutopilotState.kt`) | 패키지 디렉터리 삭제 |
 | `StrategyOwner.AUTOPILOT` 상수 | `domain/.../strategy/StrategyOwner.kt` | enum 에서 `AUTOPILOT` 제거(코드 revert) |
+| strategy-engine autopilot 패키지 | `strategy-engine/.../strategy/autopilot/**` (`AutonomousTradingGuard.kt`) | 패키지 디렉터리 삭제 |
+| **consumer autopilot 패키지 (Task 3)** | `consumer/.../consumer/autopilot/**` (`MagicjarAutopilotProperties`·`AutopilotStateStore`·`AutopilotStateJpaEntity/Repository`·`AutopilotBuyGuard`·`AutopilotKillSwitch`·`AutopilotLossAccumulator`·`AutopilotConfiguration`) | 패키지 디렉터리 삭제 |
+| consumer JPA scan 등록 (Task 3) | `consumer/.../config/JpaScanConfiguration.kt` | `consumer.autopilot` basePackage 2줄 제거 |
+| `ConsumerStrategyJpaRepository` autopilot 쿼리 (Task 3) | `pauseAllAutopilotStrategies`·`countAutopilotStrategies`·`countAutopilotStrategyById` | 3 fun 제거(owner='AUTOPILOT' 격리 쿼리) |
+| `StrategyPositionJpaRepository` autopilot 쿼리 (Task 3) | `sumAutopilotExposureByUser`·`countAutopilotHeldCodesByUser` | 2 fun 제거 |
+| `SignalGeneratedKafkaListener` Guard wiring (Task 3) | `autopilotBuyGuardProvider`(nullable default)·`applyAutopilotBuyGuard`·`AutopilotGateResult` | ctor 파라미터·helper·sealed 제거(게이트 분기 — owner≠AUTOPILOT/off 면 NotApplicable→기존 경로 byte 동일) |
+| `ConsumerExecutionStrategyPositionAdapter` 손실누적 hook (Task 3) | `autopilotLossAccumulatorProvider`(nullable default)·applyExecution SELL delta hook | ctor 파라미터·hook 블록 제거 |
 
 ### 설정 / ENV
 | 자원 | 위치 | 폐기 방법 |
@@ -67,3 +74,5 @@ autopilot 작업 중 일반적으로도 가치 있다고 **반복 검증된** �
 | 사이클 | 일자 | Tier A 변동 | Tier B 승격 | 비고 |
 |--------|------|-------------|-------------|------|
 | Phase 0 Task 1 | 2026-06-22 | autopilot_state(V91)·StrategyOwner.AUTOPILOT·게이트 ENV 5건·domain 패키지 추가 | 없음 | 안전 하니스 기반 scaffold |
+| Phase 0 Task 2 | 2026-06-22 | strategy-engine autopilot 패키지(AutonomousTradingGuard 순수 회로차단기) 추가 | 없음 | Guard 순수 로직 |
+| Phase 0 Task 3 | 2026-06-22 | consumer autopilot 패키지(properties·state store·JPA·BuyGuard·KillSwitch·LossAccumulator)·JPA scan 등록·repo autopilot 쿼리 5건·listener Guard wiring·체결 adapter 손실누적 hook 추가 | 없음 | kill switch + Guard 매수경로 wiring + 손실누적. 전부 enabled=false 게이트 뒤(zero-regression). DRY: @ConfigurationProperties 한도 단일화 |

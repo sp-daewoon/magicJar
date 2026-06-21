@@ -62,6 +62,9 @@ class ConsumerExecutionStrategyPositionAdapter(
     private val orderRequestJpaRepository: ConsumerOrderRequestJpaRepository,
     private val signalJpaRepository: ConsumerSignalJpaRepository,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
+    // magicjar-autopilot 손실 누적 hook (spec 2026-06-22 §2-0-A · Task 3) — owner=AUTOPILOT SELL 손실만 누적.
+    //   ObjectProvider graceful — autopilot 패키지 미합류/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression).
+    private val autopilotLossAccumulatorProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotLossAccumulator>? = null,
     @Value("\${magicjar.position.drift-auto-correct.enabled:true}")
     private val driftAutoCorrectEnabled: Boolean = true,
     @Value("\${magicjar.position.ledger-rebuild.enabled:true}")
@@ -107,6 +110,24 @@ class ConsumerExecutionStrategyPositionAdapter(
             next.realizedPnl.toPlainString(),
             next.executedExitStages,
         )
+
+        // magicjar-autopilot 손실 누적 hook (spec 2026-06-22 §2-0-A · Task 3).
+        //   SELL 체결의 실현 손익 delta = next.realizedPnl − current.realizedPnl. owner=AUTOPILOT + 손실(음수)일 때만
+        //   autopilot_state 에 누적(accumulator 내부에서 게이트·owner·손실 판정). 게이트 off·owner≠AUTOPILOT·이익이면 no-op.
+        //   ObjectProvider graceful — autopilot 미배선/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression).
+        if (request.side == OrderSide.SELL) {
+            val realizedDelta = next.realizedPnl.subtract(current?.realizedPnl ?: BigDecimal.ZERO)
+            autopilotLossAccumulatorProvider?.ifAvailable?.let { accumulator ->
+                runCatching { accumulator.onSellRealized(request.strategyId, realizedDelta) }
+                    .onFailure { e ->
+                        log.warn(
+                            "autopilot 손실 누적 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
+                            request.strategyId,
+                            e.message,
+                        )
+                    }
+            }
+        }
 
         // 체결 직후 경로 — postExecution=true. 이 시점 position(원장) 권위는 아직 이 체결을 반영하지 않았을
         // 수 있다(원장은 BalanceReconcile 주기에 뒤늦게 채워짐 — 실측 15:10 체결 vs 15:51 원장 반영). 따라서

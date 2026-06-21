@@ -116,4 +116,38 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
         @Param("strategyId") strategyId: Long,
         @Param("code") code: String,
     )
+
+    /**
+     * magicjar-autopilot **루프 전용 노출 합**(원) — owner=AUTOPILOT 전략 보유 평가액 Σ(avg_price × quantity)
+     * (spec 2026-06-22 §2-0-A · Task 3 Guard input).
+     *
+     * 루프 전용 자본 풀은 사용자 수동 전략·후성과 **분리** 계산한다 → `strategy.owner = 'AUTOPILOT'` 조인으로
+     * 루프 귀속 lot 만 합산한다(매수원가 기준 — RiskBudget totalExposure 와 동일 산식). 행 부재 시 COALESCE 0.
+     * native query(strategy join). @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        value =
+            "SELECT COALESCE(SUM(sp.avg_price * sp.quantity), 0) FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.user_id = :userId AND sp.quantity > 0 AND s.owner = 'AUTOPILOT'",
+        nativeQuery = true,
+    )
+    fun sumAutopilotExposureByUser(
+        @Param("userId") userId: String,
+    ): java.math.BigDecimal
+
+    /**
+     * magicjar-autopilot **동시 보유 종목수** — owner=AUTOPILOT 전략이 현재 보유(quantity>0)한 distinct 종목수
+     * (spec 2026-06-22 §2-0-A maxPositions input · Task 3). 행 부재 시 0. native query(strategy join).
+     */
+    @Query(
+        value =
+            "SELECT COUNT(DISTINCT sp.code) FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.user_id = :userId AND sp.quantity > 0 AND s.owner = 'AUTOPILOT'",
+        nativeQuery = true,
+    )
+    fun countAutopilotHeldCodesByUser(
+        @Param("userId") userId: String,
+    ): Int
 }
