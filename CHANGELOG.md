@@ -10,7 +10,7 @@
 <!-- pr-?-slot-orchestrator -->
 | 2026-05-?? | **TBD — PR-? architect: 01-architecture + 06-history + 07-policy + README** | baseline/v3.14.0 | PR-? architect 4 파일 |
 <!-- pr-?-slot-architect -->
-| 2026-05-?? | **TBD — PR-? backend-core: 02-data-flow + 04-feature-spec** | baseline/v3.14.0 | PR-? backend-core 2 파일 |
+| 2026-06-21 | **docs(baseline): v3.14.0 backend-core 2파일 (02·04)** — `_workspace/baseline/v3.14.0/02-data-flow.md`(모듈별 데이터 흐름 + Kafka `kafka.*`·Redis·STOMP 매트릭스 + 분할매수 자본 경로 종합 Mermaid) + `04-feature-spec.md`(트랙별 9항목 명세) 작성. v3.13.0 02·04 구조 답습 + v3.14.0 갱신: **분할매수 자본 재설계**(base 1차 박제 `scale_in_base_budget`·부분매수 잔여 `scale_in_remainder_qty` — V90 · ADR 0128 ①②)·**floor 운영 default yml 외부화**(`magicjar.strategy.scale-in.floor-default-pct`·`GET /api/strategies/scale-in-defaults` — 갭①)·**floor 자동청산 토글**(`ScaleInPlan.floorAutoLiquidate`·`RealtimeSignalGenerator` wiring·`FloorBreachAlert` sealed 분기 — 갭②)·분할 미완 손절 보류(⑤⑥)·totalSlices 초과·weight0 정합(⑧⑨)·전략 목록 검색정렬(`q`·`sort`)·시작화면 템플릿(V88·V89)·성과 히스토리(V85~V87)·익절 tick fail-safe(ADR 0127)·RT_CD_7 fix·오프라인 체결 부팅 정합. Flyway V90까지 누적·wire(Kafka/STOMP/Redis) 신설 0 add-only 명시. (backend-core) | baseline/v3.14.0 | PR-? backend-core 2 파일 |
 <!-- pr-?-slot-backend-core -->
 | 2026-05-?? | **TBD — PR-? market-data: 03-use-sequences (KIS-first raw 출처)** | baseline/v3.14.0 | PR-? market-data 1 파일 |
 <!-- pr-?-slot-market-data -->
