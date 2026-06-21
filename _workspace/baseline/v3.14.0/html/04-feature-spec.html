@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04-feature-spec — magicJar v3.14.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html" class="active">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.14.0 Baseline · 2026-06-21 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># v3.14.0 기능 명세 (분할매수 자본 재설계 baseline)
+
+- baseline: v3.14.0
+- 작성일: 2026-06-21
+- 작성자: backend-core (bot+backend-core@magicjar.local · 리팩토링맨)
+- SoT: `CHANGELOG.md` + `_workspace/arch/adr/README.md` + ADR 0126/0127/0128(+amend) + `docs/architecture/policies/long-only-trading.md` + v3.14.0 코드 inspection (`ScaleInPlan.kt`·`ScaleInExitCalculator.kt`·`StrategiesController.kt`·`StrategyService.kt`·`RealtimeSignalGenerator.kt`)
+- 기준: v3.13.0 04-feature-spec 전체 이월 + 분할매수(scale-in) 자본 로직 9축 재설계 + floor 운영 default 외부화·자동청산 토글 + 전략 시작화면·목록 검색정렬·성과 히스토리
+
+---
+
+## 0. 변경 요약
+
+v3.14.0은 REAL canary 장기 dwell(D5~D8) 중 후성·전략47 라이브에서 도출된 **분할매수 자본 로직의 구조적 결함**을 ADR 0128로 재설계한 baseline이다. 기능을 넓힌 게 아니라, 이미 있던 분할매수 진입/청산 자본 흐름을 라이브 실증 위에서 다시 정의했다.
+
+| 트랙 | v3.13.0 | v3.14.0 |
+|---|---|---|
+| T-SCALEIN-CAPITAL | 회차마다 buyable 재계산(한도 왜곡) | 1차 buyable `scale_in_base_budget` 박제(①) + 부분매수 잔여 `scale_in_remainder_qty`(②) — V90 |
+| T-SCALEIN-EXIT | 분할 미완에도 평단 손절 즉시 발화 / floor 무조건 자동 청산 | 분할 미완 손절 보류(⑤)·완료 후 손절(⑥) / floor 알람-only default(⑦) + opt-in 자동청산(갭②) |
+| T-SCALEIN-EDGE | totalSlices 초과 진입 / weight 0% 미정의 | `sliceAt` null → 초과 진입 0(⑧) / 0% 회차 skip(⑨) |
+| T-FLOOR-CONFIG | floor default = 컴파일 상수 겸직 | yml `floor-default-pct` 외부화 + `GET /scale-in-defaults` + 저장 시 주입(갭①) |
+| T-STRATEGY-LIST | 가동도+최신 단일 정렬 | `q`(부분일치)·`sort`(recent·name·status) 파라미터 |
+| T-STRATEGY-START | (부재) | 시작화면(`/start`) + SYSTEM 템플릿 시드 10건(V89) + favorite(V88) |
+| T-PERF | (부재) | 전략 성과 히스토리(V85~V87 · ADR 0126) 매일 00:30 집계 |
+| T-EXIT-OPS | 익절 tick watcher 라이브 반영 | ADR 0127 SoT 승격 + RT_CD_7 fix + EXPIRE SELL 가드 + 오프라인 체결 부팅 정합 |
+
+```mermaid
+flowchart LR
+    Build["전략 빌더 (floor prefill /scale-in-defaults)"] --> Save["저장 (floor null→yml default 주입)"]
+    Save --> Entry["1차 진입: base 박제 (scale_in_base_budget)"]
+    Entry --> Slice["2·3차: 고정 base × 회차비중%"]
+    Slice --> Partial["부분체결: 잔여 추적 (remainder_qty)"]
+    Partial --> Exit{"분할 완료?"}
+    Exit -->|미완| Defer["손절 보류 ⑤ (floor 도달 시 알람/청산)"]
+    Exit -->|완료| Stop["평단 -손절% 손절 ⑥"]
+    Defer --> Floor{"floorAutoLiquidate?"}
+    Floor -->|false| Alert["Slack 알람만 ⑦"]
+    Floor -->|true| Liq["자동 전량 청산 갭②"]
+```
+
+---
+
+## 1. T-SCALEIN-CAPITAL — 분할매수 자본 base 재설계 (ADR 0128 ①②)
+
+### REST
+
+- `GET /api/strategies/{id}/scalein-plan?currentPrice=` — 회차별 목표수량·진입조건·예상손절가·floor가 미리보기(`ScaleInPlanResponse`). 미설정 400 / 없음 404.
+
+### 도메인
+
+| 개념 | 설명 |
+|---|---|
+| `ScaleInPlan` | 분할 회수(`totalSlices` 1..10)·회당 비중(`sliceWeights`)·재진입 트리거·floor 정책을 담은 순수 도메인(Spring/JPA/Jackson 어노테이션 0) |
+| `ScaleInPlan.effectiveSliceCount()` | 0% 회차 제외한 양수 비중 회차 수 — 분할 완료 판정 기준(`[50,50,0]`→2) |
+| `ScaleInPlan.sliceAt(filledLots)` | filledLots 번째 체결의 실제 회차 인덱스·비중. 완료/모두 0%면 null(⑧ 초과 진입 차단) |
+
+### 영속 (V90)
+
+- `strategy_position.scale_in_base_budget` (NUMERIC nullable) — 1차 진입 시점 `buyable` 박제(①). NULL=미진입/분할미사용.
+- `strategy_position.scale_in_remainder_qty` (INTEGER default 0) — 부분매수 잔여(②). 다음 회차 보충(buyable clamp).
+- 전량 청산(quantity=0) 시 두 컬럼 reset(체결 listener 책임).
+
+### 구현 포인트
+
+- `RiskGatewayEvaluator.resolveBuyQuantity(signal, ctx, scaleIn)`: `회차예산 = floor(고정 base × sliceWeights[filledLots]% / 100)` → `수량 = floor(회차예산 / price)`. 계좌 전체 공유 풀 buyable(2026-06-16) 위에 회차 비중 적층.
+- `SignalGeneratedKafkaListener.captureScaleInBaseIfFirstSlice`: 1차(filledLots=0·미박제) BUY intent 발행 성공 시 base 박제(graceful — 실패 시 라이브 buyable fallback).
+- `ConsumerExecutionStrategyPositionAdapter.applyBuy`: `scaleInRemainderQty = max(0, 주문수량−체결수량)`. `applySell`/drift `willBeClosed`가 quantity=0 시 base·잔여 reset.
+- JSONB 라운드트립: api `StrategyEntityMapper`·consumer `ConsumerStrategyLookupJpaAdapter` 양쪽이 `scale_in_config` 전 필드(`stopLossFloorPct`·`floorAutoLiquidate` 포함) 복원(#1052 교훈 — consumer 복제 엔티티 매핑 누락 P0 전례).
+
+### 한계
+
+- base 박제는 1차 진입 성공이 전제 — 박제 전 라이브 buyable fallback 은 회차 비중 왜곡을 일부 허용(graceful 우선).
+- 미래 "지정가+목표금액 매집"은 base 컬럼에 목표금액을 채우는 외부주입으로 호환(현 base 고정이 토대 — 미래 트랙).
+
+---
+
+## 2. T-SCALEIN-EXIT — 분할 미완 손절 보류 + floor 알람/청산 (ADR 0128 ⑤⑥⑦·갭②)
+
+### 도메인/엔진
+
+```kotlin
+// strategy-engine — 분할 손절/floor 결정 (sealed)
+sealed interface ScaleInExitDecision {
+    data class StopLoss(val quantity: Int) : ScaleInExitDecision         // 분할 완료 손절(⑥) / floor 자동청산(갭②)
+    data class FloorBreachAlert(...) : ScaleInExitDecision               // floor 알람만(⑦ default)
+    data class EnterSlice(...) : ScaleInExitDecision                     // 회차 진입
+    data class TakeProfit / PartialTakeProfit(...) : ScaleInExitDecision // 익절
+    object Hold : ScaleInExitDecision
+}
+```
+
+`ScaleInExitCalculator.stopLossVerdict` 3분기(`StopLossVerdict`):
+- `FIRE` — scaleIn 미설정(현행 손절 zero-regression) 또는 분할 완료(평단 -손절% ⑥).
+- `FLOOR_ALERT` — 분할 미완 + `currentPrice ≤ floorPrice`. `floorAutoLiquidate`에 따라 `evaluate`가 `StopLoss`(true·갭②) 또는 `FloorBreachAlert`(false·⑦)로 분기.
+- `DEFER` — 분할 미완 + floor 미도달(손절 보류 ⑤) 또는 floor 비활성(≤0 순수 보류).
+
+### 정책
+
+- 분할매수(하락 시 물타기 평단↓)는 1회차 손절선 도달로 즉시 청산하면 2·3회차 물타기 기회가 사라져 분할 의미가 무력화 → 분할 미완 동안 평단 손절 보류(⑤).
+- 무한 물타기 교착 방지: 보류 자체에 catastrophic floor(평단 -floorPct) → floor 도달 시 분할 미완이라도 알람(또는 토글 시 청산).
+- floor=알람만 default(⑦): 스윙 변동성서 기계적 청산이 반등을 놓침 — 청산은 사용자 수동 판단. `floorAutoLiquidate=true` 전략만 자동 전량 청산(갭②).
+- floor=전략 설정값(`stopLossFloorPct`) — null 이면 엔진 default(yml 주입값 또는 last-resort 상수 15%). ≤0이면 floor 비활성.
+
+### 구현 (consumer wiring)
+
+- `RealtimeSignalGenerator`: `ScaleInExitInput.floorAutoLiquidate = scaleIn?.floorAutoLiquidate ?: false` 주입. `FloorBreachAlert` → `emitFloorBreachAlert`(SystemEvent WARN → Slack, SELL 미발행·null 반환, runCatching wrap·bean 부재 graceful). `StopLoss` → `sellSignal(MARKET)` 기존 손절 경로 재사용.
+- tick 안전망 `PositionStopLossTickWatcher`: `HoldingPositionIndex.HeldPosition`에 filledLots·scaleInTotalSlices 스냅샷 적재 후 분할 미완 보류(1m·tick 동일 floor 값 정합).
+
+### 한계
+
+- floor 알람 idempotency 는 후속 — 엔진은 결정론적으로 매 boundary 동일 결정 반환하므로 알람 dedupe 는 알람 어댑터 책임.
+- 자동청산 켠 전략은 스윙 반등을 놓칠 수 있음(사용자 opt-in 명시 — 빌더 amber 경고).
+
+---
+
+## 3. T-FLOOR-CONFIG — floor 운영 default 외부화 (ADR 0128 amend 갭①)
+
+### REST
+
+- `GET /api/strategies/scale-in-defaults` → `{floorDefaultPct}`(LOCKED CONTRACT). 빌더가 floor 필드 prefill 에 사용. Swagger 4단.
+
+### 정책/구현
+
+- 운영 default = yml `magicjar.strategy.scale-in.floor-default-pct`(default 15, ENV `MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT`). api·consumer 양쪽 등록(`@Value` 패턴 — 신규 properties 클래스 0).
+- 컴파일 상수 `ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15`는 운영 default 지위 박탈 → legacy/programmatic 경로 floor null 일 때만 쓰는 **last-resort 안전망 단일 출처**. strategy-engine 중복 상수 제거(`@Deprecated` alias → domain 위임).
+- 저장 시(`StrategyService.resolveScaleIn`): `stopLossFloorPct == null` → yml default 로 채워 persist(저장된 ScaleInPlan 항상 명시 floor). 채운 값으로 `validateFloorBelowDeepestEntry`(PRICE_DROP_PCT면 floor 가 분할 최저 진입가보다 깊어야 — 아니면 분할 완료 전 floor 알람) 400 검증.
+
+### 한계
+
+- floor default 운영 데이터 후 튜닝(15% → ?)은 yml 변경(재컴파일 0)으로 가능.
+
+---
+
+## 4. T-SCALEIN-EDGE — totalSlices 초과·weight 0% 정합 (ADR 0128 ⑧⑨)
+
+| 결함 | v3.14.0 fix |
+|---|---|
+| ⑧ totalSlices 초과 진입 | `weights.getOrElse{last()}`가 4회차에도 마지막 가중으로 계속 매수하던 라이브 버그(전략47) → `ScaleInPlan.sliceAt(filledLots)` null → 진입 0 |
+| ⑨ weight 0% 회차 | `sliceWeights ≥ 0` 허용(음수만 금지). `[50,50,0]`=`[50,50]` — `effectiveSliceCount`/`sliceAt`가 0% skip → 빈 주문·filledLots 꼬임 없음 |
+
+- 저장 검증: `sliceWeights` 합 = 100±0.01, 음수 금지, 0 허용. `totalSlices` 1..10.
+
+---
+
+## 5. T-STRATEGY-LIST — 전략 목록 검색·정렬
+
+### REST
+
+- `GET /api/strategies?userId&q&sort&page&size`
+  - `q`(선택): name·nameKo·codes(종목코드) 대소문자 무시 부분일치. 생략·빈값=전체.
+  - `sort`(선택, default `recent`): `recent`(가동도 ACTIVE 우선+최신 변경순 — 현행), `name`(한글명 없으면 영문 가나다/알파벳 오름차순), `status`(상태 우선순위 그룹+최신). 미지원 값은 recent로 흡수.
+
+### 구현
+
+- `StrategyService.listByUserId(userId, page, size, q, sort)`: q null & sort != NAME → `findAllByUserIdActiveFirst`(현행 JPQL CASE — **zero-regression**). 그 외 → `searchByUserId`(native, `%q%` LOWER 비교).
+- 미배포 백엔드 graceful: frontend 가 q 공백·sort=recent 면 파라미터 전송 생략(하위호환).
+
+### 한계
+
+- 부분일치 LIKE 인덱스 미적용 — 사용자 1인 전략 수 소규모라 현재 무영향(전략 수 증가 시 인덱스 검토).
+
+---
+
+## 6. T-STRATEGY-START — 전략 시작화면 + 템플릿 데이터화
+
+### REST
+
+- `GET /api/strategies/start?userId` — 검증 템플릿(SYSTEM) + 내 전략(USER) + 즐겨찾기 단일 호출. 재료 0건이면 빈 배열(mock 합성 0).
+- `POST/DELETE /api/strategies/{id}/favorite?userId` — 즐겨찾기 멱등 추가(UNIQUE 흡수)·해제(no-op 204).
+
+### 도메인/영속
+
+- `StrategyOwner{SYSTEM,USER}` + `Strategy.owner`(default USER)·`userId` nullable(V88). `StrategyFavorite`/`StrategyFavoritePort` + `strategy_favorite`(UNIQUE user_id·strategy_id).
+- V89: SYSTEM 전략 템플릿 10건 시드(smartMoney 6 + minervini 4 — frontend serializer 채취 DSL·수기 추정 0·멱등 NOT EXISTS).
+
+### 안전 가드
+
+- **자동매매 평가 경로 SYSTEM 제외**: api·consumer 4개 native eval 쿼리에 owner='USER' 가드 — SYSTEM 템플릿은 시작점 재료일 뿐 실 매매로 평가되지 않음.
+
+### 한계
+
+- 템플릿은 출발점 — 사용자가 검증·저장·스크리닝을 직접 실행해야 ACTIVE(자동매매 결정 대행 0).
+
+---
+
+## 7. T-PERF — 전략 성과 히스토리 (ADR 0126)
+
+### 영속/배치
+
+- V85 `strategy_daily_performance`(전략×일자 왕복성과+α), V86 `market_index_daily`(지수 레짐), V87 `strategy_daily_note`(메모) — 매일 00:30 집계.
+
+### 한계
+
+- 레짐 임계치·벤치마크 코드 매핑은 튜닝 후속(메모리 `project_strategy_performance_history`).
+
+---
+
+## 8. T-EXIT-OPS — 청산 운영 안전망 견고화
+
+| 기능 | v3.14.0 상태 |
+|---|---|
+| 익절 tick 안전망 | ADR 0127로 SoT 정식 승격 — tick ≥ 익절가 시 MARKET SELL, `auto-tpt:` KST 멱등키, `RestingSellOrderCanceller` 선취소. SL/TP 비대칭 해소 |
+| 만료 day-order 동기화 | RT_CD_7(KIS 조회일자 거부) 근본 fix — 조회 시작일 = min(발주일, today-1)∧today-90 clamp(고정 today-2 폐기). 좀비 ACK 청소 마비로 익절 deadlock 해소 |
+| EXPIRE fallback 가드 | RT_CD_7 N회 연속 EXPIRE를 `side==SELL` 전용으로 — BUY 체결 누락 오삭제 차단(매도=롱온리 청산이라 안전). isKisDateError 는 `RT_CD_7:` prefix 만(글자매칭 제거) |
+| 오프라인 체결 정합 | `KisExecutionBackfill` — consumer 다운 중 KIS 지정가 체결을 부팅 시 포지션·PnL·알림 자동 정합(canary D5 실증) |
+
+---
+
+## 9. 호환성/롤백
+
+- 신규 Flyway(V83~V90) add-only — nullable/default. 기존 행 영향 0. floor 토글은 `scale_in_config` JSONB 자동 흡수(DDL 0).
+- scaleIn 미설정(일반) 전략은 모든 분할 변경에 **byte-동일 zero-regression**(손절·익절·수량 경로 무변).
+- floor null → yml default 주입으로 저장 전략은 항상 명시 floor(legacy 안전).
+- floor 자동청산은 전략 단위 opt-in — ⑦ 알람-only default 유지. 롤백 = `floorAutoLiquidate=false`(전략 수정).
+- AI 결정권 0 유지(분할매수 재설계·floor·성과 집계 전부 룰 기반).
+- wire(Kafka/STOMP/Redis) 신설 0 — 운영 canary 메시지 계약 무손상.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>

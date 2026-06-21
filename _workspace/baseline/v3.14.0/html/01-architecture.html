@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01-architecture — magicJar v3.14.0 Baseline</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #ffffff; --muted: #6b7280; --accent: #4a90e2; --code-bg: #f5f5f5; --border: #e5e7eb; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif; max-width: 1180px; margin: 1.5rem auto; padding: 0 1.2rem; line-height: 1.65; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 1.8rem; color: #0d2438; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #0d2438; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+  h3 { font-size: 1.15rem; color: #0d2438; margin-top: 1.6rem; }
+  h4 { font-size: 1rem; color: #34506e; }
+  p, li { font-size: 0.95rem; }
+  pre { background: var(--code-bg); padding: 0.8rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.3rem 1rem; color: var(--muted); background: #f8fafc; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .mermaid { background: #fafafa; padding: 1rem; border-radius: 8px; margin: 1.2rem 0; border: 1px solid var(--border); text-align: center; overflow-x: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  nav { background: #f0f4f8; padding: 0.8rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  nav a { display: inline-block; margin: 0.15rem 0.3rem 0.15rem 0; padding: 0.35rem 0.7rem; background: white; border-radius: 5px; text-decoration: none; color: #0d2438; font-size: 0.85rem; border: 1px solid var(--border); transition: all 0.15s; }
+  nav a:hover { background: var(--accent); color: white; border-color: var(--accent); text-decoration: none; }
+  nav a.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: 600; }
+  .footer { margin-top: 4rem; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; text-align: center; }
+  ul, ol { padding-left: 1.5rem; }
+  li > p { margin: 0.3rem 0; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">📁 인덱스</a><a href="01-architecture.html" class="active">01 Architecture</a><a href="02-data-flow.html">02 Data Flow</a><a href="03-use-sequences.html">03 Use Sequences</a><a href="04-feature-spec.html">04 Feature Spec</a><a href="05-ui-inventory.html">05 UI Inventory</a><a href="06-history-traceability.html">06 History</a><a href="07-policy-evolution.html">07 Policy Evolution</a></nav>
+<main id="content">로딩 중…</main>
+<div class="footer">magicJar v3.14.0 Baseline · 2026-06-21 생성 · 더블클릭으로 열람</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script id="md-source" type="text/markdown"># 01 — magicJar v3.14.0 아키텍처 (시각화)
+
+> **작성자**: architect (baseline v3.14.0)
+> **시점**: 2026-06-21 v3.14.0 release commit 준비 (main `cbd5db8e`)
+> **권위**: `docs/architecture/master-architecture.md` v2 §3-5·§5·§6·§10·§13 + ADR 0002·0004·0005·0023·0030·0043·0048·0067·0068·0080·0094·0109·0110·0111·0112·0114·0115·0116·0118·0119·0120·0121·0122·0123 + **0124·0125·0126·0127·0128(+§6 amend)** + 정책 `long-only-trading.md` + 헌법 §11·§12·§13 + v3.14.0 시점 코드 inspection
+
+본 문서는 v3.14.0 시점 magicJar 시스템의 **시각화 가능 수준 그림**이다. SoT는 `docs/architecture/master-architecture.md`이며, 본 문서는 그 하위 구체화 — v3.14.0 시점 실체(발행된 컨테이너·테이블·KIS endpoint·Kafka topic·STOMP 토픽·9 JVM 모듈·7 sub-agent hierarchy·운영 헌법 §1~§13·**REAL canary 8일차 dwell + 분할매수 자본 재설계 + floor 운영화 + 전략 UX 고도화 — ADR 0124~0128**)만 인용한다. v1/v2 잔재 0건.
+
+**v3.13.0 → v3.14.0 핵심 변경 (분할매수 자본 재설계 + 운영 고도화 마일스톤)**:
+
+- **분할매수(scale-in) 자본 로직 재설계 (ADR 0128 R1~R3 + §6 amend)** — base = 1차 진입 시점 가용액 **박제**(회차마다 재계산 폐기) + 부분 매수 잔여 추적 + totalSlices 초과 진입 0 + weight 0% 회차 skip. floor(평단 -손절% catastrophic 알람선)는 **자동 청산 → 알람 강등**(`FloorBreachAlert`·SELL 미발행)이 default. `StrategyPosition.scaleInBaseBudget`·`scaleInRemainderQty`(V90) + `ScaleInPlanProjector`(분할계획 투영기). 라이브 1·2·3회차 drift 0 검증(후성 093370).
+- **floor 운영 default 외부화 + 자동청산 토글 (ADR 0128 §6 amend — 2026-06-21)** — 도메인 상수 `DEFAULT_STOP_LOSS_FLOOR_PCT=15`의 운영 default 지위 박탈 → `application.yml` property(`magicjar.strategy.scale-in.floor-default-pct`)로 외부화(재컴파일 없이 튜닝 + 가시성). 전략별 `ScaleInPlan.floorAutoLiquidate: Boolean`(default false=알람만) 신설 — true=floor 도달 시 자동 전량 청산(`StopLoss` 슬롯). 전략 단위 opt-in(계정 전체 영향 0).
+- **전략 빌더 고도화 + 전략 목록 UX (frontend PR #1069~#1073)** — 빌더: 분할계획 프리뷰·검증 인라인·RiskPlan 접기 UX·모바일 대응 + floor 필드 항상 노출(yml default prefill)·자동청산 토글. 목록: 검색·정렬(`q`·`sort` 파라미터·api)·카드 밀도·빠른 액션·상태 요약. 복제(`?duplicate=1`) 시 strategyId 비워 신규 저장 분기 fix.
+- **KIS WS 구독 수요 재편 (ADR 0124 — v3.13.x patch 적재, baseline 통합)** — **H0UNCNT0 단일 체결가 채널**(KRX+NXT 통합·종목당 1채널·`NEW_MKOP_CLS_CODE` 세션 구분 — 기존 H0STCNT0+H0NXCNT0 이중 발사 폐기) + watchlist KIS WS 구독 폐지(5초 REST polling 강등) + owner 우선순위 재정렬(HOLDING 0 > PENDING_BUY 5 > STRATEGY 10 > DETAIL 20). 호가 **H0UNASP0 통합 호가** 전환.
+- **실시간 토픽 명명규칙 + 전략 성과 원장 + TP tick failsafe (ADR 0125·0126·0127 — v3.13.x patch)** — Kafka/STOMP/KIS alias 명명 + wire clean-cut(0125), 전략×일자 성과 누적 원장 + 시장 레짐/α + 메모(0126·V85~V87), 익절 tick 안전망(`PositionTakeProfitTickWatcher`·SL/TP 비대칭 해소·0127).
+- **전략 시작화면 + 프리셋/즐겨찾기 DB화 (V88·V89)** — `strategy.owner` + `strategy_favorite` + SYSTEM 전략 템플릿 시드 10건(스마트머니 6 + 미너비니 4).
+- **Flyway 누적**: V82 → V90 (+8 — V83 VI action policy·V84 realtime fallback buy·V85~V87 전략 성과 원장·V88 owner/favorite·V89 템플릿 시드·V90 scale-in base/remainder).
+
+---
+
+## §1. 시스템 전경 (9 JVM 모듈 + frontend + docker + 외부 + 인프라 3 + REAL canary 8일차 + ADR 0124~0128)
+
+```mermaid
+graph TD
+    subgraph EXTERNAL["외부 통합 (옵션 + fallback)"]
+        KISREST["KIS REST<br/>openapi.koreainvestment.com:9443 (real·조회)<br/>openapivts.koreainvestment.com:29443 (vps·주문)<br/>order-cash · order-rvsecncl(TTTC0013U/VTTC0013U 취소)<br/>· inquire-balance(TTTC/VTTC8434R) · inquire-daily-ccld(TTTC/VTTC0081R)<br/>· inquire-asking-price(FHKST01010200 marketable limit 호가)<br/>+ 3-tier 버킷 USER4/SHARED3/BG3 합10 (ADR 0116)"]
+        KISWS["KIS WebSocket<br/>wss://ops.koreainvestment.com:21000<br/>H0UNCNT0 통합 체결가 (KRX+NXT·종목당 1채널·ADR 0124)<br/>+ H0UNASP0 통합 호가 + H0STCNI0/H0STCNI9 체결통보 (실전/vps)<br/>+ AES-256-CBC 복호화 + 40 슬롯 단일 회계 (ADR 0123/0124)"]
+        KISMULTI["KIS REST 멀티시세 (ADR 0118)<br/>intstock-multprice FHKST11300006<br/>30종목/콜 야간 23:00 snapshot (전종목 1d)"]
+        KISMASTER["KIS 종목마스터 ZIP<br/>new.real.download.dws.co.kr (instrument 73필드)"]
+        DART["DART OPENDART · NAVER Open API (T-NEWS)"]
+        CLAUDECLI["Claude CLI (ADR 0112)<br/>claude -p (host) / claude-discovery-bridge.mjs (:8787)<br/>AI 4종(발굴·차트해석·전략빌더·코멘트) · API key 없이"]
+    end
+
+    subgraph FRONTEND["frontend (React 19 + Vite + Tailwind + LWC v4 — pnpm)"]
+        FE_DASH["/<br/>DashboardPage + AccountSummary + Holdings + MarketIndexStrip"]
+        FE_SYM["/symbol/:code<br/>+ STOMP boundary + LWC chart + AiCard<br/>+ SymbolOrderbook (DETAIL 표시 중에만·이탈 해제)<br/>+ OrderTicket 지정가 진입 ON"]
+        FE_SB["/strategy/builder 고도화 (PR #1070)<br/>+ 분할계획 프리뷰 · 검증 인라인 · RiskPlan 접기 · 모바일<br/>+ floor 필드 항상 노출(yml default prefill) + 자동청산 토글 (ADR 0128 amend)"]
+        FE_LIST["/strategy/list UX (PR #1069·#1071)<br/>+ 검색·정렬(q·sort) · 카드 밀도 배지 · 빠른 액션 · 상태 요약<br/>+ 복제 ?duplicate=1 신규 저장 분기 (PR #1072)"]
+        FE_RESEARCH["/strategy/research<br/>+ AI 종목발굴 패널 (ADR 0112) + 단타 발굴 스코어카드 (ADR 0117)"]
+        FE_PLAN["분할매수 '예상 매수 계획' 패널 (ADR 0128 R3)<br/>회차별 목표수량·진입조건·예상손절가·floor 알람선"]
+        FE_POS["/positions + /orders + /journal"]
+        FE_ADMIN["/admin/realtime<br/>WS 연결·슬롯 게이지·구독 테이블·캔들 신선도 + 5초 auto-refresh"]
+        FE_SET["SettingsModal + KIS 키 + KillSwitch + RealTradingConsent 이중 confirm"]
+    end
+
+    subgraph API["api (Spring Boot 3.3 / 8080)"]
+        API_REST["REST controllers (Account·Order·Screener·Journal·News·Market·Mcp ...)"]
+        API_STRAT["StrategyController<br/>+ 목록 검색·정렬 파라미터(q·sort PR #1069)<br/>+ 분할계획 조회 API /scalein-plan (ADR 0128 R3-a)<br/>+ floor null → yml floor-default-pct 주입 후 영속 (ADR 0128 amend)"]
+        API_ADMIN["RealtimeStatusController + RealtimeStatusService<br/>GET /api/admin/realtime-status (Redis 스냅샷 read·종목명 join·캔들 신선도)"]
+        API_PAPER["DaytradePaperController (ADR 0122)<br/>POST /promote · DELETE /{id} · GET /strategies · GET /positions"]
+        API_PERF["StrategyDailyPerformanceController (ADR 0126)<br/>전략×일자 왕복성과·레짐·α·메모 read-only"]
+        API_FLY["Flyway V1~V90 적용기 (v3.14.0: V83~V90 +8 · JpaScanConfiguration 화이트리스트 LOCK ADR 0103)"]
+        API_KIS["KisTokenService + KisRateLimiterPort(3-tier ADR 0116) + ReconcileService"]
+    end
+
+    subgraph BATCH["batch (Spring Batch / 8081)"]
+        B_INSTR["InstrumentSyncJob + MARKET_DAILY universe (ADR 0118)"]
+        B_PERF["DailyPerformanceJob (ADR 0126 확장 — 전략×일자 성과·레짐·α 00:30 집계) + DailyScreenerJob"]
+        B_ROLLUP["MarketDailyRollupService + DailyRollupAggregator (ADR 0120 — 1d→1wk/1mo/1y)"]
+        B_NIGHT["MarketDailyNightlySnapshotService (multprice 23:00 + 롤업)"]
+    end
+
+    subgraph CONSUMER["consumer (Kafka + KIS WS / 8082)"]
+        C_KIS_WS["KisWebSocketBridge<br/>H0UNCNT0 통합 체결가 + H0UNASP0 통합 호가 + H0STCNI0/9<br/>+ AES-256-CBC + wsStatusSnapshot() (ADR 0124)"]
+        C_LEDGER["WsSlotBudgetLedger (ADR 0123/0124)<br/>+ 채널=(code,trId) 단위 회계 · 40 슬롯 단일 권위<br/>+ OPSP0008 감지 · 회계 보정 · fallback/metrics"]
+        C_SUBROUTER["RealtimeSubscriptionRouter (체결가) + OrderbookSubscriptionRouter (호가)<br/>+ owner priority: HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20) (ADR 0124)<br/>+ watchlist 5초 REST polling 강등(WS 구독 폐지)<br/>+ DETAIL 호가 진입 구독·이탈 해제 + 15분 idle 안전망"]
+        C_SIG["RealtimeSignalGenerator + SignalGeneratedKafkaListener<br/>+ preCheckFreeRules (KIS I/O 전 공짜 룰 선차단)<br/>+ publishSell MARKET fallback (롱 온리 §13)<br/>+ FloorBreachAlert emit (ADR 0128 ⑦ — 알람만 default)"]
+        C_RISK["RiskGatewayEvaluator (ADR 0067·0110)<br/>+ resolveBuyQuantity 박제 base × 회차 비중 (ADR 0128 ①)<br/>+ scaleInRemainderQty 잔여 더함 clamp (ADR 0128 ②)<br/>+ ScaleInPlan.sliceAt(filledLots) null → 진입 0 (ADR 0128 ⑧⑨)<br/>+ holdingQuantity 원장 0 시 실잔고 fallback"]
+        C_ORDER["OrderRouterKafkaListener (12 step LOCK)<br/>+ CanaryHardCapGate BUY 한정 (ADR 0109 §7)<br/>+ resolveOrderTrigger/resolveTriggerRefId (V80 키 부여)<br/>+ scale-in base 박제/잔여 갱신/전량청산 reset (ADR 0128 R2 wiring)"]
+        C_EXIT["AutoExitOrderCoordinator + PositionStopLossTickWatcher<br/>+ PositionTakeProfitTickWatcher (ADR 0127 — 익절 tick failsafe)<br/>+ 분할 미완 손절 보류(DEFER) / 분할 완료 -손절% FIRE (ADR 0128 ⑤⑥)<br/>+ floorAutoLiquidate 분기: false→알람 / true→StopLoss (ADR 0128 amend ②)<br/>+ ExpiredDayOrderSyncWorker (SELL 전용 가드 #1054)"]
+        C_INTEGRITY["BackfillCancelledFillPolicy + StrategyPositionRebuild (strategy-engine 순수)<br/>+ rebuild stale 양수 잔고 깎기 방지 (#1057)<br/>+ order_execution 파생 재계산 (ADR 0115 §2-P2 B-on-A)"]
+        C_STATUS["RealtimeStatusSnapshotPublisher (5초 Redis admin:realtime-status TTL 60s)"]
+        C_AI["ClaudeCliCommentAdapter (AI 4종 통일 · 자본 path AI 0)"]
+    end
+
+    subgraph INFRA["인프라 (3 컨테이너)"]
+        PG["PostgreSQL 16<br/>+ V1~V90 누적 (v3.14.0 +8)<br/>+ scale_in_base_budget/remainder_qty(V90·ADR 0128)<br/>+ strategy_daily_performance/note·market_index_daily(V85~V87)<br/>+ strategy.owner/strategy_favorite(V88) + 템플릿 시드(V89)"]
+        REDIS["Redis 7<br/>+ kis token + 3-tier 버킷 3키(ADR 0116)<br/>+ admin:realtime-status snapshot(TTL 60s)<br/>+ TradeFrequency day ZSET (KST 자정 trim)<br/>+ auto-tpt: 익절 tick KST 날짜 차원(ADR 0127)"]
+        KAFKA["Kafka 3.7 KRaft<br/>+ 명명규칙 alias clean-cut wire (ADR 0125)<br/>+ order.intent.v1 · signal.generated.v1 · order.filled.v1<br/>+ market.realtime.demand.v1 (owner priority 재정렬 ADR 0124)"]
+    end
+
+    subgraph OBS["관측 + DR (P0 OPS LOCK)"]
+        PROM["Prometheus SLO + Grafana :3001<br/>+ KIS WS slot 5종(ADR 0123) + rate limit windowCount 차등(ADR 0095 amend)"]
+        OPSMON["/magicjar-ops-monitor 커맨드 + 일일 운영 보고<br/>+ backup/DR cron (pg-dump-daily·redis-snapshot)"]
+    end
+
+    FE_SB -->|GET /scalein-plan| API_STRAT
+    FE_PLAN -->|회차 프리뷰 조회| API_STRAT
+    FE_LIST -->|GET /strategies?q&sort| API_STRAT
+    FE_ADMIN -->|GET /api/admin/realtime-status| API_ADMIN
+    API_ADMIN -->|read admin:realtime-status| REDIS
+    C_STATUS -->|5초 발행| REDIS
+
+    C_KIS_WS -->|H0STCNI0/9 체결| C_ORDER
+    C_KIS_WS -->|H0UNCNT0 tick| C_SUBROUTER
+    C_LEDGER -->|available 검사| C_SUBROUTER
+    C_SIG -->|박제 base × 회차 비중| C_RISK
+    C_RISK -->|verdict ALLOWED| C_ORDER
+    C_ORDER -->|CanaryHardCap BUY 한정 통과| KISREST
+    C_ORDER -->|base 박제/잔여 갱신·strategy_position upsert| PG
+    C_EXIT -->|floor 도달 → 알람(default)/청산(toggle)| KISREST
+    C_INTEGRITY -->|rebuild 교차검산| PG
+```
+
+본 그림 명시 사실:
+
+- **9 JVM 모듈 보존** — domain · pattern-engine · indicator-impl · persistence-shared · strategy-engine · market-trend-engine · api · batch · consumer (신규 모듈 0)
+- **분할매수 자본 path 재설계** — RealtimeSignalGenerator → RiskGatewayEvaluator(박제 base × 회차 비중 + 잔여 clamp + sliceAt null 진입 0) → OrderRouter(base 박제/잔여 갱신/전량청산 reset wiring) → KIS REST 체결 → AutoExit(분할 미완 손절 보류·분할 완료 손절·floor 알람 default/청산 toggle)
+- **KIS WS 통합 채널** — H0UNCNT0 단일 체결가(KRX+NXT·종목당 1채널) + H0UNASP0 통합 호가 + owner priority 재정렬(HOLDING>PENDING_BUY>STRATEGY>DETAIL) + watchlist polling 강등
+- **전략 UX 고도화** — 빌더(분할계획 프리뷰·검증 인라인·RiskPlan 접기·모바일·floor 필드·자동청산 토글) + 목록(검색·정렬·카드 배지·빠른 액션·상태 요약)
+- **AI 호출 0 LOCK(자본 path)** — 자동매매 본체 AI 호출 0. AI는 옵션 보조(Claude CLI bridge) 매매 결정권 0
+
+---
+
+## §2. 분할매수(scale-in) 자본 재설계 흐름 (ADR 0128 R1~R3 + §6 amend)
+
+```mermaid
+graph TD
+    SIG["RealtimeSignalGenerator → SignalGeneratedKafkaListener (BUY 시그널)"]
+    SLICE{"ScaleInPlan.sliceAt(filledLots)<br/>(effectiveSliceCount = 양수 비중 회차 수)"}
+    SKIP["진입 0<br/>(filledLots >= effectiveSliceCount · weight 0% 회차 skip — ADR 0128 ⑧⑨)"]
+    BASE{"scaleInBaseBudget 박제 존재?"}
+    BASE_FIX["1차: 라이브 buyable이 base 후보<br/>(체결 시 OrderRouter가 그 시점 buyable 박제 — R2)"]
+    BASE_USE["2·3차: 박제 base × 회차 weight%/100<br/>(회차마다 재계산 폐기 — ADR 0128 ①)"]
+    REMAIN["+ scaleInRemainderQty (부분 매수 잔여)<br/>buyable로 clamp (ADR 0128 ②)"]
+    BUY["KIS BUY 발사 → 부분 체결 시 미체결분 remainder 기록"]
+    FILLED{"분할 완료?<br/>(filledLots == effectiveSliceCount)"}
+    DEFER["분할 미완: 손절 일절 보류(DEFER — ADR 0128 ⑤)"]
+    SL["분할 완료: 평단 -손절% → StopLoss FIRE (ADR 0128 ⑥)"]
+    FLOOR{"평단 -손절% catastrophic floor 도달?"}
+    FLOORTOGGLE{"floorAutoLiquidate?<br/>(전략 단위 opt-in · default false — ADR 0128 amend ②)"}
+    ALERT["FloorBreachAlert (Slack 알람만 · SELL 미발행 — ADR 0128 ⑦)"]
+    LIQ["StopLoss 자동 전량 청산 (toggle ON — ADR 0128 amend ②)"]
+
+    SIG --> SLICE
+    SLICE -->|null| SKIP
+    SLICE -->|회차 존재| BASE
+    BASE -->|없음| BASE_FIX
+    BASE -->|있음| BASE_USE
+    BASE_FIX --> REMAIN
+    BASE_USE --> REMAIN
+    REMAIN --> BUY
+    BUY --> FILLED
+    FILLED -->|아니오| DEFER
+    FILLED -->|예| SL
+    DEFER --> FLOOR
+    FLOOR -->|도달| FLOORTOGGLE
+    FLOORTOGGLE -->|false 알람만| ALERT
+    FLOORTOGGLE -->|true 청산| LIQ
+```
+
+**분할매수 재설계 핵심 (ADR 0128 — 2026-06-19 canary 후성 093370 라이브 9개 설계 결재)**:
+
+- **base 1차 고정(①)** — `resolveBuyQuantity`가 회차마다 `buyable = min(남은한도, 예수금)`을 재계산하면 1차 매수가 전체노출을 늘려 2·3차 예산이 의도보다 쪼그라든다. `StrategyPosition.scaleInBaseBudget`(V90)에 1차 시점 buyable을 박제 → `회차예산 = floor(박제 base × weight%/100)`. base 외부주입 추상화로 미래 "지정 가격 + 목표 금액" 매집 트랙과 회차 산식 변경 0 호환.
+- **잔여 추적(②)** — 회차 예산이 살 수 있는 수량보다 자금 부족 시 "살 수 있는 만큼만" 사고 못 산 잔여(`scaleInRemainderQty` V90)를 다음 회차 수량에 더함(buyable clamp).
+- **floor 알람강등(⑦) + 자동청산 토글(amend ②)** — #1058이 분할 미완 catastrophic floor에서 자동 청산하던 것을 **`FloorBreachAlert`(알람만·SELL 미발행)**로 강등(스윙 변동성 반등 보호). amend로 `floorAutoLiquidate`(default false) 토글 신설 — 기계적 손실 bound를 원하는 전략만 ON(자동 전량 청산). 전략 단위 opt-in(계정 전체 영향 0).
+- **totalSlices 초과 진입 0(⑧) + weight 0 skip(⑨)** — `weights.getOrElse(filledLots){weights.last()}`가 `filledLots >= totalSlices`에도 마지막 가중으로 계속 매수하던 결함(전략47 4회차 sliceIndex=3 초과 실증)을 `sliceAt(filledLots)` null → 진입 0으로 차단. `[50,50,0]`=`[50,50]`(effectiveSliceCount=양수 비중 회차 수).
+- **floor 운영 default 외부화(amend ①)** — 도메인 상수 `DEFAULT_STOP_LOSS_FLOOR_PCT=15`의 운영 default 지위 박탈 → `application.yml` `magicjar.strategy.scale-in.floor-default-pct`(default 15)로 외부화. api 저장 경로에서 floor null → yml default 주입 후 영속(저장 전략은 항상 명시 floor 보유). 도메인 상수는 last-resort 안전망으로만 잔존.
+- **R 경계** — R1(strategy-engine 도메인 필드·순수 함수·consumer 사이징 #1060) · R2(backend-core base 박제 wiring·scale-in-plan API #1061) · R3(frontend 예상 매수 계획 패널 #1062) · amend R1~R3(floor 자동청산 #1066·yml wiring #1068·UI 토글 #1067).
+
+---
+
+## §3. 체결-원장-리스크 키 사슬 무결성 (ADR 0115 §2-P2 — 대안 B-on-A, v3.13.0 baseline 계승)
+
+```mermaid
+graph LR
+    INTENT["OrderIntent (orderTrigger·triggerRefId)"]
+    TRIGGER["OrderTrigger enum (V80)<br/>STRATEGY_SIGNAL·AUTO_EXIT·STOP_LOSS·PARTIAL_TAKE_PROFIT·MANUAL·EXTERNAL"]
+    ROUTER["OrderRouterKafkaListener<br/>resolveOrderTrigger/resolveTriggerRefId<br/>+ scale-in base 박제/잔여 갱신/전량청산 reset (ADR 0128 R2)"]
+    OE["order_execution (immutable append-only 진실원)"]
+    REBUILD["StrategyPositionRebuild.rebuild() (strategy-engine 순수)<br/>+ stale 양수 잔고 깎기 방지 (#1057)"]
+    SP["strategy_position (2차 ledger·전략 귀속)<br/>+ scaleInBaseBudget/scaleInRemainderQty (V90)"]
+    POS["position (1차 권위·KIS 잔고 투영·UNIQUE user+code+source)"]
+
+    INTENT --> TRIGGER
+    TRIGGER --> ROUTER
+    ROUTER --> OE
+    OE --> REBUILD
+    REBUILD -->|교차검산 일치+clamp 0일 때만 upsert| SP
+    POS -->|drift 시 KIS 권위 우선| SP
+```
+
+**무결성 불변식 (ADR 0115 §2-P2 계승 + ADR 0128 정합)**:
+
+- **파생 상태 재계산 가능성** — 보유 수량 등 파생 ledger는 immutable 진실원(`order_execution`)에서 결정론적 재계산 가능해야 한다. `StrategyPositionRebuild`가 `Σ전략 귀속 == KIS authority(position)` 검산 → 누락 발생해도 다음 reconcile가 흡수.
+- **분할 N회차 정합(#1057)** — drift reconcile이 분할 N회차 체결 직후 **stale 양수 잔고를 깎지 않도록** 가드 — 분할 라이브가 drift 0으로 완주한 토대(ADR 0128 라이브 검증 전제).
+- **scale-in 상태 영속(ADR 0128 R2)** — OrderRouter 체결 listener가 1차 체결 시 base 박제·부분 체결 시 잔여 갱신·전량 청산(quantity=0) 시 base·remainder reset. R2 전 `scaleInBaseBudget`=null → 라이브 buyable fallback(zero-regression).
+
+**3중 상태 권위·시차 매트릭스 (master §3-5-1 계승)**:
+
+| 상태 | 위치 | 역할 | 동기화 |
+|---|---|---|---|
+| `position` | DB (user+code+source) | **1차 권위** (KIS 잔고 투영) | 5분 worker 자기치유 |
+| `strategy_position` | DB (user+strategy+code) | **2차 ledger** (전략 귀속·scale-in base/remainder) | 체결 즉시~5분 + replay + drift rebuild |
+| `HoldingPositionIndex` | in-memory | **derived cache** | onFillRefresh 동반 |
+
+---
+
+## §4. KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + owner 우선순위 재정렬 (ADR 0124)
+
+```mermaid
+graph TD
+    OWNER["체결가 owner 4종 (priority)"]
+    HOLD["HOLDING(0) — 보유 (evict 절대금지 ADR 0114 LOCK)"]
+    PEND["PENDING_BUY(5) — 미체결 매수 (evict 절대금지)"]
+    STRAT["STRATEGY(10) — 자동매매 평가·진입"]
+    DETAIL["DETAIL(20) — 종목 상세 화면"]
+    UNCNT["H0UNCNT0 통합 체결가<br/>KRX+NXT 통합·종목당 1채널·NEW_MKOP_CLS_CODE 세션 구분<br/>(기존 H0STCNT0+H0NXCNT0 이중 발사 폐기)"]
+    UNASP["H0UNASP0 통합 호가<br/>STRATEGY(marketable limit) + DETAIL(표시 중에만)"]
+    WATCH["watchlist — KIS WS 구독 폐지<br/>5초 REST polling 전용 강등 (ADR 0124)"]
+    LEDGER["WsSlotBudgetLedger 40 슬롯 단일 회계<br/>slot 경합 시 DETAIL evict · STRATEGY 보호"]
+
+    OWNER --> HOLD
+    OWNER --> PEND
+    OWNER --> STRAT
+    OWNER --> DETAIL
+    HOLD --> UNCNT
+    PEND --> UNCNT
+    STRAT --> UNCNT
+    DETAIL --> UNCNT
+    STRAT --> UNASP
+    DETAIL --> UNASP
+    WATCH -.->|WS 구독 0 (slot 비움)| UNCNT
+    UNCNT --> LEDGER
+    UNASP --> LEDGER
+```
+
+**WS 구독 수요 재편 핵심 (ADR 0124 — 2026-06-13 최고 관리자 직접 결재)**:
+
+- **H0UNCNT0 단일 체결가 채널** — KRX+NXT 통합·종목당 1채널·`NEW_MKOP_CLS_CODE`(세션 구분 코드). 기존 H0STCNT0(KRX)+H0NXCNT0(NXT) 이중 발사 폐기 → 종목당 슬롯 1로 회계.
+- **watchlist polling 강등** — watchlist의 KIS WS 구독 폐지 → 5초 REST polling 전용. WS 40 slot은 매매 수요(HOLDING/PENDING_BUY/STRATEGY) 전용으로 비움. watchlist 기능(등록/삭제/priority/화면)은 유지.
+- **owner priority 재정렬** — HOLDING(0) > PENDING_BUY(5) > STRATEGY(10) > DETAIL(20). **매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선** — slot 경합 시 DETAIL evict·STRATEGY 보호. HOLDING·PENDING_BUY는 evict 절대 금지(ADR 0114 LOCK).
+- **호가 H0UNASP0 통합 호가 전환** — ① 전략 ACTIVE 매매 경로(STRATEGY owner·marketable limit 진입가 산정) ② 종목 상세 화면 표시 중(DETAIL owner — 진입 시 구독·이탈 즉시 해제, 15분 idle 안전망) 두 경로만 구독.
+
+---
+
+## §5. Flyway V83~V90 시계열 매트릭스 (v3.14.0 cut 시점 baseline)
+
+```mermaid
+gantt
+    title Flyway V83~V90 시계열 (v3.14.0 누적 90 마이그레이션 — v3.13.0 V82 이후 +8)
+    dateFormat YYYY-MM-DD
+    section v3.13.0 baseline
+    V75~V82 단타발굴·order_trigger·strategy_origin :done, 2026-06-12, 1d
+    section v3.13.x patch
+    V83__strategy_vi_action_policy.sql :crit, 2026-06-13, 1d
+    V84__system_config_realtime_fallback_buy.sql :crit, 2026-06-13, 1d
+    V85__strategy_daily_performance.sql (ADR 0126) :crit, 2026-06-16, 1d
+    V86__market_index_daily.sql (ADR 0126) :crit, 2026-06-16, 1d
+    V87__strategy_daily_note.sql (ADR 0126) :crit, 2026-06-16, 1d
+    V88__strategy_owner_and_favorite.sql :crit, 2026-06-18, 1d
+    V89__seed_system_strategy_templates.sql :crit, 2026-06-18, 1d
+    section v3.14.0 분할매수 재설계
+    V90__strategy_position_scale_in_base_remainder.sql (ADR 0128) :crit, 2026-06-19, 1d
+```
+
+**v3.14.0 사이클 신규 마이그레이션 8건 (V83~V90 — 실 파일 권위)**:
+
+| version | 표/변경 | ADR | 비고 |
+|---|---|---|---|
+| **V83** | `strategy.vi_action_policy`(VI 발동 행동 정책·default ALERT_ONLY) | (운영) | 기존 전략 주문 없이 관측/알림만 |
+| **V84** | `system_config` ACTIVE 전략 degraded/fallback candle BUY 허용(default TRUE) | (운영) | OFF 시 fallback source candle BUY 차단·SELL 평가 유지 |
+| **V85** | `strategy_daily_performance`(전략×일자 왕복성과 누적 원장) | 0126 | 매일 00:30 집계·읽기 전용·KIS 0 |
+| **V86** | `market_index_daily`(지수×일자 OHLC 롤업·전 전략 공유) | 0126 | 레짐/α 산정 |
+| **V87** | `strategy_daily_note`(전략×일자 메모) | 0126 | — |
+| **V88** | `strategy.owner` 컬럼 + `strategy_favorite` 테이블 | (전략 시작화면) | 프리셋/즐겨찾기 DB화 |
+| **V89** | SYSTEM 전략 템플릿 시드(스마트머니 6 + 미너비니 4 = 10건) | (전략 시작화면) | 빌트인 템플릿 |
+| **V90** | `strategy_position.scale_in_base_budget`(NUMERIC nullable) + `scale_in_remainder_qty`(INTEGER default 0) | 0128 ①② | base 고정·잔여 추적. floor 설정값은 `scale_in_config` JSONB(DDL 불필요) |
+
+> **Flyway 정합 주의**: V83~V89는 직전 v3.13.x patch(VI policy·전략 성과·전략 시작화면)에서 적재됐으나 v3.13.0 baseline 매트릭스(V75~V82) 이후이므로 본 baseline에서 통합 추적한다. 실 파일(`api/src/main/resources/db/migration/`)이 권위. **ADR 0128 amend `floorAutoLiquidate`는 DDL 0** — 기존 `strategy.scale_in_config` JSONB에 키 추가로 자동 흡수(신규 컬럼/마이그레이션 불필요).
+
+---
+
+## §6. 모듈 경계 (ADR 0004 — 9 모듈 보존) + ADR 0128 분할매수 순수성 LOCK
+
+```
+domain/                  순수 도메인 + port (Spring·JPA 의존 0)
+  └─ order/execution/OrderTrigger.kt                       (ADR 0115 §2-P2 — 발사 출처 enum)
+  └─ strategy/.../ScaleInPlan.kt                           (ADR 0128 — stopLossFloorPct·floorAutoLiquidate 필드)
+  └─ strategy/.../StrategyPosition.kt                      (ADR 0128 — scaleInBaseBudget·scaleInRemainderQty)
+strategy-engine/         DSL parser + 순수 계산기 (api·consumer 공유 — ADR 0092)
+  ├─ integrity/StrategyPositionRebuild.kt                  (ADR 0115 §2-P2 — order_execution 재계산)
+  ├─ ScaleInExitCalculator.kt                              (ADR 0128 — floor 강등·sliceAt·effectiveSliceCount)
+  └─ ScaleInPlanProjector.kt                               (ADR 0128 R3 — 분할계획 투영기·0% 회차 제외 계약)
+api/                     REST/STOMP + 외부 어댑터 + Strategy CRUD + AI + 관리자 관측
+  ├─ controller/strategy/StrategyController.kt             (검색·정렬 q·sort + scalein-plan API + floor yml default 주입)
+  ├─ controller/runtime/RealtimeStatusController.kt        (관리자 실시간 상태)
+  └─ controller/daytrade/DaytradePaperController.kt        (ADR 0122)
+consumer/                Kafka 소비 + KIS WS + 시그널·주문 + 청산 + 무결성
+  ├─ order/OrderRouterKafkaListener.kt                     (base 박제/잔여 갱신/전량청산 reset — ADR 0128 R2)
+  ├─ risk/RiskGatewayEvaluator.kt                          (박제 base × 회차 비중·잔여 clamp·sliceAt null 진입 0)
+  ├─ risk/RealtimeSignalGenerator.kt                       (FloorBreachAlert emit — ADR 0128 ⑦)
+  ├─ order/PositionTakeProfitTickWatcher.kt                (ADR 0127 — 익절 tick failsafe)
+  ├─ order/ExpiredDayOrderSyncWorker.kt                    (SELL 전용 가드 #1054)
+  └─ ingestion/KisWebSocketBridge.kt·WsSlotBudgetLedger.kt (H0UNCNT0 단일 채널·40 슬롯 — ADR 0124)
+batch/ · persistence-shared/ · indicator-impl/ · pattern-engine/ · market-trend-engine/  (보존)
+frontend/                React 19 + Vite + LWC v4 (HTTP/STOMP only — JVM 그래프 밖)
+  ├─ features/strategy/builder/*                           (분할계획 프리뷰·검증 인라인·RiskPlan 접기·모바일·floor·토글)
+  └─ features/strategy/list/*                              (검색·정렬·카드 배지·빠른 액션·상태 요약)
+docker/                  인프라 3 + 앱 4 = 7 컨테이너
+```
+
+- **순수성 LOCK (ADR 0128 정합)**: `ScaleInExitCalculator`·`ScaleInPlanProjector`·`StrategyPositionRebuild`·`EntryPricePolicy`는 Spring·JPA·IO·AI 의존 0 — 입력→출력 결정론(백테스트/리플레이/재계산 재현성). 회차 산식은 백테스트(`JvmBacktestEngine.evaluateScaleInExitSlice`)와 동일.
+- **우선순위 LOCK (ADR 0111·0128 불변)**: STOP_LOSS > PARTIAL_TP > TAKE_PROFIT > ENTER_SLICE > HOLD. floor 자동청산(toggle ON)은 STOP_LOSS 슬롯에서 분할 미완 여부 무관하게 청산(catastrophic worst-case bound — ADR 0128 §6-5).
+- **헌법 §11 (ADR 0115 §2-P2 계승)**: domain port 구현 빈의 모듈별 합류 검증 의무 + silent fallback 금지.
+
+---
+
+본 01-architecture는 v3.14.0 시점 magicJar 시스템의 시각화 가능 수준 그림이다. 본 baseline 폴더의 02-data-flow(backend-core) · 03-use-sequences(market-data KIS-first raw) · 04-feature-spec(backend-core) · 05-ui-inventory(frontend) · 06-history-traceability · 07-policy-evolution 본문은 본 문서를 횡단 인용한다.
+</script>
+<script>
+(async function() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif',
+  });
+
+  const md = document.getElementById('md-source').textContent;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+
+  // ```mermaid 블록을 mermaid div로 변환 (entity decode)
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(_, code) {
+    const decoded = code
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    return '<pre class="mermaid">' + decoded + '</pre>';
+  });
+
+  document.getElementById('content').innerHTML = html;
+
+  // mermaid 렌더링
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.error('mermaid render error:', e);
+  }
+})();
+</script>
+</body>
+</html>
