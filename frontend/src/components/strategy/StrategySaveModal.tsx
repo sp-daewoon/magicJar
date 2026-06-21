@@ -34,6 +34,10 @@ const DEFAULT_SCALE_IN: ScaleInDto = {
   reentryTrigger: 'SIGNAL_REPEAT',
   priceDropPct: null,
   minSliceIntervalSec: SCALE_IN_LIMITS.DEFAULT_MIN_SLICE_INTERVAL_SEC,
+  // ADR 0128 amend R3 — floor 필드(갭①·②). null이면 패널 mount 시 yml default로 prefill되고,
+  // 저장 시 null 전송이어도 백엔드가 yml default를 재주입한다(권위=백엔드 yml).
+  stopLossFloorPct: null,
+  floorAutoLiquidate: false,
 }
 
 interface StrategySaveModalProps {
@@ -305,6 +309,9 @@ export function StrategySaveModal({
         ...scaleIn,
         sliceWeights: manualWeights ? scaleIn.sliceWeights ?? null : null,
         priceDropPct: scaleIn.reentryTrigger === 'PRICE_DROP_PCT' ? scaleIn.priceDropPct ?? null : null,
+        // ADR 0128 amend R3 — floor 필드를 명시 전송(갭①·②). null이면 백엔드가 yml default 재주입.
+        stopLossFloorPct: scaleIn.stopLossFloorPct ?? null,
+        floorAutoLiquidate: scaleIn.floorAutoLiquidate ?? false,
       }
       const v = validateScaleIn({
         totalSlices: effectiveScaleIn.totalSlices,

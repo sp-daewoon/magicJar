@@ -17,6 +17,8 @@
  *
  * 룰 5: LLM provider import 0건
  */
+import { useEffect } from 'react'
+import { useScaleInDefaults } from '../../api/hooks/useScaleInDefaults'
 import type { PartialExitDto, ReentryTrigger, ScaleInDto } from '../../api/strategy'
 import {
   EXIT_LIMITS,
@@ -64,6 +66,17 @@ export function ScaleInExitPanel({
 }: ScaleInExitPanelProps) {
   const weights = scaleIn.sliceWeights ?? evenSliceWeights(scaleIn.totalSlices)
   const weightSum = sumWeights(weights)
+
+  // ── floor prefill (ADR 0128 amend R3 갭①) ──
+  // scale-in enabled 시 floor 필드를 항상 노출하고, 값이 없으면(null/undefined) yml default로 prefill.
+  // 0은 사용자가 의도적으로 비활성화한 값이므로 prefill 대상에서 제외한다.
+  const { floorDefaultPct } = useScaleInDefaults()
+  useEffect(() => {
+    if (scaleInEnabled && (scaleIn.stopLossFloorPct === null || scaleIn.stopLossFloorPct === undefined)) {
+      onScaleInChange({ ...scaleIn, stopLossFloorPct: floorDefaultPct })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scaleInEnabled, floorDefaultPct, scaleIn.stopLossFloorPct])
   const scaleInValidation = scaleInEnabled
     ? validateScaleIn({
         totalSlices: scaleIn.totalSlices,
@@ -248,6 +261,68 @@ export function ScaleInExitPanel({
                     aria-label="하락폭"
                   />
                 </div>
+              )}
+            </div>
+
+            {/* catastrophic floor (ADR 0128 amend R3 갭①·갭②) — 항상 노출 */}
+            <div className="rounded-md border border-rose-900/50 bg-rose-950/20 p-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs font-semibold text-rose-200">catastrophic floor</span>
+                <span className="text-[11px] text-gray-600">분할 미완 손실 한계선</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-400">
+                    floor% <span className="text-gray-600">(평단 대비 손실폭 · 0=비활성)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={scaleIn.stopLossFloorPct ?? ''}
+                    onChange={(e) =>
+                      onScaleInChange({
+                        ...scaleIn,
+                        stopLossFloorPct: e.target.value === '' ? null : Number(e.target.value),
+                      })
+                    }
+                    placeholder={`예: ${floorDefaultPct}`}
+                    className={inputCls}
+                    aria-label="catastrophic floor 퍼센트"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 pb-2.5 text-xs text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={scaleIn.floorAutoLiquidate ?? false}
+                      onChange={(e) =>
+                        onScaleInChange({ ...scaleIn, floorAutoLiquidate: e.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-rose-500 focus:ring-rose-400"
+                      aria-label="floor 도달 시 자동 청산"
+                    />
+                    floor 도달 시 자동 청산
+                  </label>
+                </div>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                분할 미완 중 평단 대비 이 손실폭에 도달하면 동작합니다. 0=비활성.
+                {scaleIn.reentryTrigger === 'PRICE_DROP_PCT' && (
+                  <>
+                    {' '}
+                    floor%가 분할 최저 진입가(하락폭 누적)보다 얕으면 저장이 거부될 수 있습니다.
+                  </>
+                )}
+              </p>
+              {scaleIn.floorAutoLiquidate ? (
+                <p className="mt-2 rounded bg-amber-900/30 px-3 py-2 text-xs leading-5 text-amber-200" role="status">
+                  ⚠ floor 도달 시 자동 전량 청산합니다. 스윙 반등을 놓칠 수 있습니다.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs leading-5 text-gray-500">
+                  알람만 — 청산은 수동 판단 (권장). floor 도달 시 알림만 발송하고 자동으로 팔지 않습니다.
+                </p>
               )}
             </div>
 
