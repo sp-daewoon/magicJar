@@ -31,14 +31,15 @@ import java.math.RoundingMode
  *    호출자도 kill을 가드하지만 이중 방벽(spec §2-0-B kill 상태에선 REAL 경로 진입 불가).
  * 0-b. **계좌 순자산 ≤0 방어** — [AutopilotGuardInput.accountNetWorth] ≤0이면 모든 %한도 산정 분모가 무의미·위험.
  *    즉시 Reject(자본 산정 불가).
- * 1. **누적 손실** (최우선 정지 — 가장 치명적) — `cumRealizedLoss >= 순자산 × cumLossPct/100`이면
+ * 풀 = 순자산 × poolPct/100 (루프 전용 자본). **손실 한도는 순자산이 아니라 풀 기준**이다(spec §2-0-A '매우 타이트').
+ * 1. **누적 손실** (최우선 정지 — 가장 치명적) — `cumRealizedLoss >= 풀 × cumLossPct/100`이면
  *    [AutopilotGuardVerdict.KillTriggered]. 자율 루프 전체를 멈춰야 하는 영구 정지 신호.
- * 2. **일일 손실** — `dailyRealizedLoss >= 순자산 × dailyLossPct/100`이면 Reject("일일 손실 한도 — 당일 halt").
+ * 2. **일일 손실** — `dailyRealizedLoss >= 풀 × dailyLossPct/100`이면 Reject("일일 손실 한도 — 당일 halt").
  *    당일만 정지(다음 거래일 [AutopilotState.lastResetDate] 리셋으로 복귀).
  * 3. **동시 보유 종목수** — `currentLoopPositions >= maxPositions`면 Reject(신규 종목 진입 차단).
- * 4. **풀 상한** — `loopExposure + proposedEntryAmount > 순자산 × poolPct/100`이면 잔여(풀상한−loopExposure)로
+ * 4. **풀 상한** — `loopExposure + proposedEntryAmount > 풀`이면 잔여(풀−loopExposure)로
  *    clamp 후보를 만든다. 잔여 ≤0이면 Reject(풀 소진).
- * 5. **건당 캡** — `approvedAmount = min(proposedEntryAmount, 풀잔여, 순자산 × poolPct/100 × perTradePct/100)`.
+ * 5. **건당 캡** — `approvedAmount = min(proposedEntryAmount, 풀잔여, 풀 × perTradePct/100)`.
  *    ≤0이면 Reject, 아니면 [AutopilotGuardVerdict.Allow](approvedAmount).
  *
  * ## 폐기 철학 (spec §3-bis Tier A)
@@ -72,19 +73,25 @@ object AutonomousTradingGuard {
             return AutopilotGuardVerdict.Reject("계좌 순자산 ≤0 — 자본 산정 불가")
         }
 
-        // 1. 누적 손실 한도 (최우선 정지 — 가장 치명적) → kill switch.
-        val cumLossLimit = pctOf(netWorth, state.cumLossPct)
+        // 루프 전용 자본 풀 = 순자산 × poolPct/100. 손실 한도·건당 캡의 base (spec §2-0-A — '매우 타이트').
+        // ★ 손실 한도는 순자산이 아니라 **풀 기준**이다(2026-06-22 fix): dailyLossPct/cumLossPct 는 풀 대비 %.
+        //   순자산 기준이면 누적 50% kill 이 순자산 절반 손실에서야 터져 '매우 타이트'에 위배. 풀(순자산 5%) 기준이면
+        //   일일=풀30%=순자산1.5%, 누적=풀50%=순자산2.5% 로 의도대로 타이트하게 bound 된다. (spec §2-0-A 한도표 권위.)
+        val poolCeiling = pctOf(netWorth, state.poolPct)
+
+        // 1. 누적 손실 한도 (최우선 정지 — 가장 치명적) → kill switch. 풀 기준.
+        val cumLossLimit = pctOf(poolCeiling, state.cumLossPct)
         if (input.cumRealizedLoss >= cumLossLimit) {
             return AutopilotGuardVerdict.KillTriggered(
-                "누적 손실 한도 도달 — kill switch (cum=${input.cumRealizedLoss} >= limit=$cumLossLimit)",
+                "누적 손실 한도 도달 — kill switch (cum=${input.cumRealizedLoss} >= limit=$cumLossLimit, 풀기준)",
             )
         }
 
-        // 2. 일일 손실 한도 → 당일 halt.
-        val dailyLossLimit = pctOf(netWorth, state.dailyLossPct)
+        // 2. 일일 손실 한도 → 당일 halt. 풀 기준.
+        val dailyLossLimit = pctOf(poolCeiling, state.dailyLossPct)
         if (input.dailyRealizedLoss >= dailyLossLimit) {
             return AutopilotGuardVerdict.Reject(
-                "일일 손실 한도 — 당일 halt (daily=${input.dailyRealizedLoss} >= limit=$dailyLossLimit)",
+                "일일 손실 한도 — 당일 halt (daily=${input.dailyRealizedLoss} >= limit=$dailyLossLimit, 풀기준)",
             )
         }
 
@@ -95,8 +102,7 @@ object AutonomousTradingGuard {
             )
         }
 
-        // 4. 풀 상한 — 루프 전용 자본 풀(순자산 × poolPct/100). 초과 시 잔여로 clamp 후보.
-        val poolCeiling = pctOf(netWorth, state.poolPct)
+        // 4. 풀 상한 — 루프 전용 자본 풀. 초과 시 잔여로 clamp 후보.
         val poolRemaining = poolCeiling.subtract(input.loopExposure)
         if (poolRemaining <= ZERO) {
             return AutopilotGuardVerdict.Reject(
@@ -131,7 +137,7 @@ object AutonomousTradingGuard {
  *
  * 손실 필드는 **양수 = 손실 크기** 규약(spec §2-0-A 한도표 정합)이며 [AutopilotState]의 누적/일일 손실 표현과 일치한다.
  *
- * @property accountNetWorth   계좌 순자산. 모든 %한도(풀·일일손실·누적손실)의 산정 base. ≤0이면 Reject.
+ * @property accountNetWorth   계좌 순자산. 풀 상한(=순자산×poolPct/100)의 base이며, 손실 한도는 다시 그 풀 기준. ≤0이면 Reject.
  * @property loopExposure      현재 owner=AUTOPILOT 노출 합(루프 전용 — 사용자 수동 전략·후성 자본 미포함, spec §2-0-A).
  * @property proposedEntryAmount 이번 진입 제안 금액(호출자가 종목예산으로 산정). 건당 캡·풀잔여로 clamp 대상.
  * @property currentLoopPositions 현재 owner=AUTOPILOT 보유 종목수. maxPositions 비교.
