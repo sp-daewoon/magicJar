@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS autopilot_state (
     -- kill switch — 단일 권위 플래그(spec §2-0-B). 누적 손실 한도 도달 자동 ON / /autopilot stop 수동 ON.
     kill_active          BOOLEAN        NOT NULL DEFAULT false,
     -- 한도 config(spec §2-0-A) — 전부 NUMERIC %, 보수적 default. 운영 중 ENV/이 행으로 튜닝.
+    -- ★ DRY 권위(Task 3): 컬럼 DEFAULT 는 DB 차원 안전망. 코드 경로 default 의 단일 출처는
+    --   consumer `MagicjarAutopilotProperties`(@ConfigurationProperties prefix=magicjar.autopilot · yml/ENV 바인딩).
+    --   런타임 권위는 이 행이며, 행 부재/조회 실패 시 properties.toDefaultState() 가 fallback 한다.
     pool_pct             NUMERIC(6, 3)  NOT NULL DEFAULT 5,    -- 루프 전용 자본 풀 = 계좌 순자산의 5%
     per_trade_pct        NUMERIC(6, 3)  NOT NULL DEFAULT 20,   -- 건당 진입 캡 = 풀의 20%
     max_positions        INTEGER        NOT NULL DEFAULT 3,    -- 동시 보유 종목수 상한
