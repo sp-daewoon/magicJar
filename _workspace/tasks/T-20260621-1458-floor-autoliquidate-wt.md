@@ -3,10 +3,10 @@ id: T-20260621-1458-floor-autoliquidate-wt
 agent: strategy
 model: opus
 branch: agent/strategy/floor-autoliquidate-wt
-status: RUNNING
+status: DONE
 startedAt: 2026-06-21T14:58:01.595+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-21T15:05:46.452+09:00
+pr: #1066
 parentPhase: ?
 ---
 
