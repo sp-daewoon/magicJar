@@ -3,10 +3,10 @@ id: T-20260621-1558-floor-yml-wiring
 agent: backend-core
 model: opus
 branch: agent/backend-core/floor-yml-wiring
-status: RUNNING
+status: DONE
 startedAt: 2026-06-21T15:58:38.660+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-21T16:13:25.022+09:00
+pr: #1068
 parentPhase: ?
 ---
 
@@ -14,11 +14,11 @@ parentPhase: ?
 floor yml 외부화 + api 주입 + config endpoint + RealtimeSignalGenerator autoLiquidate wiring
 
 ## 결과물 체크리스트
-- [ ] yml property
-- [ ] floor null→default 주입
-- [ ] GET scale-in-defaults endpoint
-- [ ] RealtimeSignalGenerator wiring
-- [ ] deprecated alias 마이그레이션
+- [x] yml property
+- [x] floor null→default 주입
+- [x] GET scale-in-defaults endpoint
+- [x] RealtimeSignalGenerator wiring
+- [x] deprecated alias 마이그레이션
 
 ## 의존성
 - (필요 시 기록)
