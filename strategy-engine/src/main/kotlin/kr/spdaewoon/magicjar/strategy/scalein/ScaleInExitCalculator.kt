@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.strategy.scalein
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
 import kr.spdaewoon.magicjar.domain.strategy.ReentryTrigger
+import kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -33,14 +34,19 @@ import java.math.RoundingMode
  *    따라서 **scaleIn 설정 + `filledLots < totalSlices`(분할 미완)** 동안에는 평단 기준 손절을 **보류**한다.
  *    분할 완료(`filledLots >= totalSlices`) 후 최종 평단 -stopLossPct%에서 비로소 손절이 정상 발동한다(현행).
  *
- *    ### ★★ catastrophic floor = **알람만, 자동 청산 X** (2026-06-19 사용자 결재 ⑦ — ADR 0128, #1058 강등)
+ *    ### ★★ catastrophic floor = **알람만(default)** ↔ **자동 청산(opt-in)** (ADR 0128 ⑦ + amend 갭②)
  *    이전(#1058)엔 분할 미완 중 평단 대비 손실이 floor([ScaleInExitInput.scaleInStopLossFloorPct]) 이상으로
- *    깊어지면 **자동 청산**(StopLoss)했다. 사용자 결재로 이를 **[FloorBreachAlert](알람만)로 강등**한다 — floor 도달은
- *    Slack 알람만 발행하고 **주문 연동 0**이다. 사유: 스윙 매매라 변동성이 커서 floor 에서 기계적 청산하면 반등을
- *    놓치고 큰 손실만 확정한다. 청산은 사용자 수동 판단에 맡긴다. 결과적으로 "분할 미완 + 시그널無 + 폭락" 시
- *    **자동 손절 0(알람만)** = 의도된 수동 리스크 관리다. floor 가 ≤0 이면 floor 비활성(알람도 없는 순수 보류).
- *    저장 시 `floor < 분할 최저 진입가`([ScaleInLimits.validateFloorBelowDeepestEntry]) 검증으로 floor 가 분할을
- *    막지 않게 보장한다.
+ *    깊어지면 **자동 청산**(StopLoss)했다. 2026-06-19 사용자 결재 ⑦로 이를 **[FloorBreachAlert](알람만)로 강등**해
+ *    floor 도달은 Slack 알람만 발행하고 **주문 연동 0**이 되었다(스윙 변동성에서 기계적 청산이 반등을 놓치는 위험 회피).
+ *    **이 알람-only 가 default 다(zero-regression).**
+ *
+ *    ADR 0128 amend 갭②로 전략별 **[ScaleInExitInput.floorAutoLiquidate] 토글**을 추가한다:
+ *    - `false`(default) → floor 도달 시 [FloorBreachAlert](알람만, 자동 청산 X — ⑦ 유지).
+ *    - `true`(명시 opt-in) → floor 도달 시 [ScaleInExitDecision.StopLoss](자동 전량 청산 — 기존 손절 경로 재사용).
+ *      사용자가 floor 기계적 청산의 반등-놓침 위험을 감수하고 켠 전략에 한해 floor 가 손절선으로 복귀한다.
+ *
+ *    어느 경우든 floor 가 ≤0 이면 floor 비활성(알람·청산 모두 없는 순수 보류). 저장 시
+ *    `floor < 분할 최저 진입가`([ScaleInLimits.validateFloorBelowDeepestEntry]) 검증으로 floor 가 분할을 막지 않게 보장한다.
  * 2. **PARTIAL_TP** — `partialExits`의 미발화 단계 중 trigger 도달한 **가장 높은 trigger** 1단계 청산.
  *    `stageIndex !in executedExitStages` AND `profitPct >= triggerProfitPct`. 보유 수량 × weight% SELL.
  * 3. **TAKE_PROFIT** — profitPct >= takeProfitPct → 잔량 전량 SELL.
@@ -64,14 +70,23 @@ object ScaleInExitCalculator {
     private val HUNDRED: BigDecimal = BigDecimal("100")
 
     /**
-     * 분할 미완 catastrophic floor default(%, 양수 = 평단 대비 손실폭).
+     * floor null fallback 단일 출처 — **domain [ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT] 위임**(ADR 0128 amend 갭①).
      *
-     * 분할 미완(filledLots<effectiveSliceCount) 동안 평단 기준 손절을 보류하되, 평단 대비 손실이 이 값 이상으로
-     * 깊어지면 **알람만** 발행한다(자동 청산 X — 2026-06-19 사용자 결재 ⑦). 통상 fixedStopLossPct(예 5)의 약 3배로
-     * 잡아, 정상 물타기 구간에선 절대 닿지 않고 진짜 붕괴에서만 알람이 뜬다. 호출자가 명시하지 않으면 이 default
-     * (= domain [kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT] 15% 와 동일 값).
+     * 이전엔 strategy-engine 측에 별도 `DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT = BigDecimal("15")` 중복 상수가 있었으나
+     * (값 drift 위험) 제거하고 floor 단일 출처를 domain 상수로 통일했다. 엔진은 호출자가 floor 를 명시하지 않을 때
+     * (`scaleInStopLossFloorPct == null`) last-resort 안전망으로 이 값을 쓴다. 운영 default floor 는 yml(api 주입)이며
+     * 이 상수가 아니다(domain KDoc 참조). consumer 1m 안전망 경로([ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]를 직접
+     * 참조)와 동일 값 정합.
      */
-    val DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal = BigDecimal("15")
+    @Deprecated(
+        "중복 상수 제거 — floor 단일 출처는 domain ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT (ADR 0128 amend 갭①).",
+        ReplaceWith(
+            "ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT",
+            "kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits",
+        ),
+    )
+    val DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT: BigDecimal
+        get() = ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT
 
     /**
      * 단일 평가 진입점. exit(청산) 우선 → 진입(scale-in) 순으로 평가하고 단일 액션을 반환한다.
@@ -89,9 +104,13 @@ object ScaleInExitCalculator {
                     when (stopLossVerdict(input, position)) {
                         // 손절 발동 — 평단 -stopLossPct% 도달 + (분할 미설정 OR 분할 완료).
                         StopLossVerdict.FIRE -> return ScaleInExitDecision.StopLoss(quantity = quantity)
-                        // 분할 미완 + catastrophic floor 도달 → 알람만(자동 청산 X — ⑦).
+                        // 분할 미완 + catastrophic floor 도달 — floorAutoLiquidate 토글로 분기 (ADR 0128 ⑦ + amend 갭②).
                         StopLossVerdict.FLOOR_ALERT -> {
-                            val floorPct = input.scaleInStopLossFloorPct ?: DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
+                            // 갭② opt-in: 자동 전량 청산(기존 손절 경로 재사용). default false → 알람만(⑦ 유지).
+                            if (input.floorAutoLiquidate) {
+                                return ScaleInExitDecision.StopLoss(quantity = quantity)
+                            }
+                            val floorPct = input.scaleInStopLossFloorPct ?: ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT
                             return ScaleInExitDecision.FloorBreachAlert(
                                 quantity = quantity,
                                 avgPrice = position.avgPrice,
@@ -164,7 +183,7 @@ object ScaleInExitCalculator {
         /** 평단 -stopLossPct% 손절 발동(전량 SELL). 분할 미설정 또는 분할 완료. */
         FIRE,
 
-        /** 분할 미완 + catastrophic floor 도달 — 알람만(자동 청산 X — ⑦). */
+        /** 분할 미완 + catastrophic floor 도달 — 알람만(⑦) 또는 자동 청산(floorAutoLiquidate=true, 갭②). [evaluate]가 분기. */
         FLOOR_ALERT,
 
         /** 분할 미완 + floor 미도달 — 손절 보류(⑤). */
@@ -178,10 +197,10 @@ object ScaleInExitCalculator {
      * - **scaleIn 미설정(null)** → [StopLossVerdict.FIRE](현행 손절 그대로 — zero-regression).
      * - **분할 완료(filledLots >= effectiveSliceCount)** → FIRE(최종 평단 -stopLossPct%에서 손절 정상 ⑥).
      * - **분할 미완(filledLots < effectiveSliceCount)**:
-     *     - 평단 대비 손실이 floor 이상으로 깊으면 → [StopLossVerdict.FLOOR_ALERT](알람만 — 자동 청산 X ⑦).
+     *     - 평단 대비 손실이 floor 이상으로 깊으면 → [StopLossVerdict.FLOOR_ALERT](알람만 ⑦ / 토글 시 청산 갭② — [evaluate] 분기).
      *     - 그 외 → [StopLossVerdict.DEFER](손절 보류 ⑤).
-     *   floor([ScaleInExitInput.scaleInStopLossFloorPct], default [DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]) ≤0 이면
-     *   FLOOR_ALERT 도 없는 순수 보류(항상 DEFER) — 분할 완료까지 손절·알람 0.
+     *   floor([ScaleInExitInput.scaleInStopLossFloorPct], default [ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]) ≤0 이면
+     *   FLOOR_ALERT 도 없는 순수 보류(항상 DEFER) — 분할 완료까지 손절·알람·청산 0.
      *
      * ## 분할 완료 판정 = `effectiveSliceCount`(⑨ 정합)
      * totalSlices 가 아니라 **양수 비중 회차 수**([ScaleInPlan.effectiveSliceCount])를 쓴다. [50,50,0] 처럼 0% 회차가
@@ -195,8 +214,8 @@ object ScaleInExitCalculator {
         val scaleIn = input.scaleIn ?: return StopLossVerdict.FIRE // scale-in 미설정 — 현행 손절(zero-regression)
         if (position.filledLots >= scaleIn.effectiveSliceCount()) return StopLossVerdict.FIRE // 분할 완료 — 손절 정상 ⑥
 
-        // 분할 미완 — 평단 기준 손절 보류 ⑤. catastrophic floor 도달 시 알람만 ⑦.
-        val floorPct = input.scaleInStopLossFloorPct ?: DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT
+        // 분할 미완 — 평단 기준 손절 보류 ⑤. catastrophic floor 도달 시 알람만 ⑦(또는 floorAutoLiquidate=true 면 청산 갭②).
+        val floorPct = input.scaleInStopLossFloorPct ?: ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT
         if (floorPct <= ZERO) return StopLossVerdict.DEFER // floor 비활성 — 순수 보류(알람도 없음)
         val floorPrice = stopLossPrice(position.avgPrice, floorPct) // 평단 × (1 - floorPct/100)
         return if (input.currentPrice <= floorPrice) StopLossVerdict.FLOOR_ALERT else StopLossVerdict.DEFER
@@ -322,9 +341,12 @@ object ScaleInExitCalculator {
  * @param lastSliceFillPrice 직전 회차 체결가(PRICE_DROP_PCT 평가용). 없으면 null(추가 회차 평가 보류).
  * @param lastSliceEpochSec 직전 회차 체결 epoch 초(minSliceInterval 평가용). 없으면 null(간격 가드 skip).
  * @param nowEpochSec 현재 epoch 초(minSliceInterval 평가용 — 호출자 주입). 없으면 null.
- * @param scaleInStopLossFloorPct 분할 미완 손절 보류의 catastrophic floor%(양수). null이면
- *   [ScaleInExitCalculator.DEFAULT_SCALE_IN_STOP_LOSS_FLOOR_PCT]. ≤0이면 floor 비활성(분할 완료까지 순수 보류).
- *   scaleIn 미설정 전략에는 무의미(보류 자체가 없음).
+ * @param scaleInStopLossFloorPct 분할 미완 손절 보류의 catastrophic floor%(양수). null이면 last-resort 안전망
+ *   [kr.spdaewoon.magicjar.domain.strategy.ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]. ≤0이면 floor 비활성
+ *   (분할 완료까지 순수 보류). scaleIn 미설정 전략에는 무의미(보류 자체가 없음).
+ * @param floorAutoLiquidate catastrophic floor 도달 시 자동 전량 청산 여부 (ADR 0128 amend 갭②). default false = 알람만
+ *   ([ScaleInExitDecision.FloorBreachAlert], ⑦ 유지 — zero-regression). true면 floor 도달 시 [ScaleInExitDecision.StopLoss]
+ *   (자동 청산). 호출자([ScaleInPlan.floorAutoLiquidate])가 주입. floor 비활성(≤0)이면 토글과 무관하게 청산·알람 모두 없음.
  */
 data class ScaleInExitInput(
     val position: StrategyPosition?,
@@ -339,6 +361,7 @@ data class ScaleInExitInput(
     val lastSliceEpochSec: Long? = null,
     val nowEpochSec: Long? = null,
     val scaleInStopLossFloorPct: BigDecimal? = null,
+    val floorAutoLiquidate: Boolean = false,
 )
 
 /**

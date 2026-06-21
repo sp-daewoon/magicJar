@@ -511,4 +511,102 @@ class ScaleInExitCalculatorTest {
         assertTrue(incomplete is ScaleInExitDecision.FloorBreachAlert) { "분할 미완 → 알람만" }
         assertTrue(complete is ScaleInExitDecision.StopLoss) { "분할 완료 → 손절 청산" }
     }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // 갭② floorAutoLiquidate 토글 (ADR 0128 amend) — default false 알람만(회귀) ↔ true 자동 청산
+    // ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `갭② floorAutoLiquidate=false at floor emits alert only (zero-regression default)`() {
+        // default false — 분할 미완 + floor(평단 -15%=850) 도달 → FloorBreachAlert(현행 ⑦ 유지).
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("840"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    floorAutoLiquidate = false,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.FloorBreachAlert) { "floorAutoLiquidate=false → 알람만(회귀)" }
+        assertEquals(8, (decision as ScaleInExitDecision.FloorBreachAlert).quantity)
+    }
+
+    @Test
+    fun `갭② floorAutoLiquidate=true at floor auto-liquidates (StopLoss)`() {
+        // true(opt-in) — 분할 미완 + floor(850) 도달 → FloorBreachAlert 가 아니라 StopLoss(자동 전량 청산).
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("840"), // -16% (floor 15% 초과)
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    floorAutoLiquidate = true,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss) { "floorAutoLiquidate=true → 자동 청산(StopLoss)" }
+        assertEquals(8, (decision as ScaleInExitDecision.StopLoss).quantity)
+    }
+
+    @Test
+    fun `갭② floorAutoLiquidate=true above floor still defers (no liquidation until floor reached)`() {
+        // true 여도 floor(850) 미도달(851)이면 청산 X — 분할 미완 보류(⑤). 토글은 floor 도달 시에만 작동.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("851"), // floor 직전 — 통상 물타기 구간
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    floorAutoLiquidate = true,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold) { "floor 미도달이면 토글 true 여도 보류(청산 X)" }
+    }
+
+    @Test
+    fun `갭② floorAutoLiquidate=true but floor disabled (zero) means pure defer`() {
+        // floor 0(비활성) → 토글 true 여도 청산·알람 모두 없음(순수 보류). 평단 1000, 현재가 100(-90%) → Hold.
+        val plan = ScaleInPlan(totalSlices = 3, reentryTrigger = ReentryTrigger.SIGNAL_REPEAT, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 8, avgPrice = "1000", filledLots = 1),
+                    currentPrice = BigDecimal("100"),
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    scaleInStopLossFloorPct = BigDecimal.ZERO,
+                    floorAutoLiquidate = true,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.Hold) { "floor 비활성이면 토글 true 여도 청산·알람 0" }
+    }
+
+    @Test
+    fun `갭② floorAutoLiquidate=true does not affect complete-slice stop-loss (FIRE unchanged)`() {
+        // 분할 완료면 floorAutoLiquidate 와 무관하게 평단 -stopLossPct% 에서 정상 손절(FIRE 불변).
+        val plan = ScaleInPlan(totalSlices = 3, minSliceIntervalSec = 0)
+        val decision =
+            ScaleInExitCalculator.evaluate(
+                ScaleInExitInput(
+                    position = position(quantity = 20, avgPrice = "1000", filledLots = 3),
+                    currentPrice = BigDecimal("940"), // -6% (stop 5% 도달, floor 미도달)
+                    scaleIn = plan,
+                    fixedStopLossPct = BigDecimal("5"),
+                    floorAutoLiquidate = true,
+                    buySignalFired = false,
+                ),
+            )
+        assertTrue(decision is ScaleInExitDecision.StopLoss) { "분할 완료 손절은 토글 무관 FIRE" }
+        assertEquals(20, (decision as ScaleInExitDecision.StopLoss).quantity)
+    }
 }

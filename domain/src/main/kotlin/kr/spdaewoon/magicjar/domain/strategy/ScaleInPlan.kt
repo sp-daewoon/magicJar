@@ -41,10 +41,15 @@ import java.math.BigDecimal
  * @param priceDropPct [ReentryTrigger.PRICE_DROP_PCT] 시 직전 회차 체결가 대비 하락폭%(음수, 예: -3.0). 그 외 트리거에선 null.
  * @param minSliceIntervalSec 회차 간 최소 간격(초) — 과다 진입 방지. default 60. null이면 default 적용(R2).
  * @param stopLossFloorPct **catastrophic floor**(양수%, 평단 대비 손실폭) — 분할 미완 동안 평단 손절을 보류하되
- *   이 깊이에 도달하면 **Slack 알람만** 발행한다(자동 청산 X — 2026-06-19 사용자 결재 ⑦, ADR 0128). 청산은 사용자
- *   수동 판단. null이면 [ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]. ≤0이면 floor 비활성(분할 완료까지 순수 보류,
- *   알람도 없음). **저장 시 검증**: floor 도달가는 분할 최저 진입가보다 아래여야 한다 — api 저장 경로
+ *   이 깊이에 도달하면 [floorAutoLiquidate]에 따라 **Slack 알람만**(default) 또는 **자동 전량 청산**한다
+ *   (2026-06-19 사용자 결재 ⑦ + ADR 0128 amend 갭②). 청산이 아니면(default) 청산은 사용자 수동 판단.
+ *   null이면 [ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT]. ≤0이면 floor 비활성(분할 완료까지 순수 보류, 알람·청산 모두 없음).
+ *   **저장 시 검증**: floor 도달가는 분할 최저 진입가보다 아래여야 한다 — api 저장 경로
  *   ([ScaleInLimits.validateFloorBelowDeepestEntry])에서 검증. 안 그러면 분할이 floor에 막혀 완료 불가.
+ * @param floorAutoLiquidate catastrophic floor 도달 시 **자동 전량 청산** 여부 (2026-06-19 ADR 0128 amend 갭②).
+ *   **default false = 알람만**(ADR 0128 ⑦ 유지 — zero-regression). `true`인 전략만 floor 도달 시 즉시 전량 손절
+ *   청산한다(기존 손절 경로 재사용). 스윙 매매라 변동성이 커서 기계적 청산이 반등을 놓칠 위험을 사용자가 감수하고
+ *   명시 opt-in 한 경우에만 켠다. floor 비활성(stopLossFloorPct ≤0)이면 이 토글과 무관하게 청산·알람 모두 없음.
  *
  * ### ⑨ weight 0 회차 허용 (2026-06-19 사용자 결재)
  * `sliceWeights`의 일부가 `0`(예 [50,50,0])이어도 검증 통과한다. 0% 회차는 회차 예산 0 → 0주 → 엔진이 **skip**
@@ -57,6 +62,7 @@ data class ScaleInPlan(
     val priceDropPct: BigDecimal? = null,
     val minSliceIntervalSec: Int? = ScaleInLimits.DEFAULT_MIN_SLICE_INTERVAL_SEC,
     val stopLossFloorPct: BigDecimal? = null,
+    val floorAutoLiquidate: Boolean = false,
 ) {
     init {
         require(totalSlices in ScaleInLimits.MIN_SLICES..ScaleInLimits.MAX_SLICES) {
@@ -208,9 +214,16 @@ object ScaleInLimits {
     val WEIGHT_SUM_TOLERANCE: BigDecimal = BigDecimal("0.01")
 
     /**
-     * catastrophic floor default(%, 양수 = 평단 대비 손실폭). 분할 미완 동안 손절 보류하다 이 깊이에서 **알람만**
-     * 발행(자동 청산 X — 2026-06-19 사용자 결재 ⑦). 통상 fixedStopLossPct(예 5%)보다 충분히 깊게(15%) 잡아
-     * 정상 물타기 구간에선 닿지 않게 한다. (ScaleInExitCalculator 와 동일 값 — 단일 출처.)
+     * catastrophic floor **last-resort 안전망** default(%, 양수 = 평단 대비 손실폭) — **floor 단일 출처**.
+     *
+     * ## ⚠ 이 상수는 "운영 default"가 아니다 (2026-06-19 ADR 0128 amend 갭①)
+     * 운영 default floor 값은 **yml로 외부화**(`api` 저장 경로가 플랜에 주입)된다. 이 컴파일 상수는 legacy/programmatic
+     * 경로에서 floor 가 끝내 null 일 때만 쓰이는 **방어용 last-resort 안전망**이다. 따라서 운영 정책 변경(예: 15%→12%)은
+     * 이 상수가 아니라 yml 로 한다. 엔진([ScaleInExitCalculator])·검증([validateFloorBelowDeepestEntry])이
+     * floor null fallback 으로 이 **단일 상수**를 공유한다(중복 상수 금지 — strategy-engine 측 별도 상수 제거됨).
+     *
+     * 분할 미완 동안 평단 손절을 보류하다 이 깊이에서 알람(또는 floorAutoLiquidate=true 면 자동 청산)한다. 통상
+     * fixedStopLossPct(예 5%)보다 충분히 깊게(15%) 잡아 정상 물타기 구간에선 닿지 않게 한다.
      */
     val DEFAULT_STOP_LOSS_FLOOR_PCT: BigDecimal = BigDecimal("15")
 
