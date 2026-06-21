@@ -9,7 +9,7 @@ import java.time.Instant
 import java.time.LocalDate
 
 /**
- * `autopilot_state` JPA 엔티티 (V91 · account-wide 단일 권위 행 id=1 · spec 2026-06-22 §2-0-A·§2-0-B).
+ * `autopilot_state` JPA 엔티티 (V91 + V92 · account-wide 단일 권위 행 id=1 · spec 2026-06-22 §2-0-A·§2-0-B).
  *
  * autopilot 전용 패키지(`consumer.autopilot`)에 격리 — [MagicjarAutopilotProperties.enabled]=false 면 어떤
  * 코드도 본 엔티티를 읽지 않는다(zero-regression). 도메인 [kr.spdaewoon.magicjar.domain.autopilot.AutopilotState]
@@ -39,6 +39,9 @@ class AutopilotStateJpaEntity(
     val cumRealizedLoss: BigDecimal = BigDecimal.ZERO,
     @Column(name = "daily_realized_loss", precision = 20, scale = 4, nullable = false)
     val dailyRealizedLoss: BigDecimal = BigDecimal.ZERO,
+    /** 하드 플로어(V92 · spec §2-0-B) — 영구 누적 실현 손실. kill-reset(deactivate)에도 리셋 안 됨. */
+    @Column(name = "lifetime_realized_loss", precision = 20, scale = 4, nullable = false)
+    val lifetimeRealizedLoss: BigDecimal = BigDecimal.ZERO,
     @Column(name = "last_reset_date", nullable = false)
     val lastResetDate: LocalDate = LocalDate.now(),
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -150,4 +150,19 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     fun countAutopilotHeldCodesByUser(
         @Param("userId") userId: String,
     ): Int
+
+    /**
+     * magicjar-autopilot **보유 종목 코드 목록** — owner=AUTOPILOT 전략 보유(quantity>0) distinct 종목 코드
+     * (spec 2026-06-22 §2-0-D kill 저널 held_codes 스냅샷 · Task 4). 행 부재 시 빈 목록. native query(strategy join).
+     */
+    @Query(
+        value =
+            "SELECT DISTINCT sp.code FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.user_id = :userId AND sp.quantity > 0 AND s.owner = 'AUTOPILOT'",
+        nativeQuery = true,
+    )
+    fun findAutopilotHeldCodesByUser(
+        @Param("userId") userId: String,
+    ): List<String>
 }

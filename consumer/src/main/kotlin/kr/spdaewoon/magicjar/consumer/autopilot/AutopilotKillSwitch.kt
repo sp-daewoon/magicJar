@@ -39,11 +39,12 @@ class AutopilotKillSwitch(
     private val strategyRepository: ConsumerStrategyJpaRepository,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
+    private val killJournalService: AutopilotKillJournalService,
 ) {
     private val log = LoggerFactory.getLogger(AutopilotKillSwitch::class.java)
 
     /**
-     * kill switch 발동 — 영속 + owner=AUTOPILOT PAUSE + Slack P0 + SystemEvent(멱등).
+     * kill switch 발동 — 영속 + owner=AUTOPILOT PAUSE + **사후분석 저널 1행**(Task 4) + Slack P0 + SystemEvent(멱등).
      *
      * @param reason kill 사유(KillTriggered.reason 또는 수동 사유). 알림·audit 에 그대로 실린다.
      * @return true = 이번 호출로 실제 kill ON 전환됨(알림 발사) / false = 이미 ON(멱등 skip).
@@ -71,6 +72,9 @@ class AutopilotKillSwitch(
             paused,
             reason,
         )
+
+        // post-mortem 저널(spec §2-0-D) — 발동 시점 손실·한도·보유종목·PAUSE 전략수 박제. 실패는 kill 무손상(graceful).
+        killJournalService.recordTrigger(reason, before, paused)
 
         emitP0(reason, paused)
         return true

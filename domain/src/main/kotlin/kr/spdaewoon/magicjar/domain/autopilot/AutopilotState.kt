@@ -24,9 +24,12 @@ import java.time.LocalDate
  * @property maxPositions       루프 동시 보유 종목수 상한.
  * @property dailyLossPct       일일 손실 한도 = 풀 % → 도달 시 당일 halt.
  * @property cumLossPct         누적 손실 한도 = 풀 % → 도달 시 kill switch 자동 ON.
- * @property cumRealizedLoss    루프 누적 실현 손실(양수 = 손실 크기).
+ * @property cumRealizedLoss    루프 누적 실현 손실(양수 = 손실 크기). kill 해제(deactivate) 시 0 으로 리셋 가능.
  * @property dailyRealizedLoss  당일 실현 손실(양수 = 손실 크기). [lastResetDate] 기준 일일 리셋.
  * @property lastResetDate      [dailyRealizedLoss] 마지막 리셋 일자.
+ * @property lifetimeRealizedLoss 하드 플로어(spec §2-0-B) — **영구 누적** 실현 손실(양수). kill-reset 에도 리셋
+ *                              안 됨. 풀상한 × lifetimeFloorPct/100 도달 시 kill 해제(deactivate)가 코드로 거부된다
+ *                              (무한 reset 출혈 방어 — 사용자 재가만 해제). V92 추가.
  */
 data class AutopilotState(
     val killActive: Boolean = false,
@@ -38,6 +41,7 @@ data class AutopilotState(
     val cumRealizedLoss: BigDecimal = BigDecimal.ZERO,
     val dailyRealizedLoss: BigDecimal = BigDecimal.ZERO,
     val lastResetDate: LocalDate? = null,
+    val lifetimeRealizedLoss: BigDecimal = BigDecimal.ZERO,
 ) {
     /** kill switch 활성 여부 — 게이트 가독성용 명시 getter(spec §2-0-B). */
     val isKillActive: Boolean
