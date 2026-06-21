@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { usePaletteResize } from '../../hooks/usePaletteResize'
 import { useModalBehavior } from '../../hooks/useModalBehavior'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { BlockPalette } from '../../components/strategy/BlockPalette'
 import { StrategyBuilderCanvas } from '../../components/strategy/StrategyBuilderCanvas'
 import { ComplexityCard } from '../../components/strategy/ComplexityCard'
@@ -185,6 +186,11 @@ export function StrategyBuilderPage() {
   const [showScreener, setShowScreener] = useState(false)
   // Canvas 탭 state — BlockPalette 클릭 흐름 정합 (hotfix 2026-05-14)
   const [canvasTab, setCanvasTab] = useState<'entry' | 'exit'>('entry')
+  // 모바일(lg 미만) 화면 전환 — 팔레트/조건/결과 (빌더 고도화 D)
+  const [mobilePane, setMobilePane] = useState<'palette' | 'canvas' | 'result'>('canvas')
+  // lg(1024px) 이상이면 데스크톱 3분할, 미만이면 모바일 탭 레이아웃.
+  // matchMedia 부재(jsdom·SSR)에서는 데스크톱 default (기존 테스트 호환).
+  const isDesktop = useMediaQuery('(min-width: 1024px)', true)
 
   // DSL 직접 편집 모달 — ESC 닫기 + body scroll lock (공용 훅)
   // SaveModal·NaturalLanguageInput·ScreenerResultModal 은 각 컴포넌트 내부에서 훅 적용.
@@ -583,17 +589,219 @@ export function StrategyBuilderPage() {
     )
   }
 
-  return (
-    <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
-      {/* 모바일 안내 (DoD #26 — 768px 이하) */}
-      <div className="flex flex-col items-center justify-center p-6 text-center lg:hidden">
-        <p className="text-sm text-gray-400">
-          전략 빌더는 현재 데스크톱(1280px 이상)에서 권장합니다.
-        </p>
-        <p className="mt-1 text-xs text-gray-600">모바일 최적화는 후속 업데이트에서 제공됩니다.</p>
+  // 결과 패널 내용 — 데스크톱 aside · 모바일 결과 탭에서 공유 (빌더 고도화 D, 중복 방지)
+  const resultsPanelContent = (
+    <>
+      <h2 className="text-sm font-semibold text-gray-300">전략 실행</h2>
+
+      {researchDraftMeta && !strategyId && (
+        <div className="rounded-lg border border-blue-900/60 bg-blue-950/20 p-3">
+          <div className="text-xs font-semibold text-blue-200">리서치 draft</div>
+          <div className="mt-1 text-sm text-gray-200">{researchDraftMeta.candidateTitle}</div>
+          <div className="mt-1 text-xs text-gray-500">
+            {researchDraftMeta.code} · {researchDraftMeta.interval} · 익절 {researchDraftMeta.takeProfitPct}% · 손절 {researchDraftMeta.stopLossPct}%
+          </div>
+          {researchDraftMeta.conversionNotes.length > 0 && (
+            <div className="mt-2 space-y-1 text-xs text-amber-300">
+              {researchDraftMeta.conversionNotes.map((note) => (
+                <p key={note}>{note}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {aiDraftMeta && !strategyId && (
+        <div className="rounded-lg border border-violet-900/60 bg-violet-950/20 p-3">
+          <div className="text-xs font-semibold text-violet-200">AI 생성 후보</div>
+          <div className="mt-1 text-sm text-gray-200">{aiDraftMeta.name}</div>
+          <div className="mt-1 text-xs text-gray-500">
+            {[
+              aiDraftMeta.riskPlan.takeProfitPct != null ? `익절 ${aiDraftMeta.riskPlan.takeProfitPct}%` : null,
+              aiDraftMeta.riskPlan.fixedStopLossPct != null ? `손절 ${aiDraftMeta.riskPlan.fixedStopLossPct}%` : null,
+              aiDraftMeta.riskPlan.minHoldBars != null ? `최소보유 ${aiDraftMeta.riskPlan.minHoldBars}봉` : null,
+            ].filter(Boolean).join(' · ') || '리스크 플랜 미지정'}
+          </div>
+          <p className="mt-2 text-xs text-amber-300">
+            저장하지 않았습니다. 검토·검증·평가 후 직접 저장하세요.
+          </p>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
+        <div className="mb-2 text-xs text-gray-500">종목·기준봉</div>
+        <div className="space-y-2">
+          <InstrumentSearchInput
+            value={evalForm.code}
+            onRawChange={(value) => setEvalForm((f) => ({ ...f, code: value.trim() }))}
+            onSelect={(result) => setEvalForm((f) => ({ ...f, code: result.code }))}
+            placeholder="종목명 또는 코드 검색"
+          />
+          <select
+            aria-label="평가 기준봉"
+            value={evalForm.interval}
+            onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
+            className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {EVAL_INTERVAL_OPTIONS.map((i) => (
+              <option key={i.value} value={i.value}>{i.label}</option>
+            ))}
+          </select>
+          <button
+            className="w-full rounded-md bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleEvaluate}
+            disabled={!strategyId || isEvaluating || isPreparingEvaluation || !evalForm.code}
+            title={!strategyId ? '먼저 전략을 저장하세요' : undefined}
+          >
+            {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
+          </button>
+          {evalPrepMessage && (
+            <p className="text-xs text-emerald-300" role="status">
+              {evalPrepMessage}
+            </p>
+          )}
+        </div>
       </div>
 
+      {/* 복잡도 카드 */}
+      {complexity && <ComplexityCard complexity={complexity} />}
+
+      {/* 검증 에러 */}
+      {validateError && !complexity && (
+        <div className="rounded-xl border border-red-900/50 bg-red-900/20 p-3 text-sm text-red-400">
+          {validateError}
+        </div>
+      )}
+
+      {/* 평가 결과 카드 */}
+      {evalResult ? (
+        <EvaluationResultCard
+          result={evalResult}
+          code={evalForm.code}
+        />
+      ) : strategyId && !isEvaluating && !isPreparingEvaluation ? (
+        <EvaluationEmptyCard />
+      ) : null}
+
+      {/* T-SC Phase 3 — 이 전략으로 종목 찾기 (ADR 0071 §8 H-1) */}
+      {strategyId && (
+        <button
+          type="button"
+          onClick={() => setShowScreener(true)}
+          className="w-full rounded-xl bg-indigo-700 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="이 전략으로 종목 찾기"
+        >
+          이 전략으로 종목 찾기
+        </button>
+      )}
+
+      {/* 저장된 전략 정보 + 다음 단계 도선 (검증 퍼널 — 빌더 → 백테스트) */}
+      {strategyId && (
+        <div className="rounded-lg bg-gray-900 p-3 text-xs text-gray-500">
+          <p>
+            전략 ID: <code className="text-gray-400">{strategyId}</code>
+          </p>
+          <p className="mb-2 mt-2 text-[11px] text-gray-600">
+            다음 단계 — 과거 데이터로 전략을 검증하세요.
+          </p>
+          <Link
+            to={`/strategy/backtest?strategyId=${encodeURIComponent(strategyId)}`}
+            className="block w-full rounded-md bg-blue-600 py-1.5 text-center text-sm font-medium text-white hover:bg-blue-700"
+          >
+            이 전략 백테스트 →
+          </Link>
+          <Link
+            to="/strategy/list"
+            className="mt-1.5 block w-full rounded-md border border-gray-700 py-1.5 text-center text-xs text-gray-400 hover:bg-gray-800"
+          >
+            전략 목록에서 관리
+          </Link>
+        </div>
+      )}
+
+      {/* 빈 상태 */}
+      {!complexity && !evalResult && !strategyId && (
+        <div className="text-center text-xs text-gray-600">
+          <p>검증·평가 결과가 여기에 표시됩니다</p>
+        </div>
+      )}
+    </>
+  )
+
+  return (
+    <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
+      {/* 모바일 레이아웃 (lg 미만) — 팔레트·캔버스·결과 탭 전환 세로 스택 (빌더 고도화 D) */}
+      {!isDesktop && (
+      <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+        <div className="flex items-center gap-1 border-b border-gray-800 px-2 py-2">
+          {(
+            [
+              { key: 'palette', label: '블록' },
+              { key: 'canvas', label: '조건' },
+              { key: 'result', label: '결과' },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setMobilePane(t.key)}
+              className={[
+                'flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400',
+                mobilePane === t.key ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800',
+              ].join(' ')}
+              aria-pressed={mobilePane === t.key}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {mobilePane === 'palette' && (
+            <div className="flex h-full w-full overflow-x-auto">
+              <BlockPalette
+                onSelect={(block) => {
+                  handlePaletteSelect(block)
+                  setMobilePane('canvas')
+                }}
+                favorites={favoritePresets}
+                onFavoriteApply={(item) => {
+                  handleFavoriteApply(item)
+                  setMobilePane('canvas')
+                }}
+                onFavoriteRemove={handleFavoriteRemove}
+                favoriteRemovePending={isTogglingFavorite}
+                width={300}
+              />
+            </div>
+          )}
+          {mobilePane === 'canvas' && (
+            <StrategyBuilderCanvas
+              tree={tree}
+              onTreeChange={setTree}
+              tab={canvasTab}
+              onTabChange={setCanvasTab}
+              onEditDsl={handleEditDsl}
+              onNaturalLanguage={() => setShowNaturalLang(true)}
+              onAiGenerate={() => setShowAiGenerate(true)}
+              onYamlExport={handleYamlExport}
+              onYamlImport={handleYamlImport}
+              onValidate={handleValidate}
+              onSave={() => setShowSaveModal(true)}
+              onEvaluate={handleEvaluate}
+              strategyId={strategyId}
+              isValidating={isValidating}
+              isSaving={false}
+            />
+          )}
+          {mobilePane === 'result' && (
+            <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">{resultsPanelContent}</div>
+          )}
+        </div>
+      </div>
+      )}
+
       {/* 데스크톱 레이아웃 */}
+      {isDesktop && (
       <div className="hidden min-h-0 flex-1 lg:flex">
         {/* 좌: 팔레트 + 드래그 리사이즈 핸들 */}
         <BlockPalette
@@ -648,141 +856,10 @@ export function StrategyBuilderPage() {
 
         {/* 우: 결과 영역 */}
         <aside className="flex w-72 flex-shrink-0 flex-col gap-4 overflow-y-auto border-l border-gray-800 p-4">
-          <h2 className="text-sm font-semibold text-gray-300">전략 실행</h2>
-
-          {researchDraftMeta && !strategyId && (
-            <div className="rounded-lg border border-blue-900/60 bg-blue-950/20 p-3">
-              <div className="text-xs font-semibold text-blue-200">리서치 draft</div>
-              <div className="mt-1 text-sm text-gray-200">{researchDraftMeta.candidateTitle}</div>
-              <div className="mt-1 text-xs text-gray-500">
-                {researchDraftMeta.code} · {researchDraftMeta.interval} · 익절 {researchDraftMeta.takeProfitPct}% · 손절 {researchDraftMeta.stopLossPct}%
-              </div>
-              {researchDraftMeta.conversionNotes.length > 0 && (
-                <div className="mt-2 space-y-1 text-xs text-amber-300">
-                  {researchDraftMeta.conversionNotes.map((note) => (
-                    <p key={note}>{note}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {aiDraftMeta && !strategyId && (
-            <div className="rounded-lg border border-violet-900/60 bg-violet-950/20 p-3">
-              <div className="text-xs font-semibold text-violet-200">AI 생성 후보</div>
-              <div className="mt-1 text-sm text-gray-200">{aiDraftMeta.name}</div>
-              <div className="mt-1 text-xs text-gray-500">
-                {[
-                  aiDraftMeta.riskPlan.takeProfitPct != null ? `익절 ${aiDraftMeta.riskPlan.takeProfitPct}%` : null,
-                  aiDraftMeta.riskPlan.fixedStopLossPct != null ? `손절 ${aiDraftMeta.riskPlan.fixedStopLossPct}%` : null,
-                  aiDraftMeta.riskPlan.minHoldBars != null ? `최소보유 ${aiDraftMeta.riskPlan.minHoldBars}봉` : null,
-                ].filter(Boolean).join(' · ') || '리스크 플랜 미지정'}
-              </div>
-              <p className="mt-2 text-xs text-amber-300">
-                저장하지 않았습니다. 검토·검증·평가 후 직접 저장하세요.
-              </p>
-            </div>
-          )}
-
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
-            <div className="mb-2 text-xs text-gray-500">종목·기준봉</div>
-            <div className="space-y-2">
-              <InstrumentSearchInput
-                value={evalForm.code}
-                onRawChange={(value) => setEvalForm((f) => ({ ...f, code: value.trim() }))}
-                onSelect={(result) => setEvalForm((f) => ({ ...f, code: result.code }))}
-                placeholder="종목명 또는 코드 검색"
-              />
-              <select
-                aria-label="평가 기준봉"
-                value={evalForm.interval}
-                onChange={(e) => setEvalForm((f) => ({ ...f, interval: e.target.value }))}
-                className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                {EVAL_INTERVAL_OPTIONS.map((i) => (
-                  <option key={i.value} value={i.value}>{i.label}</option>
-                ))}
-              </select>
-              <button
-                className="w-full rounded-md bg-emerald-600 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={handleEvaluate}
-                disabled={!strategyId || isEvaluating || isPreparingEvaluation || !evalForm.code}
-                title={!strategyId ? '먼저 전략을 저장하세요' : undefined}
-              >
-                {isEvaluating || isPreparingEvaluation ? '평가 중...' : '평가 실행'}
-              </button>
-              {evalPrepMessage && (
-                <p className="text-xs text-emerald-300" role="status">
-                  {evalPrepMessage}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* 복잡도 카드 */}
-          {complexity && <ComplexityCard complexity={complexity} />}
-
-          {/* 검증 에러 */}
-          {validateError && !complexity && (
-            <div className="rounded-xl border border-red-900/50 bg-red-900/20 p-3 text-sm text-red-400">
-              {validateError}
-            </div>
-          )}
-
-          {/* 평가 결과 카드 */}
-          {evalResult ? (
-            <EvaluationResultCard
-              result={evalResult}
-              code={evalForm.code}
-            />
-          ) : strategyId && !isEvaluating && !isPreparingEvaluation ? (
-            <EvaluationEmptyCard />
-          ) : null}
-
-          {/* T-SC Phase 3 — 이 전략으로 종목 찾기 (ADR 0071 §8 H-1) */}
-          {strategyId && (
-            <button
-              type="button"
-              onClick={() => setShowScreener(true)}
-              className="w-full rounded-xl bg-indigo-700 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="이 전략으로 종목 찾기"
-            >
-              이 전략으로 종목 찾기
-            </button>
-          )}
-
-          {/* 저장된 전략 정보 + 다음 단계 도선 (검증 퍼널 — 빌더 → 백테스트) */}
-          {strategyId && (
-            <div className="rounded-lg bg-gray-900 p-3 text-xs text-gray-500">
-              <p>
-                전략 ID: <code className="text-gray-400">{strategyId}</code>
-              </p>
-              <p className="mb-2 mt-2 text-[11px] text-gray-600">
-                다음 단계 — 과거 데이터로 전략을 검증하세요.
-              </p>
-              <Link
-                to={`/strategy/backtest?strategyId=${encodeURIComponent(strategyId)}`}
-                className="block w-full rounded-md bg-blue-600 py-1.5 text-center text-sm font-medium text-white hover:bg-blue-700"
-              >
-                이 전략 백테스트 →
-              </Link>
-              <Link
-                to="/strategy/list"
-                className="mt-1.5 block w-full rounded-md border border-gray-700 py-1.5 text-center text-xs text-gray-400 hover:bg-gray-800"
-              >
-                전략 목록에서 관리
-              </Link>
-            </div>
-          )}
-
-          {/* 빈 상태 */}
-          {!complexity && !evalResult && !strategyId && (
-            <div className="text-center text-xs text-gray-600">
-              <p>검증·평가 결과가 여기에 표시됩니다</p>
-            </div>
-          )}
+          {resultsPanelContent}
         </aside>
       </div>
+      )}
 
       {/* 저장 모달 */}
       {showSaveModal && (
