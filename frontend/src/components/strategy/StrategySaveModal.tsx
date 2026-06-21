@@ -20,6 +20,8 @@ import type { PartialExitDto, ScaleInDto, ViActionPolicy } from '../../api/strat
 import { InstrumentSearchInput } from '../InstrumentSearchInput'
 import { RiskPlanPreviewPanel } from './RiskPlanPreviewPanel'
 import { ScaleInExitPanel } from './ScaleInExitPanel'
+import { ScaleInPlanPreviewInline } from './ScaleInPlanPreviewInline'
+import { CollapsibleSection } from './CollapsibleSection'
 import {
   SCALE_IN_LIMITS,
   SCALE_IN_NOT_ENABLED_NOTICE,
@@ -607,8 +609,20 @@ export function StrategySaveModal({
                   방어하세요.
                 </div>
               )}
+            <p className="mt-2 text-xs leading-5 text-amber-100/70">
+              자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
+            </p>
+          </div>
+
+          {/* ── 고급 설정 (접기 default) — 잔익절 방어·VI (빌더 고도화 C) ── */}
+          <CollapsibleSection
+            title="고급 — 보유·VI 정책"
+            hint="잔익절 방어 · VI 발동"
+            defaultOpen={minHoldBars.trim() !== '' || viActionPolicy !== defaultViActionPolicy(initialName, initialNameKo)}
+            badge={<span className="rounded-full bg-gray-800 px-2 py-0.5 text-[10px] text-gray-400">고급</span>}
+          >
             {/* 잔익절 방어 B안 — 최소 보유 캔들(minHoldBars) */}
-            <div className="mt-3">
+            <div>
               <label className="mb-1 block text-xs font-medium text-gray-400">
                 최소 보유 캔들
                 <span className="ml-1 font-normal text-gray-600">(잔익절 방어 · 0/빈칸=비활성)</span>
@@ -626,9 +640,6 @@ export function StrategySaveModal({
                 진입 체결 후 이 캔들 수만큼은 차트(DSL) 매도 시그널을 무시합니다. 손절·익절 라인은 항상 작동합니다.
               </p>
             </div>
-            <p className="mt-2 text-xs leading-5 text-amber-100/70">
-              자동매매는 이 기준이 모두 있어야 시작됩니다. 실제 주문 감시는 BUY 체결가 기준으로 계산됩니다.
-            </p>
             <div className="mt-3 rounded-md border border-red-900/50 bg-red-950/20 px-3 py-2">
               <label className="mb-1 block text-xs font-semibold text-red-200">VI 발동 정책</label>
               <select
@@ -646,21 +657,38 @@ export function StrategySaveModal({
                 {VI_POLICY_OPTIONS.find((option) => option.value === viActionPolicy)?.hint}
               </p>
             </div>
-          </div>
+          </CollapsibleSection>
 
-          {/* 분할 매수 / 분할 익절 (ADR 0111 · 분할매수 R3-a · add-only) */}
-          <ScaleInExitPanel
-            scaleInEnabled={scaleInEnabled}
-            onScaleInEnabledChange={setScaleInEnabled}
-            scaleIn={scaleIn}
-            onScaleInChange={setScaleIn}
-            manualWeights={manualWeights}
-            onManualWeightsChange={setManualWeights}
-            partialExitsEnabled={partialExitsEnabled}
-            onPartialExitsEnabledChange={setPartialExitsEnabled}
-            partialExits={partialExits}
-            onPartialExitsChange={setPartialExits}
-          />
+          {/* ── 분할 매수 / 분할 익절 (접기 default) — ADR 0111 · 분할매수 R3-a · add-only ── */}
+          <CollapsibleSection
+            title="고급 — 분할 매수 / 분할 익절"
+            hint="회차 분할 진입 · 단계 익절"
+            defaultOpen={scaleInEnabled || partialExitsEnabled}
+            badge={<span className="rounded-full bg-gray-800 px-2 py-0.5 text-[10px] text-gray-400">고급</span>}
+          >
+            <ScaleInExitPanel
+              scaleInEnabled={scaleInEnabled}
+              onScaleInEnabledChange={setScaleInEnabled}
+              scaleIn={scaleIn}
+              onScaleInChange={setScaleIn}
+              manualWeights={manualWeights}
+              onManualWeightsChange={setManualWeights}
+              partialExitsEnabled={partialExitsEnabled}
+              onPartialExitsEnabledChange={setPartialExitsEnabled}
+              partialExits={partialExits}
+              onPartialExitsChange={setPartialExits}
+            />
+            {/* 저장 전 분할 매수 계획 미리보기 (빌더 고도화 A) — scale-in enabled 시만 */}
+            {scaleInEnabled && (
+              <ScaleInPlanPreviewInline
+                className="mt-3"
+                scaleIn={scaleIn}
+                manualWeights={manualWeights}
+                previewEntryPrice={previewEntryPrice}
+                stopLossPct={stopLossPct}
+              />
+            )}
+          </CollapsibleSection>
 
           {/* 활성화 게이트 안내 (SCALE_IN_NOT_ENABLED — 저장 가능, ACTIVE만 차단) */}
           {formNotice && (

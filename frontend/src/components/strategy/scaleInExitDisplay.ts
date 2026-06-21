@@ -40,6 +40,21 @@ function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+/**
+ * 문자열/숫자를 number로 파싱. 유한하지 않으면 null.
+ * @param opts.positiveOnly true면 0 이하도 null 처리
+ */
+export function parseNumberOrNull(
+  value: number | string | null | undefined,
+  opts: { positiveOnly?: boolean } = {},
+): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = typeof value === 'number' ? value : Number(String(value).trim())
+  if (!Number.isFinite(parsed)) return null
+  if (opts.positiveOnly && parsed <= 0) return null
+  return parsed
+}
+
 export function sumWeights(weights: Array<number | string>): number {
   return weights.reduce<number>((acc, w) => {
     const n = typeof w === 'number' ? w : Number(String(w).trim())

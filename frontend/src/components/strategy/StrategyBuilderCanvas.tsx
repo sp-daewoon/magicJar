@@ -14,6 +14,7 @@ import type { BlockNode as BlockNodeType, BlockTree } from '../../lib/dsl/blockT
 import { serializeBlockTree } from '../../lib/dsl/serializer'
 import type { StrategyStartItem } from '../../api/strategy'
 import { BlockNode } from './BlockNode'
+import { validateTreeRoot } from './builderTreeValidation'
 
 type TreeTab = 'entry' | 'exit'
 
@@ -100,6 +101,15 @@ export function StrategyBuilderCanvas({
 
   const isTreeEmpty = !currentNode
 
+  // 인라인 검증 (빌더 고도화 B) — 검증 버튼 전에도 빈 슬롯/미완성을 즉시 표시
+  const treeValidation = useMemo(
+    () => validateTreeRoot(currentNode, tab === 'entry' ? '매수' : '매도'),
+    [currentNode, tab],
+  )
+  const hasIncompleteSlots = !treeValidation.empty && !treeValidation.complete
+  // 검증·저장 버튼은 항상 매수(entry) DSL 기준이므로 entry 트리의 완성도로 게이트한다.
+  const entryValidation = useMemo(() => validateTreeRoot(tree.entry, '매수'), [tree.entry])
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-gray-950">
       {/* 탭 바 */}
@@ -126,8 +136,22 @@ export function StrategyBuilderCanvas({
         >
           매도 조건 (Exit)
         </button>
-        <span className="ml-auto text-xs text-gray-500">
-          {isTreeEmpty ? '팔레트에서 블록을 선택하세요' : 'Entry 조건 구성 중'}
+        <span
+          className={[
+            'ml-auto text-xs',
+            isTreeEmpty
+              ? 'text-gray-500'
+              : hasIncompleteSlots
+                ? 'text-amber-300'
+                : 'text-emerald-400',
+          ].join(' ')}
+          role="status"
+        >
+          {isTreeEmpty
+            ? '팔레트에서 블록을 선택하세요'
+            : hasIncompleteSlots
+              ? `빈 슬롯 ${treeValidation.emptySlotCount}개 — 채워야 검증·저장 가능`
+              : '조건 완성 — 검증·저장 가능'}
         </span>
       </div>
 
@@ -170,10 +194,24 @@ export function StrategyBuilderCanvas({
         )}
       </div>
 
+      {/* 인라인 검증 경고 (빌더 고도화 B) — 검증 버튼 전에도 빈 슬롯 표시 */}
+      {hasIncompleteSlots && (
+        <div
+          className="border-t border-amber-900/50 bg-amber-950/20 px-4 py-2 text-xs leading-5 text-amber-200"
+          role="alert"
+        >
+          {treeValidation.issues.map((issue) => (
+            <p key={issue.message}>⚠ {issue.message}</p>
+          ))}
+        </div>
+      )}
+
       {/* DSL 미리보기 */}
       <div className="border-t border-gray-800 p-3">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-500">DSL 미리보기</span>
+          <span className="text-xs font-medium text-gray-500">
+            DSL 미리보기 <span className="text-gray-600">({tab === 'entry' ? '매수 Entry' : '매도 Exit'})</span>
+          </span>
           {onEditDsl && (
             <button
               className="text-xs text-blue-400 hover:text-blue-300 focus:outline-none"
@@ -188,9 +226,17 @@ export function StrategyBuilderCanvas({
           value={currentDsl}
           rows={2}
           placeholder="조건이 없습니다"
-          className="w-full resize-none rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 font-mono text-xs text-gray-300 focus:outline-none"
+          className={[
+            'w-full resize-none break-all rounded-lg border bg-gray-900 px-3 py-2 font-mono text-xs leading-5 text-gray-300 focus:outline-none',
+            hasIncompleteSlots ? 'border-amber-800/70' : 'border-gray-800',
+          ].join(' ')}
           aria-label="DSL 미리보기 (읽기 전용)"
         />
+        {hasIncompleteSlots && (
+          <p className="mt-1 text-[11px] text-amber-300/80">
+            <code className="text-amber-300">_</code> 표시는 아직 비어 있는 슬롯입니다.
+          </p>
+        )}
       </div>
 
       {/* 액션 버튼 행 */}
@@ -243,7 +289,8 @@ export function StrategyBuilderCanvas({
           <button
             className="rounded-lg bg-gray-700 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
             onClick={onValidate}
-            disabled={!entryDsl || isValidating}
+            disabled={!entryDsl || isValidating || entryValidation.emptySlotCount > 0}
+            title={entryValidation.emptySlotCount > 0 ? '매수 조건의 빈 슬롯을 모두 채우세요' : undefined}
           >
             {isValidating ? '검증 중...' : '검증'}
           </button>
@@ -252,7 +299,8 @@ export function StrategyBuilderCanvas({
           <button
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
             onClick={onSave}
-            disabled={!entryDsl || isSaving}
+            disabled={!entryDsl || isSaving || entryValidation.emptySlotCount > 0}
+            title={entryValidation.emptySlotCount > 0 ? '매수 조건의 빈 슬롯을 모두 채우세요' : undefined}
           >
             {isSaving ? '저장 중...' : '저장'}
           </button>
