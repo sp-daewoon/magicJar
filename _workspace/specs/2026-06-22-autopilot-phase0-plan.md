@@ -29,6 +29,7 @@
 - `AutopilotGuardInput(loopExposure, accountNetWorth, proposedEntryAmount, currentLoopPositions, dailyRealizedLoss, cumRealizedLoss, state: AutopilotState)`
 - `AutopilotGuardVerdict`: sealed — `Allow(approvedAmount)` / `Reject(reason)` / `KillTriggered(reason)`.
 **로직(순수·결정론):** ①풀 상한 초과→Reject ②건당 캡 초과→approvedAmount clamp ③동시보유 ≥max→Reject ④일일손실 ≥한도→Reject(당일halt) ⑤누적손실 ≥한도→KillTriggered. RiskBudgetCalculator와 **더 보수적 값이 이김**.
+**★ 손실 한도 base = 풀**(`poolCeiling × dailyLossPct/100`·`× cumLossPct/100`), 순자산 아님 — spec §2-0-A '매우 타이트' 권위(2026-06-22 정정). 순자산 기준이면 누적 kill이 순자산 절반 손실에서야 터져 위배.
 **Test:** 각 한도 경계(미만 통과·도달 거부·누적 kill)·clamp·zero-regression(autopilot 아닌 전략 무영향).
 **검증:** `:strategy-engine:test` GREEN.
 

@@ -17,10 +17,11 @@ import java.math.BigDecimal
  * 테스트는 계산 명료성을 위해 accountNetWorth=1,000,000 기준.
  * - poolCeiling = 1,000,000 × 5% = 50,000
  * - perTradeCap = 50,000 × 20% = 10,000
- * - dailyLossLimit = 1,000,000 × 30% = 300,000  ← (default 풀 30%가 아니라 순자산 30%, spec 한도표 § 정합 — 본 Guard는 순자산 base)
- * - cumLossLimit = 1,000,000 × 50% = 500,000
+ * - dailyLossLimit = 풀 50,000 × 30% = **15,000** (순자산 아님 — spec §2-0-A '매우 타이트', 2026-06-22 fix)
+ * - cumLossLimit = 풀 50,000 × 50% = **25,000**
  *
- * 주: 본 Guard는 일일/누적 손실 한도를 **순자산 base × pct**로 계산한다(LOCKED 평가 순서 1·2 정의).
+ * 주: 본 Guard는 일일/누적 손실 한도를 **풀 base × pct**로 계산한다(spec §2-0-A 한도표 권위 — 순자산 기준이면
+ * 누적 kill이 순자산 절반에서야 터져 '매우 타이트'에 위배).
  */
 class AutonomousTradingGuardTest {
     private val netWorth = BigDecimal("1000000")
@@ -99,29 +100,29 @@ class AutonomousTradingGuardTest {
     // === 1. 누적 손실 → KillTriggered ===
 
     @Test
-    fun `누적손실 도달 (cum=500000 = 순자산 50pct) → KillTriggered`() {
-        val verdict = AutonomousTradingGuard.evaluate(input(cumRealizedLoss = "500000"))
+    fun `누적손실 도달 (cum=25000 = 풀 50pct) → KillTriggered`() {
+        val verdict = AutonomousTradingGuard.evaluate(input(cumRealizedLoss = "25000"))
         assertInstanceOf(AutopilotGuardVerdict.KillTriggered::class.java, verdict)
     }
 
     @Test
-    fun `누적손실 미만 (cum=499999) → 통과 진행 (Allow)`() {
-        val verdict = AutonomousTradingGuard.evaluate(input(cumRealizedLoss = "499999"))
+    fun `누적손실 미만 (cum=24999) → 통과 진행 (Allow)`() {
+        val verdict = AutonomousTradingGuard.evaluate(input(cumRealizedLoss = "24999"))
         assertInstanceOf(AutopilotGuardVerdict.Allow::class.java, verdict)
     }
 
     // === 2. 일일 손실 → Reject ===
 
     @Test
-    fun `일일손실 도달 (daily=300000 = 순자산 30pct) → Reject(당일 halt)`() {
-        val verdict = AutonomousTradingGuard.evaluate(input(dailyRealizedLoss = "300000"))
+    fun `일일손실 도달 (daily=15000 = 풀 30pct) → Reject(당일 halt)`() {
+        val verdict = AutonomousTradingGuard.evaluate(input(dailyRealizedLoss = "15000"))
         val reject = assertInstanceOf(AutopilotGuardVerdict.Reject::class.java, verdict)
         assertTrue(reject.reason.contains("당일 halt"), reject.reason)
     }
 
     @Test
-    fun `일일손실 미만 (daily=299999) → 통과 진행 (Allow)`() {
-        val verdict = AutonomousTradingGuard.evaluate(input(dailyRealizedLoss = "299999"))
+    fun `일일손실 미만 (daily=14999) → 통과 진행 (Allow)`() {
+        val verdict = AutonomousTradingGuard.evaluate(input(dailyRealizedLoss = "14999"))
         assertInstanceOf(AutopilotGuardVerdict.Allow::class.java, verdict)
     }
 
@@ -192,7 +193,7 @@ class AutonomousTradingGuardTest {
     fun `우선순위 — 누적손실 + 풀 초과 동시 → KillTriggered 우선 (가장 치명적)`() {
         val verdict =
             AutonomousTradingGuard.evaluate(
-                input(loopExposure = "60000", cumRealizedLoss = "500000"),
+                input(loopExposure = "60000", cumRealizedLoss = "25000"),
             )
         assertInstanceOf(AutopilotGuardVerdict.KillTriggered::class.java, verdict)
     }
@@ -201,7 +202,7 @@ class AutonomousTradingGuardTest {
     fun `우선순위 — kill active + 누적손실 동시 → Reject(kill active) 먼저 (게이트 0순위)`() {
         val verdict =
             AutonomousTradingGuard.evaluate(
-                input(cumRealizedLoss = "500000", state = state(killActive = true)),
+                input(cumRealizedLoss = "25000", state = state(killActive = true)),
             )
         val reject = assertInstanceOf(AutopilotGuardVerdict.Reject::class.java, verdict)
         assertEquals("kill active", reject.reason)
@@ -211,7 +212,7 @@ class AutonomousTradingGuardTest {
     fun `우선순위 — 일일손실 + 동시보유 동시 → 일일손실 Reject 먼저 (당일 halt)`() {
         val verdict =
             AutonomousTradingGuard.evaluate(
-                input(currentLoopPositions = 3, dailyRealizedLoss = "300000"),
+                input(currentLoopPositions = 3, dailyRealizedLoss = "15000"),
             )
         val reject = assertInstanceOf(AutopilotGuardVerdict.Reject::class.java, verdict)
         assertTrue(reject.reason.contains("당일 halt"), reject.reason)
