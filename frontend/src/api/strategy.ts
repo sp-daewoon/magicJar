@@ -205,6 +205,17 @@ export interface ScaleInDto {
   priceDropPct?: number | string | null
   /** 회차 간 최소 간격(초). default 60 */
   minSliceIntervalSec?: number | null
+  /**
+   * catastrophic floor% (ADR 0128 amend R3 갭①) — 분할 미완 중 평단 대비 이 손실폭 도달 시 동작.
+   * 0/null이면 비활성. null로 저장하면 백엔드가 yml default(floorDefaultPct)로 채운다.
+   * 백엔드 ScaleInPlan JSONB의 stopLossFloorPct 와 1:1 직렬화.
+   */
+  stopLossFloorPct?: number | null
+  /**
+   * floor 도달 시 자동 전량 청산 여부 (ADR 0128 amend R3 갭②). default false(알람만).
+   * 백엔드 ScaleInPlan JSONB의 floorAutoLiquidate 와 1:1 직렬화.
+   */
+  floorAutoLiquidate?: boolean
 }
 
 /** 분할 익절 단계 — 평단 대비 triggerProfitPct% 도달 시 보유분의 exitWeightPct% 청산 */
@@ -389,7 +400,30 @@ export const sigStrategyApi = {
     const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}/status`, { status })
     return normalizeSigStrategy(res.data)
   },
+
+  /**
+   * GET /api/strategies/scale-in-defaults (ADR 0128 amend R3 — LOCKED contract)
+   * yml default floor% — 빌더 floor 필드 prefill 힌트. backend-core 병렬 발행.
+   */
+  scaleInDefaults: async (): Promise<ScaleInDefaultsDto> => {
+    const res = await apiClient.get<ScaleInDefaultsDto>('/strategies/scale-in-defaults')
+    return res.data
+  },
 }
+
+/** GET /api/strategies/scale-in-defaults 응답 (ADR 0128 amend R3 — 필드명·경로 LOCK) */
+export interface ScaleInDefaultsDto {
+  /** yml default catastrophic floor% (예: 15) — UI floor 필드 prefill 힌트 */
+  floorDefaultPct: number
+}
+
+/**
+ * floor 필드 prefill graceful fallback 상수.
+ * ADR 0128 amend R3 — config endpoint 실패 시 이 값으로 floor 필드 default를 채운다.
+ * ⚠ 이것은 데이터 합성이 아니라 입력 폼의 default prefill 힌트다(feedback_no_mock_data 위배 아님).
+ * 사용자가 그대로 저장해도 백엔드가 null→yml default 재주입하므로 권위는 항상 백엔드 yml.
+ */
+export const SCALE_IN_FLOOR_DEFAULT_PCT_FALLBACK = 15
 
 // ──────────────────────────────────────────────
 // 전략 시작 화면 (spec 2026-06-18 §6) — 검증 템플릿(SYSTEM) + 내 전략 + 즐겨찾기
