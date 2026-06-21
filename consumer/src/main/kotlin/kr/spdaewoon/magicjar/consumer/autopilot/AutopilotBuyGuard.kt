@@ -61,7 +61,30 @@ class AutopilotBuyGuard(
             strategy?.owner == StrategyOwner.AUTOPILOT
 
     /**
+     * owner=AUTOPILOT BUY 인지(**enabled 무관** — side + owner 만). [applies] 와 달리 게이트를 보지 않는다.
+     *
+     * 벨트앤서스펜더(spec 2026-06-22 §2-B 방어 심층)용 — enabled=false 인데 AUTOPILOT BUY 가 **어떤 경로로든**
+     * (청산 폴백으로 평가 합류 후 평가기 BUY suppress 누락 등) [evaluate] 에 들어오면 [applies]=false 이지만 본
+     * 판정으로 Reject 한다(NotApplicable→Proceed→무게이트 실주문 위험 차단).
+     *
+     * 호출자([SignalGeneratedKafkaListener.applyAutopilotBuyGuard])는 [applies] 가 아니라 **본 판정으로** evaluate
+     * 진입을 결정해야 한다 — applies(enabled 포함) 단축 return 은 enabled=false 의 차단 분기를 건너뛰게 만든다.
+     */
+    fun isAutopilotBuy(
+        signal: Signal,
+        strategy: Strategy?,
+    ): Boolean =
+        signal.side == SignalSide.BUY &&
+            strategy?.owner == StrategyOwner.AUTOPILOT
+
+    /**
      * owner=AUTOPILOT BUY 진입 게이트. [applies] 가 false 면 [AutopilotBuyDecision.NotApplicable].
+     *
+     * ## 벨트앤서스펜더 (spec 2026-06-22 §2-B — 방어 심층)
+     * **enabled=false 인데 AUTOPILOT BUY** 가 들어오면 NotApplicable(Proceed)이 아니라 **Reject** 한다. 평가 쿼리가
+     * enabled 에 연동돼 정상 경로에선 AUTOPILOT BUY signal 자체가 생성되지 않지만, 청산 폴백([findSellEvalByCodeAndInterval])
+     * 으로 ACTIVE AUTOPILOT 이 평가에 합류할 때 평가기 BUY suppress 가 누락되면 게이트 없이 실주문될 위험이 있다 —
+     * 그 경로를 코드로 봉쇄한다. **SELL 은 영향 없음**(청산 보장). enabled=true 경로는 기존대로 칭 평가.
      *
      * @param proposedEntryAmount 호출자 산정 진입 제안 금액(원, > 0). Guard 가 건당 캡·풀 잔여로 clamp 대상.
      */
@@ -71,6 +94,16 @@ class AutopilotBuyGuard(
         context: RiskContext,
         proposedEntryAmount: BigDecimal,
     ): AutopilotBuyDecision {
+        // 벨트앤서스펜더 — enabled=false + AUTOPILOT BUY 는 무조건 차단(실주문 0). applies()보다 먼저 평가.
+        if (!properties.enabled && isAutopilotBuy(signal, strategy)) {
+            log.warn(
+                "autopilot disabled — AUTOPILOT BUY 차단(벨트앤서스펜더): userId={} code={} strategyId={}",
+                signal.userId,
+                signal.code,
+                signal.strategyId,
+            )
+            return AutopilotBuyDecision.Reject("autopilot disabled — BUY 차단")
+        }
         if (!applies(signal, strategy)) return AutopilotBuyDecision.NotApplicable
 
         val state = stateStore.load()

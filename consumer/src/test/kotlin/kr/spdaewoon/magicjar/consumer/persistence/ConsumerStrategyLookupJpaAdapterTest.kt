@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.autopilot.MagicjarAutopilotProperties
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
@@ -28,11 +29,22 @@ class ConsumerStrategyLookupJpaAdapterTest {
     private val objectMapper = ObjectMapper()
     private val kisYamlDslParser = mockk<KisYamlDslParser>()
 
+    // default = autopilot 비활성(enabled=false) → buyEvalOwners()=['USER'] (zero-regression 기준선).
     private val adapter =
         ConsumerStrategyLookupJpaAdapter(
             strategyJpaRepository = strategyJpaRepository,
             objectMapper = objectMapper,
             kisYamlDslParser = kisYamlDslParser,
+            autopilotProperties = MagicjarAutopilotProperties(enabled = false),
+        )
+
+    /** enabled=true → buyEvalOwners()=['USER','AUTOPILOT'] 검증용 adapter. */
+    private val autopilotEnabledAdapter =
+        ConsumerStrategyLookupJpaAdapter(
+            strategyJpaRepository = strategyJpaRepository,
+            objectMapper = objectMapper,
+            kisYamlDslParser = kisYamlDslParser,
+            autopilotProperties = MagicjarAutopilotProperties(enabled = true),
         )
 
     @Test
@@ -51,6 +63,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -80,6 +93,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
     fun `JpaRepository 가 빈 리스트 반환 시 빈 결과를 그대로 돌려준다`() {
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["999999"]""",
                 intervalJson = """["1d"]""",
             )
@@ -97,6 +111,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -116,6 +131,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["1h"]""",
             )
@@ -139,6 +155,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -165,6 +182,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -197,6 +215,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -227,6 +246,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -257,6 +277,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -279,6 +300,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -306,6 +328,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -333,6 +356,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
 
         every {
             strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
                 codeJson = """["005930"]""",
                 intervalJson = """["5m"]""",
             )
@@ -345,6 +369,96 @@ class ConsumerStrategyLookupJpaAdapterTest {
         assertThat(summary).isNotNull
         assertThat(summary!!["avgEvalMs"]).isEqualTo(12.5)
         assertThat(summary["recentRuns"]).isEqualTo(300)
+    }
+
+    // ── magicjar-autopilot Phase 1 wiring (spec 2026-06-22 §2) ──────────────
+
+    @Test
+    fun `enabled=false 면 BUY 구동 평가 쿼리에 owners=USER 만 전달한다 (AUTOPILOT 제외·byte 동일)`() {
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), """["005930"]""", """["5m"]""")
+        } returns emptyList()
+
+        adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        verify(exactly = 1) {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), """["005930"]""", """["5m"]""")
+        }
+        verify(exactly = 0) {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER", "AUTOPILOT"), any(), any())
+        }
+    }
+
+    @Test
+    fun `enabled=true 면 BUY 구동 평가 쿼리에 owners=USER+AUTOPILOT 을 전달한다`() {
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER", "AUTOPILOT"), """["005930"]""", """["5m"]""")
+        } returns emptyList()
+
+        autopilotEnabledAdapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        verify(exactly = 1) {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER", "AUTOPILOT"), """["005930"]""", """["5m"]""")
+        }
+        verify(exactly = 0) {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), any(), any())
+        }
+    }
+
+    @Test
+    fun `청산 평가(findSellEval)는 enabled 무관 position-driven 폴백 쿼리를 항상 호출한다 (보유분 청산 보장)`() {
+        // enabled=false 라도 청산 폴백 쿼리(findDisabledWithPositionByCodeAndInterval)는 호출돼야 한다.
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), """["005930"]""", """["5m"]""")
+        } returns emptyList()
+        every {
+            strategyJpaRepository.findDisabledWithPositionByCodeAndInterval("""["005930"]""", """["5m"]""")
+        } returns emptyList()
+
+        adapter.findSellEvalByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        // 청산 폴백 쿼리는 enabled 무관 1회 — owner 파라미터 없음(쿼리 내부에서 USER DISABLED + AUTOPILOT status무관 처리).
+        verify(exactly = 1) {
+            strategyJpaRepository.findDisabledWithPositionByCodeAndInterval("""["005930"]""", """["5m"]""")
+        }
+    }
+
+    @Test
+    fun `청산 평가는 active(BUY 구동분)와 position 폴백을 id 기준 합집합한다`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val activeEntity = jpaEntity(id = 70L, userId = 1L, dslEntry = "MA(5) > MA(20)", dslExit = null)
+        val holdingEntity = jpaEntity(id = 71L, userId = 1L, dslEntry = "MA(3) > MA(10)", dslExit = null)
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), """["005930"]""", """["5m"]""")
+        } returns listOf(activeEntity)
+        every {
+            strategyJpaRepository.findDisabledWithPositionByCodeAndInterval("""["005930"]""", """["5m"]""")
+        } returns listOf(holdingEntity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+        every { kisYamlDslParser.parse("MA(3) > MA(10)") } returns buyAst
+
+        val result = adapter.findSellEvalByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        assertThat(result.map { it.id }).containsExactlyInAnyOrder(70L, 71L)
+    }
+
+    @Test
+    fun `청산 평가에서 active 와 position 폴백에 동일 id 가 겹치면 dedup 된다`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val sameEntity = jpaEntity(id = 80L, userId = 1L, dslEntry = "MA(5) > MA(20)", dslExit = null)
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(listOf("USER"), """["005930"]""", """["5m"]""")
+        } returns listOf(sameEntity)
+        every {
+            strategyJpaRepository.findDisabledWithPositionByCodeAndInterval("""["005930"]""", """["5m"]""")
+        } returns listOf(sameEntity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findSellEvalByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        assertThat(result.map { it.id }).containsExactly(80L)
     }
 
     // ── fixtures ──────────────────────────────────────────────────────────

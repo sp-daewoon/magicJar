@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.reconciliation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.autopilot.MagicjarAutopilotProperties
 import kr.spdaewoon.magicjar.consumer.ingestion.RealtimeSubscriptionRouter
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerOrderRequestJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
@@ -30,6 +31,8 @@ class ManagedCandleUniverseProvider(
     private val realtimeSubscriptionRouter: RealtimeSubscriptionRouter,
     private val universeCache: ManagedCandleUniverseCache,
     private val objectMapper: ObjectMapper,
+    // magicjar-autopilot Phase 1 wiring (spec 2026-06-22 §2) — active-strategy universe owner 집합을 enabled 에 연동.
+    private val autopilotProperties: MagicjarAutopilotProperties,
 ) {
     private val log = LoggerFactory.getLogger(ManagedCandleUniverseProvider::class.java)
 
@@ -89,7 +92,7 @@ class ManagedCandleUniverseProvider(
 
     private fun activeStrategyCodes(): List<String> =
         strategyJpaRepository
-            .findActiveWithExplicitCodes()
+            .findActiveWithExplicitCodes(autopilotProperties.buyEvalOwners())
             .flatMap { entity -> parseCodes(entity.codes) }
             .distinct()
 

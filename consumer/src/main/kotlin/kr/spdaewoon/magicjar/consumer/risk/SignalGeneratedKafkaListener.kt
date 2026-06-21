@@ -1364,11 +1364,19 @@ class SignalGeneratedKafkaListener(
         if (signal.side != SignalSide.BUY) return AutopilotGateResult.Proceed(resolvedQuantity)
         val guard = autopilotBuyGuardProvider?.getIfAvailable() ?: return AutopilotGateResult.Proceed(resolvedQuantity)
         val strategy = lookupStrategyOrNull(signal)
-        if (!guard.applies(signal, strategy)) return AutopilotGateResult.Proceed(resolvedQuantity)
+        // 벨트앤서스펜더(spec §2-B) — applies(enabled 포함)가 아니라 isAutopilotBuy(enabled 무관)로 evaluate 진입을 결정한다.
+        //   enabled=false 인 AUTOPILOT BUY 도 evaluate 로 보내 Reject(실주문 0)시켜야 한다 — applies 단축 return 은
+        //   그 차단 분기를 건너뛰어 무게이트 Proceed 가 된다(위험). non-AUTOPILOT BUY 만 여기서 Proceed.
+        if (!guard.isAutopilotBuy(signal, strategy)) return AutopilotGateResult.Proceed(resolvedQuantity)
 
+        // price<=0: enabled=true 정상 경로는 기존대로 Proceed(zero-regression — 풀/캡 산정 분모 무의미 시 사이징 보존).
+        //   단 enabled=false 의 AUTOPILOT BUY 는 차단이 우선이므로 price 무관 evaluate 로 보내 Reject 시킨다(실주문 0 사수).
         val price = signal.priceAtSignal
-        if (price <= BigDecimal.ZERO) return AutopilotGateResult.Proceed(resolvedQuantity)
-        val proposedAmount = price.multiply(BigDecimal(resolvedQuantity))
+        if (price <= BigDecimal.ZERO && guard.applies(signal, strategy)) {
+            return AutopilotGateResult.Proceed(resolvedQuantity)
+        }
+        val proposedAmount =
+            if (price > BigDecimal.ZERO) price.multiply(BigDecimal(resolvedQuantity)) else BigDecimal.ZERO
 
         return when (val decision = guard.evaluate(signal, strategy, context, proposedAmount)) {
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable ->

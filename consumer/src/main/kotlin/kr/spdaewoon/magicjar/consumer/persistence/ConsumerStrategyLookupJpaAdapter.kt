@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.persistence
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import kr.spdaewoon.magicjar.consumer.autopilot.MagicjarAutopilotProperties
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
@@ -34,6 +35,8 @@ class ConsumerStrategyLookupJpaAdapter(
     private val strategyJpaRepository: ConsumerStrategyJpaRepository,
     private val objectMapper: ObjectMapper,
     private val kisYamlDslParser: KisYamlDslParser,
+    // magicjar-autopilot Phase 1 wiring (spec 2026-06-22 §2) — BUY 구동 평가 owner 집합을 enabled 에 연동.
+    private val autopilotProperties: MagicjarAutopilotProperties,
 ) : StrategyLookupPort {
     private val log = LoggerFactory.getLogger(ConsumerStrategyLookupJpaAdapter::class.java)
 
@@ -44,6 +47,8 @@ class ConsumerStrategyLookupJpaAdapter(
     ): List<Strategy> {
         val entities =
             strategyJpaRepository.findActiveByCodeAndInterval(
+                // enabled=false → ['USER'](AUTOPILOT 제외·byte 동일) / true → ['USER','AUTOPILOT']. spec §2 BUY 구동 게이트.
+                owners = autopilotProperties.buyEvalOwners(),
                 codeJson = objectMapper.writeValueAsString(listOf(code)),
                 intervalJson = objectMapper.writeValueAsString(listOf(interval.code)),
             )
@@ -51,8 +56,13 @@ class ConsumerStrategyLookupJpaAdapter(
     }
 
     /**
-     * ADR 0114 §4-2 P2 — 청산 평가 대상: ACTIVE/BUY_BLOCKED ∪ DISABLED-with-position.
-     * DISABLED여도 strategy_position 보유분이 있으면 청산 평가(손절/익절)를 받게 한다(자본 방치 해소).
+     * ADR 0114 §4-2 P2 — 청산 평가 대상: ACTIVE/BUY_BLOCKED ∪ position-driven 폴백.
+     *
+     * ## BUY/청산 비대칭 (magicjar-autopilot — spec 2026-06-22 §2)
+     * - `active`([findActiveByCodeAndInterval]) = **BUY 구동분** → owner 집합이 enabled 에 연동(false면 AUTOPILOT 제외).
+     * - `positionHolding`([findDisabledWithPositionByCodeAndInterval]) = **청산 폴백** → enabled 무관,
+     *   USER DISABLED-with-position + **AUTOPILOT status 무관 with-position**. enabled=false 로 active 에서 빠진
+     *   ACTIVE AUTOPILOT 보유분도 여기서 청산 평가에 다시 합류한다(보유분 청산 항상 보장 — kill/rollback 정합).
      */
     @Transactional(readOnly = true)
     override fun findSellEvalByCodeAndInterval(
@@ -61,10 +71,11 @@ class ConsumerStrategyLookupJpaAdapter(
     ): List<Strategy> {
         val codeJson = objectMapper.writeValueAsString(listOf(code))
         val intervalJson = objectMapper.writeValueAsString(listOf(interval.code))
-        val active = strategyJpaRepository.findActiveByCodeAndInterval(codeJson, intervalJson)
-        val disabledHolding = strategyJpaRepository.findDisabledWithPositionByCodeAndInterval(codeJson, intervalJson)
-        // id 기준 dedup(합집합 — DISABLED-with-position이 추가분). DELETED는 native 쿼리에서 이미 제외.
-        return (active + disabledHolding)
+        val active =
+            strategyJpaRepository.findActiveByCodeAndInterval(autopilotProperties.buyEvalOwners(), codeJson, intervalJson)
+        val positionHolding = strategyJpaRepository.findDisabledWithPositionByCodeAndInterval(codeJson, intervalJson)
+        // id 기준 dedup(합집합 — position-driven 폴백이 추가분). DELETED는 native 쿼리에서 이미 제외.
+        return (active + positionHolding)
             .distinctBy { it.id }
             .mapNotNull { toDomainOrNull(it) }
     }
