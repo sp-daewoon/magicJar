@@ -83,7 +83,19 @@ class DataReadinessService(
         if (latestIntervalTs == null) {
             return result(DataReadinessStatus.STALE, "interval-candle-missing", code, interval, boundaryTs)
         }
-        if (latestIntervalTs.isBefore(boundaryJava)) {
+        // === off-by-one race 정정(2026-06-22) ===
+        // 평가 대상 boundary 캔들(ts == boundaryTs)은 Kafka payload 로 in-hand 이며 항상 fresh 다.
+        // readiness 게이트의 본래 목적은 "신규 자본 투입(BUY) 전에 *히스토리* 가 stale/결측 이 아님을 보증" 하는 것.
+        // 그런데 방금 마감된 boundary 캔들은 DB 에 비동기 영속되어 평가 순간엔 아직 안 들어가 있다
+        // (DB max ts = 직전 완결 boundary = boundaryTs − 1 interval). 기존 `latestIntervalTs < boundaryTs` 판정은
+        // 이 정상 lag 을 STALE 로 오판(false positive) → 신규 구독 종목 BUY 영구 차단(라이브 evidence 2026-06-22).
+        //
+        // 정정: DB 가 "직전 완결 경계" 까지 따라잡았으면 히스토리는 fresh → READY 허용(grace = 정확히 1 interval).
+        //   latestIntervalTs ≥ boundaryTs − 1 interval  → READY 후보(race 흡수)
+        //   latestIntervalTs < boundaryTs − 1 interval  → 2 interval 이상 뒤 = 진짜 stale → STALE 차단 유지(fail-closed 보존).
+        // 게이트를 끄는 게 아니라, race 로 인한 false positive 만 제거하고 진짜 결측/장기 stale 차단은 사수한다.
+        val priorBoundaryJava = boundaryJava.minus(Duration.ofMinutes(interval.minutes()))
+        if (latestIntervalTs.isBefore(priorBoundaryJava)) {
             return result(
                 status = DataReadinessStatus.STALE,
                 reason = "interval-candle-behind-boundary",
