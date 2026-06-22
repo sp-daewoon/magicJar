@@ -72,13 +72,24 @@ class OrderbookSubscriptionRouter(
     private fun isDemandedLocked(code: String): Boolean = detailDemands.containsKey(code) || strategyDemands[code]?.isNotEmpty() == true
 
     /**
-     * 실제 WS subscribe 발사 — 아직 미구독이면 1회. ledger register 동반.
+     * 실제 WS subscribe 발사 — 아직 미구독이면 1회. 선제 admission 게이트로 한도 보호.
      * 호출자가 lock 보유 전제.
+     *
+     * ## 2026-06-22 장중 신규구독 silent 누락 fix (admission 게이트)
+     * 과거엔 발사 직후 [WsSlotBudgetLedger.register]만 했다 — 한도 초과여도 KIS에 발사 → KIS가
+     * "SUBSCRIBE SUCCESS는 ACK하되 frame은 안 흘리는" silent 상태로 빠졌다(H0UNCNT0 체결가와 동일 한도 공유).
+     * 이제 발사 **직전** [WsSlotBudgetLedger.tryRegister]로 (H0UNASP0, code) 채널 admission을 받고,
+     * 한도(40) 초과면 발사를 보류한다(graceful — 진입가는 EntryQuotePort REST fallback이 ask1/bid1 공급).
+     * silent 호가 굶음보다 명시 보류가 안전하다. 이미 점유한 채널 재요청은 멱등 통과(끊김 risk 0).
      */
     private fun ensureSubscribedLocked(code: String) {
         if (kisWsPort.subscribedOrderbookCodes().contains(code)) return
+        val admission = wsSlotBudgetLedger.tryRegister(trId, code)
+        if (!admission.admitted) {
+            // 한도 초과 — KIS 발사 보류(silent 누락 선제 차단). EntryQuotePort REST fallback이 진입가 공급.
+            return
+        }
         kisWsPort.subscribeOrderbook(listOf(code))
-        wsSlotBudgetLedger.register(trId, code)
     }
 
     /**

@@ -320,6 +320,12 @@ class KisWebSocketBridge(
     private val noTickWarned: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /**
+     * 구독 후 첫 H0UNCNT0 frame을 INFO로 확정한 종목 set (2026-06-22 장중 신규구독 silent 누락 fix 검증용).
+     * unsubscribe·재구독 시 제거 → 재구독마다 streaming 시작을 다시 1회만 확정(스팸 0).
+     */
+    private val firstTickConfirmed: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
      * 최근 unsubscribe 전송 이력 (결함③ 진단 관측 전용 — 부작용 0).
      *
      * ## 배경 (2026-06-15 REAL 세션 실측)
@@ -547,6 +553,7 @@ class KisWebSocketBridge(
                     slotLedger()?.release(trId = TR_ID_UNIFIED_TICK, code = code)
                     lastTickAtMsByCode.remove(code)
                     noTickWarned.remove(code)
+                    firstTickConfirmed.remove(code)
                 }
                 return
             }
@@ -558,6 +565,7 @@ class KisWebSocketBridge(
                 session.subscribedCodes.remove(code)
                 lastTickAtMsByCode.remove(code)
                 noTickWarned.remove(code)
+                firstTickConfirmed.remove(code)
                 log.info("KIS WS unsubscribe: code={} trId={}", code, TR_ID_UNIFIED_TICK)
             }
         }
@@ -961,6 +969,8 @@ class KisWebSocketBridge(
                             // 무tick watchdog 윈도우 재seed — 재구독 시점부터 stale 카운트 시작(이전 stale 흔적 reset).
                             lastTickAtMsByCode[code] = reconnectMs
                             noTickWarned.remove(code)
+                            // 재구독이므로 첫 frame 확정 마크 reset — 재연결 후 streaming 재개를 다시 1회 확정.
+                            firstTickConfirmed.remove(code)
                         }
                         log.info("KIS WS 재구독 완료: 종목 {}건 trId={}", existingCodes.size, TR_ID_UNIFIED_TICK)
                     }
@@ -1272,10 +1282,18 @@ class KisWebSocketBridge(
      * 종목별 tick 수신 기록 — 무tick watchdog 기준선 갱신 + WARN 재무장 (결함 ② — 403870 silent 누락).
      *
      * tick이 다시 들어오면 noTickWarned에서 제거해 다음 stale 윈도우에 1회 다시 WARN 가능(stale→복구→재stale 추적).
+     *
+     * ## 첫 frame INFO 확정 (2026-06-22 장중 신규구독 silent 누락 fix 검증용)
+     * 구독 후 **그 종목의 첫 H0UNCNT0 frame**이 실제 도착하면 1회 INFO를 남긴다. "SUBSCRIBE SUCCESS만 ACK되고
+     * frame이 영구히 안 오던"(acked-not-streaming) silent 누락 여부를 운영 로그에서 직접 가른다. unsubscribe 시
+     * 확정 마크를 제거해 재구독 시 다시 첫 frame을 확정한다(스팸 0 — 종목당 streaming 시작 1회만).
      */
     private fun recordTickReceived(code: String) {
         lastTickAtMsByCode[code] = System.currentTimeMillis()
         noTickWarned.remove(code)
+        if (firstTickConfirmed.add(code)) {
+            log.info("KIS WS 첫 체결 frame 수신 확정 — streaming OK: code={} trId={}", code, TR_ID_UNIFIED_TICK)
+        }
     }
 
     /**
