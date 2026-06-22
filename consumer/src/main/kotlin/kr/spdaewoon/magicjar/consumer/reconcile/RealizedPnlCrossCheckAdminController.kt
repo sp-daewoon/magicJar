@@ -57,9 +57,12 @@ class RealizedPnlCrossCheckAdminController(
             kisRealEvaluationPnl = r.kisRealEvaluationPnl,
             ourGrossRealizedPnl = r.ourGrossRealizedPnl,
             ourNetRealizedPnl = r.ourNetRealizedPnl,
+            ourNetKisCost = r.ourNetKisCost,
             ourTotalCost = r.ourTotalCost,
+            kisCostApplied = r.kisCostApplied,
             periodDriftNet = r.periodDriftNet,
             periodDriftGross = r.periodDriftGross,
+            periodDriftKisCost = r.periodDriftKisCost,
             accountDriftGross = r.accountDriftGross,
             accountDriftNet = r.accountDriftNet,
             driftCauses = r.driftCauses,
@@ -75,8 +78,10 @@ class RealizedPnlCrossCheckAdminController(
                         kisTax = row.kisTax,
                         ourGrossRealizedPnl = row.ourGrossRealizedPnl,
                         ourNetRealizedPnl = row.ourNetRealizedPnl,
+                        ourNetKisCost = row.ourNetKisCost,
                         driftNet = row.driftNet,
                         driftGross = row.driftGross,
+                        driftKisCost = row.driftKisCost,
                         presentInKis = row.presentInKis,
                         matched = row.matched,
                     )
@@ -92,9 +97,9 @@ class RealizedPnlCrossCheckAdminController(
         val periodEnd: String,
         /** KIS 호출 성공(rt_cd=0) 여부. */
         val kisCallOk: Boolean,
-        /** 계좌합계 drift(net/gross 중 작은 쪽)가 tolerance 이내인지. */
+        /** 계좌합계 drift(KIS실비용net/net/gross 중 작은 쪽)가 tolerance 이내인지. */
         val matched: Boolean,
-        /** 일치한 정의(NET|GROSS|BOTH) — KIS rlzt_pfls 정의 실측 결과. */
+        /** 일치한 정의(KIS_COST|NET|GROSS|BOTH) — KIS rlzt_pfls 정의 실측 결과. KIS_COST=KIS 실비용 보정 net(개선 E). */
         val matchedDefinition: String?,
         val toleranceWon: BigDecimal,
         /** TTTC8715R output2 총실현손익(tot_rlzt_pfls) — 1차 권위(전량청산 포함). */
@@ -108,13 +113,19 @@ class RealizedPnlCrossCheckAdminController(
         val kisRealEvaluationPnl: BigDecimal?,
         /** 우리 gross 실현손익(비용 미차감). */
         val ourGrossRealizedPnl: BigDecimal,
-        /** 우리 net 실현손익(비용 차감 — 성과 API 와 동일 정의). */
+        /** 우리 net 실현손익(우리 order_execution.fee/tax 차감 — 성과 API 와 동일 정의). */
         val ourNetRealizedPnl: BigDecimal,
+        /** 우리 gross - KIS 실비용(fee+tl_tax) = KIS 실비용 보정 net (개선 E — matched 1차 축). */
+        val ourNetKisCost: BigDecimal?,
         val ourTotalCost: BigDecimal,
-        /** TTTC8715R 총실현손익 - 우리 net. */
+        /** ourNetKisCost 도출에 차감한 KIS 실비용 합계(종목별 fee+tl_tax). */
+        val kisCostApplied: BigDecimal?,
+        /** TTTC8715R 총실현손익 - 우리 net(우리 fee/tax 기준). */
         val periodDriftNet: BigDecimal?,
         /** TTTC8715R 총실현손익 - 우리 gross. */
         val periodDriftGross: BigDecimal?,
+        /** TTTC8715R 총실현손익 - 우리 KIS실비용 보정 net (개선 E — 0 수렴 기대, 매수fee 잔차 제외). */
+        val periodDriftKisCost: BigDecimal?,
         val accountDriftGross: BigDecimal?,
         val accountDriftNet: BigDecimal?,
         val driftCauses: List<String>,
@@ -131,8 +142,12 @@ class RealizedPnlCrossCheckAdminController(
         val kisTax: BigDecimal?,
         val ourGrossRealizedPnl: BigDecimal,
         val ourNetRealizedPnl: BigDecimal,
+        /** 우리 gross - KIS(fee+tl_tax) — KIS 실비용 보정 net (개선 E). */
+        val ourNetKisCost: BigDecimal?,
         val driftNet: BigDecimal?,
         val driftGross: BigDecimal?,
+        /** KIS - ourNetKisCost (개선 E — 0 수렴 기대). */
+        val driftKisCost: BigDecimal?,
         val presentInKis: Boolean,
         val matched: Boolean,
     )

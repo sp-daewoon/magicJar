@@ -108,11 +108,14 @@ data class KisPeriodTradeProfitCodeAgg(
  *
  * @property totalRealizedPnl tot_rlzt_pfls — 총실현손익(전 종목, 전량청산 포함). "당일 총 실현손익" 권위 값.
  * @property sellFeeTotal sll_fee_smtl — 매도수수료합계. @property sellTaxTotal sll_tltx_smtl — 매도제세금합계.
+ * @property buyFeeTotal buy_fee_smtl — 매수수수료합계 (개선 E — KIS rlzt_pfls 가 매수fee 까지 반영하는 잔차 분해용).
+ * @property totalFee tot_fee — 총수수료(매수+매도 합계). @property totalTax tot_tltx — 총제세금.
  */
 data class KisPeriodTradeProfitSummary(
     val totalRealizedPnl: BigDecimal?,
     val sellFeeTotal: BigDecimal?,
     val sellTaxTotal: BigDecimal?,
+    val buyFeeTotal: BigDecimal?,
     val totalFee: BigDecimal?,
     val totalTax: BigDecimal?,
     val totalProfitRate: BigDecimal?,

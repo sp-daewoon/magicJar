@@ -47,16 +47,33 @@ data class RealizedPnlCrossCheck(
     val kisAccountRealizedPnl: BigDecimal?,
     /** KIS(8494R) output2 실평가손익(real_evlu_pfls) — 참고용. */
     val kisRealEvaluationPnl: BigDecimal?,
-    /** 우리 net 실현손익(매도 비용 차감) — PerformanceService 와 동일 정의. */
+    /** 우리 net 실현손익(우리 order_execution.fee/tax 차감) — PerformanceService 와 동일 정의. fee/tax 미캡처면 gross 와 동일. */
     val ourNetRealizedPnl: BigDecimal,
+    /**
+     * 우리 gross 실현손익을 **KIS 실비용(TTTC8715R 종목별 fee+tl_tax)** 으로 보정한 net (개선 E — 2026-06-22).
+     *
+     * 우리 order_execution.fee/tax 미캡처(=0) 시 우리 net=gross 가 되어 KIS net 과 drift 발생.
+     * KIS rlzt_pfls 는 매도 fee+tax 차감 net 이므로, **종목별 우리 gross 에서 KIS 가 실제 부과한 fee+tl_tax 를 차감**해
+     * KIS rlzt_pfls 와 정합하는 net 을 도출한다(추측 0 — KIS 실측 부과액). matched 판정의 1차 net 권위.
+     * null = KIS 호출 실패.
+     */
+    val ourNetKisCost: BigDecimal?,
     /** 우리 gross 실현손익(비용 미차감). */
     val ourGrossRealizedPnl: BigDecimal,
-    /** 우리 매도 비용 합계(fee+tax) — gross↔net 차이 설명. */
+    /** 우리 매도 비용 합계(fee+tax) — 우리 order_execution 기준. 미캡처면 0. */
     val ourTotalCost: BigDecimal,
-    /** TTTC8715R 총실현손익 - 우리 net. null = KIS 합계 부재. */
+    /** KIS 실비용 합계(종목별 fee+tl_tax 합산) — ourNetKisCost 도출에 차감한 금액. null = KIS 호출 실패. */
+    val kisCostApplied: BigDecimal?,
+    /** TTTC8715R 총실현손익 - 우리 net(우리 fee/tax 기준). null = KIS 합계 부재. */
     val periodDriftNet: BigDecimal?,
     /** TTTC8715R 총실현손익 - 우리 gross. */
     val periodDriftGross: BigDecimal?,
+    /**
+     * TTTC8715R 총실현손익 - 우리 ourNetKisCost(KIS 실비용 보정 net) — 개선 E 의 matched 판정 1차 축.
+     * 종목별 우리 gross - KIS(fee+tl_tax) 합산이므로, KIS rlzt_pfls 가 매도비용만 차감 net 이면 0(또는 매수fee 잔차)에 수렴.
+     * null = KIS 호출 실패.
+     */
+    val periodDriftKisCost: BigDecimal?,
     /** TTTC8494R - 우리 gross (참고 — 보유 행 기준이라 semantics 차이). */
     val accountDriftGross: BigDecimal?,
     /** TTTC8494R - 우리 net (참고). */
@@ -64,7 +81,7 @@ data class RealizedPnlCrossCheck(
     /** tolerance(원). drift 절대값이 이 값 이하이면 matched=true. */
     val toleranceWon: BigDecimal,
     val matched: Boolean,
-    /** 어느 정의(NET|GROSS)가 KIS 와 일치했는지 — 실측 판정 결과. */
+    /** 어느 정의(KIS_COST|NET|GROSS|BOTH)가 KIS 와 일치했는지 — 실측 판정 결과. KIS_COST=KIS 실비용 보정 net(개선 E 1차). */
     val matchedDefinition: String?,
     /** drift 발생 시 원인 분류 매트릭스(미체결 지연·비용·당일/누계·페이지네이션 등). */
     val driftCauses: List<String>,
@@ -93,12 +110,19 @@ data class RealizedPnlCrossCheckRow(
     val kisTax: BigDecimal?,
     /** 우리 gross 실현손익(비용 미차감). */
     val ourGrossRealizedPnl: BigDecimal,
-    /** 우리 net 실현손익(비용 차감). */
+    /** 우리 net 실현손익(우리 order_execution.fee/tax 차감). */
     val ourNetRealizedPnl: BigDecimal,
-    /** KIS - 우리 net (TTTC8715R rlzt_pfls 가 net 정의일 때 0 기대). */
+    /**
+     * 우리 gross - KIS(fee+tl_tax) — KIS 실비용 보정 net (개선 E). KIS rlzt_pfls 가 매도비용 차감 net 이면 이 값이 KIS 와 정합.
+     * null = 이 종목 KIS 행 부재.
+     */
+    val ourNetKisCost: BigDecimal?,
+    /** KIS - 우리 net (TTTC8715R rlzt_pfls 가 net 정의일 때 0 기대 — 우리 fee/tax 기준). */
     val driftNet: BigDecimal?,
     /** KIS - 우리 gross. */
     val driftGross: BigDecimal?,
+    /** KIS - 우리 ourNetKisCost (KIS 실비용 보정). 정상 시 0(매수fee 잔차 제외). null = KIS 행 부재. */
+    val driftKisCost: BigDecimal?,
     val presentInKis: Boolean,
     val matched: Boolean,
 )
