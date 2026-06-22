@@ -29,21 +29,38 @@
 <div class="sub">autopilot 첫 REAL 완전 자율 매매일 · canary 진화 · 작성: orchestrator</div>
 
 <div class="card">
-<b>한 줄 요약</b> — Claude 직접 운영 autopilot이 개장부터 실거래로 자율 매매를 완주했고, 그 과정에서 <b>시스템 결함 11건을 surface·수정</b>했으며, 손익을 <b>KIS 진실원으로 확정(matched=true)</b>했다. 오늘 핵심 가치는 수익 자체가 아니라 <b>"된다"가 아닌 행위·KIS 검증으로 자기 시스템을 교정</b>한 것.
+<b>한 줄 요약</b> — Claude 직접 운영 autopilot이 개장부터 실거래로 자율 매매를 완주(autopilot-only 실현 net <b>+2,728</b>·박빙)했고, 그 과정에서 <b>시스템 결함 12건을 surface·수정</b>했으며, 손익을 <b>KIS 진실원으로 확정(계좌 matched=true)</b>했다. 오늘 핵심 가치는 수익 자체가 아니라 <b>"된다"가 아닌 행위·KIS 검증으로 자기 시스템을 교정</b>한 것. (후성 수동청산 +18,814는 autopilot 아님·제외.)
 </div>
 
-<h2>① 매매 성과 (KIS 확정)</h2>
+<h2>① 매매 성과 (KIS 확정 · autopilot-only 분리)</h2>
+<div class="card bad" style="border-color:var(--bad)"><b>⚠ 정정</b>: 초판은 계좌 전체 +21,542를 autopilot 성과로 잘못 표기. <b>후성(093370)은 사용자가 저번주 오버나잇한 포지션을 오늘 수동 청산한 것(autopilot 아님, 운빨 +18,814)</b>이라 제외해야 한다. autopilot 평가는 owner=AUTOPILOT만.</div>
 <div class="grid">
-  <div class="kpi"><div class="v ok">+21,542원</div><div class="l">실현손익 net (KIS 확정·matched=true)</div></div>
-  <div class="kpi"><div class="v">27,420원</div><div class="l">우리 gross (비용 전)</div></div>
-  <div class="kpi"><div class="v">45.5%</div><div class="l">승률 (11거래)</div></div>
-  <div class="kpi"><div class="v">3.9</div><div class="l">손익비</div></div>
-  <div class="kpi"><div class="v">261만 / 232만</div><div class="l">매수 / 매도 대금</div></div>
+  <div class="kpi"><div class="v ok">+2,728원</div><div class="l">★ autopilot-only net (KIS, 후성 제외)</div></div>
+  <div class="kpi"><div class="v mut">+21,542원</div><div class="l">계좌 전체 net (후성 +18,814 포함·matched=true)</div></div>
+  <div class="kpi"><div class="v mut">18,814원</div><div class="l">후성(093370) 수동청산 — autopilot 아님</div></div>
   <div class="kpi"><div class="v warn">2건</div><div class="l">오버나잇 (080220·035720, 306k)</div></div>
 </div>
-<div class="card mut">거래비용 = 매도수수료 320 + 거래세 5,239 + 매수수수료 319 = <b>5,879원</b>. 우리 gross(27,420) − 비용 = net <b>21,541 ≈ KIS 21,542</b> (잔차 1원=반올림). 발화 전략: momentum-breakout·volume-spike·vwap-reversion (6중 3).</div>
+<div class="card mut"><b>autopilot 진짜 성과</b>: 박빙(+2,728), <b>080220(제주반도체) +8,947 한 방</b>이 나머지 소액 손실(000500·006340·051910·067290·122640·355690 등) 상쇄. 종목별 KIS 실현: 080220 +8,947 · 001820 +5,652 · 035720 0 · 067290 −1,294 · 051910 −1,978 · 006340 −3,666 · 000500 −4,748 · 355690(에이텀) −10(66주 주문→1주 부분체결→취소). <b>계좌 KIS 정합 matched=true</b>(잔차 1원)는 유효하나 그건 *계좌 전체* 검증.</div>
 
-<h2>② 부분/분할체결 분석 (데이터 정합)</h2>
+<h2>②  전략별 상세 (6전략 — 발화·체결·차단 사유)</h2>
+<table>
+<tr><th>전략</th><th>tf</th><th>BUY신호</th><th>체결</th><th>결과 / 차단 사유</th></tr>
+<tr><td>100 momentum-breakout</td><td>3m</td><td>16</td><td class="ok">3</td><td class="ok">발화·체결 (조기 슬롯 확보)</td></tr>
+<tr><td>104 volume-spike</td><td>3m</td><td>24</td><td class="ok">3</td><td class="ok">발화·체결</td></tr>
+<tr><td>105 vwap-reversion</td><td>5m</td><td>25</td><td class="ok">5</td><td class="ok">발화·체결 (조기 발화로 슬롯 확보)</td></tr>
+<tr><td>101 pullback-reclaim</td><td>5m</td><td>1</td><td>0</td><td>정당 휴면 — 약세장(앵커 −0.7~−2.4%)에 <code>ma20&gt;ma50</code> 상승추세 조건 미충족 (필터가 올바르게 작동)</td></tr>
+<tr><td>102 fvg-bullish-reclaim</td><td>5m</td><td class="warn">10</td><td class="bad">0</td><td class="warn">⚠ 신호 10건 발화했으나 첫 신호(~13:50) 시점 슬롯3 이미 점유 → 전량 <code>MAX_CONCURRENT_POSITIONS</code> BLOCKED</td></tr>
+<tr><td><b>103 orderblock-bullish-retest</b></td><td>5m</td><td class="warn">14</td><td class="bad">0</td><td class="warn">⚠ <b>신호 14건 발화·전량 매수차단</b> — 첫 신호(~13:40) 늦음(오더블록 zone이 인트라데이 캔들 backfill 지연으로 오후에야 형성) → 슬롯 점유로 <code>POSITION_LIMIT</code>/<code>MAX_CONCURRENT</code> BLOCKED</td></tr>
+</table>
+<div class="card"><b>103 매수차단 근본 = 전략 모호/결함 아님, 시스템적 이슈</b> (DSL 건강·신호 14건 풍부 = #1101 진단). 진짜 원인 3중:
+<ul>
+<li><b>동시 3슬롯 한도</b>(실 RiskConfig max_concurrent=3) — 6전략이 3슬롯을 다툼</li>
+<li><b>슬롯 선착순이 조기 발화 전략에 유리</b> — 102·103 신호가 오후에 도착할 땐 100·104·105가 이미 슬롯 점유. <b>타임프레임/발화시점이 슬롯 경합의 숨은 결정변수</b></li>
+<li><b>102·103 신호 지연</b> — market-data 인트라데이 캔들 backfill이 개장+1.5h 지연 → FVG/오더블록 zone이 오후에야 형성 → 신호 자체가 늦음</li>
+</ul>
+<b>개선 타깃</b>: ① 슬롯 공정성(라운드로빈·paper 병행·동시한도 상향 검토) ② 인트라데이 캔들 backfill 조기화(market-data). <b>전략 6개를 켜도 실효 발화는 슬롯·타이밍에 좌우</b>됨이 첫날 핵심 학습.</div>
+
+<h2>③ 부분/분할체결 분석 (데이터 정합)</h2>
 <table>
 <tr><th>케이스</th><th>오늘</th><th>처리</th></tr>
 <tr><td>부분체결(under-fill)</td><td>0건 — 체결 BUY 전부 완전체결</td><td>—</td></tr>
@@ -53,7 +70,7 @@
 </table>
 <div class="card mut">P&L·KIS 대조는 <b>주문수량이 아닌 <code>order_execution.executed_qty</code>(실제 체결)</b>를 사용 → 분할/부분체결 구조적 정확.</div>
 
-<h2>③ KIS 진실원 크로스체크 (오늘 최대 성과)</h2>
+<h2>④ KIS 진실원 크로스체크 (오늘 최대 성과)</h2>
 <div class="card">
 우리 데이터 내부정합 ≠ 진짜. KIS와 대조해 <b>우리 손익이 과대였음(gross)을 발견</b>하고 net으로 확정.
 <ul>
@@ -64,7 +81,7 @@
 <b>표준화</b>: <code>/admin/reconcile/realized-pnl</code> 크로스체크 endpoint + tolerance + 원인분류. "자본·손익 검증은 항상 KIS 대조" standing 원칙 확립.
 </div>
 
-<h2>④ 발견·수정한 시스템 이슈 (autopilot이 실거래로 surface — 자기증대의 핵심 수확)</h2>
+<h2>⑤ 발견·수정한 시스템 이슈 (autopilot이 실거래로 surface — 자기증대의 핵심 수확)</h2>
 <table>
 <tr><th>#</th><th>이슈</th><th>처리</th></tr>
 <tr><td>1</td><td><b>엔티티 owner 매핑 누락</b> = Guard 우회 진짜 root (도메인 owner→USER default→신호 USER 운반)</td><td class="ok">fix #1096</td></tr>
@@ -75,10 +92,11 @@
 <tr><td>8</td><td><b>stale jar 함정</b> (gradle UP-TO-DATE 재컴파일 누락)</td><td class="ok">clean 재빌드 의무화</td></tr>
 <tr><td>9</td><td><b>손익 KIS 미검증 + gross/net</b> (fee/tax=0 미캡처 → 우리 27% 과대)</td><td class="ok">#1097·1099·1102</td></tr>
 <tr><td>10</td><td>성과 cache mode 미지정 시 당일 0 표시 (API 직접호출)</td><td>인지·문서화</td></tr>
-<tr><td>11</td><td><b>타임프레임 슬롯 경합</b> (3m 전략이 5m 선점 → 휴면 착시)</td><td>진단 #1101 (다음 학습)</td></tr>
+<tr><td>11</td><td><b>타임프레임 슬롯 경합</b> (3m 전략이 5m 선점·103 등 5m 후발 신호 전량 차단 → 휴면 착시)</td><td>진단 #1101 (다음 학습)</td></tr>
+<tr><td>12</td><td><b>손익 scoping 결여</b> — 성과/크로스체크가 계좌 전체(user-wide)라 후성(수동 청산 +18,814) 등 비-autopilot REAL 거래가 autopilot 성과에 혼입(초판 +21,542 오기)</td><td class="warn">인지·정정 (다음: owner=AUTOPILOT scoped P&L 뷰)</td></tr>
 </table>
 
-<h2>⑤ 오늘 개발한 개선 5건 (마감 후)</h2>
+<h2>⑥ 오늘 개발한 개선 5건 (마감 후)</h2>
 <div class="card">
 <span class="pill">D</span><b>사이징 정상화</b> — 풀/maxPositions fair-share floor → 몰빵(한종목 34~48주) 차단·3슬롯 분산 (#1098, max=3)<br>
 <span class="pill">A</span><b>KIS 정합 권위 승격</b> — TTTC8715R(전량청산 포함) + 크로스체크 재작성 (#1099)<br>
@@ -87,7 +105,7 @@
 <span class="pill">E</span><b>fee/tax 캡처</b> — KIS 실비용 차감 → matched=true 종결 (#1102)
 </div>
 
-<h2>⑥ 안전 (코드강제 — 검증 완료)</h2>
+<h2>⑦ 안전 (코드강제 — 검증 완료)</h2>
 <ul>
 <li><b>autopilot Guard 라이브 작동 검증</b> (#1096, 14:25 평가 로그 실증) — 모든 owner=AUTOPILOT BUY 평가·누적손실 kill 회로차단기</li>
 <li><b>이중 안전망</b>: autopilot Guard(풀·누적손실·분산 사이징) + 실 RiskConfig(동시3·종목당400k·일손실5% auto-pause)</li>
@@ -95,7 +113,7 @@
 <li>후성 청산·전략47 PAUSED 비간섭, kill off 마감</li>
 </ul>
 
-<h2>⑦ 학습 & 다음 (인계)</h2>
+<h2>⑧ 학습 & 다음 (인계)</h2>
 <ul>
 <li><b>"된다 ≠ 잘 된다"</b> — 메커니즘(에러 0)이 아닌 매매 행위(원장)를 봐야 한다. orchestrator 측정 오류 3건(측정안됨/손실/+27,420)을 사용자 규율이 매번 교정.</li>
 <li><b>KIS 진실원 크로스체크</b>가 우리 손익 27% 과대를 잡았다. 자본·손익은 항상 KIS 대조 = 프로덕션 표준.</li>
