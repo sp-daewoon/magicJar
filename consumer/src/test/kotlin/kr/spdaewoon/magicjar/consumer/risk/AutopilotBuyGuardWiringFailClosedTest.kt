@@ -62,15 +62,20 @@ import java.math.BigDecimal
  * ## 라이브 incident (2026-06-22 장중)
  * owner=AUTOPILOT BUY 가 [SignalGeneratedKafkaListener.applyAutopilotBuyGuard] 의 [AutopilotBuyGuard.evaluate] 를
  * 한 번도 거치지 않고(평가 로그 0건) 풀 한도의 14배(노출 363k / 풀 26k)를 실매수했다. 근본은 owner 확정 lookup
- * 비대칭(`findActiveByCodeAndInterval` 단독)으로 strategy=null → isAutopilotBuy=false → 무게이트 Proceed 였다.
+ * 비대칭(신규 BUY·보유 0 에서 lookup null)으로 strategy=null → isAutopilotBuy=false → 무게이트 Proceed 였다.
+ *
+ * ## 견고 해법 — owner-on-signal (lookup 제거, 2026-06-22 P0)
+ * 신호가 [kr.spdaewoon.magicjar.domain.signal.Signal.strategyOwner] 로 owner 를 운반한다 → Guard 가 lookup 없이
+ * payload owner 로 직접 식별 → 신규 BUY race 원천 제거. lookup 은 owner 필드 없는 **legacy 신호(null)** fallback 만.
  *
  * ## 봉인 불변식 (코드 강제 > 프롬프트)
  * **"Guard 가 owner=AUTOPILOT BUY 를 평가하지 못하는 모든 경우 = Reject."**
- *  - Guard provider null + enabled=true → Reject(과거 무조건 Proceed = fail-OPEN 회귀 검출).
- *  - lookup null/owner 미상 + enabled=true → Reject.
+ *  - 신호 운반 owner=AUTOPILOT + Guard provider null + enabled=true → Reject(과거 무조건 Proceed = fail-OPEN 회귀 검출).
+ *  - legacy 신호(owner null) + lookup null/owner 미상 + enabled=true → Reject.
  *  - 풀 한도 초과 매수(라이브 363k vs 26k 재현) → Reject.
  *  - price<=0 + owner=AUTOPILOT → Reject(사이징 불가 시 안 산다).
- *  - **USER BUY 는 무영향**(zero-regression — 후성·사용자 매매 byte 동일).
+ *  - **신호 운반 owner=USER BUY 는 무영향**(zero-regression — 후성·사용자 매매 byte 동일·lookup 0).
+ *  - **legacy 신호 owner-on-signal 하위호환** — owner 필드 없는 payload 도 lookup fallback 으로 정상 식별.
  */
 class AutopilotBuyGuardWiringFailClosedTest {
     private val objectMapper = ObjectMapper()
@@ -109,17 +114,18 @@ class AutopilotBuyGuardWiringFailClosedTest {
         }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1) Guard provider null + autopilot enabled → owner=AUTOPILOT BUY Reject (과거 Proceed 회귀)
+    // 1) Guard provider null + autopilot enabled → 신호 운반 owner=AUTOPILOT BUY Reject (과거 Proceed 회귀)
+    //    ★ lookup stub 없음 — owner 가 신호 payload 로 운반되므로 lookup 불필요(견고 fix 핵심 증명).
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `Guard provider null + enabled=true + AUTOPILOT BUY 는 Reject (fail-OPEN 회귀 검출)`() {
+    fun `Guard provider null + enabled=true + 운반owner=AUTOPILOT BUY 는 Reject (fail-OPEN 회귀 검출, lookup 0)`() {
         commonAllowStubs()
-        stubAutopilotStrategyLookup()
+        every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(autopilotStrategy())
 
         listener(
             autopilotGuardProvider = nullableProvider(),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "37250")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "37250", owner = "AUTOPILOT")), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(
@@ -130,39 +136,44 @@ class AutopilotBuyGuardWiringFailClosedTest {
         }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
         verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any()) }
+        // 견고 fix 증명 — owner 식별에 Guard owner 확정 lookup(findSellEval)을 쓰지 않는다.
+        verify(exactly = 0) { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) }
     }
 
     @Test
-    fun `Guard provider null + enabled=false + USER BUY 는 Proceed (zero-regression)`() {
+    fun `Guard provider null + enabled=false + 운반owner=USER BUY 는 Proceed (zero-regression, lookup 0)`() {
         commonAllowStubs()
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(userStrategy())
 
         listener(
             autopilotGuardProvider = nullableProvider(),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = false)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000", owner = "USER")), ack())
 
         // USER 경로는 게이트 미적용 — 정상 발행(autopilot blocked 0).
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 0) {
             signalRiskStatusUpdater.markBlocked(any(), RiskRule.POSITION_LIMIT, match { it.contains("AUTOPILOT") })
         }
+        // 운반 owner=USER 면 lookup 자체가 불필요.
+        verify(exactly = 0) { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2) lookup null/owner 미상 + autopilot enabled → Reject
+    // 2) legacy 신호(owner 필드 없음) + lookup null/owner 미상 + enabled → Reject (하위호환 fallback)
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `lookup owner 미상(empty) + enabled=true + BUY 는 Reject (owner 판정 불가 보수 차단)`() {
+    fun `legacy owner null + lookup 미상(empty) + enabled=true + BUY 는 Reject (owner 판정 불가 보수 차단)`() {
         commonAllowStubs()
         // active 엔 USER 존재(신호 생성 경로) → 평가 통과. 그러나 Guard owner 확정 lookup(findSellEval)은 빈 → owner 미상.
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(userStrategy())
         every { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) } returns emptyList()
 
+        // owner 미운반(legacy) → strategyOwner=null → lookup fallback 진입.
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = true)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "37250")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "37250", owner = null)), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(
@@ -175,7 +186,7 @@ class AutopilotBuyGuardWiringFailClosedTest {
     }
 
     @Test
-    fun `lookup owner 미상(empty) + enabled=false + BUY 는 Proceed (USER 단정 zero-regression)`() {
+    fun `legacy owner null + lookup 미상(empty) + enabled=false + BUY 는 Proceed (USER 단정 zero-regression)`() {
         commonAllowStubs()
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(userStrategy())
         every { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) } returns emptyList()
@@ -183,7 +194,7 @@ class AutopilotBuyGuardWiringFailClosedTest {
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = false)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = false)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000", owner = null)), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 0) {
@@ -192,24 +203,21 @@ class AutopilotBuyGuardWiringFailClosedTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3) 풀 한도 초과 매수 → Reject (라이브 363k vs 풀 26k 재현)
+    // 2-b) legacy 신호(owner 필드 없음) + lookup 으로 AUTOPILOT 확정 → 정상 Guard 평가 (하위호환 fallback 정상 식별)
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `풀 한도 소진 AUTOPILOT BUY 는 Reject (라이브 노출363k vs 풀 재현)`() {
-        // 라이브 재현: autopilot 루프 노출이 이미 풀 한도를 넘었는데(363k) 추가 BUY 가 들어온 상황.
-        //   일반 RiskConfig budget 은 순자산 1억 기준 통과(resolvedQuantity≥1 보장 — guard 도달 전 INVALID_ORDER_INTENT 회피).
-        //   그러나 autopilot 풀(순자산×poolPct 5% = 500만)은 loopExposure 363만이 이미 점유 → 추가 제안이 풀 잔여 초과 → Guard Reject.
+    fun `legacy owner null + lookup AUTOPILOT 확정 + 풀 소진 → Reject (fallback 정상 식별)`() {
         commonAllowStubs(netWorth = "100000000")
         stubAutopilotStrategyLookup()
         every { stateStore.load() } returns AutopilotState()
-        // loopExposure 5,000,000(=풀 100% 소진) → 어떤 추가 제안도 풀 잔여 0 초과 → Reject(건당 캡·풀 잔여 둘 다 위반).
         every { strategyPositionRepository.sumAutopilotExposureByUser(any()) } returns BigDecimal("5000000")
         every { strategyPositionRepository.countAutopilotHeldCodesByUser(any()) } returns 1
 
+        // owner 미운반(legacy) → lookup fallback 이 AUTOPILOT 확정 → Guard.evaluate 도달 → 풀 소진 Reject.
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = true)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "325750")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "325750", owner = null)), ack())
 
         verify(exactly = 1) {
             signalRiskStatusUpdater.markBlocked(
@@ -222,20 +230,84 @@ class AutopilotBuyGuardWiringFailClosedTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // 3) 풀 한도 초과 매수(보유 有) → Reject (라이브 363k vs 풀 26k 재현)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun `풀 한도 소진(보유 有) 운반owner=AUTOPILOT BUY 는 Reject (라이브 노출363k vs 풀 재현)`() {
+        // 라이브 재현: autopilot 루프 노출이 이미 풀 한도를 넘었는데(363k) 추가 BUY 가 들어온 상황(보유 種목 1).
+        //   일반 RiskConfig budget 은 순자산 1억 기준 통과(resolvedQuantity≥1 보장 — guard 도달 전 INVALID_ORDER_INTENT 회피).
+        //   그러나 autopilot 풀(순자산×poolPct 5% = 500만)은 loopExposure 363만이 이미 점유 → 추가 제안이 풀 잔여 초과 → Guard Reject.
+        commonAllowStubs(netWorth = "100000000")
+        every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(autopilotStrategy())
+        every { stateStore.load() } returns AutopilotState()
+        // loopExposure 5,000,000(=풀 100% 소진) + 보유 1종목 → 어떤 추가 제안도 풀 잔여 0 초과 → Reject(건당 캡·풀 잔여 둘 다 위반).
+        every { strategyPositionRepository.sumAutopilotExposureByUser(any()) } returns BigDecimal("5000000")
+        every { strategyPositionRepository.countAutopilotHeldCodesByUser(any()) } returns 1
+
+        listener(
+            autopilotGuardProvider = providerOf(realGuard(enabled = true)),
+            autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "325750", owner = "AUTOPILOT")), ack())
+
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(
+                77L,
+                RiskRule.POSITION_LIMIT,
+                match { it.contains("AUTOPILOT_GUARD_REJECT") },
+            )
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        // 견고 fix 증명 — owner 식별에 lookup 미사용.
+        verify(exactly = 0) { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3-b) ★ 신규 BUY(보유 0) 운반owner=AUTOPILOT → Guard.evaluate 도달 (라이브 우회 root 직접 봉인)
+    //   라이브 incident 의 핵심: 신규 매수(보유 0)는 position-driven lookup 이 null → owner 미상 → 무게이트였다.
+    //   owner-on-signal 로 보유 0 에서도 Guard.evaluate 가 반드시 돈다. 누적손실 한도 도달 → KillTriggered → kill ON.
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun `신규BUY 보유0 운반owner=AUTOPILOT + 누적손실 한도 도달 → KillTriggered + kill ON (회로차단기 복구)`() {
+        commonAllowStubs(netWorth = "100000000")
+        // 보유 0(신규 BUY) — lookup 이 과거 null 을 반환하던 바로 그 케이스. owner 는 신호가 운반.
+        every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(autopilotStrategy())
+        // 풀=500만, 누적손실 한도=풀50%=250만. cumRealizedLoss 250만 → KillTriggered.
+        every { stateStore.load() } returns AutopilotState(cumRealizedLoss = BigDecimal("2500000"))
+        every { strategyPositionRepository.sumAutopilotExposureByUser(any()) } returns BigDecimal.ZERO
+        every { strategyPositionRepository.countAutopilotHeldCodesByUser(any()) } returns 0 // 보유 0
+
+        listener(
+            autopilotGuardProvider = providerOf(realGuard(enabled = true)),
+            autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000", owner = "AUTOPILOT")), ack())
+
+        // KillTriggered → kill switch 발동(누적손실 회로차단기 복구 — 라이브 미작동의 정정).
+        verify(exactly = 1) { killSwitch.trigger(any()) }
+        verify(exactly = 1) {
+            signalRiskStatusUpdater.markBlocked(
+                77L,
+                RiskRule.KILL_SWITCH_ON,
+                match { it.contains("AUTOPILOT_KILL") },
+            )
+        }
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // 4) price<=0 + AUTOPILOT → 실주문 0 (사이징 불가)
     //   진단: price<=0 은 riskGatewayEvaluator 가 INVALID_SIGNAL_PRICE 로 먼저 차단 → applyAutopilotBuyGuard 에
     //   도달하지 않는다(상위 게이트가 이미 봉인). 따라서 실주문 0 은 INVALID_SIGNAL_PRICE 로 보장된다.
     //   guard 내 price<=0 Reject 분기는 그 상위 게이트가 미래에 변형돼도 무너지지 않게 하는 방어 심층(belt-and-suspenders).
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `price 0 + AUTOPILOT BUY 는 실주문 0 (INVALID_SIGNAL_PRICE 상위 차단)`() {
+    fun `price 0 + 운반owner=AUTOPILOT BUY 는 실주문 0 (INVALID_SIGNAL_PRICE 상위 차단)`() {
         commonAllowStubs()
-        stubAutopilotStrategyLookup()
+        every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(autopilotStrategy())
 
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = true)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "0")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "0", owner = "AUTOPILOT")), ack())
 
         // 핵심 불변식: price<=0 AUTOPILOT BUY 는 실주문 0(어떤 분모 없는 사이징으로도 매수 안 함).
         verify(exactly = 1) {
@@ -249,18 +321,18 @@ class AutopilotBuyGuardWiringFailClosedTest {
     // 5) Guard 정상 주입 + 한도 내 → Allow (기존 정상 경로 보존)
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `Guard 정상 + 한도 내 AUTOPILOT BUY 는 Allow 발행`() {
-        // 순자산 1억 → 풀 5%=500만, 건당 캡 20%=100만. 제안 1주 @50,000 → 한도 내 → Allow → 발행.
+    fun `Guard 정상 + 한도 내(보유 有) 운반owner=AUTOPILOT BUY 는 Allow 발행`() {
+        // 순자산 1억 → 풀 5%=500만, 건당 캡 20%=100만. 제안 1주 @50,000 → 한도 내 → Allow → 발행. 보유 1종목.
         commonAllowStubs(netWorth = "100000000")
-        stubAutopilotStrategyLookup()
+        every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(autopilotStrategy())
         every { stateStore.load() } returns AutopilotState()
-        every { strategyPositionRepository.sumAutopilotExposureByUser(any()) } returns BigDecimal.ZERO
-        every { strategyPositionRepository.countAutopilotHeldCodesByUser(any()) } returns 0
+        every { strategyPositionRepository.sumAutopilotExposureByUser(any()) } returns BigDecimal("100000")
+        every { strategyPositionRepository.countAutopilotHeldCodesByUser(any()) } returns 1
 
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = true)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000", owner = "AUTOPILOT")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 0) {
@@ -270,24 +342,25 @@ class AutopilotBuyGuardWiringFailClosedTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6) USER BUY 는 Guard enabled=true 여도 무영향 (zero-regression 핵심)
+    // 6) 운반owner=USER BUY 는 Guard enabled=true 여도 무영향 (zero-regression 핵심 · lookup 0)
     // ─────────────────────────────────────────────────────────────────────────
     @Test
-    fun `USER BUY 는 enabled=true Guard 주입돼도 Proceed (byte 동일)`() {
+    fun `운반owner=USER BUY 는 enabled=true Guard 주입돼도 Proceed (byte 동일, lookup 0)`() {
         commonAllowStubs(netWorth = "100000000")
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns listOf(userStrategy())
-        every { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) } returns listOf(userStrategy())
 
         listener(
             autopilotGuardProvider = providerOf(realGuard(enabled = true)),
             autopilotPropertiesProvider = providerOf(MagicjarAutopilotProperties(enabled = true)),
-        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000", owner = "USER")), ack())
 
         verify(exactly = 1) { signalRiskStatusUpdater.markAllowed(77L) }
         verify(exactly = 0) {
             signalRiskStatusUpdater.markBlocked(any(), RiskRule.POSITION_LIMIT, match { it.contains("AUTOPILOT") })
         }
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        // 운반 owner=USER → lookup 미사용(견고 fix·zero-regression).
+        verify(exactly = 0) { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -427,9 +500,14 @@ class AutopilotBuyGuardWiringFailClosedTest {
         )
     }
 
+    /**
+     * @param owner 신호가 운반하는 owner enum 이름(AUTOPILOT/USER/SYSTEM). null 이면 키 자체를 싣지 않아 **legacy 신호**
+     *   (owner 필드 없는 payload) 하위호환 경로를 재현한다 → 역직렬화는 strategyOwner=null → 호출자 lookup fallback.
+     */
     private fun payload(
         side: String,
         price: String,
+        owner: String? = null,
     ): String =
         objectMapper.writeValueAsString(
             buildMap<String, Any?> {
@@ -443,6 +521,7 @@ class AutopilotBuyGuardWiringFailClosedTest {
                 put("strength", 80)
                 put("reason", "test")
                 put("priceAtSignal", price)
+                if (owner != null) put("strategyOwner", owner)
             },
         )
 

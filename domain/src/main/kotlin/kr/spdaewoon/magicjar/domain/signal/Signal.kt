@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.domain.signal
 
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import java.math.BigDecimal
 
 /**
@@ -29,6 +30,13 @@ import java.math.BigDecimal
  * @param priceAtSignal 평가 시점 종가 (boundary close raw)
  * @param contextJson 평가 context JSON (indicator values · pattern matched · …)
  * @param createdAt 영속 시각
+ * @param strategyOwner 발행 전략의 [StrategyOwner] — **신호가 owner 를 직접 운반**한다(2026-06-22 P0 견고 fix).
+ *   signal.generated.v1 consumer([kr.spdaewoon.magicjar.consumer.risk.SignalGeneratedKafkaListener])의 autopilot
+ *   Guard 가 owner=[StrategyOwner.AUTOPILOT] BUY 를 식별할 때, 과거엔 listener 가 strategy 를 **재조회(lookup)** 해
+ *   owner 를 알아냈다. 그 lookup 은 신규 BUY(보유 0·position-driven 폴백 미반환)에서 null → owner 미상 → 회로차단기
+ *   우회의 root 였다. 신호 생성기가 발행 시점에 보유 중인 strategy.owner 를 동봉하면 Guard 가 lookup 없이 즉시 식별한다
+ *   (추가 조회 0). **nullable = 하위호환** — owner 필드 없는 legacy payload 역직렬화는 null(=USER 취급, zero-regression).
+ *   DB signal 테이블에는 별도 컬럼 없음(transient — 영속 round-trip 시 null 이 되므로 생성기가 publish 직전 재부착).
  *
  * spec 인용: ADR 0066 §5-2.
  *
@@ -47,4 +55,5 @@ data class Signal(
     val priceAtSignal: BigDecimal,
     val contextJson: String? = null,
     val createdAt: Instant? = null,
+    val strategyOwner: StrategyOwner? = null,
 )

@@ -11,20 +11,19 @@ import kr.spdaewoon.magicjar.domain.risk.RiskConfig
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
-import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
-import kr.spdaewoon.magicjar.domain.strategy.Strategy
-import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
-import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
-import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 
 /**
- * [AutopilotBuyGuard] Guard 매수 경로 wiring 단위 테스트 (spec 2026-06-22 §2-0-A · Phase 0 Task 3).
+ * [AutopilotBuyGuard] Guard 매수 경로 wiring 단위 테스트 (spec 2026-06-22 §2-0-A · Phase 0 Task 3 · owner-on-signal P0 견고 fix).
  *
- * 검증 매트릭스: 게이트 off→NotApplicable(zero-regression) / owner≠AUTOPILOT 무영향 / owner=AUTOPILOT Allow(보수적 clamp) /
+ * ## owner 식별 — 신호 운반(lookup 제거)
+ * Guard 는 [Signal.strategyOwner] 를 단일 출처로 owner=AUTOPILOT BUY 를 식별한다([AutopilotBuyGuard.isAutopilotBuy] —
+ * Strategy 재조회 0). 과거 lookup 경로(신규 BUY·보유 0 에서 null)가 owner 미상→무게이트 우회를 만들던 race 가 사라진다.
+ *
+ * 검증 매트릭스: 게이트 off→Reject(벨트앤서스펜더) / owner≠AUTOPILOT 무영향 / owner=AUTOPILOT Allow(보수적 clamp) /
  * Reject / KillTriggered→kill switch 발동 / 노출 조회 실패 fail-closed.
  */
 class AutopilotBuyGuardTest {
@@ -46,7 +45,7 @@ class AutopilotBuyGuardTest {
         // NotApplicable(Proceed→무게이트 실주문)이 아니라 Reject 해 실주문을 0 으로 막는다.
         val decision =
             guard(enabled = false)
-                .evaluate(buySignal(), autopilotStrategy(), context(), BigDecimal("1000000"))
+                .evaluate(autopilotBuySignal(), context(), BigDecimal("1000000"))
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.Reject::class.java)
         assertThat((decision as AutopilotBuyDecision.Reject).reason).contains("autopilot disabled")
         // 차단이 우선 — state·노출 조회조차 하지 않음(즉시 Reject).
@@ -58,7 +57,7 @@ class AutopilotBuyGuardTest {
         // 벨트앤서스펜더는 BUY 만 막는다. SELL(청산)은 enabled 무관 기존 경로 그대로(롱온리 청산 보장).
         val decision =
             guard(enabled = false)
-                .evaluate(buySignal().copy(side = SignalSide.SELL), autopilotStrategy(), context(), BigDecimal("1000000"))
+                .evaluate(autopilotBuySignal().copy(side = SignalSide.SELL), context(), BigDecimal("1000000"))
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
         verify(exactly = 0) { stateStore.load() }
     }
@@ -68,25 +67,26 @@ class AutopilotBuyGuardTest {
         // enabled=false 라도 owner=USER 는 차단 대상이 아니다 — 기존 경로 그대로.
         val decision =
             guard(enabled = false)
-                .evaluate(buySignal(), userStrategy(), context(), BigDecimal("1000000"))
+                .evaluate(userBuySignal(), context(), BigDecimal("1000000"))
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
         verify(exactly = 0) { stateStore.load() }
     }
 
     @Test
-    fun `isAutopilotBuy 는 enabled 무관 side+owner 만 본다`() {
+    fun `isAutopilotBuy 는 신호 운반 owner+side 만 본다 (lookup 0)`() {
         val g = guard(enabled = false)
-        assertThat(g.isAutopilotBuy(buySignal(), autopilotStrategy())).isTrue()
-        assertThat(g.isAutopilotBuy(buySignal().copy(side = SignalSide.SELL), autopilotStrategy())).isFalse()
-        assertThat(g.isAutopilotBuy(buySignal(), userStrategy())).isFalse()
-        assertThat(g.isAutopilotBuy(buySignal(), null)).isFalse()
+        assertThat(g.isAutopilotBuy(autopilotBuySignal())).isTrue()
+        assertThat(g.isAutopilotBuy(autopilotBuySignal().copy(side = SignalSide.SELL))).isFalse()
+        assertThat(g.isAutopilotBuy(userBuySignal())).isFalse()
+        // owner 미상(legacy null) → AUTOPILOT 아님(호출자가 fail-closed 로 처리).
+        assertThat(g.isAutopilotBuy(autopilotBuySignal().copy(strategyOwner = null))).isFalse()
     }
 
     @Test
-    fun `owner != AUTOPILOT 전략은 Guard 미적용 (사용자 전략 무영향)`() {
+    fun `owner != AUTOPILOT 신호는 Guard 미적용 (사용자 전략 무영향)`() {
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal(), userStrategy(), context(), BigDecimal("1000000"))
+                .evaluate(userBuySignal(), context(), BigDecimal("1000000"))
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
         verify(exactly = 0) { stateStore.load() }
     }
@@ -95,7 +95,7 @@ class AutopilotBuyGuardTest {
     fun `SELL 시그널은 Guard 미적용`() {
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal().copy(side = SignalSide.SELL), autopilotStrategy(), context(), BigDecimal("1000000"))
+                .evaluate(autopilotBuySignal().copy(side = SignalSide.SELL), context(), BigDecimal("1000000"))
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.NotApplicable::class.java)
     }
 
@@ -108,7 +108,7 @@ class AutopilotBuyGuardTest {
 
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal(), autopilotStrategy(), context(netWorth = "100000000"), BigDecimal("500000"))
+                .evaluate(autopilotBuySignal(), context(netWorth = "100000000"), BigDecimal("500000"))
 
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.Allow::class.java)
         assertThat((decision as AutopilotBuyDecision.Allow).approvedAmount).isEqualByComparingTo("500000")
@@ -122,7 +122,7 @@ class AutopilotBuyGuardTest {
 
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal(), autopilotStrategy(), context(netWorth = "100000000"), BigDecimal("100000"))
+                .evaluate(autopilotBuySignal(), context(netWorth = "100000000"), BigDecimal("100000"))
 
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.Reject::class.java)
     }
@@ -137,7 +137,7 @@ class AutopilotBuyGuardTest {
 
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal(), autopilotStrategy(), context(netWorth = "100000000"), BigDecimal("100000"))
+                .evaluate(autopilotBuySignal(), context(netWorth = "100000000"), BigDecimal("100000"))
 
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.Kill::class.java)
         verify(exactly = 1) { killSwitch.trigger(any()) }
@@ -150,14 +150,18 @@ class AutopilotBuyGuardTest {
 
         val decision =
             guard(enabled = true)
-                .evaluate(buySignal(), autopilotStrategy(), context(netWorth = "100000000"), BigDecimal("100000"))
+                .evaluate(autopilotBuySignal(), context(netWorth = "100000000"), BigDecimal("100000"))
 
         assertThat(decision).isInstanceOf(AutopilotBuyDecision.Reject::class.java)
     }
 
     // ---- fixtures ----
 
-    private fun buySignal(): Signal =
+    private fun autopilotBuySignal(): Signal = buySignal(StrategyOwner.AUTOPILOT)
+
+    private fun userBuySignal(): Signal = buySignal(StrategyOwner.USER)
+
+    private fun buySignal(owner: StrategyOwner): Signal =
         Signal(
             id = 1L,
             strategyId = 100L,
@@ -169,6 +173,8 @@ class AutopilotBuyGuardTest {
             strength = 80,
             reason = "test",
             priceAtSignal = BigDecimal("70000"),
+            // owner-on-signal — Guard 가 lookup 없이 식별하는 단일 출처.
+            strategyOwner = owner,
         )
 
     private fun context(netWorth: String = "100000000"): RiskContext =
@@ -183,30 +189,5 @@ class AutopilotBuyGuardTest {
             recentTradesDay = 0,
             killSwitchOn = false,
             nowKst = Clock.System.now(),
-        )
-
-    private fun autopilotStrategy(): Strategy = strategy(StrategyOwner.AUTOPILOT)
-
-    private fun userStrategy(): Strategy = strategy(StrategyOwner.USER)
-
-    private fun strategy(owner: StrategyOwner): Strategy =
-        Strategy(
-            id = 100L,
-            userId = 1L,
-            owner = owner,
-            definition =
-                StrategyDefinition(
-                    dsl = DslStrategyDefinition(name = "test", buyCondition = null),
-                    fixedStopLoss = BigDecimal("5.00"),
-                    takeProfitPct = BigDecimal("10.00"),
-                ),
-            complexity =
-                StrategyComplexity(
-                    astDepth = 1,
-                    nodeCount = 1,
-                    indicatorCallCount = 0,
-                    estimatedEvalTimeMs = 1,
-                    complexityClass = ComplexityClass.LOW,
-                ),
         )
 }

@@ -40,6 +40,7 @@ import kr.spdaewoon.magicjar.domain.risk.port.SignalRiskStatusUpdater
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -1347,11 +1348,22 @@ class SignalGeneratedKafkaListener(
     )
 
     /**
-     * magicjar-autopilot Guard 매수 게이트 (spec 2026-06-22 §2-0-A·§2-0-B · Task 3).
+     * magicjar-autopilot Guard 매수 게이트 (spec 2026-06-22 §2-0-A·§2-0-B · Task 3 · 2026-06-22 owner-on-signal P0 견고 fix).
      *
      * owner=AUTOPILOT BUY 만 [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard] 를 통과시킨다. 게이트
      * off·non-BUY·owner≠AUTOPILOT·provider 미배선이면 [AutopilotGateResult.Proceed](resolvedQuantity) — 기존 경로
      * byte 동일(zero-regression).
+     *
+     * ## owner 식별 — 신호 운반(lookup 제거) ★ 라이브 우회 원천 봉인
+     * owner 는 **[Signal.strategyOwner] 가 단일 출처**다. 신호 생성기([RealtimeSignalGenerator])가 발행 시점 보유 중인
+     * strategy.owner 를 동봉하므로(추가 조회 0) Guard 가 lookup 없이 즉시 식별한다. 과거 lookup 경로
+     * ([findActiveByCodeAndInterval] · [findSellEvalByCodeAndInterval])는 **신규 BUY(보유 0·position-driven 폴백
+     * 미반환)에서 null** 을 반환해 owner 미상→무게이트 Proceed 가 되는 라이브 우회의 root 였다(lookup 3회 실패).
+     * 이제 그 race 자체가 사라진다.
+     *
+     * legacy 신호(owner 필드 없는 payload → strategyOwner=null)만 lookup 으로 fallback 하되, enabled=true 에서 owner 를
+     * 끝내 확정 못 하면 fail-closed Reject(보수 차단). enabled=false 면 AUTOPILOT BUY signal 자체가 생성되지 않으므로
+     * owner 미상=USER 로 보고 기존 경로 진행(zero-regression).
      *
      * 제안 금액 = resolvedQuantity × priceAtSignal. Guard 가:
      *  - [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable] → Proceed(resolvedQuantity).
@@ -1370,7 +1382,7 @@ class SignalGeneratedKafkaListener(
 
         val guard = autopilotBuyGuardProvider?.getIfAvailable()
 
-        // ── P0 fail-closed (2026-06-22) — autopilot 활성 여부 독립 확인 ──────────────────────────────────
+        // ── autopilot 활성 여부 독립 확인 ───────────────────────────────────────────────────────────────
         //   autopilot enabled 의 권위는 MagicjarAutopilotProperties. Guard 가 가용하면 guard.enabled, 아니면
         //   properties 직결로 본다. 둘 다 못 보면(provider 전부 부재) autopilot 모듈 자체 미합류로 간주(enabled=false).
         val autopilotEnabled =
@@ -1378,59 +1390,65 @@ class SignalGeneratedKafkaListener(
                 ?: autopilotPropertiesProvider?.getIfAvailable()?.enabled
                 ?: false
 
+        // ── owner 식별 — 신호 운반 owner 가 단일 출처(lookup 0) ──────────────────────────────────────────
+        //   신호가 owner 를 운반하면(strategyOwner != null) 그 값이 권위 — lookup 불필요(신규 BUY race 원천 제거).
+        //   legacy 신호(strategyOwner == null)만 lookup 으로 owner 를 확정 시도(하위호환). owner 미상 처리는 아래 참조.
+        val carriedOwner = signal.strategyOwner
+        val ownerIsAutopilot =
+            when (carriedOwner) {
+                StrategyOwner.AUTOPILOT -> true
+                StrategyOwner.USER, StrategyOwner.SYSTEM -> false
+                // legacy: owner 미상 → lookup fallback(없으면 null = 미상).
+                null -> lookupStrategyForGuardOrNull(signal)?.owner == StrategyOwner.AUTOPILOT
+            }
+
+        // ── 비-AUTOPILOT(USER/SYSTEM) BUY — owner 확정됨 → 기존 경로 그대로 (zero-regression 핵심) ────────────
+        //   carriedOwner 가 USER/SYSTEM 이면 owner 가 명확히 비-autopilot 이므로 lookup·Guard 없이 즉시 Proceed.
+        //   legacy(null)인데 lookup 으로도 AUTOPILOT 이 아니면: enabled 분기로 owner 미상 처리(아래).
+        if (carriedOwner == StrategyOwner.USER || carriedOwner == StrategyOwner.SYSTEM) {
+            return AutopilotGateResult.Proceed(resolvedQuantity)
+        }
+
+        // ── owner 미상 fail-closed (legacy 신호 한정) ───────────────────────────────────────────────────
+        //   carriedOwner == null 이고 lookup 도 AUTOPILOT 확정 실패 = owner 미상. enabled=true 면 AUTOPILOT 가능성을
+        //   배제 못 하므로 보수 차단(Reject). enabled=false 면 AUTOPILOT BUY signal 자체가 없으므로 USER 로 보고 Proceed.
+        if (carriedOwner == null && !ownerIsAutopilot) {
+            return if (autopilotEnabled) {
+                log.error(
+                    "autopilot enabled + 전략 owner 미상(legacy 신호 + lookup null) — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
+                    signal.id,
+                    signal.code,
+                    signal.strategyId,
+                )
+                AutopilotGateResult.Block(
+                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_OWNER_UNKNOWN:legacy signal + lookup null"),
+                )
+            } else {
+                AutopilotGateResult.Proceed(resolvedQuantity)
+            }
+        }
+
+        // ── 여기 도달 = owner=AUTOPILOT BUY 확정 (carried 또는 legacy lookup) ──────────────────────────────
+
         // ── 불변식: "Guard 가 owner=AUTOPILOT BUY 를 평가하지 못하는 모든 경우 = Reject" (코드 강제 > 프롬프트) ──
-        //   autopilot enabled 인데 Guard 빈이 미가용(provider null/조건부 제외)이면 owner 판정·사이징 자체가 불가하다.
+        //   autopilot enabled 인데 Guard 빈이 미가용(provider null/조건부 제외)이면 사이징 자체가 불가하다.
         //   과거 "guard ?: Proceed" 는 fail-OPEN(무게이트 실주문) 버그였다 — enabled=true 면 BUY 를 무조건 차단한다.
-        //   enabled=false 면 buyEvalOwners=['USER'] 라 AUTOPILOT BUY signal 자체가 없으므로 기존 경로 진행(USER zero-regression).
+        //   enabled=false 면 AUTOPILOT BUY 도 Guard.evaluate 가 벨트앤서스펜더로 Reject 하지만, Guard 가 없으면
+        //   그 분기조차 못 타므로 여기서 직접 차단한다(owner=AUTOPILOT 가 이미 확정됐으므로 무조건 Reject).
         if (guard == null) {
-            return if (autopilotEnabled) {
-                log.error(
-                    "autopilot enabled 인데 Guard 빈 미가용 — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
-                    signal.id,
-                    signal.code,
-                    signal.strategyId,
-                )
-                AutopilotGateResult.Block(
-                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_GUARD_UNAVAILABLE:guard bean 미가용"),
-                )
-            } else {
-                AutopilotGateResult.Proceed(resolvedQuantity)
-            }
+            log.error(
+                "owner=AUTOPILOT BUY 인데 Guard 빈 미가용 — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
+                signal.id,
+                signal.code,
+                signal.strategyId,
+            )
+            return AutopilotGateResult.Block(
+                autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_GUARD_UNAVAILABLE:guard bean 미가용"),
+            )
         }
-
-        // owner 확정 — 신호 생성기(RealtimeSignalGenerator)와 동일한 findSellEvalByCodeAndInterval 경로(owner 확정력 일치).
-        //   findActiveByCodeAndInterval 단독은 status/JSONB 매칭 비대칭으로 생성기가 잡은 AUTOPILOT 전략을 놓쳐
-        //   strategy=null → isAutopilotBuy=false → 무게이트 Proceed 가 됐다(라이브 우회 root). 합집합 쿼리로 정렬한다.
-        val strategy = lookupStrategyForGuardOrNull(signal)
-
-        // ── owner 미상 fail-closed ──────────────────────────────────────────────────────────────────────
-        //   enabled=true 인데 lookup 이 신호의 전략을 못 찾으면 owner 를 USER 로 단정할 수 없다(AUTOPILOT 일 수 있음).
-        //   autopilot 가능성을 배제 못 하는 BUY 는 보수 차단(Reject) — 라이브 우회 분기 #2 봉인.
-        //   enabled=false 면 AUTOPILOT BUY signal 이 생성되지 않으므로 owner 미상=USER 로 보고 기존 경로 진행(zero-regression).
-        if (strategy == null) {
-            return if (autopilotEnabled) {
-                log.error(
-                    "autopilot enabled + 전략 owner 미상(lookup null) — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
-                    signal.id,
-                    signal.code,
-                    signal.strategyId,
-                )
-                AutopilotGateResult.Block(
-                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_OWNER_UNKNOWN:strategy lookup null"),
-                )
-            } else {
-                AutopilotGateResult.Proceed(resolvedQuantity)
-            }
-        }
-
-        // 벨트앤서스펜더(spec §2-B) — applies(enabled 포함)가 아니라 isAutopilotBuy(enabled 무관)로 evaluate 진입을 결정한다.
-        //   enabled=false 인 AUTOPILOT BUY 도 evaluate 로 보내 Reject(실주문 0)시켜야 한다 — applies 단축 return 은
-        //   그 차단 분기를 건너뛰어 무게이트 Proceed 가 된다(위험). non-AUTOPILOT(USER) BUY 만 여기서 Proceed.
-        if (!guard.isAutopilotBuy(signal, strategy)) return AutopilotGateResult.Proceed(resolvedQuantity)
 
         // ── price<=0 fail-closed ────────────────────────────────────────────────────────────────────────
         //   owner=AUTOPILOT BUY 인데 price<=0 이면 풀/캡 산정 분모가 없어 사이징 자체가 불가 → 산정 못 하면 안 산다(Reject).
-        //   과거 enabled=true 의 Proceed 는 무사이징 실주문 위험. enabled=false 는 어차피 아래 evaluate 가 Reject.
         val price = signal.priceAtSignal
         if (price <= BigDecimal.ZERO) {
             log.error(
@@ -1445,7 +1463,9 @@ class SignalGeneratedKafkaListener(
         }
         val proposedAmount = price.multiply(BigDecimal(resolvedQuantity))
 
-        return when (val decision = guard.evaluate(signal, strategy, context, proposedAmount)) {
+        // ownerIsAutopilot=true 확정 — 신호 운반 owner 또는 legacy lookup fallback 으로 위에서 이미 판정됐다.
+        //   Guard 가 signal.strategyOwner 만 재검사하면 legacy(null) AUTOPILOT 을 NotApplicable 로 흘려 하위호환을 깬다.
+        return when (val decision = guard.evaluate(signal, ownerIsAutopilot = true, context, proposedAmount)) {
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable ->
                 AutopilotGateResult.Proceed(resolvedQuantity)
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Allow -> {
@@ -1647,6 +1667,14 @@ class SignalGeneratedKafkaListener(
                     else -> BigDecimal.ZERO
                 }
             val contextJson = payload["contextJson"]?.toString()
+            // owner-on-signal (2026-06-22 P0 견고 fix) — payload owner 를 직접 운반. 키 부재(legacy)·미상 enum 은 null.
+            //   null=USER 취급은 호출자(applyAutopilotBuyGuard) 책임 — 하위호환(역직렬화는 절대 fail 시키지 않는다).
+            val strategyOwner =
+                payload["strategyOwner"]?.toString()?.let { name ->
+                    kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
+                        .values()
+                        .firstOrNull { it.name == name }
+                }
 
             Signal(
                 id = id,
@@ -1661,6 +1689,7 @@ class SignalGeneratedKafkaListener(
                 priceAtSignal = priceAtSignal,
                 contextJson = contextJson,
                 createdAt = null,
+                strategyOwner = strategyOwner,
             )
         } catch (e: Exception) {
             log.error("SignalGeneratedKafkaListener deserialize 실패: err={}", e.message)
