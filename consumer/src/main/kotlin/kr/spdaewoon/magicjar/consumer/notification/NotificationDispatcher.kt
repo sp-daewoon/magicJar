@@ -65,7 +65,7 @@ class NotificationDispatcher(
 
         const val RISK_REPEAT_COOLDOWN_WINDOW_MIN = 15
 
-        private val RISK_REPEAT_COOLDOWN_RULES = setOf("POSITION_LIMIT", "SELL_WITHOUT_POSITION")
+        private val RISK_REPEAT_COOLDOWN_RULES = setOf("POSITION_LIMIT", "SELL_WITHOUT_POSITION", "AUTOPILOT_CODE_DEDUP")
 
         /**
          * Slack 발송 제외 리스크 룰 set (2026-06-12 최고 관리자 결재).
@@ -76,8 +76,10 @@ class NotificationDispatcher(
          *   - ✨ 하드코딩 1종 제외 대신 set 상수화 — 향후 동일 성격 룰 추가 시 한 곳만 보강(과개발 회피).
          *   - 제외는 **Slack 채널 한정** — `risk_event` DB 기록·Kafka·STOMP 화면 표시는 별도 경로
          *     (ConsumerRiskEventJpaAdapter·RiskViolationKafkaProducer·StompRiskNotifier)에서 유지(감사 추적 보존).
+         *   - 💡 `AUTOPILOT_CODE_DEDUP`(개선 C) 도 동일 — owner=AUTOPILOT 종목 분산을 위한 중복 매수 생략은
+         *     사용자 행동 불요 정상 동작이므로 Slack 불요(빈번 가능). DB·STOMP 감사 추적은 유지.
          */
-        private val SLACK_MUTED_RISK_RULES = setOf("SELL_WITHOUT_POSITION")
+        private val SLACK_MUTED_RISK_RULES = setOf("SELL_WITHOUT_POSITION", "AUTOPILOT_CODE_DEDUP")
     }
 
     // --- 7 @KafkaListener ---

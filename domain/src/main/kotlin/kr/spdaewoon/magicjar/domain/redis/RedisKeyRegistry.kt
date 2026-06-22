@@ -273,6 +273,33 @@ object RedisKeyRegistry {
         }
     }
 
+    /**
+     * magicjar-autopilot 자율 루프 전용 Redis 키 (개선 C — 종목 충돌 dedup, 2026-06-22).
+     *
+     * ### buyCodeLock — owner=AUTOPILOT BUY 종목 분산 lock
+     * key = `autopilot:buy:code:user:{userId}:code:{code}`
+     *
+     * owner=AUTOPILOT 전략 N개가 같은 발굴 후보(같은 code)에 동시 BUY 신호를 내면 슬롯 1개를 다투고 나머지는
+     * REJECTED 로 버려져 종목 분산 효과가 0이 된다. 이 lock 은 **code 단위(strategyId 제외)** SETNX 로 같은 평가
+     * cycle 안에서 같은 code 의 두 번째 이후 autopilot BUY 를 suppress 한다 → N전략이 서로 다른 종목으로 분산.
+     *
+     * TTL 은 단일 평가 cycle(boundary 동시 신호 폭)보다 길고 다음 cycle 전에 만료될 만큼 짧게 둔다(한 cycle 1 슬롯).
+     * 격리: 키 prefix 와 호출 경로(applyAutopilotBuyGuard owner=AUTOPILOT 분기)로 USER/SYSTEM·SELL 은 구조적 제외.
+     */
+    object Autopilot {
+        fun buyCodeLock(
+            userId: String,
+            code: String,
+        ): String = Standard.buyCodeLock(userId, code)
+
+        object Standard {
+            fun buyCodeLock(
+                userId: String,
+                code: String,
+            ): String = "autopilot:buy:code:user:$userId:code:$code"
+        }
+    }
+
     object Instrument {
         fun searchPrefix(prefix: String): String = "instrument:search:prefix:$prefix"
 

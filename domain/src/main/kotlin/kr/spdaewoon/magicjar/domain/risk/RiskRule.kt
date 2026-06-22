@@ -32,6 +32,13 @@ enum class RiskRule {
     SELL_QUANTITY_UNAVAILABLE,
     INVALID_ORDER_INTENT,
     KIS_EXECUTION_SYNC_STALE,
+
+    /**
+     * autopilot 종목 충돌 dedup (개선 C, 2026-06-22) — owner=AUTOPILOT BUY 가 같은 code 에 중복 진입하려 할 때
+     * (같은 cycle 타 autopilot 전략 선점 또는 autopilot 이미 보유) intent 를 suppress 한다. **한도 위반이 아니라
+     * 종목 분산을 위한 dedup** 이다(N전략이 서로 다른 종목으로 퍼지게). USER/SYSTEM·SELL 은 영향 없음.
+     */
+    AUTOPILOT_CODE_DEDUP,
 }
 
 /**

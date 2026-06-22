@@ -96,6 +96,16 @@ data class RiskAlertMessage(
                         formula = "전략 상태 != ACTIVE",
                         setting = "전략 상태 가드",
                     )
+                RiskRule.AUTOPILOT_CODE_DEDUP ->
+                    RiskAlertMessage(
+                        title = "autopilot 종목 분산 - 중복 매수 생략",
+                        message =
+                            "${codeLabel(code, context)} 은 다른 autopilot 전략이 이미 매수했거나 보유 중이라 " +
+                                "중복 매수를 생략했습니다(종목 분산).",
+                        formula = "owner=AUTOPILOT 같은 종목 = 1 슬롯",
+                        setting = "autopilot 종목 충돌 dedup",
+                        action = "정상 동작입니다 - autopilot 전략이 서로 다른 종목으로 분산되도록 중복 진입만 막은 것입니다.",
+                    )
             }
 
         private fun positionLimit(
