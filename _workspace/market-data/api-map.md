@@ -276,9 +276,69 @@ interface KisDailyCandleRangePort {
 
 ---
 
-## KIS 실현손익 크로스체크 (TTTC8494R) — 2026-06-22 신설
+## KIS 실현손익 크로스체크 — 권위 endpoint = TTTC8715R (2026-06-22 개선 A로 승격)
+
+> "우리 성과 숫자가 진짜 KIS와 맞는가"를 KIS 권위로 증명. **개선 A**: 1차 권위를 TTTC8494R(체결기준잔고)
+> → **TTTC8715R(기간별매매손익현황조회)** 로 정정. TTTC8494R 보유 행 누락이 drift +5,879 의 root 였음(실증).
+
+### 권위 endpoint = TTTC8715R 기간별매매손익현황조회 (raw 출처 — 추측 0)
+
+| 항목 | 값 | raw 출처 |
+|------|-----|---------|
+| path | `/uapi/domestic-stock/v1/trading/inquire-period-trade-profit` | open-trading-api `examples_llm/domestic_stock/inquire_period_trade_profit/inquire_period_trade_profit.py` (`API_URL`) |
+| tr_id | `TTTC8715R` | 같은 파일 (`tr_id = "TTTC8715R"`) |
+| 화면 | HTS [0856] **기간별 매매손익 → "종목별"** | 같은 파일 docstring (eFriend Plus) |
+| SORT_DVSN | `02` (최근순) | 공식 예제 main() 호출값 |
+| INQR_STRT_DT/END_DT | `yyyyMMdd` 조회 시작/종료 | 필수 파라미터 |
+| CBLC_DVSN | `00` = **전체** | 필수 파라미터 (chk 예제 `cblc_dvsn="00"`) |
+| PDNO | `""` = 전 종목 | 선택(빈 문자열=전체) |
+
+### TTTC8715R 응답 필드 (chk_*.py COLUMN_MAPPING 인용 — 추측 0)
+
+| 필드 | 한글 | 위치 | 의미 |
+|------|------|------|------|
+| `rlzt_pfls` | 실현손익 | output1(매매일자×종목 행) | 종목별 실현손익. net/gross 정의는 화면 명시 부족 → **우리 net·gross 둘 다 대조해 실측 확정** |
+| `fee` | 수수료 | output1 | 종목별 수수료 — 우리 `order_execution.fee` 캡처 정확화 소스 |
+| `tl_tax` | 제세금 | output1 | 종목별 제세금 — 우리 `order_execution.tax` 캡처 정확화 소스 |
+| `sll_qty` | 매도수량 | output1 | |
+| `tot_rlzt_pfls` | 총실현손익 | output2(계좌합계) | **"당일 총 실현손익" 1차 권위** (전량청산 포함) |
+| `sll_fee_smtl` | 매도수수료합계 | output2 | KIS net 보정용 |
+| `sll_tltx_smtl` | 매도제세금합계 | output2 | KIS net 보정용 |
+
+### TTTC8494R 과의 차이 (왜 8715R 로 바꿨나)
+
+| 축 | TTTC8494R (구·보조) | TTTC8715R (신·1차 권위) |
+|----|--------------------|--------------------------|
+| 기준 | **체결기준잔고(보유 행)** HTS[0800] | **매매 기준(매도 발생 종목 전부)** HTS[0856] 종목별 |
+| 당일 전량청산 종목 | **누락**(hldg_qty=0 → output1 행 없음) | **포함**(매도가 일어났으면 행 존재) |
+| "당일 총 실현손익" 적합성 | ✗ 부적합(청산분 빠짐) | ✓ 적합 |
+| fee/tax | 미제공(COST_ICLD_YN=N) | **종목별 fee·tl_tax 제공** |
+| drift root | 청산 종목 누락 → KIS<우리 (실증 -5,879) | 해소 기대 |
+
+### tolerance & net/gross 실측 판정
+
+- `TOLERANCE_WON=1` (원 단위 정확 일치 기대). `matched` = (periodDriftNet 또는 periodDriftGross 중 하나) 절대값 ≤ 1원.
+- `matchedDefinition` ∈ {NET, GROSS, BOTH, null} — KIS `rlzt_pfls`/`tot_rlzt_pfls` 가 어느 정의였는지 **실측 결과** 기록.
+- 우리 `order_execution.fee/tax=0`(미캡처) → 우리 net=gross. KIS 가 net 이면 `OUR_COST_ZERO` 원인 + KIS `sll_fee_smtl+sll_tltx_smtl` 보정액 안내.
+
+### drift 원인 트리 (개선 A)
+
+```
+matched=false
+├─ kisCallOk=false ......... KIS_CALL_FAILED (자격증명·토큰·HTTP)
+├─ kisPeriodTotal=null ..... KIS_SUMMARY_ABSENT (해당 기간 매도 0 또는 output2 누락)
+├─ ourCost=0 & KIS fee/tax>0 OUR_COST_ZERO (우리 fee/tax 미캡처 → net=gross. KIS 비용만큼 우리 net 보정 필요)
+├─ DRIFT_BREAKDOWN ......... periodDriftNet vs periodDriftGross 중 가까운 정의 표기(KIS rlzt_pfls 정의 실측)
+├─ KIS_ROW_ABSENT .......... 우리 매도 종목이 TTTC8715R output1 누락(조회기간·미체결 동기화 점검 — 8715R 에선 비정상)
+└─ UNCLASSIFIED ............ 위 어디에도 안 맞음(수동 점검)
+```
+
+---
+
+## KIS 실현손익 크로스체크 (TTTC8494R) — 2026-06-22 신설 (개선 A로 보조 강등)
 
 > "우리 성과 숫자가 진짜 KIS와 맞는가"를 KIS 권위로 증명. dormant 였던 `KisRealizedProfitPort` wiring.
+> **개선 A 이후 역할**: 1차 권위 자리는 TTTC8715R 에 양보, real_evaluation·체결기준잔고 참고용 병행(실패 무시).
 
 ### KIS endpoint (raw 출처 — 추측 0)
 
@@ -315,6 +375,6 @@ interface KisDailyCandleRangePort {
 
 | endpoint | 설명 |
 |----------|------|
-| `GET /admin/reconcile/realized-pnl?userId=&period=DAY` | KIS 실현손익 호출 + 우리 FIFO 계산 + drift·일치판정·원인 반환. rate limit BACKFILL priority 보호, 자본영향 0 read-only. period ∈ DAY/WEEK/MONTH/YEAR (KIS 당일 스냅샷이라 DAY 정밀). |
+| `GET /admin/reconcile/realized-pnl?userId=&period=DAY` | **TTTC8715R(1차)** + TTTC8494R(보조) 호출 + 우리 FIFO 계산 + net/gross drift·matchedDefinition·원인 반환. rate limit BACKFILL priority 보호, 자본영향 0 read-only. period ∈ DAY/WEEK/MONTH/YEAR. 응답: `kisPeriodTotalRealizedPnl`·`kisPeriodSellFee`·`kisPeriodSellTax`·`periodDriftNet`·`periodDriftGross`·`matchedDefinition` + perCode(`kisFee`·`kisTax`·`driftNet`). |
 
 - **에이전틱 검증 훅**: 모니터링/검증이 "애매하면 KIS와 대조" 표준으로 호출.

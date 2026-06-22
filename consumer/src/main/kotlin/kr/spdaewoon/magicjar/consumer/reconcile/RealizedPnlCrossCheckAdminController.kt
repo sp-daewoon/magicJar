@@ -17,9 +17,10 @@ import java.math.BigDecimal
  *
  * endpoint:
  *   GET /admin/reconcile/realized-pnl?userId=&period=DAY
- *     — KIS 실현손익(TTTC8494R) 호출 + 우리 FIFO 계산 + drift·일치판정·원인 반환.
+ *     — KIS 기간별매매손익(TTTC8715R, 1차 권위 — 전량청산 포함) + TTTC8494R(보조) 호출 + 우리 FIFO 계산 +
+ *       net/gross drift·일치판정(matchedDefinition)·원인 반환.
  *
- * REAL 전용(KIS 실현손익 모의 TR 부재). rate limit 은 어댑터가 BACKFILL priority 로 보호 — 과호출 금지.
+ * REAL 전용(KIS 손익 조회 모의 TR 부재). rate limit 은 어댑터가 BACKFILL priority 로 보호 — 과호출 금지.
  * 자본 영향 0 — read-only 검증만 수행(주문·포지션 변경 0).
  */
 @RestController
@@ -47,12 +48,18 @@ class RealizedPnlCrossCheckAdminController(
             periodEnd = r.periodEnd.toString(),
             kisCallOk = r.kisCallOk,
             matched = r.matched,
+            matchedDefinition = r.matchedDefinition,
             toleranceWon = r.toleranceWon,
+            kisPeriodTotalRealizedPnl = r.kisPeriodTotalRealizedPnl,
+            kisPeriodSellFee = r.kisPeriodSellFee,
+            kisPeriodSellTax = r.kisPeriodSellTax,
             kisAccountRealizedPnl = r.kisAccountRealizedPnl,
             kisRealEvaluationPnl = r.kisRealEvaluationPnl,
             ourGrossRealizedPnl = r.ourGrossRealizedPnl,
             ourNetRealizedPnl = r.ourNetRealizedPnl,
             ourTotalCost = r.ourTotalCost,
+            periodDriftNet = r.periodDriftNet,
+            periodDriftGross = r.periodDriftGross,
             accountDriftGross = r.accountDriftGross,
             accountDriftNet = r.accountDriftNet,
             driftCauses = r.driftCauses,
@@ -64,8 +71,11 @@ class RealizedPnlCrossCheckAdminController(
                         code = row.code,
                         name = row.name,
                         kisRealizedPnl = row.kisRealizedPnl,
+                        kisFee = row.kisFee,
+                        kisTax = row.kisTax,
                         ourGrossRealizedPnl = row.ourGrossRealizedPnl,
                         ourNetRealizedPnl = row.ourNetRealizedPnl,
+                        driftNet = row.driftNet,
                         driftGross = row.driftGross,
                         presentInKis = row.presentInKis,
                         matched = row.matched,
@@ -82,17 +92,29 @@ class RealizedPnlCrossCheckAdminController(
         val periodEnd: String,
         /** KIS 호출 성공(rt_cd=0) 여부. */
         val kisCallOk: Boolean,
-        /** gross 계좌합계 drift 가 tolerance 이내인지. */
+        /** 계좌합계 drift(net/gross 중 작은 쪽)가 tolerance 이내인지. */
         val matched: Boolean,
+        /** 일치한 정의(NET|GROSS|BOTH) — KIS rlzt_pfls 정의 실측 결과. */
+        val matchedDefinition: String?,
         val toleranceWon: BigDecimal,
-        /** KIS output2 실현손익 합계(gross, COST_ICLD_YN=N). */
+        /** TTTC8715R output2 총실현손익(tot_rlzt_pfls) — 1차 권위(전량청산 포함). */
+        val kisPeriodTotalRealizedPnl: BigDecimal?,
+        /** TTTC8715R output2 매도수수료합계(sll_fee_smtl). */
+        val kisPeriodSellFee: BigDecimal?,
+        /** TTTC8715R output2 매도제세금합계(sll_tltx_smtl). */
+        val kisPeriodSellTax: BigDecimal?,
+        /** TTTC8494R output2 실현손익 합계(보유 행 기준 — 참고). */
         val kisAccountRealizedPnl: BigDecimal?,
         val kisRealEvaluationPnl: BigDecimal?,
-        /** 우리 gross 실현손익(비용 미차감 — KIS 와 직접 비교). */
+        /** 우리 gross 실현손익(비용 미차감). */
         val ourGrossRealizedPnl: BigDecimal,
         /** 우리 net 실현손익(비용 차감 — 성과 API 와 동일 정의). */
         val ourNetRealizedPnl: BigDecimal,
         val ourTotalCost: BigDecimal,
+        /** TTTC8715R 총실현손익 - 우리 net. */
+        val periodDriftNet: BigDecimal?,
+        /** TTTC8715R 총실현손익 - 우리 gross. */
+        val periodDriftGross: BigDecimal?,
         val accountDriftGross: BigDecimal?,
         val accountDriftNet: BigDecimal?,
         val driftCauses: List<String>,
@@ -105,8 +127,11 @@ class RealizedPnlCrossCheckAdminController(
         val code: String,
         val name: String?,
         val kisRealizedPnl: BigDecimal?,
+        val kisFee: BigDecimal?,
+        val kisTax: BigDecimal?,
         val ourGrossRealizedPnl: BigDecimal,
         val ourNetRealizedPnl: BigDecimal,
+        val driftNet: BigDecimal?,
         val driftGross: BigDecimal?,
         val presentInKis: Boolean,
         val matched: Boolean,
