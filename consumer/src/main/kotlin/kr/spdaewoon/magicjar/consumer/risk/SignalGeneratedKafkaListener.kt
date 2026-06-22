@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
+import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotCodeBuyDedupeGuard
 import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
@@ -117,6 +118,9 @@ class SignalGeneratedKafkaListener(
     // magicjar-autopilot Guard 매수 경로 wiring (spec 2026-06-22 §2-0-A · Task 3) — owner=AUTOPILOT BUY 전용.
     //   ObjectProvider graceful — autopilot 패키지 미합류 시(폐기·미배선) skip = 기존 경로 그대로(zero-regression).
     private val autopilotBuyGuardProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard>? = null,
+    // 개선 C (2026-06-22) — owner=AUTOPILOT 종목 충돌 dedup. N전략이 같은 code 에 몰리는 대신 서로 다른 종목으로 분산.
+    //   ObjectProvider graceful — autopilot 패키지 미합류 시 skip = 기존 경로 그대로(zero-regression).
+    private val autopilotCodeDedupeGuardProvider: ObjectProvider<AutopilotCodeBuyDedupeGuard>? = null,
     // P0 fail-closed (2026-06-22) — Guard provider 가 null/미가용이어도 autopilot enabled 여부를 독립 확인하기 위한 직결.
     //   provider 가 null 이면 enabled 알 수 없어 owner=AUTOPILOT BUY 의 보수 차단 판정이 불가능 → 그 자체로 fail-OPEN.
     //   본 properties 직결로 "guard 못 거치는데 enabled=true 면 BUY 차단" 불변식을 provider 부재에서도 강제한다.
@@ -1119,6 +1123,8 @@ class SignalGeneratedKafkaListener(
     private fun RiskGatewayResult.Blocked.countsTowardStrategyAutoPause(): Boolean =
         when (rule) {
             RiskRule.KILL_SWITCH_ON -> false
+            // 개선 C — autopilot 종목 dedup 은 한도 위반이 아니라 정상 분산이므로 auto-PAUSE 카운트에서 제외.
+            RiskRule.AUTOPILOT_CODE_DEDUP -> false
             RiskRule.SELL_QUANTITY_UNAVAILABLE -> {
                 val reasonCode = context["reasonCode"]?.toString().orEmpty()
                 !(reasonCode.startsWith("KIS_BALANCE_LOOKUP_FAILED") || reasonCode == "KIS_BALANCE_LOOKUP_UNAVAILABLE")
@@ -1430,6 +1436,30 @@ class SignalGeneratedKafkaListener(
 
         // ── 여기 도달 = owner=AUTOPILOT BUY 확정 (carried 또는 legacy lookup) ──────────────────────────────
 
+        // ── 개선 C (2026-06-22): 종목 충돌 dedup — 같은 code 중복 진입 suppress → N전략 종목 분산 ──────────────
+        //   owner=AUTOPILOT BUY 만 도달하는 지점이라 USER/SYSTEM·SELL 은 구조적으로 본 dedup 을 절대 타지 않는다.
+        //   같은 cycle 타 autopilot 전략이 같은 code 를 이미 선점했거나(SETNX) autopilot 이 이미 보유 중이면 suppress —
+        //   "한도 위반"이 아니라 종목 분산이므로 AUTOPILOT_CODE_DEDUP rule 로 audit(Reject 와 구분). dedup 결함(Redis/조회
+        //   실패)은 가드 내부에서 fail-open 으로 흡수 — 정상 신호는 막지 않는다(분산 최적화 ≠ 자본 안전 게이트).
+        val dedupeGuard = autopilotCodeDedupeGuardProvider?.getIfAvailable()
+        if (dedupeGuard != null) {
+            when (val dedupe = dedupeGuard.evaluate(signal.userId, signal.code, signal.strategyId)) {
+                is AutopilotCodeBuyDedupeGuard.Decision.Proceed -> Unit
+                is AutopilotCodeBuyDedupeGuard.Decision.Suppress -> {
+                    log.info(
+                        "autopilot BUY dedup suppress(종목 분산): signalId={} code={} strategyId={} reason={}",
+                        signal.id,
+                        signal.code,
+                        signal.strategyId,
+                        dedupe.reason,
+                    )
+                    return AutopilotGateResult.Block(
+                        autopilotBlocked(allowed, signal, RiskRule.AUTOPILOT_CODE_DEDUP, dedupe.reason),
+                    )
+                }
+            }
+        }
+
         // ── 불변식: "Guard 가 owner=AUTOPILOT BUY 를 평가하지 못하는 모든 경우 = Reject" (코드 강제 > 프롬프트) ──
         //   autopilot enabled 인데 Guard 빈이 미가용(provider null/조건부 제외)이면 사이징 자체가 불가하다.
         //   과거 "guard ?: Proceed" 는 fail-OPEN(무게이트 실주문) 버그였다 — enabled=true 면 BUY 를 무조건 차단한다.
@@ -1716,8 +1746,12 @@ class SignalGeneratedKafkaListener(
         val OPEN_STATUSES =
             setOf(OrderStatus.REQUESTED, OrderStatus.ACK, OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_RECONCILE)
 
-        /** flat 반복 차단 알람 쿨다운 대상 룰 — NotificationDispatcher RISK_REPEAT_COOLDOWN_RULES 정합. */
-        val REPEAT_BLOCK_COOLDOWN_RULES = setOf(RiskRule.SELL_WITHOUT_POSITION, RiskRule.POSITION_LIMIT)
+        /**
+         * flat 반복 차단 알람 쿨다운 대상 룰 — NotificationDispatcher RISK_REPEAT_COOLDOWN_RULES 정합.
+         * [RiskRule.AUTOPILOT_CODE_DEDUP] 은 종목 분산 dedup(정상·빈번 가능)이므로 STOMP 플러딩 완화 대상에 포함.
+         */
+        val REPEAT_BLOCK_COOLDOWN_RULES =
+            setOf(RiskRule.SELL_WITHOUT_POSITION, RiskRule.POSITION_LIMIT, RiskRule.AUTOPILOT_CODE_DEDUP)
 
         /** 동일 (user·strategy·code·rule) STOMP 알람 1회 허용 간격(매분 플러딩 완화). */
         val BLOCKED_ALARM_COOLDOWN = kotlin.time.Duration.parse("5m")
