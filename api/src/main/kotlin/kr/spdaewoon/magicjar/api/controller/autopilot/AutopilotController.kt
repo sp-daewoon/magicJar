@@ -1,12 +1,14 @@
 package kr.spdaewoon.magicjar.api.controller.autopilot
 
 import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import kr.spdaewoon.magicjar.api.controller.ErrorResponse
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import java.math.BigDecimal
@@ -22,7 +25,8 @@ import java.math.BigDecimal
  * magicjar-autopilot **제어 평면 REST 컨트롤러** (spec 2026-06-22 §2-0-B·§3 · Phase 0 Task 4).
  *
  * ### 엔드포인트
- * - `GET  /api/autopilot/status`   — kill·풀 한도·손실(cum/daily/lifetime)·owner=AUTOPILOT 전략수 (read-only).
+ * - `GET  /api/autopilot/status`      — kill·풀 한도·손실(cum/daily/lifetime)·owner=AUTOPILOT 전략수 (read-only).
+ * - `GET  /api/autopilot/performance` — owner=AUTOPILOT scoped 실현손익(수동·후성 제외 · 개선 F · 이슈 #12).
  * - `POST /api/autopilot/stop`     — 수동 kill(control STOP publish), 202.
  * - `POST /api/autopilot/resume`   — kill 해제(control RESUME publish, **reason 필수** — 빈값 400), 202.
  * - `POST /api/autopilot/rollback` — owner=AUTOPILOT 청산+PAUSE+해제(control ROLLBACK publish), 202.
@@ -39,11 +43,15 @@ import java.math.BigDecimal
  *
  * // AI 호출 0 — 룰 기반 자본 흐름 제어 (ADR 0023 §2-4 정합)
  */
-@Tag(name = "Autopilot", description = "magicjar-autopilot 자율 루프 제어 평면 — status·stop·resume·rollback (spec 2026-06-22 Phase 0 Task 4)")
+@Tag(
+    name = "Autopilot",
+    description = "magicjar-autopilot 자율 루프 제어 평면 — status·performance·stop·resume·rollback (spec 2026-06-22 Phase 0 Task 4)",
+)
 @RestController
 @RequestMapping("/api/autopilot")
 class AutopilotController(
     private val statusService: AutopilotStatusService,
+    private val performanceService: AutopilotPerformanceService,
     private val controlProducer: AutopilotControlProducer,
 ) {
     private val log = LoggerFactory.getLogger(AutopilotController::class.java)
@@ -70,6 +78,41 @@ class AutopilotController(
     fun status(): AutopilotStatusResponse {
         log.debug("autopilot status 조회")
         return statusService.status()
+    }
+
+    // ─── GET /api/autopilot/performance ───────────────────────────────────────
+
+    @Operation(
+        summary = "autopilot owner-scoped 실현손익 조회",
+        description =
+            "owner=AUTOPILOT 전략의 체결만 집계한 실현손익을 반환합니다(read-only · 개선 F · 이슈 #12). " +
+                "**수동 주문·USER 전략·오버나잇 후성(예: 093370 수동청산)은 제외** — autopilot 진짜 성과만 봅니다. " +
+                "오늘/누적 실현손익·승률·손익비·종목별을 산출합니다. " +
+                "기간 period=DAY(default)·WEEK·MONTH·YEAR·ALL, mode=REAL(default)·MOCK·전체(미지정). " +
+                "KIS 계좌 손익은 계좌 레벨이라 정확 분리 불가 — 본 값은 DB 체결 FIFO 기반 owner-scoped 추정치(kisScopingNote 참조).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "owner-scoped 실현손익 조회 성공"),
+        ApiResponse(
+            responseCode = "400",
+            description = "period 값 오류(허용: DAY·WEEK·MONTH·YEAR·ALL)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "500",
+            description = "서버 오류",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @GetMapping("/performance")
+    fun performance(
+        @Parameter(description = "집계 기간(default DAY)", example = "DAY")
+        @RequestParam(required = false, defaultValue = "DAY") period: String,
+        @Parameter(description = "거래 모드 필터(미지정=전체). 운영은 REAL", example = "REAL")
+        @RequestParam(required = false) mode: TradingMode?,
+    ): AutopilotPerformanceResponse {
+        log.debug("autopilot performance 조회 period={} mode={}", period, mode)
+        return performanceService.performance(period, mode ?: TradingMode.REAL)
     }
 
     // ─── POST /api/autopilot/stop ─────────────────────────────────────────────
@@ -185,6 +228,13 @@ data class AutopilotStatusResponse(
     val lifetimeRealizedLoss: BigDecimal,
     @Schema(description = "owner=AUTOPILOT 미삭제 전략 수", example = "0")
     val autopilotStrategyCount: Long,
+    @Schema(
+        description =
+            "owner=AUTOPILOT 당일 실현손익 net(원, 양수=이익). 후성·수동 제외 autopilot 진짜 성과 " +
+                "(개선 F · 이슈 #12). 상세·기간별은 GET /api/autopilot/performance.",
+        example = "2728.00",
+    )
+    val realizedPnlToday: BigDecimal,
 )
 
 /** STOP 요청(사유 옵션). */

@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.api.controller.autopilot
 import kr.spdaewoon.magicjar.api.persistence.autopilot.AutopilotStateReadEntity
 import kr.spdaewoon.magicjar.api.persistence.autopilot.AutopilotStateReadRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -22,6 +23,7 @@ import java.math.BigDecimal
 class AutopilotStatusService(
     private val stateReadRepository: AutopilotStateReadRepository,
     private val strategyRepository: StrategyJpaRepository,
+    private val performanceService: AutopilotPerformanceService,
 ) {
     private val log = LoggerFactory.getLogger(AutopilotStatusService::class.java)
 
@@ -40,12 +42,21 @@ class AutopilotStatusService(
                     log.warn("autopilot status — owner=AUTOPILOT 전략수 조회 실패(0 표시): err={}", e.message)
                     0L
                 }
-        return toResponse(state, strategyCount)
+        // owner-scoped 당일 실현손익(net) — 개선 F · 이슈 #12. 후성·수동 제외 autopilot 진짜 성과.
+        // 손익 계산 실패가 status 전체를 막지 않도록 fail-soft(0 표시).
+        val realizedPnlToday =
+            runCatching { performanceService.performance("DAY", TradingMode.REAL).realizedPnl }
+                .getOrElse { e ->
+                    log.warn("autopilot status — owner-scoped 당일 실현손익 조회 실패(0 표시): err={}", e.message)
+                    BigDecimal.ZERO.setScale(2)
+                }
+        return toResponse(state, strategyCount, realizedPnlToday)
     }
 
     private fun toResponse(
         state: AutopilotStateReadEntity?,
         strategyCount: Long,
+        realizedPnlToday: BigDecimal,
     ): AutopilotStatusResponse =
         if (state == null) {
             log.info("autopilot_state 행 부재(id=1) — default 응답(손실 0·kill off). autopilot 미시드 환경.")
@@ -60,6 +71,7 @@ class AutopilotStatusService(
                 dailyRealizedLoss = BigDecimal.ZERO,
                 lifetimeRealizedLoss = BigDecimal.ZERO,
                 autopilotStrategyCount = strategyCount,
+                realizedPnlToday = realizedPnlToday,
             )
         } else {
             AutopilotStatusResponse(
@@ -73,6 +85,7 @@ class AutopilotStatusService(
                 dailyRealizedLoss = state.dailyRealizedLoss,
                 lifetimeRealizedLoss = state.lifetimeRealizedLoss,
                 autopilotStrategyCount = strategyCount,
+                realizedPnlToday = realizedPnlToday,
             )
         }
 }

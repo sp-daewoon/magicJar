@@ -137,6 +137,18 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     ): Long
 
     /**
+     * owner 별 전략 id 집합 — autopilot-only 실현손익 scoping (개선 F · 이슈 #12)에서
+     * order_request.strategy_id ∈ {owner=AUTOPILOT 전략 id} 필터 기준으로 사용.
+     *
+     * DELETED 포함(과거 청산된 전략의 체결도 손익에 포함되어야 하므로 status 무관 — 소유권만 본다).
+     * 헌법 §6 (ADR 0051): query inference 회피 위해 명시 @Query, abstract fun (body 0).
+     */
+    @Query("SELECT s.id FROM StrategyJpaEntity s WHERE s.owner = :owner")
+    fun findIdsByOwner(
+        @Param("owner") owner: String,
+    ): List<Long>
+
+    /**
      * 내 전략 목록 — "자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순" 정렬.
      *
      * Spring Data [org.springframework.data.domain.Sort]는 CASE식 정렬을 표현하지 못하므로 @Query JPQL로 처리.

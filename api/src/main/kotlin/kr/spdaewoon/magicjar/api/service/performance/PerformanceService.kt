@@ -162,6 +162,26 @@ class PerformanceService(
         )
     }
 
+    /**
+     * owner-scoped 실현손익 상세 (개선 F · 이슈 #12) — `strategyIds` 에 속한 주문의 매도 체결만 FIFO replay.
+     *
+     * 기존 [getTradeBreakdown] 과 **동일 replay 엔진**(DRY)을 owner 필터로 좁힌다. avg-buy 기준이
+     * autopilot 자체 매수만으로 산정되도록 load 단계에서 격리한다(수동·후성 매수와 혼입 없음).
+     *
+     * @param strategyIds 집계 대상 strategy id 집합(예: owner=AUTOPILOT 전략). 빈 집합이면 항상 0건.
+     */
+    fun getTradeBreakdownForStrategies(
+        userId: String,
+        from: LocalDate,
+        to: LocalDate,
+        strategyIds: Set<Long>,
+        mode: TradingMode? = null,
+    ): List<PerformanceTradeDto> {
+        if (strategyIds.isEmpty()) return emptyList()
+        return loadTradeItems(userId, from, to, mode, strategyIds)
+            .sortedWith(compareByDescending<PerformanceTradeDto> { it.executedAt }.thenByDescending { it.executionId })
+    }
+
     // --- private helpers ---
 
     private data class PositionState(
@@ -245,11 +265,16 @@ class PerformanceService(
             .divide(BigDecimal(items.size), 2, RoundingMode.HALF_UP)
     }
 
+    /**
+     * @param strategyIdFilter null 이면 계좌 전체(기존 동작 — zero-regression). non-null 이면
+     * order_request.strategy_id ∈ filter 인 체결만 replay(owner-scoping · 개선 F). 빈 set 이면 0건.
+     */
     private fun loadTradeItems(
         userId: String,
         from: LocalDate,
         to: LocalDate,
         mode: TradingMode?,
+        strategyIdFilter: Set<Long>? = null,
     ): List<PerformanceTradeDto> {
         val toInstant = to.plusDays(1).atStartOfDay(kst).toInstant()
         val executions = orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(userId, toInstant)
@@ -260,11 +285,11 @@ class PerformanceService(
                 .findAllById(executions.map { it.orderId }.distinct())
                 .associateBy { it.id }
         val filteredExecutions =
-            if (mode == null) {
-                executions
-            } else {
-                executions.filter { execution -> requestById[execution.orderId]?.mode == mode }
-            }
+            executions
+                .filter { execution -> mode == null || requestById[execution.orderId]?.mode == mode }
+                .filter { execution ->
+                    strategyIdFilter == null || requestById[execution.orderId]?.strategyId in strategyIdFilter
+                }
         if (filteredExecutions.isEmpty()) return emptyList()
 
         val namesByCode =

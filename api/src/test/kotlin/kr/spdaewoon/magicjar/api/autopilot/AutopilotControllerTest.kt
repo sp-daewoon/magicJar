@@ -3,20 +3,26 @@ package kr.spdaewoon.magicjar.api.autopilot
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotCodePnl
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotControlProducer
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotController
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotCorrectedLimits
+import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotPerformanceResponse
+import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotPerformanceService
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotResumeRequest
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotRollbackRequest
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotStatusResponse
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotStatusService
 import kr.spdaewoon.magicjar.api.controller.autopilot.AutopilotStopRequest
+import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
 import org.springframework.web.server.ResponseStatusException
 import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.OffsetDateTime
 
 /**
  * [AutopilotController] 단위 테스트 (spec 2026-06-22 §2-0-B·§3 · Phase 0 Task 4).
@@ -26,8 +32,9 @@ import java.math.BigDecimal
  */
 class AutopilotControllerTest {
     private val statusService = mockk<AutopilotStatusService>()
+    private val performanceService = mockk<AutopilotPerformanceService>()
     private val producer = mockk<AutopilotControlProducer>()
-    private val controller = AutopilotController(statusService, producer)
+    private val controller = AutopilotController(statusService, performanceService, producer)
 
     @Test
     fun `status는 service 결과를 그대로 반환한다`() {
@@ -43,10 +50,37 @@ class AutopilotControllerTest {
                 dailyRealizedLoss = BigDecimal.ZERO,
                 lifetimeRealizedLoss = BigDecimal.ZERO,
                 autopilotStrategyCount = 2,
+                realizedPnlToday = BigDecimal("2728.00"),
             )
         every { statusService.status() } returns response
 
         assertThat(controller.status()).isSameAs(response)
+    }
+
+    @Test
+    fun `performance는 service 결과를 그대로 반환한다 (mode null이면 REAL 보정)`() {
+        val response =
+            AutopilotPerformanceResponse(
+                period = "DAY",
+                periodStart = LocalDate.of(2026, 6, 22),
+                periodEnd = LocalDate.of(2026, 6, 22),
+                mode = "REAL",
+                realizedPnl = BigDecimal("2728.00"),
+                tradeCount = 8,
+                winCount = 2,
+                lossCount = 5,
+                winRatePct = BigDecimal("28.57"),
+                profitLossRatio = BigDecimal("1.85"),
+                scopedStrategyCount = 6,
+                byCode = listOf(AutopilotCodePnl("080220", "제주반도체", BigDecimal("8947.00"), 1)),
+                kisScopingNote = "owner-scoped",
+                computedAt = OffsetDateTime.now(),
+            )
+        every { performanceService.performance("DAY", TradingMode.REAL) } returns response
+
+        // mode 미지정 → REAL 보정
+        assertThat(controller.performance("DAY", null)).isSameAs(response)
+        verify(exactly = 1) { performanceService.performance("DAY", TradingMode.REAL) }
     }
 
     @Test
