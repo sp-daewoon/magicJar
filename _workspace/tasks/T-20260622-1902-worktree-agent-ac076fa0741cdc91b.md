@@ -3,10 +3,10 @@ id: T-20260622-1902-worktree-agent-ac076fa0741cdc91b
 agent: market-data
 model: opus
 branch: agent/market-data/pnl-net-cost
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T19:02:41.467+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T19:18:32.817+09:00
+pr: #1110
 parentPhase: ?
 ---
 
