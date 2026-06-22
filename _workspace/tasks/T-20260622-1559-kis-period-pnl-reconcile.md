@@ -3,10 +3,10 @@ id: T-20260622-1559-kis-period-pnl-reconcile
 agent: market-data
 model: opus
 branch: agent/market-data/kis-period-pnl-reconcile
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T15:59:13.219+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T16:13:41.514+09:00
+pr: #1099
 parentPhase: ?
 ---
 
