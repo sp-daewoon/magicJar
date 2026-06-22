@@ -20,7 +20,10 @@ import org.springframework.stereotype.Component
  *
  * ### payload schema (ADR 0066 §5-2 정합)
  * { id, strategyId, userId, code, interval, ts, side, strength, reason, priceAtSignal,
- *   contextJson, createdAt }
+ *   contextJson, createdAt, strategyOwner }
+ *
+ * `strategyOwner`(2026-06-22 P0 견고 fix) — 발행 전략 owner(SYSTEM/USER/AUTOPILOT). consumer autopilot Guard 가
+ *   lookup 없이 owner=AUTOPILOT BUY 를 식별하는 단일 출처. null 가능(legacy·하위호환 — 역직렬화 측이 null=USER 취급).
  *
  * spec 인용: ADR 0066 §7-1 + §11-1 Phase 1 (6) + §9-2.
  *
@@ -61,6 +64,8 @@ class SignalKafkaProducer(
                         "priceAtSignal" to signal.priceAtSignal.toPlainString(),
                         "contextJson" to signal.contextJson,
                         "createdAt" to signal.createdAt?.toString(),
+                        // owner-on-signal — null 이면 키 자체는 실리되 값 null(역직렬화 측 null=USER 하위호환).
+                        "strategyOwner" to signal.strategyOwner?.name,
                     ),
                 )
             kafkaTemplate.send(TOPIC, signal.userId, payload)

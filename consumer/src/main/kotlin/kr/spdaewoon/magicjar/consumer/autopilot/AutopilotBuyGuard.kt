@@ -4,7 +4,6 @@ import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.domain.risk.RiskContext
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
-import kr.spdaewoon.magicjar.domain.strategy.Strategy
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import kr.spdaewoon.magicjar.strategy.autopilot.AutonomousTradingGuard
 import kr.spdaewoon.magicjar.strategy.autopilot.AutopilotGuardInput
@@ -60,51 +59,59 @@ class AutopilotBuyGuard(
     val enabled: Boolean
         get() = properties.enabled
 
-    /** owner=AUTOPILOT BUY 인지(게이트 + side + owner). false면 호출자는 기존 경로 그대로(NotApplicable 판정과 동일). */
-    fun applies(
-        signal: Signal,
-        strategy: Strategy?,
-    ): Boolean =
-        properties.enabled &&
-            signal.side == SignalSide.BUY &&
-            strategy?.owner == StrategyOwner.AUTOPILOT
-
     /**
-     * owner=AUTOPILOT BUY 인지(**enabled 무관** — side + owner 만). [applies] 와 달리 게이트를 보지 않는다.
+     * 신호가 운반하는 owner 를 단일 출처로 owner=AUTOPILOT BUY 를 판정한다 (2026-06-22 P0 견고 fix).
      *
-     * 벨트앤서스펜더(spec 2026-06-22 §2-B 방어 심층)용 — enabled=false 인데 AUTOPILOT BUY 가 **어떤 경로로든**
-     * (청산 폴백으로 평가 합류 후 평가기 BUY suppress 누락 등) [evaluate] 에 들어오면 [applies]=false 이지만 본
-     * 판정으로 Reject 한다(NotApplicable→Proceed→무게이트 실주문 위험 차단).
-     *
-     * 호출자([SignalGeneratedKafkaListener.applyAutopilotBuyGuard])는 [applies] 가 아니라 **본 판정으로** evaluate
-     * 진입을 결정해야 한다 — applies(enabled 포함) 단축 return 은 enabled=false 의 차단 분기를 건너뛰게 만든다.
+     * 과거엔 Strategy 를 재조회(lookup)해 `strategy?.owner` 를 봤다 — 신규 BUY(보유 0)에서 lookup 이 null 을 반환해
+     * owner 미상→무게이트 우회의 root 였다. 이제 신호 생성기가 [Signal.strategyOwner] 를 동봉하므로 **lookup 없이**
+     * 그 값으로 즉시 식별한다. legacy 신호(owner 미상=null)는 호출자가 fail-closed 로 처리한다.
      */
-    fun isAutopilotBuy(
-        signal: Signal,
-        strategy: Strategy?,
-    ): Boolean =
+    fun isAutopilotBuy(signal: Signal): Boolean =
         signal.side == SignalSide.BUY &&
-            strategy?.owner == StrategyOwner.AUTOPILOT
+            signal.strategyOwner == StrategyOwner.AUTOPILOT
 
     /**
-     * owner=AUTOPILOT BUY 진입 게이트. [applies] 가 false 면 [AutopilotBuyDecision.NotApplicable].
+     * owner=AUTOPILOT BUY 진입 게이트 — **신호가 운반한 owner([isAutopilotBuy])로 판정**(lookup 0). non-AUTOPILOT·
+     * non-BUY 이면 [AutopilotBuyDecision.NotApplicable].
      *
-     * ## 벨트앤서스펜더 (spec 2026-06-22 §2-B — 방어 심층)
-     * **enabled=false 인데 AUTOPILOT BUY** 가 들어오면 NotApplicable(Proceed)이 아니라 **Reject** 한다. 평가 쿼리가
-     * enabled 에 연동돼 정상 경로에선 AUTOPILOT BUY signal 자체가 생성되지 않지만, 청산 폴백([findSellEvalByCodeAndInterval])
-     * 으로 ACTIVE AUTOPILOT 이 평가에 합류할 때 평가기 BUY suppress 가 누락되면 게이트 없이 실주문될 위험이 있다 —
-     * 그 경로를 코드로 봉쇄한다. **SELL 은 영향 없음**(청산 보장). enabled=true 경로는 기존대로 칭 평가.
+     * 이 오버로드는 owner 가 신호에 실린 정상 경로용이다. owner 필드 없는 legacy 신호(strategyOwner=null)를 호출자가
+     * lookup fallback 으로 AUTOPILOT 확정한 경우엔 [evaluate](Signal, Boolean, RiskContext, BigDecimal) 를 직접 호출한다.
      *
      * @param proposedEntryAmount 호출자 산정 진입 제안 금액(원, > 0). Guard 가 건당 캡·풀 잔여로 clamp 대상.
      */
     fun evaluate(
         signal: Signal,
-        strategy: Strategy?,
+        context: RiskContext,
+        proposedEntryAmount: BigDecimal,
+    ): AutopilotBuyDecision = evaluate(signal, isAutopilotBuy(signal), context, proposedEntryAmount)
+
+    /**
+     * owner=AUTOPILOT BUY 진입 게이트 — owner 식별을 호출자가 [ownerIsAutopilot] 로 명시(신호 운반 또는 legacy lookup
+     * fallback 둘 다 흡수). [ownerIsAutopilot]=false 또는 non-BUY 이면 [AutopilotBuyDecision.NotApplicable].
+     *
+     * owner 식별 출처를 호출자에게 위임하는 이유: 신호 운반 owner([Signal.strategyOwner])가 단일 권위지만, owner 필드
+     * 없는 **legacy 신호(null)** 는 호출자가 lookup 으로 확정한다. Guard 가 signal.strategyOwner 만 재검사하면 legacy
+     * AUTOPILOT 신호를 NotApplicable 로 흘려보내(무게이트) 하위호환을 깬다 — 그래서 결정을 호출자 flag 로 받는다.
+     *
+     * ## 벨트앤서스펜더 (spec 2026-06-22 §2-B — 방어 심층)
+     * **enabled=false 인데 AUTOPILOT BUY** 가 들어오면 NotApplicable(Proceed)이 아니라 **Reject** 한다. 평가 쿼리가
+     * enabled 에 연동돼 정상 경로에선 AUTOPILOT BUY signal 자체가 생성되지 않지만, 청산 폴백([findSellEvalByCodeAndInterval])
+     * 으로 ACTIVE AUTOPILOT 이 평가에 합류할 때 평가기 BUY suppress 가 누락되면 게이트 없이 실주문될 위험이 있다 —
+     * 그 경로를 코드로 봉쇄한다. **SELL 은 영향 없음**(청산 보장). enabled=true 경로는 기존대로 평가.
+     *
+     * @param ownerIsAutopilot 호출자가 확정한 owner=AUTOPILOT 여부(신호 운반 또는 legacy lookup).
+     * @param proposedEntryAmount 호출자 산정 진입 제안 금액(원, > 0). Guard 가 건당 캡·풀 잔여로 clamp 대상.
+     */
+    fun evaluate(
+        signal: Signal,
+        ownerIsAutopilot: Boolean,
         context: RiskContext,
         proposedEntryAmount: BigDecimal,
     ): AutopilotBuyDecision {
-        // 벨트앤서스펜더 — enabled=false + AUTOPILOT BUY 는 무조건 차단(실주문 0). applies()보다 먼저 평가.
-        if (!properties.enabled && isAutopilotBuy(signal, strategy)) {
+        // owner=AUTOPILOT BUY 가 아니면 기존 경로 그대로(SELL·HOLD·non-AUTOPILOT).
+        if (signal.side != SignalSide.BUY || !ownerIsAutopilot) return AutopilotBuyDecision.NotApplicable
+        // 벨트앤서스펜더 — enabled=false + AUTOPILOT BUY 는 무조건 차단(실주문 0).
+        if (!properties.enabled) {
             log.warn(
                 "autopilot disabled — AUTOPILOT BUY 차단(벨트앤서스펜더): userId={} code={} strategyId={}",
                 signal.userId,
@@ -113,7 +120,6 @@ class AutopilotBuyGuard(
             )
             return AutopilotBuyDecision.Reject("autopilot disabled — BUY 차단")
         }
-        if (!applies(signal, strategy)) return AutopilotBuyDecision.NotApplicable
 
         val state = stateStore.load()
         val loopExposure =

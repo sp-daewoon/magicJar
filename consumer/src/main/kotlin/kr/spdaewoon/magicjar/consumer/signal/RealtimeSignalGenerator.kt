@@ -411,6 +411,9 @@ class RealtimeSignalGenerator(
                 priceAtSignal = candle.closeRaw,
                 contextJson = exitContextJson,
                 createdAt = clock.now(),
+                // owner-on-signal (2026-06-22 P0 견고 fix) — 발행 시점 strategy.owner 동봉(추가 조회 0). risk listener 의
+                //   autopilot Guard 가 lookup 없이 owner=AUTOPILOT BUY 를 직접 식별 → 신규 BUY(보유 0) lookup-null 우회 제거.
+                strategyOwner = strategy.owner,
             )
 
         // 6. 영속 — Phase 2 의존 (ObjectProvider 패턴)
@@ -448,8 +451,10 @@ class RealtimeSignalGenerator(
             return
         }
 
-        // 7. Kafka publish — Phase 2 STOMP fanout consumer가 listen
-        signalKafkaProducer.publish(persisted)
+        // 7. Kafka publish — Phase 2 STOMP fanout consumer가 listen.
+        //    owner 재부착 — signal 테이블엔 owner 컬럼이 없어 save→toDomain round-trip 이 strategyOwner 를 drop 한다.
+        //    DB id(권위)는 persisted 에서 취하되 owner 는 발행 시점 strategy.owner 로 복원해 payload 에 실어 보낸다.
+        signalKafkaProducer.publish(persisted.copy(strategyOwner = strategy.owner))
 
         log.info(
             "RealtimeSignalGenerator 시그널 발행: strategyId={} userId={} code={} interval={} ts={} side={} strength={} reason={}",
