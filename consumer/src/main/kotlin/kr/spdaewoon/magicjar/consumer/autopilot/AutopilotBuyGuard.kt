@@ -51,6 +51,15 @@ class AutopilotBuyGuard(
 ) {
     private val log = LoggerFactory.getLogger(AutopilotBuyGuard::class.java)
 
+    /**
+     * autopilot 루프 활성 여부(`magicjar.autopilot.enabled`). 호출자가 **owner 미상 신호의 보수 차단 범위**를 결정할 때
+     * 본 값을 본다 — enabled=true 면 AUTOPILOT BUY signal 이 실제로 생성되는 구간이므로(buyEvalOwners 에 AUTOPILOT 포함)
+     * owner 를 확정하지 못하는 BUY 는 autopilot 가능성을 배제할 수 없어 **Reject**(fail-closed). enabled=false 면
+     * buyEvalOwners=['USER'] 라 AUTOPILOT BUY 자체가 생성되지 않으므로 owner 미상 BUY 는 USER 로 보고 기존 경로 진행.
+     */
+    val enabled: Boolean
+        get() = properties.enabled
+
     /** owner=AUTOPILOT BUY 인지(게이트 + side + owner). false면 호출자는 기존 경로 그대로(NotApplicable 판정과 동일). */
     fun applies(
         signal: Signal,

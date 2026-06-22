@@ -116,6 +116,10 @@ class SignalGeneratedKafkaListener(
     // magicjar-autopilot Guard 매수 경로 wiring (spec 2026-06-22 §2-0-A · Task 3) — owner=AUTOPILOT BUY 전용.
     //   ObjectProvider graceful — autopilot 패키지 미합류 시(폐기·미배선) skip = 기존 경로 그대로(zero-regression).
     private val autopilotBuyGuardProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard>? = null,
+    // P0 fail-closed (2026-06-22) — Guard provider 가 null/미가용이어도 autopilot enabled 여부를 독립 확인하기 위한 직결.
+    //   provider 가 null 이면 enabled 알 수 없어 owner=AUTOPILOT BUY 의 보수 차단 판정이 불가능 → 그 자체로 fail-OPEN.
+    //   본 properties 직결로 "guard 못 거치는데 enabled=true 면 BUY 차단" 불변식을 provider 부재에서도 강제한다.
+    private val autopilotPropertiesProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.MagicjarAutopilotProperties>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // 2026-06-18 P0 hotfix — 분할매수 회차 비중 적용 게이트. generator(RealtimeSignalGenerator.scaleInEnabled)와
@@ -1361,22 +1365,85 @@ class SignalGeneratedKafkaListener(
         allowed: RiskGatewayResult.Allowed,
         resolvedQuantity: Int,
     ): AutopilotGateResult {
+        // SELL(청산)은 영향 없음 — 보유분 청산 항상 보장(롱온리·zero-regression).
         if (signal.side != SignalSide.BUY) return AutopilotGateResult.Proceed(resolvedQuantity)
-        val guard = autopilotBuyGuardProvider?.getIfAvailable() ?: return AutopilotGateResult.Proceed(resolvedQuantity)
-        val strategy = lookupStrategyOrNull(signal)
+
+        val guard = autopilotBuyGuardProvider?.getIfAvailable()
+
+        // ── P0 fail-closed (2026-06-22) — autopilot 활성 여부 독립 확인 ──────────────────────────────────
+        //   autopilot enabled 의 권위는 MagicjarAutopilotProperties. Guard 가 가용하면 guard.enabled, 아니면
+        //   properties 직결로 본다. 둘 다 못 보면(provider 전부 부재) autopilot 모듈 자체 미합류로 간주(enabled=false).
+        val autopilotEnabled =
+            guard?.enabled
+                ?: autopilotPropertiesProvider?.getIfAvailable()?.enabled
+                ?: false
+
+        // ── 불변식: "Guard 가 owner=AUTOPILOT BUY 를 평가하지 못하는 모든 경우 = Reject" (코드 강제 > 프롬프트) ──
+        //   autopilot enabled 인데 Guard 빈이 미가용(provider null/조건부 제외)이면 owner 판정·사이징 자체가 불가하다.
+        //   과거 "guard ?: Proceed" 는 fail-OPEN(무게이트 실주문) 버그였다 — enabled=true 면 BUY 를 무조건 차단한다.
+        //   enabled=false 면 buyEvalOwners=['USER'] 라 AUTOPILOT BUY signal 자체가 없으므로 기존 경로 진행(USER zero-regression).
+        if (guard == null) {
+            return if (autopilotEnabled) {
+                log.error(
+                    "autopilot enabled 인데 Guard 빈 미가용 — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
+                    signal.id,
+                    signal.code,
+                    signal.strategyId,
+                )
+                AutopilotGateResult.Block(
+                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_GUARD_UNAVAILABLE:guard bean 미가용"),
+                )
+            } else {
+                AutopilotGateResult.Proceed(resolvedQuantity)
+            }
+        }
+
+        // owner 확정 — 신호 생성기(RealtimeSignalGenerator)와 동일한 findSellEvalByCodeAndInterval 경로(owner 확정력 일치).
+        //   findActiveByCodeAndInterval 단독은 status/JSONB 매칭 비대칭으로 생성기가 잡은 AUTOPILOT 전략을 놓쳐
+        //   strategy=null → isAutopilotBuy=false → 무게이트 Proceed 가 됐다(라이브 우회 root). 합집합 쿼리로 정렬한다.
+        val strategy = lookupStrategyForGuardOrNull(signal)
+
+        // ── owner 미상 fail-closed ──────────────────────────────────────────────────────────────────────
+        //   enabled=true 인데 lookup 이 신호의 전략을 못 찾으면 owner 를 USER 로 단정할 수 없다(AUTOPILOT 일 수 있음).
+        //   autopilot 가능성을 배제 못 하는 BUY 는 보수 차단(Reject) — 라이브 우회 분기 #2 봉인.
+        //   enabled=false 면 AUTOPILOT BUY signal 이 생성되지 않으므로 owner 미상=USER 로 보고 기존 경로 진행(zero-regression).
+        if (strategy == null) {
+            return if (autopilotEnabled) {
+                log.error(
+                    "autopilot enabled + 전략 owner 미상(lookup null) — BUY fail-closed 차단(실주문 0): signalId={} code={} strategyId={}",
+                    signal.id,
+                    signal.code,
+                    signal.strategyId,
+                )
+                AutopilotGateResult.Block(
+                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_OWNER_UNKNOWN:strategy lookup null"),
+                )
+            } else {
+                AutopilotGateResult.Proceed(resolvedQuantity)
+            }
+        }
+
         // 벨트앤서스펜더(spec §2-B) — applies(enabled 포함)가 아니라 isAutopilotBuy(enabled 무관)로 evaluate 진입을 결정한다.
         //   enabled=false 인 AUTOPILOT BUY 도 evaluate 로 보내 Reject(실주문 0)시켜야 한다 — applies 단축 return 은
-        //   그 차단 분기를 건너뛰어 무게이트 Proceed 가 된다(위험). non-AUTOPILOT BUY 만 여기서 Proceed.
+        //   그 차단 분기를 건너뛰어 무게이트 Proceed 가 된다(위험). non-AUTOPILOT(USER) BUY 만 여기서 Proceed.
         if (!guard.isAutopilotBuy(signal, strategy)) return AutopilotGateResult.Proceed(resolvedQuantity)
 
-        // price<=0: enabled=true 정상 경로는 기존대로 Proceed(zero-regression — 풀/캡 산정 분모 무의미 시 사이징 보존).
-        //   단 enabled=false 의 AUTOPILOT BUY 는 차단이 우선이므로 price 무관 evaluate 로 보내 Reject 시킨다(실주문 0 사수).
+        // ── price<=0 fail-closed ────────────────────────────────────────────────────────────────────────
+        //   owner=AUTOPILOT BUY 인데 price<=0 이면 풀/캡 산정 분모가 없어 사이징 자체가 불가 → 산정 못 하면 안 산다(Reject).
+        //   과거 enabled=true 의 Proceed 는 무사이징 실주문 위험. enabled=false 는 어차피 아래 evaluate 가 Reject.
         val price = signal.priceAtSignal
-        if (price <= BigDecimal.ZERO && guard.applies(signal, strategy)) {
-            return AutopilotGateResult.Proceed(resolvedQuantity)
+        if (price <= BigDecimal.ZERO) {
+            log.error(
+                "owner=AUTOPILOT BUY + price<=0 — 사이징 불가 fail-closed 차단(실주문 0): signalId={} code={} price={}",
+                signal.id,
+                signal.code,
+                price.toPlainString(),
+            )
+            return AutopilotGateResult.Block(
+                autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_NO_PRICE:사이징 불가(price<=0)"),
+            )
         }
-        val proposedAmount =
-            if (price > BigDecimal.ZERO) price.multiply(BigDecimal(resolvedQuantity)) else BigDecimal.ZERO
+        val proposedAmount = price.multiply(BigDecimal(resolvedQuantity))
 
         return when (val decision = guard.evaluate(signal, strategy, context, proposedAmount)) {
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable ->
@@ -1402,36 +1469,62 @@ class SignalGeneratedKafkaListener(
             }
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Reject ->
                 AutopilotGateResult.Block(
-                    RiskGatewayResult.Blocked(
-                        signalId = allowed.signalId,
-                        rule = RiskRule.POSITION_LIMIT,
-                        reason = "AUTOPILOT_GUARD_REJECT:${decision.reason}",
-                        context =
-                            mapOf(
-                                "code" to signal.code,
-                                "side" to signal.side.name,
-                                "strategyId" to signal.strategyId,
-                                "autopilotReason" to decision.reason,
-                            ),
-                    ),
+                    autopilotBlocked(allowed, signal, RiskRule.POSITION_LIMIT, "AUTOPILOT_GUARD_REJECT:${decision.reason}"),
                 )
             is kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.Kill ->
                 AutopilotGateResult.Block(
-                    RiskGatewayResult.Blocked(
-                        signalId = allowed.signalId,
-                        rule = RiskRule.KILL_SWITCH_ON,
-                        reason = "AUTOPILOT_KILL:${decision.reason}",
-                        context =
-                            mapOf(
-                                "code" to signal.code,
-                                "side" to signal.side.name,
-                                "strategyId" to signal.strategyId,
-                                "autopilotReason" to decision.reason,
-                            ),
-                    ),
+                    autopilotBlocked(allowed, signal, RiskRule.KILL_SWITCH_ON, "AUTOPILOT_KILL:${decision.reason}"),
                 )
         }
     }
+
+    /**
+     * autopilot fail-closed BUY 차단 [RiskGatewayResult.Blocked] 빌더 (DRY) — Guard Reject/Kill·provider 미가용·owner
+     * 미상·price<=0 차단 분기가 동일 context 형태로 [handleBlocked] 경로(intent 미발행·SystemEvent·STOMP)에 흐르게 한다.
+     */
+    private fun autopilotBlocked(
+        allowed: RiskGatewayResult.Allowed,
+        signal: Signal,
+        rule: RiskRule,
+        reason: String,
+    ): RiskGatewayResult.Blocked =
+        RiskGatewayResult.Blocked(
+            signalId = allowed.signalId,
+            rule = rule,
+            reason = reason,
+            context =
+                mapOf(
+                    "code" to signal.code,
+                    "side" to signal.side.name,
+                    "strategyId" to signal.strategyId,
+                    "autopilotReason" to reason,
+                ),
+        )
+
+    /**
+     * autopilot Guard owner 확정 전용 전략 lookup — 신호 생성기([RealtimeSignalGenerator])와 **동일한
+     * [StrategyLookupPort.findSellEvalByCodeAndInterval] 합집합 경로**로 owner 확정력을 일치시킨다(P0 fix 2026-06-22).
+     *
+     * 기존 [lookupStrategyOrNull] 은 [StrategyLookupPort.findActiveByCodeAndInterval](status='ACTIVE'/'BUY_BLOCKED'
+     * + codes/intervals JSONB 매칭) 만 봐, 생성기가 position-driven 폴백으로 잡은 AUTOPILOT 전략을 놓쳐 strategy=null
+     * → owner 미상 → 무게이트 Proceed 가 되는 **라이브 우회 root** 였다. 생성기와 동일 쿼리로 그 비대칭을 제거한다.
+     * 매칭 실패(firstOrNull null)는 호출자가 owner 미상 fail-closed 로 처리한다.
+     */
+    private fun lookupStrategyForGuardOrNull(signal: Signal): kr.spdaewoon.magicjar.domain.strategy.Strategy? =
+        strategyLookupPortProvider.getIfAvailable()?.let { lookup ->
+            runCatching {
+                lookup
+                    .findSellEvalByCodeAndInterval(signal.code, signal.interval)
+                    .firstOrNull { it.id == signal.strategyId }
+            }.onFailure { e ->
+                log.warn(
+                    "autopilot Guard strategy lookup 실패: userId={} strategyId={} err={}",
+                    signal.userId,
+                    signal.strategyId,
+                    e.message,
+                )
+            }.getOrNull()
+        }
 
     private fun resolveOrderQuantity(
         signal: Signal,
