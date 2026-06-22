@@ -3,10 +3,10 @@ id: T-20260622-1257-worktree-agent-a836fffb9c00618fa
 agent: market-data
 model: opus
 branch: agent/market-data/ws-midsession-tick-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T12:57:52.236+09:00
 completedAt: null
-pr: null
+pr: 1093
 parentPhase: ?
 ---
 
