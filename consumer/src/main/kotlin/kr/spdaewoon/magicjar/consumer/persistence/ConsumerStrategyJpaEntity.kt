@@ -81,6 +81,12 @@ class ConsumerStrategyJpaEntity(
     val evalMetricSummary: String? = null,
     @Column(name = "status", nullable = false, length = 16)
     val status: String = "ACTIVE",
+    // V88 owner(USER/SYSTEM/AUTOPILOT) — **autopilot Guard 식별 단일 출처**. 2026-06-22 P0 root fix:
+    //   이 컬럼 매핑이 통째로 누락돼 toDomain owner 가 항상 default USER 로 떨어져, owner=AUTOPILOT 전략의
+    //   신호가 USER 로 운반되고 AutopilotBuyGuard 가 영구 우회됐다(라이브 풀 한도 14배 실매수의 진짜 근본).
+    //   native query 는 owner 로 필터하나 엔티티가 컬럼을 안 읽어 도메인까지 전달 안 됐던 것. null/legacy=USER.
+    @Column(name = "owner", nullable = false, length = 16)
+    val owner: String = "USER",
     // V81 추가 컬럼 — ADR 0122 §2-A 전략 출처(USER_DSL/PAPER_DISCOVERY). consumer capital 분기 판정 키.
     // null=legacy=USER_DSL 취급 → 실 KIS 잔고 경로(현행 zero-regression).
     @Column(name = "origin", length = 24)
