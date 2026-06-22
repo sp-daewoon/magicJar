@@ -155,6 +155,10 @@ magicjar:
     lifetime-floor-pct: ${MAGICJAR_AUTOPILOT_LIFETIME_FLOOR_PCT:100}
     # account-wide 단일 계좌 userId — 제어 평면(status·resume floor 검사)의 순자산·전략수 조회 기준(canary 단일 사용자).
     account-user-id: ${MAGICJAR_AUTOPILOT_ACCOUNT_USER_ID:1}
+    # follow-up I (2026-06-22) — 재진입 churn 억제. owner=AUTOPILOT 가 한 code 를 전량 청산한 뒤 본 분만큼 같은 code
+    #   재매수를 suppress(buy→TP/exit→분 뒤 재매수 반복이 매 왕복 거래비용으로 알파를 깎는 손실원 차단). 단타 1분봉
+    #   기준 15분(=15봉)이면 noise/whipsaw 재진입은 막고 추세 재형성 호흡은 보존. 0 이하면 쿨다운 비활성(byte 동일).
+    reentry-cooldown-minutes: ${MAGICJAR_AUTOPILOT_REENTRY_COOLDOWN_MINUTES:15}
   # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
   #   stop-loss.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
   #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).

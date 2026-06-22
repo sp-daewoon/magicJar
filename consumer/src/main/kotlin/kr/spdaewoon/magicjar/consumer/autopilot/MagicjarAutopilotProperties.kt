@@ -55,6 +55,18 @@ data class MagicjarAutopilotProperties(
      * autopilot 은 account-wide 단일 행(id=1)이며 canary 는 단일 사용자다. ENV `MAGICJAR_AUTOPILOT_ACCOUNT_USER_ID`.
      */
     val accountUserId: String = DEFAULT_ACCOUNT_USER_ID,
+    /**
+     * 재진입 churn 억제 (follow-up I, 2026-06-22) — owner=AUTOPILOT 가 한 code 를 **전량 청산(SELL→qty 0)** 한 뒤
+     * 본 분만큼 같은 code 의 autopilot BUY 를 suppress 한다. ENV `MAGICJAR_AUTOPILOT_REENTRY_COOLDOWN_MINUTES`.
+     *
+     * ## 윈도우 근거 (default [DEFAULT_REENTRY_COOLDOWN_MINUTES]=15분)
+     * 오늘 실측: owner=AUTOPILOT 11왕복(회전 매수 261만/매도 232만 ≈ 소액 526k 의 3.5배)이 gross 알파 +7,950 중
+     * **5,222(66%)를 거래비용(매도세 0.18% + 수수료)으로 잠식**(net +2,728). 같은 code 를 buy→TP/exit→분 뒤 재매수
+     * 반복(006340 13:45·14:09 등)이 churn 손실원. 단타 TF=1분봉 기준 15분(=15봉)이면 청산 직후 noise/whipsaw 재진입은
+     * 막고, 추세가 실제로 재형성될 호흡은 보존한다(왕복 비용 ~0.21% > 즉시 재진입 기대수익). 0 이하면 쿨다운 비활성
+     * (게이트 통째 skip = 기존 경로 byte 동일). [enabled]=false 면 autopilot BUY 자체가 안 생성되므로 본 값도 무의미.
+     */
+    val reentryCooldownMinutes: Long = DEFAULT_REENTRY_COOLDOWN_MINUTES,
 ) {
     /**
      * 실시간 BUY 신호 구동 평가 쿼리에 넘길 **owner 집합** (spec 2026-06-22 §2 Phase 1 wiring · DRY 단일 출처).
@@ -88,6 +100,12 @@ data class MagicjarAutopilotProperties(
 
         /** account-wide 단일 계좌 userId default(canary 단일 사용자). */
         const val DEFAULT_ACCOUNT_USER_ID: String = "1"
+
+        /**
+         * 재진입 쿨다운 default = 15분 (단타 1분봉 15봉 — churn 비용 회수 + 정당 추세 재형성 호흡 보존, follow-up I).
+         * 너무 빡빡하면(예: 60분) 정당 추세추종 재진입까지 막으니 단타 TF 1분봉 기준 보수적 15분으로 둔다.
+         */
+        const val DEFAULT_REENTRY_COOLDOWN_MINUTES: Long = 15L
 
         /**
          * BUY 구동 평가 owner 집합 — [StrategyOwner] enum name 과 동일 문자열(DB owner VARCHAR 값과 정합).

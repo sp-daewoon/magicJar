@@ -39,6 +39,14 @@ enum class RiskRule {
      * 종목 분산을 위한 dedup** 이다(N전략이 서로 다른 종목으로 퍼지게). USER/SYSTEM·SELL 은 영향 없음.
      */
     AUTOPILOT_CODE_DEDUP,
+
+    /**
+     * autopilot 재진입 쿨다운 (follow-up I, 2026-06-22) — owner=AUTOPILOT 가 한 code 를 전량 청산한 뒤 쿨다운 윈도우
+     * 내에 같은 code 를 재매수하려 할 때 intent 를 suppress 한다. **한도 위반이 아니라 churn(과회전) 억제**다 —
+     * buy→TP/exit→분 뒤 재매수 반복이 매 왕복마다 거래비용으로 알파를 깎으므로, 윈도우 경과 후 정당 재진입만 허용.
+     * USER/SYSTEM·SELL·청산은 영향 없음([AUTOPILOT_CODE_DEDUP] 와 직교 — 동시 중복 vs 시간차 재진입).
+     */
+    AUTOPILOT_REENTRY_COOLDOWN,
 }
 
 /**
