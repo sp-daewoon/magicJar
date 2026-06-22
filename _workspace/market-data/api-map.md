@@ -273,3 +273,48 @@ interface KisDailyCandleRangePort {
 - BG 버킷 3/s 기준 순수 ~6.9h, jitter·재시도 포함 실효 **8~12h** → 밤당 cap(default 6,000콜 ≈ ~33분 순수)으로 **며칠~한 주 분산 완주**.
 - 야간 snapshot(R2)은 이력 깊이와 무관하게 항상 100콜/일 불변 — R-BF와 별개 경로.
 - ⚠ **full 실행은 사용자 환경 + 명시 go 시점.** ENABLED off default.
+
+---
+
+## KIS 실현손익 크로스체크 (TTTC8494R) — 2026-06-22 신설
+
+> "우리 성과 숫자가 진짜 KIS와 맞는가"를 KIS 권위로 증명. dormant 였던 `KisRealizedProfitPort` wiring.
+
+### KIS endpoint (raw 출처 — 추측 0)
+
+| 항목 | 값 | raw 출처 |
+|------|-----|---------|
+| path | `/uapi/domestic-stock/v1/trading/inquire-balance-rlz-pl` | open-trading-api `examples_llm/domestic_stock/inquire_balance_rlz_pl/inquire_balance_rlz_pl.py` L24 |
+| tr_id | `TTTC8494R` | 같은 파일 L111 |
+| 화면 | HTS [0800] **국내 체결기준잔고** | 같은 파일 L47 docstring |
+| INQR_DVSN | `02` (공식 chk 예제 값 / 00=전체) | `chk_inquire_balance_rlz_pl.py` L106 |
+| PRCS_DVSN | `01` = **전일매매미포함** (00=전일매매포함) | `inquire_balance_rlz_pl.py` L58 |
+| COST_ICLD_YN | `N` = **비용 미포함(gross)** | `chk_*.py` L110 |
+| UNPR_DVSN | `01` (기본값) | L55 |
+
+### 응답 필드 (체결기준잔고 의미)
+
+| 필드 | 한글 | 위치 | 의미 |
+|------|------|------|------|
+| `rlzt_pfls` | 실현손익 | output1(종목별)·output2(계좌합계) | **gross 실현손익** (COST_ICLD_YN=N → 수수료·세금 미포함) |
+| `rlzt_erng_rt` | 실현수익율 | output1·output2 | |
+| `real_evlu_pfls` | 실평가손익 | output2 | 참고용(보유분 평가손익) |
+
+### 우리 계산과의 구조적 차이 (tolerance 분류 근거)
+
+1. **비용(COST_SEMANTICS)**: KIS=gross(비용 미포함) vs 우리 PerformanceService=net(매도 수수료·세금 차감). → 우리도 **gross 병행 산출**해 KIS gross 와 직접 비교(`ourGrossRealizedPnl`).
+2. **잔고행 기준(KIS_ROW_ABSENT)**: KIS `rlzt_pfls` 는 **체결기준잔고(보유 종목)** 기준 → 당일 **전량 청산해 hldg_qty=0** 된 종목은 output1 에서 누락 가능(0800 화면 잔고행 기준). 우리 DAY 계산은 당일 매도 왕복 전부. → 종목별 정밀 비교는 "KIS 잔고행 남은 종목" 한정 + 계좌합계 semantics 명시.
+3. **당일/전일(PRCS_DVSN=01)**: 전일 체결 제외 → 우리 DAY(당일 한정)와 정합.
+
+### tolerance 표준
+
+- **정확 일치 기대(원 단위)** — `TOLERANCE_WON=1`. gross 계좌합계 drift 절대값 ≤ 1원이면 `matched=true`.
+- drift > tolerance 시 원인 분류: `COST_SEMANTICS`·`KIS_ROW_ABSENT`·`KIS_SUMMARY_ABSENT`·`ACCOUNT_DRIFT_GROSS`(미체결 지연·당일/누계·페이지네이션)·`KIS_CALL_FAILED`·`UNCLASSIFIED`.
+
+### REST 훅 (consumer 8082, REAL 전용)
+
+| endpoint | 설명 |
+|----------|------|
+| `GET /admin/reconcile/realized-pnl?userId=&period=DAY` | KIS 실현손익 호출 + 우리 FIFO 계산 + drift·일치판정·원인 반환. rate limit BACKFILL priority 보호, 자본영향 0 read-only. period ∈ DAY/WEEK/MONTH/YEAR (KIS 당일 스냅샷이라 DAY 정밀). |
+
+- **에이전틱 검증 훅**: 모니터링/검증이 "애매하면 KIS와 대조" 표준으로 호출.
