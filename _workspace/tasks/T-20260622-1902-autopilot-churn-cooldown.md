@@ -3,10 +3,10 @@ id: T-20260622-1902-autopilot-churn-cooldown
 agent: backend-core
 model: opus
 branch: agent/backend-core/autopilot-churn-cooldown
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T19:02:58.297+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T19:16:07.282+09:00
+pr: #1109
 parentPhase: ?
 ---
 
