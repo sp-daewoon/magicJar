@@ -254,6 +254,39 @@ class PerformanceServiceTest {
     }
 
     @Test
+    fun `follow-up H — fee tax 가 채워지면 totalPnl 은 net, grossPnl 은 비용 미차감을 둘 다 노출한다`() {
+        val from = LocalDate.of(2026, 6, 1)
+        val to = LocalDate.of(2026, 6, 22)
+        val buyOrder = makeOrderRequest(id = 1L, side = OrderSide.BUY, mode = TradingMode.REAL)
+        val sellOrder = makeOrderRequest(id = 2L, side = OrderSide.SELL, mode = TradingMode.REAL)
+        val executions =
+            listOf(
+                makeExecution(1L, 1L, LocalDate.of(2026, 6, 20), BigDecimal.ONE, BigDecimal("10000")),
+                // 매도 12000, fee 50 + tax 22 → net = 2000 - 72 = 1928, gross = 2000.
+                makeExecution(
+                    2L,
+                    2L,
+                    LocalDate.of(2026, 6, 21),
+                    BigDecimal.ONE,
+                    BigDecimal("12000"),
+                    fee = BigDecimal("50"),
+                    tax = BigDecimal("22"),
+                ),
+            )
+
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(eq(userId), any()))
+            .thenReturn(executions)
+        whenever(orderRequestJpaRepository.findAllById(listOf(1L, 2L)))
+            .thenReturn(listOf(buyOrder, sellOrder))
+        whenever(instrumentJpaRepository.findAllById(listOf("005930"))).thenReturn(emptyList())
+
+        val summary = sut.getSummary(userId, "MONTH", from, to, TradingMode.REAL)
+
+        assertThat(summary.totalPnl).isEqualByComparingTo(BigDecimal("1928.00"))
+        assertThat(summary.grossPnl).isEqualByComparingTo(BigDecimal("2000.00"))
+    }
+
+    @Test
     fun `owner scoping — strategyId 필터로 autopilot 체결만 집계한다 (수동·후성 격리)`() {
         val from = LocalDate.of(2026, 6, 1)
         val to = LocalDate.of(2026, 6, 22)
@@ -323,6 +356,8 @@ class PerformanceServiceTest {
         date: LocalDate,
         qty: BigDecimal,
         price: BigDecimal,
+        fee: BigDecimal = BigDecimal.ZERO,
+        tax: BigDecimal = BigDecimal.ZERO,
     ): OrderExecutionJpaEntity =
         OrderExecutionJpaEntity(
             id = id,
@@ -330,7 +365,7 @@ class PerformanceServiceTest {
             executedQty = qty,
             executedPrice = price,
             executedAt = date.atTime(10, 0).atZone(kst).toInstant(),
-            fee = BigDecimal.ZERO,
-            tax = BigDecimal.ZERO,
+            fee = fee,
+            tax = tax,
         )
 }

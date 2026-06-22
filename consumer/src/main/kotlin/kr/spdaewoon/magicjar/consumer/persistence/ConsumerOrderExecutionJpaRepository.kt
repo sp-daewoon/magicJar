@@ -1,9 +1,11 @@
 package kr.spdaewoon.magicjar.consumer.persistence
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * order_execution Spring Data JPA Repository — consumer 모듈.
@@ -41,4 +43,37 @@ interface ConsumerOrderExecutionJpaRepository : JpaRepository<ConsumerOrderExecu
      * 헌법 §6 — interface body 0건, abstract fun 만 (Spring Data query inference).
      */
     fun findByExecutedAtBeforeOrderByExecutedAtAsc(cutoff: java.time.Instant): List<ConsumerOrderExecutionJpaEntity>
+
+    /**
+     * 손익 net화(follow-up H, 2026-06-22 market-data) — `executed_at ∈ [from, to)` 인 모든 체결을 시간순 반환.
+     *
+     * 비용 reconcile 워커가 기간 내 매도 체결을 종목별로 모아 KIS 실비용(TTTC8715R fee+tl_tax)을 안분 영속할 때 입력.
+     * 헌법 §6 — interface body 0건, abstract fun 만 (Spring Data query inference).
+     */
+    fun findByExecutedAtGreaterThanEqualAndExecutedAtLessThanOrderByExecutedAtAsc(
+        from: Instant,
+        to: Instant,
+    ): List<ConsumerOrderExecutionJpaEntity>
+
+    /**
+     * 손익 net화(follow-up H) — order_execution.fee/tax 실비용 영속 UPDATE (멱등 게이트 포함).
+     *
+     * KIS WS 체결통보(H0STCNI0)·REST 일별체결은 최종 fee/tax 를 싣지 않아 0으로 INSERT 된다 → 우리 net=gross 과대표시.
+     * 본 UPDATE 가 KIS 기간별매매손익(TTTC8715R) 종목별 실비용을 체결 단위로 안분해 사후 채운다.
+     *
+     * 멱등: `fee = 0 AND tax = 0` 인 행만 UPDATE → 이미 채워진(또는 다른 경로로 채워진) 행은 재기록 0(중복 차감 방지).
+     * 헌법 §6 — interface body 0건, abstract fun + @Modifying 만.
+     *
+     * @return 실제 UPDATE 된 행 수.
+     */
+    @Modifying
+    @Query(
+        "UPDATE ConsumerOrderExecutionJpaEntity e SET e.fee = :fee, e.tax = :tax " +
+            "WHERE e.id = :id AND e.fee = 0 AND e.tax = 0",
+    )
+    fun fillCostIfAbsent(
+        @Param("id") id: Long,
+        @Param("fee") fee: BigDecimal,
+        @Param("tax") tax: BigDecimal,
+    ): Int
 }

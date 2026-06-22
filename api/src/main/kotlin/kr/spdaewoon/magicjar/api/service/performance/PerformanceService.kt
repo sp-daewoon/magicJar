@@ -77,8 +77,16 @@ class PerformanceService(
         val (from, to) = resolvePeriodRange(userId, validPeriod, periodStart, periodEnd)
 
         if (mode != null) {
-            val pnlDailyList = buildPnlDailyFromTrades(userId, from, to, mode)
-            return buildSummaryDto(validPeriod, from, to, pnlDailyList, cacheHit = false)
+            // follow-up H: mode 경로(대시보드·autopilot)는 체결 단위 replay 라 net·gross 둘 다 산출 가능.
+            //   net = realizedPnl(fee/tax 차감), gross = net + fee + tax → 둘 다 노출(과대표시 방지 + 비용 가시화).
+            //   order_execution.fee/tax 가 비용 reconcile(consumer) 로 채워지면 net 이 KIS 와 정합한다.
+            val items = loadTradeItems(userId, from, to, mode)
+            val pnlDailyList = aggregatePnlDaily(userId, items)
+            val grossPnl =
+                items
+                    .fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl + item.fee + item.tax }
+                    .setScale(2, RoundingMode.HALF_UP)
+            return buildSummaryDto(validPeriod, from, to, pnlDailyList, cacheHit = false, grossPnl = grossPnl)
         }
 
         // Redis HIT check
@@ -195,6 +203,7 @@ class PerformanceService(
         to: LocalDate,
         pnlDailyList: List<PnlDaily>,
         cacheHit: Boolean,
+        grossPnl: BigDecimal? = null,
     ): PerformanceSummaryDto {
         val equityCurve = performanceCalculator.buildEquityCurve(pnlDailyList, from, to)
         return PerformanceSummaryDto(
@@ -202,6 +211,7 @@ class PerformanceService(
             periodStart = from,
             periodEnd = to,
             totalPnl = performanceCalculator.totalPnl(pnlDailyList),
+            grossPnl = grossPnl,
             mddPct = performanceCalculator.maxDrawdown(equityCurve),
             winRatePct = performanceCalculator.winRate(pnlDailyList),
             profitLossRatio = performanceCalculator.profitLossRatio(pnlDailyList),
@@ -237,8 +247,14 @@ class PerformanceService(
         from: LocalDate,
         to: LocalDate,
         mode: TradingMode,
+    ): List<PnlDaily> = aggregatePnlDaily(userId, loadTradeItems(userId, from, to, mode))
+
+    /** 체결 단위 trade item 을 일자별 PnlDaily 로 집계 — load 와 분리(net·gross 동시 산출 시 재로드 회피). */
+    private fun aggregatePnlDaily(
+        userId: String,
+        items: List<PerformanceTradeDto>,
     ): List<PnlDaily> =
-        loadTradeItems(userId, from, to, mode)
+        items
             .groupBy { it.tradeDate }
             .entries
             .sortedBy { it.key }
