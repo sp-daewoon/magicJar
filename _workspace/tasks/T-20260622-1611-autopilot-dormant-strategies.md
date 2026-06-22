@@ -3,10 +3,10 @@ id: T-20260622-1611-autopilot-dormant-strategies
 agent: strategy
 model: opus
 branch: agent/strategy/autopilot-dormant-strategies
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T16:11:57.440+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T16:14:50.549+09:00
+pr: #1101
 parentPhase: ?
 ---
 
@@ -14,8 +14,8 @@ parentPhase: ?
 autopilot 휴면 전략 101/102/103 진단
 
 ## 결과물 체크리스트
-- [ ] 진단표
-- [ ] hypotheses 레지스트리 동기화
+- [x] 진단표
+- [x] hypotheses 레지스트리 동기화
 
 ## 의존성
 - (필요 시 기록)
