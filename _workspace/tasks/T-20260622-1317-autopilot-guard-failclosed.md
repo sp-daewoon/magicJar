@@ -3,10 +3,10 @@ id: T-20260622-1317-autopilot-guard-failclosed
 agent: backend-core
 model: opus
 branch: agent/backend-core/autopilot-guard-failclosed
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T13:17:42.309+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T13:29:44.725+09:00
+pr: #1094
 parentPhase: ?
 ---
 
