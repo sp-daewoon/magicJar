@@ -90,10 +90,16 @@ while [[ "${INFLIGHT:-0}" -gt 0 && "$waited" -lt "$DRAIN_WAIT_SECONDS" ]]; do
 done
 
 if [[ "${INFLIGHT:-0}" -gt 0 ]]; then
-  echo "✗ in-flight 주문 ${INFLIGHT}건이 ${DRAIN_WAIT_SECONDS}s 내 해소되지 않음 — consumer 재배포 중단(체결통지 유실 risk)" >&2
-  echo "  긴급 배포(치명 결함)면: SKIP_DRAIN_CHECK=1 scripts/build-and-deploy.sh …  (부팅 backfill 이 체결 회복)" >&2
-  echo "  대기 연장: DRAIN_WAIT_SECONDS=300 …" >&2
-  exit 1
+  # 2026-06-22 사용자 결재 — 기본 비블로킹(경고 후 진행). 부팅 backfill(KisExecutionBackfill)이
+  #   재시작 중 누락 체결을 자동 복구하므로(canary 실증), drain 가드는 가시성 경고로 강등한다.
+  #   하드 블록을 원하면 MAGICJAR_DEPLOY_DRAIN_BLOCK=true (opt-in). 장중 무가드 재배포가 부담되면 그때만.
+  if [[ "${MAGICJAR_DEPLOY_DRAIN_BLOCK:-false}" == "true" ]]; then
+    echo "✗ in-flight 주문 ${INFLIGHT}건이 ${DRAIN_WAIT_SECONDS}s 내 미해소 — 재배포 중단(MAGICJAR_DEPLOY_DRAIN_BLOCK=true)" >&2
+    echo "  우회: SKIP_DRAIN_CHECK=1 또는 MAGICJAR_DEPLOY_DRAIN_BLOCK=false (기본)" >&2
+    exit 1
+  fi
+  echo "⚠ in-flight 주문 ${INFLIGHT}건 잔존(${DRAIN_WAIT_SECONDS}s 내 미해소) — 경고 후 진행. 부팅 backfill 이 체결 복구."
+  exit 0
 fi
 
 echo "▶ drain 가드 통과 — in-flight 주문 0건 (대기 ${waited}s)"
