@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.14.1** | 2026-06-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.1) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
 | **v3.14.0** | 2026-06-21 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.0) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
 | **v3.13.7** | 2026-06-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.7) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
 | **v3.13.6** | 2026-06-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.13.6) | [📊](_workspace/baseline/v3.13.0/html/index.html) |
@@ -579,7 +580,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 | **v3.6.13** | 2026-05-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.13) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.12** | 2026-05-18 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.12) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.11** | 2026-05-17 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.11) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
-| **v3.6.10** | 2026-05-17 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.10) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
+| **v3.6.10** | 2026-05-17 | (검토) | — | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.9** | 2026-05-15 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.9) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.8** | 2026-05-15 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.8) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
 | **v3.6.7** | 2026-05-15 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.7) | [📊](_workspace/baseline/v3.6.0/html/index.html) |
