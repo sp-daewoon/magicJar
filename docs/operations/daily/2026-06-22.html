@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>magicJar 일일보고 2026-06-22 — autopilot 첫 REAL 자율 매매일</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--bd:#2a2f3a;--fg:#e6e9ef;--mut:#9aa3b2;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,'Segoe UI',Roboto,'Apple SD Gothic Neo',sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:32px 0 12px;border-left:4px solid var(--acc);padding-left:10px}
+  .sub{color:var(--mut);margin-bottom:24px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;margin:12px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .kpi{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px}
+  .kpi .v{font-size:22px;font-weight:700} .kpi .l{color:var(--mut);font-size:12px}
+  table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13.5px}
+  th,td{border:1px solid var(--bd);padding:7px 9px;text-align:left} th{background:#1f242d;color:var(--mut)}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .acc{color:var(--acc)} .mut{color:var(--mut)}
+  code{background:#0b0d11;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  ul{margin:6px 0 6px 0;padding-left:20px} li{margin:3px 0}
+  .pill{display:inline-block;background:#1f242d;border:1px solid var(--bd);border-radius:999px;padding:1px 9px;font-size:12px;margin-right:4px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>magicJar 일일보고 — 2026-06-22 (월)</h1>
+<div class="sub">autopilot 첫 REAL 완전 자율 매매일 · canary 진화 · 작성: orchestrator</div>
+
+<div class="card">
+<b>한 줄 요약</b> — Claude 직접 운영 autopilot이 개장부터 실거래로 자율 매매를 완주했고, 그 과정에서 <b>시스템 결함 11건을 surface·수정</b>했으며, 손익을 <b>KIS 진실원으로 확정(matched=true)</b>했다. 오늘 핵심 가치는 수익 자체가 아니라 <b>"된다"가 아닌 행위·KIS 검증으로 자기 시스템을 교정</b>한 것.
+</div>
+
+<h2>① 매매 성과 (KIS 확정)</h2>
+<div class="grid">
+  <div class="kpi"><div class="v ok">+21,542원</div><div class="l">실현손익 net (KIS 확정·matched=true)</div></div>
+  <div class="kpi"><div class="v">27,420원</div><div class="l">우리 gross (비용 전)</div></div>
+  <div class="kpi"><div class="v">45.5%</div><div class="l">승률 (11거래)</div></div>
+  <div class="kpi"><div class="v">3.9</div><div class="l">손익비</div></div>
+  <div class="kpi"><div class="v">261만 / 232만</div><div class="l">매수 / 매도 대금</div></div>
+  <div class="kpi"><div class="v warn">2건</div><div class="l">오버나잇 (080220·035720, 306k)</div></div>
+</div>
+<div class="card mut">거래비용 = 매도수수료 320 + 거래세 5,239 + 매수수수료 319 = <b>5,879원</b>. 우리 gross(27,420) − 비용 = net <b>21,541 ≈ KIS 21,542</b> (잔차 1원=반올림). 발화 전략: momentum-breakout·volume-spike·vwap-reversion (6중 3).</div>
+
+<h2>② 부분/분할체결 분석 (데이터 정합)</h2>
+<table>
+<tr><th>케이스</th><th>오늘</th><th>처리</th></tr>
+<tr><td>부분체결(under-fill)</td><td>0건 — 체결 BUY 전부 완전체결</td><td>—</td></tr>
+<tr><td>분할체결(split-fill)</td><td>1건 (006340 BUY, 체결 row 2개·합계=전량)</td><td class="ok">✅ executed_qty SUM 합산 정확</td></tr>
+<tr><td>거부/취소 BUY</td><td>다수 (같은종목 전략 충돌)</td><td>C dedup로 차후 방지</td></tr>
+<tr><td>ACK·체결0</td><td>080220·035720 SELL (오버나잇 TP 지정가 대기)</td><td>부분체결 아님 (미체결 청산예약)</td></tr>
+</table>
+<div class="card mut">P&L·KIS 대조는 <b>주문수량이 아닌 <code>order_execution.executed_qty</code>(실제 체결)</b>를 사용 → 분할/부분체결 구조적 정확.</div>
+
+<h2>③ KIS 진실원 크로스체크 (오늘 최대 성과)</h2>
+<div class="card">
+우리 데이터 내부정합 ≠ 진짜. KIS와 대조해 <b>우리 손익이 과대였음(gross)을 발견</b>하고 net으로 확정.
+<ul>
+<li><b>1차 (TTTC8494R, 잔고기준)</b>: KIS 21,541 vs 우리 27,420 → drift −5,879, 종목별 null = 잔고기준이라 전량청산 종목 누락 판명.</li>
+<li><b>2차 (TTTC8715R, 기간별매매손익)</b>: 전량청산 포함. drift −5,878 = <b>거의 전부 거래비용</b> (종목별 driftNet = 그 종목 KIS fee+tax와 정확 일치, 예 000500 −748=80+668).</li>
+<li><b>종결 (fee/tax 캡처)</b>: 우리 net = gross − KIS비용(5,879) = 21,541 → <b class="ok">matched=true (잔차 1원)</b>.</li>
+</ul>
+<b>표준화</b>: <code>/admin/reconcile/realized-pnl</code> 크로스체크 endpoint + tolerance + 원인분류. "자본·손익 검증은 항상 KIS 대조" standing 원칙 확립.
+</div>
+
+<h2>④ 발견·수정한 시스템 이슈 (autopilot이 실거래로 surface — 자기증대의 핵심 수확)</h2>
+<table>
+<tr><th>#</th><th>이슈</th><th>처리</th></tr>
+<tr><td>1</td><td><b>엔티티 owner 매핑 누락</b> = Guard 우회 진짜 root (도메인 owner→USER default→신호 USER 운반)</td><td class="ok">fix #1096</td></tr>
+<tr><td>2~4</td><td>lookup 취약 → owner-on-signal / 평가경로 wiring / 벨트앤서스펜더</td><td class="ok">#1091·1094·1095</td></tr>
+<tr><td>5</td><td>WS 40채널 한도 미강제 → 장중 신규구독 silent 누락(frame 0)</td><td class="ok">#1093</td></tr>
+<tr><td>6</td><td>readiness off-by-one race (갓 마감 boundary STALE 오판→BUY 억제)</td><td class="ok">#1092</td></tr>
+<tr><td>7</td><td>수동주문 lot 귀속 드리프트 (strategy_id 없는 SELL)</td><td class="ok">reconcile 정합</td></tr>
+<tr><td>8</td><td><b>stale jar 함정</b> (gradle UP-TO-DATE 재컴파일 누락)</td><td class="ok">clean 재빌드 의무화</td></tr>
+<tr><td>9</td><td><b>손익 KIS 미검증 + gross/net</b> (fee/tax=0 미캡처 → 우리 27% 과대)</td><td class="ok">#1097·1099·1102</td></tr>
+<tr><td>10</td><td>성과 cache mode 미지정 시 당일 0 표시 (API 직접호출)</td><td>인지·문서화</td></tr>
+<tr><td>11</td><td><b>타임프레임 슬롯 경합</b> (3m 전략이 5m 선점 → 휴면 착시)</td><td>진단 #1101 (다음 학습)</td></tr>
+</table>
+
+<h2>⑤ 오늘 개발한 개선 5건 (마감 후)</h2>
+<div class="card">
+<span class="pill">D</span><b>사이징 정상화</b> — 풀/maxPositions fair-share floor → 몰빵(한종목 34~48주) 차단·3슬롯 분산 (#1098, max=3)<br>
+<span class="pill">A</span><b>KIS 정합 권위 승격</b> — TTTC8715R(전량청산 포함) + 크로스체크 재작성 (#1099)<br>
+<span class="pill">C</span><b>종목 충돌 dedup</b> — code 단위 lock → N전략 서로 다른 종목 분산 (#1100)<br>
+<span class="pill">B</span><b>휴면 전략 진단</b> — DSL 건강 확정, 원인=슬롯 경합 (코드변경 0, #1101)<br>
+<span class="pill">E</span><b>fee/tax 캡처</b> — KIS 실비용 차감 → matched=true 종결 (#1102)
+</div>
+
+<h2>⑥ 안전 (코드강제 — 검증 완료)</h2>
+<ul>
+<li><b>autopilot Guard 라이브 작동 검증</b> (#1096, 14:25 평가 로그 실증) — 모든 owner=AUTOPILOT BUY 평가·누적손실 kill 회로차단기</li>
+<li><b>이중 안전망</b>: autopilot Guard(풀·누적손실·분산 사이징) + 실 RiskConfig(동시3·종목당400k·일손실5% auto-pause)</li>
+<li><b>kill-recovery 루프</b> 실증 (STOP→사후분석저널→P0→RESUME), lifetime 하드플로어</li>
+<li>후성 청산·전략47 PAUSED 비간섭, kill off 마감</li>
+</ul>
+
+<h2>⑦ 학습 & 다음 (인계)</h2>
+<ul>
+<li><b>"된다 ≠ 잘 된다"</b> — 메커니즘(에러 0)이 아닌 매매 행위(원장)를 봐야 한다. orchestrator 측정 오류 3건(측정안됨/손실/+27,420)을 사용자 규율이 매번 교정.</li>
+<li><b>KIS 진실원 크로스체크</b>가 우리 손익 27% 과대를 잡았다. 자본·손익은 항상 KIS 대조 = 프로덕션 표준.</li>
+<li><b>타임프레임이 슬롯 경합의 숨은 결정변수</b> — 다양성 학습엔 슬롯 공정성(라운드로빈/paper 병행) 검토.</li>
+<li>다음: ① 오버나잇 2건 관리 ② 슬롯 공정성 ③ market-data 장중 캔들 backfill 지연(개장+1.5h) ④ 페이퍼·저널 학습 누적.</li>
+<li>운영 매뉴얼: <code>skills/magicjar-autopilot</code> (§0 행위검증·KIS크로스체크 규율 + 11함정 + 배포규율).</li>
+</ul>
+
+<div class="card mut" style="margin-top:28px">PR: #1091~#1102 · main=10107928 · 릴리즈 v3.14.1 · 권위=skills/magicjar-autopilot · 메모리 project_autopilot_initiative</div>
+
+</div></body></html>
