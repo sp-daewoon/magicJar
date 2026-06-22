@@ -3,10 +3,10 @@ id: T-20260622-1811-pnl-owner-scoping
 agent: backend-core
 model: opus
 branch: agent/backend-core/pnl-owner-scoping
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T18:11:32.673+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T18:22:07.870+09:00
+pr: #1106
 parentPhase: ?
 ---
 
