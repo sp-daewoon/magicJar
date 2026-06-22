@@ -54,6 +54,23 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): List<ConsumerCandleJpaEntity>
 
     /**
+     * 진입 **이후** 캔들 ts ASC 조회 — 개선 G(autopilot 페이퍼 섀도 스코어링) 전용.
+     * `ts > entryExclusive` 의 후속 캔들을 시간순으로 limit 개 가져와 TP/SL 도달을 판정한다.
+     * Spring Data inference 대신 명시 @Query(헌법 §6 default-fun 함정 회피).
+     */
+    @Query(
+        "SELECT c FROM ConsumerCandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval AND c.ts > :entryExclusive " +
+            "ORDER BY c.ts ASC",
+    )
+    fun findByCodeAndIntervalAfter(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("entryExclusive") entryExclusive: java.time.Instant,
+        pageable: Pageable,
+    ): List<ConsumerCandleJpaEntity>
+
+    /**
      * 종목·interval 의 마지막 ts (Instant) — row 0 건이면 null.
      * hotfix 2026-05-15: CandleBootstrapRunner stale 검출 용.
      */

@@ -32,6 +32,10 @@
 | `StrategyPositionJpaRepository` autopilot 쿼리 (Task 3) | `sumAutopilotExposureByUser`·`countAutopilotHeldCodesByUser` | 2 fun 제거 |
 | `SignalGeneratedKafkaListener` Guard wiring (Task 3) | `autopilotBuyGuardProvider`(nullable default)·`applyAutopilotBuyGuard`·`AutopilotGateResult` | ctor 파라미터·helper·sealed 제거(게이트 분기 — owner≠AUTOPILOT/off 면 NotApplicable→기존 경로 byte 동일) |
 | `ConsumerExecutionStrategyPositionAdapter` 손실누적 hook (Task 3) | `autopilotLossAccumulatorProvider`(nullable default)·applyExecution SELL delta hook | ctor 파라미터·hook 블록 제거 |
+| **strategy-engine 페이퍼 섀도 스코어러 (개선 G)** | `strategy-engine/.../strategy/autopilot/AutopilotPaperShadowScorer.kt`·`ShadowOutcome` | autopilot 패키지 삭제에 포함(Task 2 행이 패키지 전체) |
+| **consumer 페이퍼 섀도 (개선 G)** | `consumer/.../consumer/autopilot/AutopilotPaperShadow{JpaEntity,JpaRepository,Recorder,ScoringWorker}.kt` | consumer autopilot 패키지 삭제에 포함 |
+| `SignalGeneratedKafkaListener` 섀도 hook (개선 G) | `autopilotPaperShadowRecorderProvider`(nullable default)·`recordPaperShadowIfStarved` | ctor 파라미터·helper 제거(BLOCKED hook — non-AUTOPILOT/off 면 no-op→byte 동일) |
+| `ConsumerCandleJpaRepository.findByCodeAndIntervalAfter` (개선 G) | candle 후속봉 조회(섀도 스코어링용) | 1 fun 제거(다른 경로 미사용 — autopilot 전용) |
 
 ### 설정 / ENV
 | 자원 | 위치 | 폐기 방법 |
@@ -49,6 +53,7 @@
 |------|------|-----------|
 | `autopilot_state` 테이블 | Flyway `V91__autopilot_state.sql` | `DROP TABLE IF EXISTS autopilot_state;` (V91 하단 ROLLBACK 노트) |
 | `owner='AUTOPILOT'` 전략 데이터 | `strategy` 테이블(컬럼 공유, 스키마 무변경) | `DELETE FROM strategy WHERE owner = 'AUTOPILOT';` (사용자 전략·후성 보존) |
+| `autopilot_paper_shadow` 테이블 (개선 G) | Flyway `V93__autopilot_paper_shadow.sql` | `DROP TABLE IF EXISTS autopilot_paper_shadow;` (V93 하단 ROLLBACK 노트) |
 
 > `strategy.owner` 컬럼은 VARCHAR(16)(V88)이라 `AUTOPILOT` 값 추가에 DDL 변경이 없다 — 스키마 폐기 대상은
 > `autopilot_state` 테이블 하나뿐이다.
@@ -76,3 +81,4 @@ autopilot 작업 중 일반적으로도 가치 있다고 **반복 검증된** �
 | Phase 0 Task 1 | 2026-06-22 | autopilot_state(V91)·StrategyOwner.AUTOPILOT·게이트 ENV 5건·domain 패키지 추가 | 없음 | 안전 하니스 기반 scaffold |
 | Phase 0 Task 2 | 2026-06-22 | strategy-engine autopilot 패키지(AutonomousTradingGuard 순수 회로차단기) 추가 | 없음 | Guard 순수 로직 |
 | Phase 0 Task 3 | 2026-06-22 | consumer autopilot 패키지(properties·state store·JPA·BuyGuard·KillSwitch·LossAccumulator)·JPA scan 등록·repo autopilot 쿼리 5건·listener Guard wiring·체결 adapter 손실누적 hook 추가 | 없음 | kill switch + Guard 매수경로 wiring + 손실누적. 전부 enabled=false 게이트 뒤(zero-regression). DRY: @ConfigurationProperties 한도 단일화 |
+| 개선 G (슬롯 공정성) | 2026-06-22 | autopilot_paper_shadow(V93)·strategy-engine `AutopilotPaperShadowScorer`(순수)·consumer 페이퍼 섀도 4파일(Entity/Repository/Recorder/ScoringWorker)·listener BLOCKED hook·candle 후속봉 쿼리 1건 추가 | 없음 | paper-parallel — 실슬롯 starve 된 owner=AUTOPILOT BUY 를 페이퍼 섀도로 스코어링(실자본 0). 실보유 cap 3 불변. 전부 enabled=false 게이트 뒤(zero-regression) |

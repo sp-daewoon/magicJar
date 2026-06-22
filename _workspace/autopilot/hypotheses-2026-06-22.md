@@ -101,6 +101,16 @@
 - 장중 intraday 캔들 backfill 이 **10:25 에야 시작**(09:00 개장 후 ~1.5h 지연) + 5m/3m 캔들 **6/13~6/19 갭**. → 오전 내내 fvg/ob zone 이 오늘 가격대에서 미형성 → 102·103 신호가 오후로 밀림 → 슬롯 경합 패배. **market-data**(intraday backfill 조기 가동·갭 보정)에 인계.
 - 슬롯3 선착순(`MAX_CONCURRENT_POSITIONS=3`) 정책이 "먼저 신호 낸 메커니즘"에 유리. 다양성 학습을 원하면 **오케스트라/backend-core** 가 ① 슬롯 라운드로빈/메커니즘 다양성 보너스 ② autopilot 평가를 paper(슬롯 무제한) 병행으로 학습 신호 분리 ③ 슬롯 cap 상향 중 택일 검토. (단, 실돈 안전 cap 은 보수 유지 권고.)
 
+#### ✅ 해소 — 개선 G(슬롯 공정성 paper-parallel, 2026-06-22 strategy-engine)
+위 ② 채택. starve 된 owner=AUTOPILOT BUY(slot/pool BLOCKED)를 **실 자본 0** 으로 `autopilot_paper_shadow`(V93)에
+가상 진입 1행 기록 → 후속 캔들 TP/SL 도달을 60초 워커가 판정(WIN/LOSS) + net 가상 PnL 누적. 102·103 같이 슬롯에
+막힌 가설도 **점수가 쌓여 학습 신호**가 된다(전략별 `scoreByStrategy` rollup). **실보유 동시 cap 3 불변**(섀도는 자본 0).
+순수 스코어러(`AutopilotPaperShadowScorer`)는 SL 우선 intrabar 판정·비용차감(0.3%)으로 과대평가를 막는다. 격리 LOCK:
+enabled + BUY + owner=AUTOPILOT + slot/pool starve 일 때만 기록(non-AUTOPILOT·SELL·kill·dedup no-op·zero-regression).
+구조적 근본 중 **데이터 지연(intraday backfill)** 은 여전히 market-data 인계(섀도는 오후 도착 신호도 스코어링하나, 오전
+zone 미형성 자체는 데이터 토대 문제). 슬롯 라운드로빈(①)은 실보유 경합 자체를 건드려 더 침습적이라 보류 — 페이퍼
+스코어링으로 "어느 가설이 먹히나"는 cap 변경 없이 학습되므로 interim 으로 충분.
+
 ### 메타 답(첫날)
 - **Q1**(추세 vs 역추세): 약세장이라 추세추종(101 상승추세)은 정당 휴면, 발화한 추세추종(100 momentum)도 SELL 신호가 BUY 대비 폭증(812:16) = 약세에서 fakeout 다발 시사. 역추세(105 vwap-reversion)는 BUY 25 로 가장 활발 = 약세 되돌림 매수가 첫날 레짐에 적합.
 - **Q4**(슬롯 경합): 3m 전략(100·104)이 5m 전략(102·103)보다 boundary 빈도 2배 + 더 일찍 신호 → 슬롯 선점. **타임프레임이 슬롯 경합의 숨은 결정변수**임이 첫날 학습 신호로 드러남.
