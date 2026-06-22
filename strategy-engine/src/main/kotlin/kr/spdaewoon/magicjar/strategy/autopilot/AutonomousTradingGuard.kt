@@ -39,8 +39,25 @@ import java.math.RoundingMode
  * 3. **동시 보유 종목수** — `currentLoopPositions >= maxPositions`면 Reject(신규 종목 진입 차단).
  * 4. **풀 상한** — `loopExposure + proposedEntryAmount > 풀`이면 잔여(풀−loopExposure)로
  *    clamp 후보를 만든다. 잔여 ≤0이면 Reject(풀 소진).
- * 5. **건당 캡** — `approvedAmount = min(proposedEntryAmount, 풀잔여, 풀 × perTradePct/100)`.
- *    ≤0이면 Reject, 아니면 [AutopilotGuardVerdict.Allow](approvedAmount).
+ * 5. **건당 캡 (분산형 — 몰빵 차단, 2026-06-22 fix)** —
+ *    `건당캡 = min(풀 × perTradePct/100, 풀 ÷ maxPositions)` 로 산정한다.
+ *    `approvedAmount = min(proposedEntryAmount, 풀잔여, 건당캡)`. ≤0이면 Reject, 아니면 Allow(approvedAmount).
+ *    `풀 ÷ maxPositions`(per-slot 균등 분율) floor 가 핵심 — perTradePct 를 100%로 넓혀도(사용자 "실거래처럼"
+ *    완화) **한 종목이 풀 전부를 가져가지 못한다**. 풀이 자연스럽게 maxPositions 슬롯에 분산된다(아래 §분산 사이징).
+ *
+ * ## 분산 사이징 (2026-06-22 — 몰빵→분산 교정)
+ * 입력 evidence(2026-06-22 라이브): pool 100%·perTrade 100%·max 20 으로 완화한 결과 건당캡 = 풀 전부가 되어
+ * `resolveBuyQuantity`(가용현금 전량/price)가 **한 싸구려주에 34~48주 몰빵**(006340·067290·080220). 오늘 +수익이나
+ * 한 종목 67% 순자산 노출은 비분산(분할매수 설계 합의 정신 위배 — 몰빵은 다음에 큰 손실로 돌아온다).
+ *
+ * **교정**: perTradePct 와 무관하게 건당 진입을 **풀 ÷ maxPositions**(per-slot 균등 분율)로 hard cap 한다.
+ * - 풀 규모(pool 100%)는 사용자 의도대로 유지 — **규모는 그대로, 몰빵만 제거**.
+ * - 둘 중 보수적(작은 쪽)이 이긴다: `min(풀×perTradePct/100, 풀÷maxPositions)`. perTradePct 가 좁으면(예 20%)
+ *   기존 동작 그대로(20% < 1/maxPositions=33% 일 때 perTradePct 가 이김), 넓으면(100%) fair-share floor 가 이긴다.
+ * - maxPositions 슬롯에 정확히 N등분 → 동시 N종목에 균등 분산. 한 종목 최대 노출 = 풀/maxPositions 로 bound.
+ * - 실 `RiskConfig`(종목당 400k·동시 maxConcurrent) 위에 **더 분산적으로** 겹친다 — 호출자가 둘 중 작은 수량을
+ *   채택(`min(resolvedQuantity, guardQty)`)하므로 둘 중 보수적 한도가 항상 이긴다.
+ * - maxPositions ≤ 0 방어: 1 로 floor(0 나눗셈 방지 — 풀 전부 1슬롯이지만 풀상한이 여전히 cap).
  *
  * ## 폐기 철학 (spec §3-bis Tier A)
  * autopilot 전용 패키지(`kr.spdaewoon.magicjar.strategy.autopilot`)에 격리된다. 폐기 = 플래그 off + 패키지 제거로
@@ -110,8 +127,10 @@ object AutonomousTradingGuard {
             )
         }
 
-        // 5. 건당 캡 — min(제안, 풀잔여, 건당캡). 셋 중 가장 보수적 값으로 clamp.
-        val perTradeCap = pctOf(poolCeiling, state.perTradePct)
+        // 5. 건당 캡 (분산형 — 몰빵 차단) — min(제안, 풀잔여, 건당캡).
+        //    건당캡 = min(풀 × perTradePct/100, 풀 ÷ maxPositions). 후자(per-slot 균등 분율) floor 가 perTradePct 를
+        //    100%로 넓혀도 한 종목이 풀 전부를 가져가지 못하게 막는다 → 풀이 maxPositions 슬롯에 균등 분산(KDoc §분산 사이징).
+        val perTradeCap = perTradeCap(poolCeiling, state.perTradePct, state.maxPositions)
         val approvedAmount =
             input.proposedEntryAmount
                 .min(poolRemaining)
@@ -123,6 +142,27 @@ object AutonomousTradingGuard {
         }
 
         return AutopilotGuardVerdict.Allow(approvedAmount)
+    }
+
+    /**
+     * 분산형 건당 캡 = `min(풀 × perTradePct/100, 풀 ÷ maxPositions)` (2026-06-22 몰빵→분산 교정 — KDoc §분산 사이징).
+     *
+     * 두 항 중 작은 쪽(보수적)이 이긴다:
+     * - `풀 × perTradePct/100` — 사용자 설정 건당 분율(좁게 잡으면 이 항이 cap).
+     * - `풀 ÷ maxPositions` — per-slot 균등 분율 floor. perTradePct 를 100%로 넓혀도(실거래 규모 의도) 이 floor 가
+     *   한 종목 최대 노출을 풀/maxPositions 로 bound 해 **몰빵을 차단**한다. 풀이 N슬롯에 정확히 N등분 분산.
+     *
+     * @param maxPositions ≤0 방어 — 1 로 floor(0 나눗셈 회피). 1이면 풀 전부 1슬롯이지만 풀상한이 여전히 cap.
+     */
+    private fun perTradeCap(
+        poolCeiling: BigDecimal,
+        perTradePct: BigDecimal,
+        maxPositions: Int,
+    ): BigDecimal {
+        val pctCap = pctOf(poolCeiling, perTradePct)
+        val slots = BigDecimal(maxPositions.coerceAtLeast(1))
+        val fairShare = poolCeiling.divide(slots, SCALE, RoundingMode.DOWN)
+        return pctCap.min(fairShare)
     }
 
     /** base × pct/100 — %한도 산정 단일 헬퍼([SCALE] 정밀, HALF_UP). */
