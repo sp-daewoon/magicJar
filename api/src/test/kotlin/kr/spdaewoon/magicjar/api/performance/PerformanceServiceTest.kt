@@ -253,15 +253,58 @@ class PerformanceServiceTest {
         assertThat(mockTrades.items).allSatisfy { item -> assertThat(item.mode).isEqualTo("MOCK") }
     }
 
+    @Test
+    fun `owner scoping — strategyId 필터로 autopilot 체결만 집계한다 (수동·후성 격리)`() {
+        val from = LocalDate.of(2026, 6, 1)
+        val to = LocalDate.of(2026, 6, 22)
+        // strategy 10 = owner=AUTOPILOT, strategy 0 = 수동(MANUAL)·후성 모사. 같은 종목이라도 격리돼야 한다.
+        val autopilotBuy = makeOrderRequest(id = 1L, side = OrderSide.BUY, mode = TradingMode.REAL, strategyId = 10L)
+        val autopilotSell = makeOrderRequest(id = 2L, side = OrderSide.SELL, mode = TradingMode.REAL, strategyId = 10L)
+        val manualBuy = makeOrderRequest(id = 3L, side = OrderSide.BUY, mode = TradingMode.REAL, strategyId = 0L)
+        val manualSell = makeOrderRequest(id = 4L, side = OrderSide.SELL, mode = TradingMode.REAL, strategyId = 0L)
+        val executions =
+            listOf(
+                makeExecution(1L, 1L, LocalDate.of(2026, 6, 20), BigDecimal.ONE, BigDecimal("10000")),
+                makeExecution(2L, 2L, LocalDate.of(2026, 6, 21), BigDecimal.ONE, BigDecimal("12000")), // autopilot +2000
+                makeExecution(3L, 3L, LocalDate.of(2026, 6, 20), BigDecimal.ONE, BigDecimal("10000")),
+                makeExecution(4L, 4L, LocalDate.of(2026, 6, 21), BigDecimal.ONE, BigDecimal("30000")), // 후성 +20000(제외돼야)
+            )
+
+        whenever(orderExecutionJpaRepository.findByUserIdAndExecutedAtBefore(eq(userId), any()))
+            .thenReturn(executions)
+        whenever(orderRequestJpaRepository.findAllById(listOf(1L, 2L, 3L, 4L)))
+            .thenReturn(listOf(autopilotBuy, autopilotSell, manualBuy, manualSell))
+        whenever(instrumentJpaRepository.findAllById(listOf("005930"))).thenReturn(emptyList())
+
+        val items = sut.getTradeBreakdownForStrategies(userId, from, to, setOf(10L), TradingMode.REAL)
+
+        // autopilot 청산 1건만, +2000 — 후성 +20000 격리(account-wide 였다면 +22000)
+        assertThat(items).hasSize(1)
+        assertThat(items.first().realizedPnl).isEqualByComparingTo(BigDecimal("2000.00"))
+    }
+
+    @Test
+    fun `owner scoping — strategyIds 빈 집합이면 항상 0건`() {
+        val from = LocalDate.of(2026, 6, 1)
+        val to = LocalDate.of(2026, 6, 22)
+
+        val items = sut.getTradeBreakdownForStrategies(userId, from, to, emptySet(), TradingMode.REAL)
+
+        assertThat(items).isEmpty()
+        // 빈 필터는 DB 조회 없이 short-circuit
+        verify(orderExecutionJpaRepository, org.mockito.kotlin.never()).findByUserIdAndExecutedAtBefore(any(), any())
+    }
+
     private fun makeOrderRequest(
         id: Long,
         side: OrderSide,
         mode: TradingMode = TradingMode.MOCK,
+        strategyId: Long = 0L,
     ): OrderRequestJpaEntity =
         OrderRequestJpaEntity(
             id = id,
             signalId = 0L,
-            strategyId = 0L,
+            strategyId = strategyId,
             userId = userId,
             code = "005930",
             side = side,
