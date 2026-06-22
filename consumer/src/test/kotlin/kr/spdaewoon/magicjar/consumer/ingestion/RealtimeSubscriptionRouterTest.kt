@@ -1,5 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import io.micrometer.core.instrument.MeterRegistry
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import java.util.concurrent.CopyOnWriteArraySet
 
 class RealtimeSubscriptionRouterTest {
@@ -22,12 +25,29 @@ class RealtimeSubscriptionRouterTest {
         router = newRouter(graceMs = 0L)
     }
 
-    private fun newRouter(graceMs: Long): RealtimeSubscriptionRouter =
+    private fun newRouter(
+        graceMs: Long,
+        ledger: WsSlotBudgetLedger = newLedger(),
+    ): RealtimeSubscriptionRouter =
         RealtimeSubscriptionRouter(
             kisWsPort = kisWsPort,
             todayCandleSeedPort = todayCandleSeedPort,
+            wsSlotBudgetLedger = ledger,
             unsubscribeGraceMs = graceMs,
         )
+
+    // admission 게이트가 한도(40) 내에서 발사를 허용하도록 실제 ledger 주입(default 활성·40 slot).
+    // meterRegistry는 부재(ifAvailable=null) → metric no-op (회계·admission 로직은 정상).
+    private fun newLedger(maxSlots: Int = 40): WsSlotBudgetLedger {
+        val provider = mockk<ObjectProvider<MeterRegistry>>(relaxed = true)
+        every { provider.ifAvailable } returns null
+        return WsSlotBudgetLedger(
+            meterRegistryProvider = provider,
+            ledgerEnabled = true,
+            maxSlots = maxSlots,
+            admissionEnabled = true,
+        )
+    }
 
     @Test
     fun `DETAIL 진입은 watchlist 없이도 가격 WS를 구독한다`() {
@@ -240,6 +260,41 @@ class RealtimeSubscriptionRouterTest {
         r.sweepUnsubscribeGrace()
         assertFalse(kisWsPort.priceUnsubscribed.contains("093370")) // churn wire 왕복 0
         assertTrue(kisWsPort.priceSubscribed.contains("093370"))
+    }
+
+    // ===== 통합 admission 게이트 (2026-06-22 장중 신규구독 H0UNCNT0 silent 누락 fix) =====
+
+    @Test
+    fun `통합 한도 포화 시 신규 STRATEGY tick은 KIS 발사를 보류한다 (silent 누락 선제 차단)`() {
+        // 라이브 재현: 체결가 + 호가가 같은 40 한도 공유. ledger를 한도까지 직접 채운다(호가 점유 포함).
+        val ledger = newLedger()
+        repeat(20) { i -> ledger.tryRegister("H0UNASP0", "1%05d".format(i)) } // 호가 20
+        repeat(19) { i -> ledger.tryRegister("H0UNCNT0", "2%05d".format(i)) } // 체결가 19 → 합 39(가용 0)
+        val r = newRouter(graceMs = 0L, ledger = ledger)
+
+        // 장중 신규 STRATEGY 진입(삼성전자) — demand 0 종목이 없어 evict 불가 + 한도 초과 → 발사 보류.
+        r.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 10)
+
+        // KIS WS subscribe 미발사(REST polling fallback) — silent SUCCESS 후 frame 0 회피.
+        assertFalse(kisWsPort.priceSubscribed.contains("005930"))
+        // demand는 등록됨(다음 slot 회수 시 재시도 가능) — TTL refresh가 재요청한다.
+        assertTrue(r.isExternallyDemanded("005930"))
+    }
+
+    @Test
+    fun `한도 회수 후 신규 STRATEGY tick은 정상 구독된다 (보류→재진입)`() {
+        val ledger = newLedger()
+        repeat(20) { i -> ledger.tryRegister("H0UNASP0", "1%05d".format(i)) }
+        repeat(19) { i -> ledger.tryRegister("H0UNCNT0", "2%05d".format(i)) }
+        val r = newRouter(graceMs = 0L, ledger = ledger)
+
+        r.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 10)
+        assertFalse(kisWsPort.priceSubscribed.contains("005930")) // 보류
+
+        // 호가 1건 해제 → 가용 1 → 재요청 시 admit.
+        ledger.release("H0UNASP0", "100000")
+        r.request(RealtimeDemandOwner.STRATEGY, "strategy:86", "005930", priority = 10)
+        assertTrue(kisWsPort.priceSubscribed.contains("005930"))
     }
 
     class TestKisWsPort : KisWsPort {

@@ -48,6 +48,13 @@ class WsSlotBudgetLedger(
     private val ledgerEnabled: Boolean = true,
     @Value("\${magicjar.kis.ws.max-slots:40}")
     private val maxSlots: Int = SubscriptionPolicy.TOTAL_SLOTS,
+    /**
+     * 선제 admission 게이트 toggle (R2 — 2026-06-22 장중 신규구독 silent 누락 fix).
+     * true면 subscribe 발사 직전 [tryRegister]가 한도(40) 초과를 atomic 차단한다.
+     * false면 R1 회귀 — 차단 0·발사 직후 [register] 회계만(silent 누락 재발 risk이나 롤백 toggle).
+     */
+    @Value("\${magicjar.kis.ws.slot-admission.enabled:true}")
+    private val admissionEnabled: Boolean = true,
 ) {
     private val log = LoggerFactory.getLogger(WsSlotBudgetLedger::class.java)
 
@@ -57,8 +64,17 @@ class WsSlotBudgetLedger(
      */
     private val occupiedChannels: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
+    /**
+     * admission 게이트 atomic 구간 lock — "한도 확인 + 점유"를 단일화해 check-then-occupy TOCTOU race 차단
+     * (체결가 router·호가 router·Kafka listener 다중 thread 동시 진입 대비).
+     */
+    private val admissionLock = Any()
+
     /** 거부 누적(OPSP0008) — metric Counter 노출 + WARN throttle 합산용. */
     private val rejectedTotal = AtomicLong(0L)
+
+    /** admission 선제 거부 누적(한도 초과 KIS 발사 보류) — metric Counter 노출용. */
+    private val admissionDeniedTotal = AtomicLong(0L)
 
     /** OPSP0008 WARN throttle — 마지막 WARN 발사 epoch millis (반복 거부 폭주 억제). */
     private val lastRejectWarnAtMs = AtomicLong(0L)
@@ -69,6 +85,7 @@ class WsSlotBudgetLedger(
         const val METRIC_SLOTS_OCCUPIED = "magicjar.kis.ws.slots.occupied"
         const val METRIC_SLOTS_AVAILABLE = "magicjar.kis.ws.slots.available"
         const val METRIC_SUBSCRIBE_REJECTED = "magicjar.kis.ws.subscribe.rejected"
+        const val METRIC_ADMISSION_DENIED = "magicjar.kis.ws.admission.denied"
 
         /** OPSP0008 반복 거부 WARN 1회/주기 throttle window (ms) — OPSP8996 grace 패턴 정합. */
         private const val REJECT_WARN_THROTTLE_MS = 60_000L
@@ -77,7 +94,12 @@ class WsSlotBudgetLedger(
     init {
         if (ledgerEnabled) {
             registerMetrics()
-            log.info("WsSlotBudgetLedger 활성 — maxSlots={} reserved={}", maxSlots, SubscriptionPolicy.EXECUTION_NOTICE_RESERVED)
+            log.info(
+                "WsSlotBudgetLedger 활성 — maxSlots={} reserved={} admissionGate={}",
+                maxSlots,
+                SubscriptionPolicy.EXECUTION_NOTICE_RESERVED,
+                if (admissionEnabled) "ON(선제차단)" else "OFF(R1회귀)",
+            )
         } else {
             log.info("WsSlotBudgetLedger 비활성(MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED=false) — 회계 no-op, 현행 동작 회귀")
         }
@@ -103,6 +125,86 @@ class WsSlotBudgetLedger(
         if (!ledgerEnabled) return occupiedChannels.size
         occupiedChannels.add(channelKey(trId, code))
         return occupiedChannels.size
+    }
+
+    /**
+     * 선제 admission 게이트 — subscribe 발사 **직전** 호출 (R2 — 2026-06-22 장중 신규구독 silent 누락 fix).
+     *
+     * ## 왜 register(발사 직후)만으로는 부족했나 (근본 원인)
+     * R1 [register]는 "이미 KIS에 발사한 뒤" 회계만 했다 — 한도(40) 초과여도 차단 0. KIS WS는
+     * `open_map (tr_id, tr_key)` 등록이 한도를 넘으면 **SUBSCRIBE SUCCESS는 ACK하되 해당 등록의 체결/호가
+     * frame을 영구히 흘리지 않는다**("acked but not streaming"). kis_auth.py `__runner()`의
+     * `if len(open_map.keys()) > 40: raise ValueError("Subscription's max is 40")` 한도와 정합.
+     * 라이브 실측(2026-06-22) autopilot 16종목을 장중 신규 구독 시 H0UNCNT0 16 + H0UNASP0 16 = 32 채널이
+     * 부팅 점유분에 합산돼 40을 넘었고, 삼성전자(005930)조차 frame 0건이었다(후성 093370 ageSeconds=208
+     * 고정 silent와 동일 증상). 부팅-구독 종목(먼저 등록 — 한도 내)은 정상 streaming.
+     *
+     * ## 동작
+     * (trId, code) 채널이 **이미 점유 중이면** 멱등 true(재구독·refresh는 절대 차단 금지 — 끊김 risk).
+     * 미점유면 `maxSlots - reserved(체결통보 1)` 한도 내일 때만 atomic 점유 후 true. 한도 초과면 점유하지
+     * **않고** false → 호출자가 KIS subscribe 발사를 보류(graceful — 체결가는 REST polling fallback,
+     * 호가는 EntryQuotePort REST fallback). silent 한도 초과로 frame 전체가 굶는 것보다 명시 보류가 안전하다.
+     *
+     * check-then-occupy TOCTOU race 차단 — 단일 [admissionLock] 안에서 한도 확인 + 점유를 원자화한다.
+     * HOLDING 등 priority 보호는 호출 router의 eviction 책임이며, 본 게이트는 "총 채널 ≤ 한도" 단일 불변식만 강제한다.
+     *
+     * `MAGICJAR_KIS_WS_SLOT_ADMISSION_ENABLED=false`로 R1 회귀(차단 0·발사 직후 register만) 롤백 가능.
+     *
+     * KIS-first raw 출처(40 한도):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
+     *
+     * @return AdmissionResult(admitted=발사 허용 여부, occupiedAfter=판정 후 점유 채널 수, alreadyOccupied=멱등 재구독).
+     */
+    fun tryRegister(
+        trId: String,
+        code: String,
+    ): AdmissionResult {
+        if (!ledgerEnabled || !admissionEnabled) {
+            // 회계 비활성 또는 admission 롤백 — 무조건 허용 + (회계 활성 시) 점유 등록(R1 회귀).
+            val occupied = register(trId, code)
+            return AdmissionResult(admitted = true, occupiedAfter = occupied, alreadyOccupied = false)
+        }
+        val key = channelKey(trId, code)
+        synchronized(admissionLock) {
+            if (occupiedChannels.contains(key)) {
+                // 멱등 — 이미 점유한 채널 재구독/refresh는 절대 차단 금지(기존 streaming 끊김 risk).
+                return AdmissionResult(admitted = true, occupiedAfter = occupiedChannels.size, alreadyOccupied = true)
+            }
+            // reserved(체결통보 1)를 뺀 가용 한도 — channelSlotsAvailable 산식 정합.
+            val available =
+                SubscriptionPolicy.channelSlotsAvailable(
+                    occupiedChannels = occupiedChannels.size,
+                    maxSlots = maxSlots,
+                )
+            if (available <= 0) {
+                val total = admissionDeniedTotal.incrementAndGet()
+                incrementAdmissionDeniedCounter(trId)
+                // WARN throttle — onRejected와 동일 윈도우 공유(폭주 억제).
+                val now = System.currentTimeMillis()
+                val lastWarn = lastRejectWarnAtMs.get()
+                if (now - lastWarn >= REJECT_WARN_THROTTLE_MS && lastRejectWarnAtMs.compareAndSet(lastWarn, now)) {
+                    log.warn(
+                        "KIS WS 구독 admission 거부 — 한도($maxSlots) 초과로 KIS 발사 보류(silent 누락 선제 차단 · 헌법 §11-2): " +
+                            "trId={} code={} occupied={} deniedTotal={} (체결가는 REST polling fallback)",
+                        trId,
+                        code,
+                        occupiedChannels.size,
+                        total,
+                    )
+                } else {
+                    log.debug(
+                        "KIS WS admission 거부 (throttle): trId={} code={} occupied={} deniedTotal={}",
+                        trId,
+                        code,
+                        occupiedChannels.size,
+                        total,
+                    )
+                }
+                return AdmissionResult(admitted = false, occupiedAfter = occupiedChannels.size, alreadyOccupied = false)
+            }
+            occupiedChannels.add(key)
+            return AdmissionResult(admitted = true, occupiedAfter = occupiedChannels.size, alreadyOccupied = false)
+        }
     }
 
     /**
@@ -225,7 +327,13 @@ class WsSlotBudgetLedger(
 
     fun rejectedTotal(): Long = rejectedTotal.get()
 
+    /** admission 선제 거부 누적(한도 초과 KIS 발사 보류) — 진단·테스트. */
+    fun admissionDeniedTotal(): Long = admissionDeniedTotal.get()
+
     fun enabled(): Boolean = ledgerEnabled
+
+    /** 선제 admission 게이트 활성 여부 (테스트·진단). */
+    fun admissionEnabled(): Boolean = admissionEnabled
 
     private fun registerMetrics() {
         val registry = meterRegistryProvider.ifAvailable ?: return
@@ -250,6 +358,28 @@ class WsSlotBudgetLedger(
                 Tags.of("msg_cd", "OPSP0008", "tr_id", trId),
             ).increment()
     }
+
+    private fun incrementAdmissionDeniedCounter(trId: String) {
+        val registry = meterRegistryProvider.ifAvailable ?: return
+        // magicjar_kis_ws_admission_denied_total (tag: tr_id) — 선제 한도 차단 관측.
+        registry
+            .counter(
+                METRIC_ADMISSION_DENIED,
+                Tags.of("tr_id", trId),
+            ).increment()
+    }
+
+    /**
+     * 선제 admission 게이트 판정 결과 ([tryRegister] 반환).
+     * @param admitted KIS subscribe 발사를 허용해야 하는지(false면 한도 초과로 보류).
+     * @param occupiedAfter 판정 후 점유 채널 수.
+     * @param alreadyOccupied 이미 점유 중이라 멱등 허용된 경우(신규 점유 아님 — register 중복 호출 회피 신호).
+     */
+    data class AdmissionResult(
+        val admitted: Boolean,
+        val occupiedAfter: Int,
+        val alreadyOccupied: Boolean,
+    )
 
     /**
      * OPSP0008 거부 회계 보정 결과.

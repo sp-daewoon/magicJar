@@ -30,6 +30,13 @@ class RealtimeSubscriptionRouter(
     private val kisWsPort: KisWsPort,
     private val todayCandleSeedPort: TodayCandleSeedPort,
     /**
+     * 전 tr_id 통합 slot 회계기 — 체결가(H0UNCNT0)·호가(H0UNASP0)·시간외·체결통보를 단일 한도(40)로 본다.
+     * 2026-06-22 fix: tick 발사 직전 [WsSlotBudgetLedger.tryRegister] admission으로 총 채널이 KIS 한도를
+     * 넘지 않게 선제 차단(silent 누락 방지). 본 라우터의 PRICE_TICK_MAX(30)는 tick 단독 sub-budget이라
+     * 호가 점유를 합산하지 못해, 총합이 40을 넘어도 인지 못한 채 발사하던 사각을 ledger가 메운다.
+     */
+    private val wsSlotBudgetLedger: WsSlotBudgetLedger,
+    /**
      * unsubscribe grace 윈도우(ms) — demand가 비워진 뒤 실제 KIS UNSUBSCRIBE까지 sticky 유지 시간 (churn 억제).
      * default 90s. 0 이하면 grace 비활성(즉시 unsubscribe — 기존 동작으로 롤백 toggle).
      */
@@ -38,6 +45,12 @@ class RealtimeSubscriptionRouter(
 ) {
     private val log = LoggerFactory.getLogger(RealtimeSubscriptionRouter::class.java)
     private val lock = ReentrantLock()
+
+    /**
+     * 체결가 tr_id — WsSlotBudgetLedger admission 채널 key (ADR 0124 통합 체결가 단일 채널).
+     * KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py tr_id="H0UNCNT0".
+     */
+    private val trIdUnifiedTick = TR_ID_UNIFIED_TICK
 
     private data class OwnerKey(
         val owner: RealtimeDemandOwner,
@@ -276,7 +289,25 @@ class RealtimeSubscriptionRouter(
             }
             kisWsPort.unsubscribe(listOf(victim))
             pendingUnsubscribeAtMs.remove(victim)
+            // evict한 victim의 ledger 점유 즉시 해제 — 같은 lock 구간 직후 tryRegister admission 산식이
+            // 회수된 1 slot을 반영하게 한다(멱등 — bridge.unsubscribe도 release하나 순서/타이밍 무관 보장).
+            wsSlotBudgetLedger.release(trIdUnifiedTick, victim)
             log.info("realtime demand evict unowned: victim={} new={} priority={}", victim, code, priority)
+        }
+
+        // ★ 2026-06-22 장중 신규구독 silent 누락 fix — 발사 직전 통합 admission 게이트.
+        // PRICE_TICK_MAX(30)는 tick 단독 sub-budget이라 호가(H0UNASP0) 점유를 합산하지 못한다. 라이브(2026-06-22)
+        // autopilot 16종목이 체결가 16 + 호가 16 = 32 채널을 신규 점유해 총합이 KIS 한도(40)를 넘었고, KIS는
+        // SUBSCRIBE SUCCESS만 ACK한 채 frame을 안 흘렸다(삼성전자조차 0건). ledger admission으로 총 채널이
+        // 한도를 넘을 때 발사를 보류한다(graceful — ACTIVE 전략 degraded feed = ActiveStrategyCandleFeedPoller REST 보강).
+        val admission = wsSlotBudgetLedger.tryRegister(trIdUnifiedTick, code)
+        if (!admission.admitted) {
+            log.warn(
+                "realtime tick 구독 보류 — 통합 한도 초과(silent 누락 선제 차단): code={} priority={} (REST polling fallback)",
+                code,
+                priority,
+            )
+            return false
         }
 
         kisWsPort.subscribe(listOf(code))
@@ -371,6 +402,12 @@ class RealtimeSubscriptionRouter(
             RealtimeDemandOwner.HOLDING -> holdingTtlMs
             RealtimeDemandOwner.PENDING_BUY -> pendingBuyTtlMs
         }
+
+    private companion object {
+        // ADR 0124 통합 체결가 단일 채널 — WsSlotBudgetLedger admission 채널 key.
+        // KisWebSocketBridge.TR_ID_UNIFIED_TICK과 동일 wire 값(KIS 공식, 변경 금지).
+        const val TR_ID_UNIFIED_TICK = "H0UNCNT0"
+    }
 }
 
 /**

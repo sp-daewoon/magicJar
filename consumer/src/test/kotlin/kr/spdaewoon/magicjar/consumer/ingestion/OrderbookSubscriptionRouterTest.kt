@@ -1,5 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.ingestion
 
+import io.micrometer.core.instrument.MeterRegistry
+import io.mockk.every
 import io.mockk.mockk
 import kr.spdaewoon.magicjar.domain.market.port.KisWsPort
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -7,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -28,7 +31,20 @@ class OrderbookSubscriptionRouterTest {
     @BeforeEach
     fun setUp() {
         mockKisWsPort = TestKisWsPort()
-        router = OrderbookSubscriptionRouter(mockKisWsPort, mockk(relaxed = true))
+        router = OrderbookSubscriptionRouter(mockKisWsPort, newLedger())
+    }
+
+    // admission 게이트가 한도(40) 내에서 발사를 허용하도록 실제 ledger 주입(default 활성).
+    // meterRegistry 부재(ifAvailable=null) → metric no-op.
+    private fun newLedger(maxSlots: Int = 40): WsSlotBudgetLedger {
+        val provider = mockk<ObjectProvider<MeterRegistry>>(relaxed = true)
+        every { provider.ifAvailable } returns null
+        return WsSlotBudgetLedger(
+            meterRegistryProvider = provider,
+            ledgerEnabled = true,
+            maxSlots = maxSlots,
+            admissionEnabled = true,
+        )
     }
 
     // ── DETAIL owner 호가 구독 (상세 표시 중에만) ──────────────────────────────
@@ -172,7 +188,7 @@ class OrderbookSubscriptionRouterTest {
     @Test
     fun `DETAIL idle 안전망 — EXIT 누락 시 timeout 경과 후 회수`() {
         // timeout -1ms 주입 → enter 직후에도 (now - lastSeen) > -1 항상 true (즉시 stale 판정).
-        val idleRouter = OrderbookSubscriptionRouter(mockKisWsPort, mockk(relaxed = true), detailIdleTimeoutMs = -1L)
+        val idleRouter = OrderbookSubscriptionRouter(mockKisWsPort, newLedger(), detailIdleTimeoutMs = -1L)
         idleRouter.onSymbolDetailEntered("005930")
         assertTrue(idleRouter.current().contains("005930"))
 
@@ -184,7 +200,7 @@ class OrderbookSubscriptionRouterTest {
 
     @Test
     fun `DETAIL idle 안전망은 STRATEGY demand를 끊지 않는다`() {
-        val idleRouter = OrderbookSubscriptionRouter(mockKisWsPort, mockk(relaxed = true), detailIdleTimeoutMs = -1L)
+        val idleRouter = OrderbookSubscriptionRouter(mockKisWsPort, newLedger(), detailIdleTimeoutMs = -1L)
         idleRouter.onStrategyActivated("093370", "strategy:86")
         idleRouter.onSymbolDetailEntered("093370")
 
