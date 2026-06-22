@@ -12,6 +12,7 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyComplexity
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOrigin
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import kr.spdaewoon.magicjar.domain.strategy.StrategyStatus
 import kr.spdaewoon.magicjar.domain.strategy.Universe
 import kr.spdaewoon.magicjar.domain.strategy.ViActionPolicy
@@ -137,6 +138,9 @@ class ConsumerStrategyLookupJpaAdapter(
             complexity = complexity,
             disabledReason = safeDisabledReason(entity.disabledReason),
             origin = safeOrigin(entity.origin),
+            // owner(2026-06-22 P0 root fix) — 엔티티 owner 컬럼 매핑 누락으로 default USER 로 떨어지던 것을 복원.
+            //   autopilot Guard 가 signal.strategyOwner 로 식별하는 단일 출처가 이 매핑이다(누락 시 Guard 영구 우회).
+            owner = safeOwner(entity.owner),
             status = safeStatus(entity.status),
             codes = safeStringList(entity.codes),
             intervals = safeStringList(entity.intervals),
@@ -188,6 +192,17 @@ class ConsumerStrategyLookupJpaAdapter(
             StrategyOrigin.USER_DSL
         } else {
             runCatching { StrategyOrigin.valueOf(value) }.getOrDefault(StrategyOrigin.USER_DSL)
+        }
+
+    /**
+     * `owner`(V88) → [StrategyOwner]. null(legacy)·invalid → USER default(zero-regression).
+     * autopilot Guard 의 owner=AUTOPILOT 식별 단일 출처 — 이 매핑이 빠지면 Guard 가 우회된다(2026-06-22 P0).
+     */
+    private fun safeOwner(value: String?): StrategyOwner =
+        if (value == null) {
+            StrategyOwner.USER
+        } else {
+            runCatching { StrategyOwner.valueOf(value) }.getOrDefault(StrategyOwner.USER)
         }
 
     /**
