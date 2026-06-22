@@ -3,10 +3,10 @@ id: T-20260622-1814-autopilot-slot-fairness
 agent: strategy
 model: opus
 branch: agent/strategy/autopilot-slot-fairness
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T18:14:28.436+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T18:31:33.029+09:00
+pr: #1107
 parentPhase: ?
 ---
 
