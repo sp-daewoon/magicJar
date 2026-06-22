@@ -3,10 +3,10 @@ id: T-20260622-1255-readiness-race-fix
 agent: backend-core
 model: opus
 branch: agent/backend-core/readiness-race-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T12:55:59.108+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-22T13:00:32.517+09:00
+pr: #1092
 parentPhase: ?
 ---
 
