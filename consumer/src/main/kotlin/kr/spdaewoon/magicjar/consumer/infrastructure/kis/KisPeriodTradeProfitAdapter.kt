@@ -243,6 +243,9 @@ class KisPeriodTradeProfitAdapter(
             totalRealizedPnl = bd(row["tot_rlzt_pfls"]),
             sellFeeTotal = bd(row["sll_fee_smtl"]),
             sellTaxTotal = bd(row["sll_tltx_smtl"]),
+            // 개선 E: 매수수수료합계(buy_fee_smtl) — KIS rlzt_pfls 가 매수fee 까지 반영하는 잔차 분해/정확 보정용.
+            // raw 출처 chk_inquire_period_trade_profit.py COLUMN_MAPPING: buy_fee_smtl = 매수수수료합계.
+            buyFeeTotal = bd(row["buy_fee_smtl"]),
             totalFee = bd(row["tot_fee"]),
             totalTax = bd(row["tot_tltx"]),
             totalProfitRate = bd(row["tot_pftrt"]),
