@@ -5,6 +5,7 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotCodeBuyDedupeGuard
+import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotPaperShadowRecorder
 import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
@@ -125,6 +126,9 @@ class SignalGeneratedKafkaListener(
     //   provider 가 null 이면 enabled 알 수 없어 owner=AUTOPILOT BUY 의 보수 차단 판정이 불가능 → 그 자체로 fail-OPEN.
     //   본 properties 직결로 "guard 못 거치는데 enabled=true 면 BUY 차단" 불변식을 provider 부재에서도 강제한다.
     private val autopilotPropertiesProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.MagicjarAutopilotProperties>? = null,
+    // 개선 G (2026-06-22) — 슬롯 starve 된 owner=AUTOPILOT BUY 를 페이퍼 섀도로 스코어링(실자본 0·학습 신호).
+    //   ObjectProvider graceful — autopilot 패키지 미합류·disabled 시 no-op = 기존 경로 그대로(zero-regression).
+    private val autopilotPaperShadowRecorderProvider: ObjectProvider<AutopilotPaperShadowRecorder>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // 2026-06-18 P0 hotfix — 분할매수 회차 비중 적용 게이트. generator(RealtimeSignalGenerator.scaleInEnabled)와
@@ -1058,6 +1062,11 @@ class SignalGeneratedKafkaListener(
         // 4. risk.violation.v1 publish
         riskViolationKafkaProducer.publish(signal, blocked, savedEvent?.id)
 
+        // 4-b. 개선 G — 슬롯/풀 starve 된 owner=AUTOPILOT BUY 를 페이퍼 섀도로 기록(실자본 0·학습 신호).
+        //   recorder 가 enabled + BUY + owner=AUTOPILOT + SHADOWABLE rule 을 자체 게이트 → 그 외엔 no-op(zero-regression).
+        //   fail-open — 섀도 기록 실패가 BLOCKED 처리(청산·audit)를 막지 않는다(자본 게이트 아님).
+        recordPaperShadowIfStarved(signal, blocked)
+
         if (!blocked.countsTowardStrategyAutoPause()) {
             log.debug(
                 "AutoPauseGuard skip: rule={} userId={} strategyId={} signalId={}",
@@ -1131,6 +1140,38 @@ class SignalGeneratedKafkaListener(
             }
             else -> true
         }
+
+    /**
+     * 개선 G — 슬롯/풀 starve 된 owner=AUTOPILOT BUY 를 페이퍼 섀도로 기록(실자본 0·학습 신호).
+     *
+     * [handleBlocked] 의 모든 BLOCKED 가 본 메서드를 거치지만, **fast pre-gate** 로 비대상(non-BUY·non-SHADOWABLE
+     * rule·recorder 미배선)은 strategy lookup 없이 즉시 return 한다(hot path 부담 0). owner 확정·TP/SL·중복 게이트·
+     * 영속은 recorder 가 책임진다(SRP). recorder 자체가 fail-open 이라 본 호출도 실 매매 경로에 영향 0.
+     */
+    private fun recordPaperShadowIfStarved(
+        signal: Signal,
+        blocked: RiskGatewayResult.Blocked,
+    ) {
+        // fast pre-gate — 슬롯/풀 starve(SHADOWABLE) + BUY 만 strategy lookup 비용을 낸다.
+        if (signal.side != SignalSide.BUY) return
+        if (blocked.rule !in kr.spdaewoon.magicjar.consumer.autopilot.AutopilotPaperShadowRecorder.SHADOWABLE_RULES) return
+        val recorder = autopilotPaperShadowRecorderProvider?.getIfAvailable() ?: return
+
+        // owner·TP/SL 출처 — 신호 운반 owner 가 USER/SYSTEM 이면 즉시 비대상(lookup 생략).
+        if (signal.strategyOwner == StrategyOwner.USER || signal.strategyOwner == StrategyOwner.SYSTEM) return
+
+        val strategy = lookupStrategyForGuardOrNull(signal)
+        val ownerIsAutopilot =
+            signal.strategyOwner == StrategyOwner.AUTOPILOT || strategy?.owner == StrategyOwner.AUTOPILOT
+        if (!ownerIsAutopilot) return
+
+        recorder.recordIfStarved(
+            signal = signal,
+            ownerIsAutopilot = true,
+            strategy = strategy,
+            blockReason = blocked.rule,
+        )
+    }
 
     private fun buildContext(signal: Signal): RiskContext {
         val nowKst = clock.now()
