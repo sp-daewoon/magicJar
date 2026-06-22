@@ -65,6 +65,11 @@ class ConsumerExecutionStrategyPositionAdapter(
     // magicjar-autopilot 손실 누적 hook (spec 2026-06-22 §2-0-A · Task 3) — owner=AUTOPILOT SELL 손실만 누적.
     //   ObjectProvider graceful — autopilot 패키지 미합류/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression).
     private val autopilotLossAccumulatorProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotLossAccumulator>? = null,
+    // follow-up I (2026-06-22) — owner=AUTOPILOT 전량 청산(nextQty==0) 시 재진입 쿨다운 ts 기록(churn 억제 hook).
+    //   owner 격리 게이트는 가드 내부 판정(손실누적 accumulator 와 동일 repository — DRY)이라 어댑터는 "SELL+전량청산"만 본다.
+    //   ObjectProvider graceful — autopilot 패키지 미합류/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression).
+    private val autopilotReentryCooldownGuardProvider:
+        ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotReentryCooldownGuard>? = null,
     @Value("\${magicjar.position.drift-auto-correct.enabled:true}")
     private val driftAutoCorrectEnabled: Boolean = true,
     @Value("\${magicjar.position.ledger-rebuild.enabled:true}")
@@ -126,6 +131,22 @@ class ConsumerExecutionStrategyPositionAdapter(
                             e.message,
                         )
                     }
+            }
+
+            // follow-up I (2026-06-22) — 재진입 쿨다운 ts 기록 hook. **전량 청산(nextQty==0)** 일 때만 — 부분매도는
+            //   아직 보유 중이라 churn 사이클 종료가 아니다. owner=AUTOPILOT 격리·쿨다운 활성 여부는 가드 내부 판정
+            //   (어댑터는 SELL+전량청산 조건만). 비대상이면 가드가 no-op. 어떤 실패도 graceful(체결 권위 무손상).
+            if (next.quantity == 0) {
+                autopilotReentryCooldownGuardProvider?.ifAvailable?.let { cooldownGuard ->
+                    runCatching { cooldownGuard.recordLiquidation(request.userId, request.code, request.strategyId) }
+                        .onFailure { e ->
+                            log.warn(
+                                "autopilot 재진입 쿨다운 기록 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
+                                request.strategyId,
+                                e.message,
+                            )
+                        }
+                }
             }
         }
 

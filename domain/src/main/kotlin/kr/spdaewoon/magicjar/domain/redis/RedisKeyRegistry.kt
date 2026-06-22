@@ -285,6 +285,17 @@ object RedisKeyRegistry {
      *
      * TTL 은 단일 평가 cycle(boundary 동시 신호 폭)보다 길고 다음 cycle 전에 만료될 만큼 짧게 둔다(한 cycle 1 슬롯).
      * 격리: 키 prefix 와 호출 경로(applyAutopilotBuyGuard owner=AUTOPILOT 분기)로 USER/SYSTEM·SELL 은 구조적 제외.
+     *
+     * ### reentryCooldown — owner=AUTOPILOT 재진입 churn 억제 (follow-up I, 2026-06-22)
+     * key = `autopilot:reentry:user:{userId}:code:{code}`
+     *
+     * 한 code 를 **전량 청산(SELL 체결로 quantity→0)** 하면 그 시점 KST epoch-millis 를 본 키에 기록하고 TTL 을
+     * 쿨다운 윈도우로 건다. 같은 윈도우 안에서 같은 code 의 owner=AUTOPILOT **BUY** 가 들어오면 suppress 한다 —
+     * buy→TP/exit→분 뒤 재매수 반복(churn)이 매 왕복마다 거래비용(매도세 0.18% + 수수료)을 누적해 gross 알파를
+     * 깎는 손실원이기 때문이다. SELL/청산은 본 키를 절대 게이트로 쓰지 않는다(보유분 청산 항상 보장 — 롱온리).
+     *
+     * dedup(buyCodeLock)이 *같은 cycle 동시* 중복을 막는다면, 본 키는 *시간차 재진입*(분 단위 churn)을 막는
+     * 직교 보강이다. TTL=쿨다운 윈도우(default 보수)라 윈도우 경과 후 정당 추세추종 재진입은 자연 허용된다.
      */
     object Autopilot {
         fun buyCodeLock(
@@ -292,11 +303,21 @@ object RedisKeyRegistry {
             code: String,
         ): String = Standard.buyCodeLock(userId, code)
 
+        fun reentryCooldown(
+            userId: String,
+            code: String,
+        ): String = Standard.reentryCooldown(userId, code)
+
         object Standard {
             fun buyCodeLock(
                 userId: String,
                 code: String,
             ): String = "autopilot:buy:code:user:$userId:code:$code"
+
+            fun reentryCooldown(
+                userId: String,
+                code: String,
+            ): String = "autopilot:reentry:user:$userId:code:$code"
         }
     }
 

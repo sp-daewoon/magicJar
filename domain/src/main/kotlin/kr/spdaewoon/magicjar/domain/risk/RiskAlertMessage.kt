@@ -106,6 +106,16 @@ data class RiskAlertMessage(
                         setting = "autopilot 종목 충돌 dedup",
                         action = "정상 동작입니다 - autopilot 전략이 서로 다른 종목으로 분산되도록 중복 진입만 막은 것입니다.",
                     )
+                RiskRule.AUTOPILOT_REENTRY_COOLDOWN ->
+                    RiskAlertMessage(
+                        title = "autopilot 재진입 쿨다운 - 과회전 매수 생략",
+                        message =
+                            "${codeLabel(code, context)} 은 방금 청산한 종목이라 쿨다운 시간 안의 재매수를 생략했습니다" +
+                                "(churn 억제 - 잦은 재진입은 매 왕복 거래비용으로 수익을 깎습니다).",
+                        formula = "청산 후 쿨다운 윈도우 내 같은 종목 재매수 = 생략",
+                        setting = "autopilot 재진입 쿨다운",
+                        action = "정상 동작입니다 - 쿨다운이 지나면 정당한 추세 재진입은 다시 허용됩니다.",
+                    )
             }
 
         private fun positionLimit(

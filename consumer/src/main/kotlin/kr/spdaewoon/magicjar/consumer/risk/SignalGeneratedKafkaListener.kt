@@ -6,6 +6,7 @@ import kotlinx.datetime.Instant
 import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
 import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotCodeBuyDedupeGuard
 import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotPaperShadowRecorder
+import kr.spdaewoon.magicjar.consumer.autopilot.AutopilotReentryCooldownGuard
 import kr.spdaewoon.magicjar.consumer.order.AutoExitReservations
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionBackfillService
@@ -122,6 +123,10 @@ class SignalGeneratedKafkaListener(
     // 개선 C (2026-06-22) — owner=AUTOPILOT 종목 충돌 dedup. N전략이 같은 code 에 몰리는 대신 서로 다른 종목으로 분산.
     //   ObjectProvider graceful — autopilot 패키지 미합류 시 skip = 기존 경로 그대로(zero-regression).
     private val autopilotCodeDedupeGuardProvider: ObjectProvider<AutopilotCodeBuyDedupeGuard>? = null,
+    // follow-up I (2026-06-22) — owner=AUTOPILOT 재진입 churn 억제. 청산 직후 N분 내 같은 code 재매수 suppress.
+    //   dedup(C)이 *같은 cycle 동시* 중복을 막는다면 본 가드는 *시간차 재진입*(분 단위 churn)을 막는 직교 보강.
+    //   ObjectProvider graceful — autopilot 패키지 미합류·쿨다운 비활성 시 Proceed = 기존 경로 그대로(zero-regression).
+    private val autopilotReentryCooldownGuardProvider: ObjectProvider<AutopilotReentryCooldownGuard>? = null,
     // P0 fail-closed (2026-06-22) — Guard provider 가 null/미가용이어도 autopilot enabled 여부를 독립 확인하기 위한 직결.
     //   provider 가 null 이면 enabled 알 수 없어 owner=AUTOPILOT BUY 의 보수 차단 판정이 불가능 → 그 자체로 fail-OPEN.
     //   본 properties 직결로 "guard 못 거치는데 enabled=true 면 BUY 차단" 불변식을 provider 부재에서도 강제한다.
@@ -1496,6 +1501,30 @@ class SignalGeneratedKafkaListener(
                     )
                     return AutopilotGateResult.Block(
                         autopilotBlocked(allowed, signal, RiskRule.AUTOPILOT_CODE_DEDUP, dedupe.reason),
+                    )
+                }
+            }
+        }
+
+        // ── follow-up I (2026-06-22): 재진입 쿨다운 — 최근 청산한 code 의 시간차 재매수(churn) suppress ──────────────
+        //   dedup(위)이 같은 cycle 동시 중복을 막는다면, 본 게이트는 청산 직후 N분 내 시간차 재진입을 막는다(직교).
+        //   buy→TP/exit→분 뒤 재매수 반복이 매 왕복 거래비용으로 알파를 깎으므로(오늘 gross 의 66% 잠식), 윈도우 내
+        //   재매수만 차단하고 윈도우 경과 후 정당 추세 재진입은 허용한다. owner=AUTOPILOT BUY 만 도달 — USER/SYSTEM·
+        //   SELL 구조적 제외. 쿨다운 결함(Redis 실패·비활성)은 가드 내부 fail-open 으로 흡수(분산·비용 최적화 ≠ 안전 게이트).
+        val cooldownGuard = autopilotReentryCooldownGuardProvider?.getIfAvailable()
+        if (cooldownGuard != null) {
+            when (val cooldown = cooldownGuard.evaluate(signal.userId, signal.code, signal.strategyId)) {
+                is AutopilotReentryCooldownGuard.Decision.Proceed -> Unit
+                is AutopilotReentryCooldownGuard.Decision.Suppress -> {
+                    log.info(
+                        "autopilot BUY 재진입 쿨다운 suppress(churn 억제): signalId={} code={} strategyId={} reason={}",
+                        signal.id,
+                        signal.code,
+                        signal.strategyId,
+                        cooldown.reason,
+                    )
+                    return AutopilotGateResult.Block(
+                        autopilotBlocked(allowed, signal, RiskRule.AUTOPILOT_REENTRY_COOLDOWN, cooldown.reason),
                     )
                 }
             }
