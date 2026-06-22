@@ -97,6 +97,11 @@ class AutopilotPerformanceService(
     ): AutopilotPerformanceResponse {
         val realizedPnl =
             items.fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl }.setScale(2, RoundingMode.HALF_UP)
+        // follow-up H: gross = net + fee + tax → net 과 함께 노출(과대표시 방지 + 누적 비용 가시화).
+        val grossRealizedPnl =
+            items
+                .fold(BigDecimal.ZERO) { acc, item -> acc + item.realizedPnl + item.fee + item.tax }
+                .setScale(2, RoundingMode.HALF_UP)
         val wins = items.filter { it.realizedPnl > BigDecimal.ZERO }
         val losses = items.filter { it.realizedPnl < BigDecimal.ZERO }
 
@@ -121,6 +126,7 @@ class AutopilotPerformanceService(
             periodEnd = to,
             mode = mode?.name,
             realizedPnl = realizedPnl,
+            grossRealizedPnl = grossRealizedPnl,
             tradeCount = items.size,
             winCount = wins.size,
             lossCount = losses.size,

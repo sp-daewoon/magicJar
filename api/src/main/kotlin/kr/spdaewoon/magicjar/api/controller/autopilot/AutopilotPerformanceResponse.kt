@@ -24,8 +24,13 @@ data class AutopilotPerformanceResponse(
     val periodEnd: LocalDate,
     @Schema(description = "거래 모드 필터(null=전체). 운영 REAL", example = "REAL", nullable = true)
     val mode: String?,
-    @Schema(description = "owner=AUTOPILOT 실현손익 합계(원). 양수=이익", example = "2728.00")
+    @Schema(description = "owner=AUTOPILOT 실현손익 합계 — net (거래비용 fee/tax 차감 후, 원). 양수=이익", example = "2728.00")
     val realizedPnl: BigDecimal,
+    @Schema(
+        description = "owner=AUTOPILOT 실현손익 합계 — gross (거래비용 미차감, 원). realizedPnl(net)과의 차이가 누적 거래비용. follow-up H 신설.",
+        example = "2950.00",
+    )
+    val grossRealizedPnl: BigDecimal? = null,
     @Schema(description = "실현 청산 횟수(매도 체결 단위)", example = "8")
     val tradeCount: Int,
     @Schema(description = "이익 청산 수", example = "2")

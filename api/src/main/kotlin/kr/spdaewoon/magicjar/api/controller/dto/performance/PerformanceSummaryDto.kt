@@ -21,8 +21,15 @@ data class PerformanceSummaryDto(
     val periodStart: LocalDate,
     @Schema(description = "기간 종료 일자", example = "2026-05-14")
     val periodEnd: LocalDate,
-    @Schema(description = "총 실현 손익 (원)", example = "1250000.00")
+    @Schema(description = "총 실현 손익 — net (거래비용 fee/tax 차감 후, 원)", example = "1250000.00")
     val totalPnl: BigDecimal,
+    @Schema(
+        description =
+            "총 실현 손익 — gross (거래비용 미차감, 원). totalPnl(net)과의 차이가 누적 거래비용. " +
+                "follow-up H 신설 — 구 응답 호환 위해 null 가능(mode 미지정 캐시 경로).",
+        example = "1262500.00",
+    )
+    val grossPnl: BigDecimal? = null,
     @Schema(description = "최대 낙폭 MDD (%)", example = "8.4321")
     val mddPct: BigDecimal,
     @Schema(description = "승률 (%)", example = "62.50")
