@@ -547,6 +547,13 @@ class RealtimeSignalGenerator(
      * minHoldBars 미설정(null·0)이면 [MinHoldGuard]가 즉시 false(현행 — 즉시 매도). 설정 시 최초 진입 ts([StrategyPosition.openedAt])
      * 기준 경과 캔들이 N 미만이면 true. 진입 기록(StrategyPosition) 부재면 보유 미충족 판단 불가 → false(현행 매도 진행).
      *
+     * ## ADR 0130 L1 — min_hold 는 **lot(strategyPosition) 진입 시점 기준**이다 (R2 확인).
+     * 평가 기준 시각은 `findByUserStrategyCode(userId, strategyId, code)` 가 돌려주는 **그 전략 lot 의** `openedAt`
+     * (`quantity > 0` lot 한정)이다. "파는 전략" 의 임의 시각이 아니라 산 lot 의 진입 시점이므로, 교차 청산 사고
+     * (전략 100 이 105 의 lot 을 청산)에서 min_hold 가 무의미했던 통로(파는 전략 기준)는 본 lot 기준 + L1 SELL 소유권
+     * (RiskGatewayEvaluator user+code fallback 차단)으로 함께 닫힌다. lot 부재면 false(이 전략은 그 종목 lot 미보유 →
+     * SELL 자체가 L1 에서 BLOCKED 될 대상).
+     *
      * skip 시 `SIGNAL_SKIPPED_MIN_HOLD` audit + INFO 로그(추적). StrategyPositionPort bean 부재 시 graceful false.
      */
     private fun shouldSkipDslSellForMinHold(

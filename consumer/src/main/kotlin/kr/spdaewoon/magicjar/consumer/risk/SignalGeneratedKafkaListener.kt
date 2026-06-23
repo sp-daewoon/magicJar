@@ -252,7 +252,8 @@ class SignalGeneratedKafkaListener(
                     ack.acknowledge()
                     return
                 }
-            val result = riskGatewayEvaluator.evaluate(signal, context)
+            // ADR 0130 L1 — 게이트(plannedEntryEnabled) 전달. on + owner=AUTOPILOT 일 때만 SELL lot 소유권 강제(교차 청산 차단).
+            val result = riskGatewayEvaluator.evaluate(signal, context, plannedEntryEnabled)
 
             when (result) {
                 is RiskGatewayResult.Allowed -> handleAllowed(signal, context, result)
@@ -1786,7 +1787,8 @@ class SignalGeneratedKafkaListener(
                     if (scaleInEnabled) lookupStrategyOrNull(signal)?.definition?.scaleIn else null
                 riskGatewayEvaluator.resolveBuyQuantity(signal, context, scaleIn)
             }
-            SignalSide.SELL -> riskGatewayEvaluator.resolveSellQuantity(signal, context)
+            // ADR 0130 L1 — 게이트 on + owner=AUTOPILOT 이면 lot 소유권 강제(산 전략만 자기 lot 수량 청산).
+            SignalSide.SELL -> riskGatewayEvaluator.resolveSellQuantity(signal, context, plannedEntryEnabled)
             SignalSide.HOLD -> 0
         }
 
