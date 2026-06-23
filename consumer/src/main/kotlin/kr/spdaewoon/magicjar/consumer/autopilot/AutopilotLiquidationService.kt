@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.autopilot
 
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
+import kr.spdaewoon.magicjar.consumer.persistence.AutopilotHeldLotProjection
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
@@ -48,8 +49,30 @@ class AutopilotLiquidationService(
     override fun liquidateAll(
         userId: String?,
         reason: String,
+    ): AutopilotLiquidationOutcome = liquidateLots(strategyPositionJpaRepository.findAutopilotHeldPositions(userId), userId, reason)
+
+    /**
+     * EOD 청산 (ADR 0129 레버 1) — owner=AUTOPILOT **AND allow_overnight=false** lot 만 시장가 SELL.
+     *
+     * [liquidateAll] 과 동일 발행 메커니즘(기존 OrderIntent·멱등 키)이되 청산 대상 쿼리만
+     * [StrategyPositionJpaRepository.findAutopilotHeldPositionsNoOvernight] 로 교체한다(spec §4 레버 1).
+     * USER/SYSTEM lot·allow_overnight=true AUTOPILOT lot 은 쿼리 격리로 구조적 제외(zero-regression).
+     */
+    override fun liquidateNoOvernightAutopilot(
+        userId: String?,
+        reason: String,
+    ): AutopilotLiquidationOutcome =
+        liquidateLots(strategyPositionJpaRepository.findAutopilotHeldPositionsNoOvernight(userId), userId, reason)
+
+    /**
+     * lot 목록을 시장가 SELL OrderIntent 로 청산하는 공용 발행 루틴 (DRY — [liquidateAll]·[liquidateNoOvernightAutopilot]
+     * 공유). 격리는 호출자가 넘긴 lot 목록(repository 쿼리가 owner=AUTOPILOT 조인으로 이미 격리)에 위임한다.
+     */
+    private fun liquidateLots(
+        lots: List<AutopilotHeldLotProjection>,
+        userId: String?,
+        reason: String,
     ): AutopilotLiquidationOutcome {
-        val lots = strategyPositionJpaRepository.findAutopilotHeldPositions(userId)
         if (lots.isEmpty()) {
             log.info(
                 "autopilot 청산 no-op — owner=AUTOPILOT 보유 lot 0건: userId={} reason={}",

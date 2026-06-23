@@ -116,6 +116,36 @@ data class RiskAlertMessage(
                         setting = "autopilot 재진입 쿨다운",
                         action = "정상 동작입니다 - 쿨다운이 지나면 정당한 추세 재진입은 다시 허용됩니다.",
                     )
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT ->
+                    RiskAlertMessage(
+                        title = "autopilot 개장 직후 매수 생략 - 변동성 회피",
+                        message =
+                            "${codeLabel(code, context)} 은 개장 직후 변동성 윈도우라 신규 매수를 생략했습니다" +
+                                "(개장 흔들림에 사자마자 청산되는 휩쏘 회피). 청산/손절/익절은 정상 작동합니다.",
+                        formula = "개장 blackout 윈도우(KST) 내 owner=AUTOPILOT 신규 매수 = 생략",
+                        setting = "autopilot 개장 blackout (ADR 0129)",
+                        action = "정상 동작입니다 - 개장 윈도우가 지나면 매수가 다시 허용됩니다.",
+                    )
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED ->
+                    RiskAlertMessage(
+                        title = "autopilot 늦은 진입 차단 - 오버나잇 갭 회피",
+                        message =
+                            "${codeLabel(code, context)} 은 오버나잇 비허용 전략이라 마감 임박 신규 매수를 차단했습니다" +
+                                "(당일 청산 못 한 보유분이 갭다운에 노출되는 것 회피).",
+                        formula = "late-entry-cutoff(KST) 이후 + 오버나잇 비허용 전략 신규 매수 = 차단",
+                        setting = "autopilot late-entry 게이트 (ADR 0129)",
+                        action = "정상 동작입니다 - 오버나잇을 허용하려면 전략의 오버나잇 토글을 켜세요.",
+                    )
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD ->
+                    RiskAlertMessage(
+                        title = "autopilot 추격 매수 차단 - 직전 청산가 대비 과상승",
+                        message =
+                            "${codeLabel(code, context)} 은 직전 청산가보다 너무 비싸진 가격이라 재매수를 생략했습니다" +
+                                "(더 비싸게 따라붙는 추격 매수 회피 - 더 싸거나 같은 가격에만 재진입).",
+                        formula = "현재가 > 직전 청산가 x (1 + 추격 가드 %) = 생략",
+                        setting = "autopilot 추격 가격 가드 (ADR 0129)",
+                        action = "정상 동작입니다 - 추격 가드 %를 0으로 두면 가격 축이 비활성화됩니다.",
+                    )
             }
 
         private fun positionLimit(

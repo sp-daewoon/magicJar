@@ -159,6 +159,9 @@ magicjar:
     #   재매수를 suppress(buy→TP/exit→분 뒤 재매수 반복이 매 왕복 거래비용으로 알파를 깎는 손실원 차단). 단타 1분봉
     #   기준 15분(=15봉)이면 noise/whipsaw 재진입은 막고 추세 재형성 호흡은 보존. 0 이하면 쿨다운 비활성(byte 동일).
     reentry-cooldown-minutes: ${MAGICJAR_AUTOPILOT_REENTRY_COOLDOWN_MINUTES:15}
+    # ADR 0129 레버 3 — 추격 가격 가드. 같은 code 를 직전 청산가 대비 본 % 이상 비싸게 재매수하면 suppress(가격 축).
+    #   시간 쿨다운(위)이 풀린 뒤에도 추격(+%↑)을 차단. 0/음수=가격 축 비활성(시간 축만 유지 — 즉시 롤백).
+    reentry-price-guard-pct: ${MAGICJAR_AUTOPILOT_REENTRY_PRICE_GUARD_PCT:1.0}
   # ADR 0114 R2-C2b — 청산 "항상" 보장 안전망 (시그널 경로 우회).
   #   stop-loss.tick-watch-enabled : kafka.consumer.evt.market.tick.v1 직접 listen → 보유분 손절 MARKET 안전망(P1·P2·P4 구조적 해소).
   #     인메모리 보유 인덱스(index-refresh-ms 주기 + 체결 즉시 갱신)로 매 tick DB 조회 0. false면 1m 경로 손절만(안전망 비활성).
@@ -185,6 +188,19 @@ magicjar:
     holding-watch:
       enabled: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_ENABLED:true}
       refresh-delay-ms: ${MAGICJAR_AUTOTRADING_HOLDING_WATCH_REFRESH_DELAY_MS:60000}
+    # ADR 0129 레버 1 — autopilot EOD(장마감 전) 청산 + late-entry 게이트.
+    #   allow_overnight=false AND owner=AUTOPILOT 전략 보유분을 cutoff(KST)에 시장가 청산(오버나잇 갭 회피).
+    #   late-entry-cutoff 이후 같은 조건 신규 BUY 금지. USER/SYSTEM 전략은 owner 격리로 미적용. enabled=false=즉시 롤백.
+    eod-liquidation:
+      enabled: ${MAGICJAR_EOD_LIQUIDATION_ENABLED:true}
+      cutoff: ${MAGICJAR_EOD_LIQUIDATION_CUTOFF:15:15}
+      late-entry-cutoff: ${MAGICJAR_EOD_LATE_ENTRY_CUTOFF:14:30}
+    # ADR 0129 레버 2 — autopilot 개장 직후 진입금지 윈도우(개장 변동성 휩쏘 회피).
+    #   [start, end) KST 동안 owner=AUTOPILOT 신규 BUY 억제. 청산(SELL)·손절·익절 무영향. USER/SYSTEM 무영향. enabled=false=윈도우 해제.
+    open-blackout:
+      enabled: ${MAGICJAR_OPEN_BLACKOUT_ENABLED:true}
+      start: ${MAGICJAR_OPEN_BLACKOUT_START:09:00}
+      end: ${MAGICJAR_OPEN_BLACKOUT_END:09:15}
   # ADR 0115 §P1-1 — strategy_position 드리프트 자동 보정. sum(strategy_position) > position(KIS 권위)면 초과분 내림 정렬.
   #   유령 수량(7 vs 5 incident) 유령 매도 폭주의 뿌리 차단. false면 현행 WARN-only(보정 안 함). realized_pnl 불변(수량 정렬만).
   position:

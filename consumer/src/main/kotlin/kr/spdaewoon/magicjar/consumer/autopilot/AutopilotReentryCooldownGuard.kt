@@ -5,6 +5,8 @@ import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Duration
 
 /**
@@ -16,12 +18,18 @@ import java.time.Duration
  * **5,222(66%)를 잠식**(net +2,728). [AutopilotCodeBuyDedupeGuard](C, #1100)는 *같은 cycle 동시* 중복만 막아
  * **시간차 재진입(churn)은 못 막는다** — 본 가드가 그 직교 갭을 닫는다.
  *
- * ## 해결 (청산 ts 기록 → 쿨다운 윈도우 내 같은 code 재매수 suppress)
- * 1. **[recordLiquidation]** — owner=AUTOPILOT 가 한 code 를 **전량 청산(SELL 체결로 quantity→0)** 할 때, 그 시점을
- *    Redis 키([RedisKeyRegistry.Autopilot.reentryCooldown])에 TTL=쿨다운 윈도우로 기록한다. 키 존재 자체가 "최근
- *    청산했다 → 쿨다운 중"의 신호이며 TTL 만료로 자연 해제된다(별도 sweep 불필요).
- * 2. **[evaluate]** — owner=AUTOPILOT BUY 가 들어오면 그 code 의 쿨다운 키가 살아있는지 본다. 살아있으면 suppress
- *    (윈도우 내 재매수 차단 = churn 억제). 없으면 Proceed(윈도우 경과 = 정당 추세 재진입 허용).
+ * ## 해결 — 시간 축 + 가격 축 (ADR 0129 레버 3 — 가격 축 추가)
+ * Redis 키([RedisKeyRegistry.Autopilot.reentryCooldown])에 청산 시각 **+ 청산가**를 `ts:price` 포맷으로 동반 기록한다.
+ * 1. **[recordLiquidation]** — owner=AUTOPILOT 가 한 code 를 **전량 청산(SELL 체결로 quantity→0)** 할 때, 그 시점의
+ *    `currentMillis:exitPrice` 를 TTL=쿨다운 윈도우로 기록한다. 키 존재 = "최근 청산 → 쿨다운 중", 값의 price = 직전 청산가.
+ * 2. **[evaluate]** — owner=AUTOPILOT BUY 가 들어오면 그 code 의 쿨다운 키를 본다.
+ *    - **시간 축(기존)**: 키가 살아있으면 윈도우 내 재매수 → suppress(churn 억제).
+ *    - **가격 축(ADR 0129 레버 3, 신규)**: 시간 축이 풀린 뒤라도(키가 살아있는 동안) currentPrice 가 직전 청산가
+ *      `× (1 + reentryPriceGuardPct/100)` 보다 비싸면 추격으로 보고 suppress. 시간 축과 직교(둘 중 하나라도 걸리면 차단).
+ *    - 둘 다 통과(키 없음·윈도우 경과)면 Proceed(정당 추세 재진입 허용).
+ *
+ * 본래 시간 축만 있었고(follow-up I), 시간 쿨다운이 풀린 뒤 *더 비싼 가격* 재추격(2026-06-23 006340 +11%)이 직교 갭으로
+ * 남았다 — 가격 축이 그 갭을 닫는다. 윈도우 경과 시 키가 소멸하므로 가격 축도 세션 내 직전 청산 기준으로만 적용된다.
  *
  * ## 격리 LOCK (zero-regression)
  * - [recordLiquidation] 은 호출자([kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter])가
@@ -66,6 +74,7 @@ class AutopilotReentryCooldownGuard(
         userId: String,
         code: String,
         strategyId: Long,
+        exitPrice: BigDecimal,
     ) {
         if (!cooldownActive) return
         if (strategyId == 0L) return
@@ -82,12 +91,15 @@ class AutopilotReentryCooldownGuard(
 
         val key = RedisKeyRegistry.Autopilot.reentryCooldown(userId, code)
         try {
-            redisTemplate.opsForValue().set(key, System.currentTimeMillis().toString(), cooldownWindow)
+            // ADR 0129 레버 3 — 값 포맷 `ts:price`. price = 직전 청산가(가격 축 판정 기준). exitPrice<=0 면 가격 축은
+            //   evaluate 에서 자연 무효(parse 후 양수 확인)이나 ts 는 항상 기록(시간 축 보존).
+            redisTemplate.opsForValue().set(key, "${System.currentTimeMillis()}:${exitPrice.toPlainString()}", cooldownWindow)
             log.info(
-                "autopilot 재진입 쿨다운 기록(전량 청산): userId={} code={} strategyId={} windowMin={}",
+                "autopilot 재진입 쿨다운 기록(전량 청산): userId={} code={} strategyId={} exitPrice={} windowMin={}",
                 userId,
                 code,
                 strategyId,
+                exitPrice.toPlainString(),
                 properties.reentryCooldownMinutes,
             )
         } catch (e: Exception) {
@@ -111,13 +123,16 @@ class AutopilotReentryCooldownGuard(
         userId: String,
         code: String,
         strategyId: Long,
+        currentPrice: BigDecimal,
     ): Decision {
-        if (!cooldownActive) return Decision.Proceed
+        // 시간 축·가격 축은 직교. 둘 중 하나라도 활성이면 키를 읽어야 한다(시간 축 cooldownActive·가격 축 pct>0).
+        val priceGuardActive = properties.reentryPriceGuardPct > BigDecimal.ZERO
+        if (!cooldownActive && !priceGuardActive) return Decision.Proceed
 
         val key = RedisKeyRegistry.Autopilot.reentryCooldown(userId, code)
-        val onCooldown =
+        val rawValue =
             try {
-                redisTemplate.hasKey(key)
+                redisTemplate.opsForValue().get(key)
             } catch (e: Exception) {
                 // fail-open — Redis 결함으로 정상 신호를 막지 않는다(자본 안전은 별 게이트가 보장).
                 log.warn(
@@ -126,10 +141,14 @@ class AutopilotReentryCooldownGuard(
                     code,
                     e.message,
                 )
-                false
+                return Decision.Proceed
             }
 
-        return if (onCooldown) {
+        // 키 없음 = 윈도우 경과(또는 미청산) — 시간 축·가격 축 모두 무효 → 정당 재진입 허용.
+        if (rawValue == null) return Decision.Proceed
+
+        // ── 시간 축(기존, follow-up I) ── cooldownActive 인 동안 키가 살아있음 = 윈도우 내 재매수 → suppress(churn 억제).
+        if (cooldownActive) {
             log.info(
                 "autopilot BUY 재진입 쿨다운 suppress(churn 억제 — 최근 청산 code): userId={} code={} strategyId={} windowMin={}",
                 userId,
@@ -137,8 +156,59 @@ class AutopilotReentryCooldownGuard(
                 strategyId,
                 properties.reentryCooldownMinutes,
             )
-            Decision.Suppress(
+            return Decision.Suppress(
                 "AUTOPILOT_REENTRY_COOLDOWN:liquidated $code within ${properties.reentryCooldownMinutes}m — churn 억제",
+            )
+        }
+
+        // ── 가격 축(ADR 0129 레버 3, 신규) ── 시간 축 비활성(cooldownActive=false)인데 키가 살아있는 경우에만 도달.
+        //   (정상 운영에선 시간 축이 먼저 걸리므로 본 분기는 reentryCooldownMinutes<=0 + pct>0 구성에서 의미. 그래도
+        //    가격 축을 독립적으로 평가해 직전 청산가 대비 추격을 차단한다.)
+        return evaluatePriceAxis(userId, code, strategyId, currentPrice, rawValue)
+    }
+
+    /**
+     * 가격 축 판정 (ADR 0129 레버 3) — 직전 청산가 대비 추격 매수 차단. [evaluate] 내부에서 시간 축 통과 후 호출.
+     *
+     * - `reentryPriceGuardPct <= 0` → 비활성(즉시 롤백 경로) → Proceed.
+     * - currentPrice<=0·값 파싱 실패·price<=0(legacy ts-only) → fail-open Proceed.
+     * - `currentPrice > recordedExitPrice × (1 + pct/100)` → Suppress(추격 차단). 그 외 Proceed("더 싸게·같은 가격" 허용).
+     */
+    private fun evaluatePriceAxis(
+        userId: String,
+        code: String,
+        strategyId: Long,
+        currentPrice: BigDecimal,
+        rawValue: String,
+    ): Decision {
+        val pct = properties.reentryPriceGuardPct
+        if (pct <= BigDecimal.ZERO) return Decision.Proceed
+        if (currentPrice <= BigDecimal.ZERO) return Decision.Proceed
+
+        // `ts:price` 파싱 — price 토큰(마지막 ':' 뒤). legacy ts-only·파싱 실패·price<=0 → 가격 축 무효(fail-open Proceed).
+        val recordedExitPrice =
+            rawValue
+                .substringAfterLast(':', "")
+                .trim()
+                .toBigDecimalOrNull()
+                ?.takeIf { it > BigDecimal.ZERO }
+                ?: return Decision.Proceed
+
+        val threshold =
+            recordedExitPrice.multiply(BigDecimal.ONE.add(pct.divide(BigDecimal("100"), 8, RoundingMode.HALF_UP)))
+        return if (currentPrice > threshold) {
+            log.info(
+                "autopilot BUY 추격 가격 가드 suppress(직전 청산가 +{}% 초과 추격): userId={} code={} strategyId={} currentPrice={} exitPrice={} threshold={}",
+                pct.toPlainString(),
+                userId,
+                code,
+                strategyId,
+                currentPrice.toPlainString(),
+                recordedExitPrice.toPlainString(),
+                threshold.toPlainString(),
+            )
+            Decision.Suppress(
+                "AUTOPILOT_REENTRY_PRICE_GUARD:$code chase ${currentPrice.toPlainString()} > exit ${recordedExitPrice.toPlainString()} +${pct.toPlainString()}%",
             )
         } else {
             Decision.Proceed

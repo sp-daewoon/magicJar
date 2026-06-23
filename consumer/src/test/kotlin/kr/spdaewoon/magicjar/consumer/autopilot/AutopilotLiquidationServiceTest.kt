@@ -202,4 +202,63 @@ class AutopilotLiquidationServiceTest {
         assertThat(outcome.totalSellIntents).isEqualTo(1)
         verify(exactly = 1) { positionRepo.findAutopilotHeldPositions(null) }
     }
+
+    // ── ADR 0129 레버 1 — EOD 청산 (allow_overnight=false 격리 쿼리) ──────────────────────────────────────
+
+    @Test
+    fun `liquidateNoOvernightAutopilot 은 no-overnight 격리 쿼리로 위임 — allow_overnight=false lot 만 청산`() {
+        // findAutopilotHeldPositionsNoOvernight 가 owner=AUTOPILOT AND allow_overnight=false 로 이미 격리.
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight("U1") } returns
+            listOf(lot(code = "080220", quantity = 5, avgPrice = BigDecimal("134600")))
+
+        val outcome = service().liquidateNoOvernightAutopilot(userId = "U1", reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.liquidatedCodes).containsExactly("080220")
+        assertThat(outcome.totalSellIntents).isEqualTo(1)
+        // no-overnight 전용 쿼리만 호출 — liquidateAll 의 전체 쿼리는 타지 않는다(격리·중복 청산 회피).
+        verify(exactly = 1) { positionRepo.findAutopilotHeldPositionsNoOvernight("U1") }
+        verify(exactly = 0) { positionRepo.findAutopilotHeldPositions(any()) }
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "U1",
+                strategyId = 100L,
+                code = "080220",
+                intervalCode = "1m",
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.MARKET,
+                quantity = 5,
+                limitPrice = null,
+                priceAtSignal = BigDecimal("134600"),
+                idempotencyKey = match { it.startsWith("auto-lq:") },
+                orderTrigger = OrderTrigger.AUTO_EXIT,
+                triggerRefId = 100L,
+            )
+        }
+    }
+
+    @Test
+    fun `EOD 대상 0건(allow_overnight=false lot 없음)이면 no-op — intent 미발행`() {
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight(null) } returns emptyList()
+
+        val outcome = service().liquidateNoOvernightAutopilot(userId = null, reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(0)
+        verify(exactly = 0) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        }
+    }
 }

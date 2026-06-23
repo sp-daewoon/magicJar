@@ -28,6 +28,20 @@ interface AutopilotLiquidator {
         userId: String?,
         reason: String,
     ): AutopilotLiquidationOutcome
+
+    /**
+     * owner=AUTOPILOT **AND allow_overnight=false** 보유 포지션만 시장가 SELL 청산한다 (ADR 0129 레버 1 — EOD 청산).
+     *
+     * [liquidateAll] 과 동일 메커니즘(기존 OrderIntent 경로·멱등 키)이되 청산 대상을 오버나잇 금지 lot 으로 좁힌다.
+     * EOD 워커([kr.spdaewoon.magicjar.consumer.autopilot.AutopilotEodLiquidationWorker])가 장마감 전 cutoff 에 호출한다.
+     *
+     * @param userId 청산 대상 사용자(null = account-wide). @param reason 청산 사유(audit·intent 메타).
+     * @return 청산 결과 — 청산 종목·발행 SELL intent 수. allow_overnight=true·USER/SYSTEM lot 은 절대 비대상(격리 LOCK).
+     */
+    fun liquidateNoOvernightAutopilot(
+        userId: String?,
+        reason: String,
+    ): AutopilotLiquidationOutcome
 }
 
 /**
