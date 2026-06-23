@@ -3,10 +3,10 @@ id: T-20260623-1257-autopilot-hardening-levers
 agent: strategy
 model: opus
 branch: agent/strategy/autopilot-hardening-levers
-status: RUNNING
+status: DONE
 startedAt: 2026-06-23T12:57:52.936+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-23T13:21:56.435+09:00
+pr: #1116
 parentPhase: ?
 ---
 
