@@ -3,10 +3,10 @@ id: T-20260624-0826-planned-entry-r2
 agent: strategy
 model: opus
 branch: agent/strategy/planned-entry-r2
-status: RUNNING
+status: DONE
 startedAt: 2026-06-24T08:26:16.867+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-24T08:43:51.701+09:00
+pr: #1120
 parentPhase: ?
 ---
 
