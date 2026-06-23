@@ -5,6 +5,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -1045,6 +1046,87 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), eq(OrderPriceType.MARKET), isNull()) }
     }
 
+    // ── ADR 0130 L2 R1 — Planned Entry plan 박제 ─────────────────────────────────────────
+
+    @Test
+    fun `ADR0130 — 게이트 on + owner=AUTOPILOT BUY intent 발행 성공 시 trade_plan 박제`() {
+        val gateClock = clockAtKst(11, 0) // blackout·late-entry 비적용 시각.
+        autopilotBuyContext(gateClock)
+        val captured = slot<kr.spdaewoon.magicjar.domain.position.StrategyPosition>()
+        every { strategyPositionPort.upsert(capture(captured)) } answers { captured.captured }
+
+        listener(
+            entryLimitEnabled = true,
+            listenerClock = gateClock,
+            autopilotGuard = notApplicableGuard(),
+            strategies = listOf(autopilotStrategy(allowOvernight = true)),
+            plannedEntryEnabled = true,
+        ).onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        // intent 발행 + plan 박제(trade_plan write) 동반.
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        val plan = captured.captured.tradePlan
+        org.junit.jupiter.api.Assertions
+            .assertNotNull(plan)
+        org.junit.jupiter.api.Assertions
+            .assertEquals(100L, plan!!.entry.strategyId)
+        org.junit.jupiter.api.Assertions
+            .assertTrue(plan.entry.entryPrice.compareTo(BigDecimal("50000")) == 0)
+        // 전략 설정(TP 10%·SL 5%)이 plan 에 반영.
+        org.junit.jupiter.api.Assertions
+            .assertTrue(plan.target?.tpPct?.compareTo(BigDecimal("10.00")) == 0)
+        org.junit.jupiter.api.Assertions
+            .assertTrue(plan.stop?.slPct?.compareTo(BigDecimal("5.00")) == 0)
+        org.junit.jupiter.api.Assertions
+            .assertEquals(kr.spdaewoon.magicjar.domain.strategy.TradePlanStatus.OPEN, plan.status)
+    }
+
+    @Test
+    fun `ADR0130 — 게이트 off 면 owner=AUTOPILOT BUY 라도 trade_plan 박제 skip(zero-regression)`() {
+        val gateClock = clockAtKst(11, 0)
+        autopilotBuyContext(gateClock)
+
+        listener(
+            entryLimitEnabled = true,
+            listenerClock = gateClock,
+            autopilotGuard = notApplicableGuard(),
+            strategies = listOf(autopilotStrategy(allowOvernight = true)),
+            plannedEntryEnabled = false,
+        ).onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        // intent 는 발행되되 plan 박제는 0 (게이트 off = 현행 byte-동일).
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) {
+            strategyPositionPort.upsert(match { it.tradePlan != null })
+        }
+    }
+
+    @Test
+    fun `ADR0130 — 게이트 on 이어도 owner=USER BUY 는 trade_plan 미기록(owner 격리)`() {
+        val gateClock = clockAtKst(9, 10)
+        every { riskConfigRepository.getOrDefault(any(), any()) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl(any(), any()) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.record(any(), any(), any(), any()) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        // strategyOwner 미운반(=USER 취급) payload + USER 전략(sampleStrategy default owner).
+        listener(
+            entryLimitEnabled = true,
+            listenerClock = gateClock,
+            plannedEntryEnabled = true,
+        ).onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        // USER owner → plan 박제 0 (zero-regression).
+        verify(exactly = 0) {
+            strategyPositionPort.upsert(match { it.tradePlan != null })
+        }
+    }
+
     private fun listener(
         magicjarMode: String = "MOCK",
         // 자본 정합 hotfix(2026-06-08) — 체결 sync는 REAL·MOCK 모두 실행되므로 default로 PASS sync 제공
@@ -1076,6 +1158,8 @@ class SignalGeneratedKafkaListenerTest {
         // ADR 0129 — owner=AUTOPILOT BUY 가 게이트 통과 시 발행되도록 NotApplicable Guard 를 wiring(없으면 fail-closed).
         //   USER/SYSTEM owner 는 guard 도달 전 Proceed 라 본 wiring 이 기존 테스트 거동에 영향 0.
         autopilotGuard: kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard? = null,
+        // ADR 0130 L2 — 계획 기반 진입(Planned Entry) 게이트. default false=박제 skip(현행 byte-동일·zero-regression).
+        plannedEntryEnabled: Boolean = false,
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns openOrders
@@ -1121,6 +1205,7 @@ class SignalGeneratedKafkaListenerTest {
             openBlackoutEndRaw = openBlackoutEnd,
             eodLiquidationEnabled = eodLiquidationEnabled,
             lateEntryCutoffRaw = lateEntryCutoff,
+            plannedEntryEnabled = plannedEntryEnabled,
             clock = listenerClock,
         )
     }

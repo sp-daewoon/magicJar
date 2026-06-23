@@ -49,6 +49,13 @@ class StrategyPositionReadJpaEntity(
     /** 부분 매수 잔여 수량(주) — 자금 부족으로 회차 일부만 체결된 미체결 잔여(ADR 0128 ②, V90). 0=잔여 없음. */
     @Column(name = "scale_in_remainder_qty", nullable = false)
     val scaleInRemainderQty: Int = 0,
+    /**
+     * 거래 계획(Planned Entry) JSONB String — ADR 0130 L2 V95. owner=AUTOPILOT 진입 박제. NULL=미기록(현행).
+     * api 는 read-only(R3 UI "예상 계획" 패널 표시) — 쓰기는 consumer 책임. JSON String 그대로 보관(R3 에서 파싱).
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "trade_plan", columnDefinition = "jsonb")
+    val tradePlan: String? = null,
     @Column(name = "opened_at", nullable = false)
     val openedAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

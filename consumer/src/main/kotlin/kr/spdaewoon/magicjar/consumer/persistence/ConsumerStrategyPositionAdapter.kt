@@ -5,6 +5,8 @@ import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
 import kr.spdaewoon.magicjar.domain.position.StrategyPosition
 import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
+import kr.spdaewoon.magicjar.domain.strategy.TradePlan
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanSerde
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -76,6 +78,7 @@ class ConsumerStrategyPositionAdapter(
             executedExitStages = serializeStages(domain.executedExitStages),
             scaleInBaseBudget = domain.scaleInBaseBudget,
             scaleInRemainderQty = domain.scaleInRemainderQty,
+            tradePlan = serializeTradePlan(domain.tradePlan),
             // 신규 행만 openedAt 채움 — 기존 행은 보존(재진입 사이클에서도 최초 진입 시각 유지).
             openedAt = existing?.openedAt ?: (domain.openedAt.toJavaInstant()),
             updatedAt = Instant.now(),
@@ -94,9 +97,41 @@ class ConsumerStrategyPositionAdapter(
             executedExitStages = deserializeStages(entity.executedExitStages),
             scaleInBaseBudget = entity.scaleInBaseBudget,
             scaleInRemainderQty = entity.scaleInRemainderQty,
+            tradePlan = deserializeTradePlan(entity.tradePlan),
             openedAt = entity.openedAt.toKotlinInstant(),
             updatedAt = entity.updatedAt.toKotlinInstant(),
         )
+
+    /**
+     * [TradePlan] → JSONB String — ADR 0130 L2. [TradePlanSerde]가 Map↔도메인(순수 codec), ObjectMapper 가
+     * Map↔JSON String(어댑터 책임 경계). null(미기록·USER/SYSTEM·게이트 off)이면 NULL 컬럼(현행 동작).
+     * 직렬화 실패는 NULL 로 흡수해 권위 흐름(평단·수량 upsert)을 막지 않는다(2차 ledger 격리 — scale-in base 박제 정합).
+     */
+    private fun serializeTradePlan(plan: TradePlan?): String? {
+        if (plan == null) return null
+        return try {
+            objectMapper.writeValueAsString(TradePlanSerde.toMap(plan))
+        } catch (e: Exception) {
+            log.warn("strategy_position trade_plan 직렬화 실패 — NULL fallback: err={}", e.message)
+            null
+        }
+    }
+
+    /**
+     * JSONB String → [TradePlan] — ADR 0130 L2. ObjectMapper 가 JSON String→Map, [TradePlanSerde]가 Map→도메인.
+     * 빈 String·NULL·역직렬화 실패는 null(미기록 = 현행 동작 — executed_exit_stages 패턴 정합).
+     */
+    private fun deserializeTradePlan(json: String?): TradePlan? {
+        if (json.isNullOrBlank()) return null
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            val map = objectMapper.readValue(json, Map::class.java) as Map<String, Any?>
+            TradePlanSerde.fromMap(map)
+        } catch (e: Exception) {
+            log.warn("strategy_position trade_plan 역직렬화 실패 — null fallback: json={} err={}", json, e.message)
+            null
+        }
+    }
 
     private fun serializeStages(stages: Set<Int>): String = objectMapper.writeValueAsString(stages.sorted())
 

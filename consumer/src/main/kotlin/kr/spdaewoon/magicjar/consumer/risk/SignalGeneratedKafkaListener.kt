@@ -44,6 +44,15 @@ import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
+import kr.spdaewoon.magicjar.domain.strategy.TradePlan
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanContingency
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanEntry
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanHold
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanStatus
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanStop
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanStopType
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanTarget
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanTrailing
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyLookupPort
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -153,6 +162,10 @@ class SignalGeneratedKafkaListener(
     private val eodLiquidationEnabled: Boolean = true,
     @Value("\${magicjar.autotrading.eod-liquidation.late-entry-cutoff:14:30}")
     private val lateEntryCutoffRaw: String = "14:30",
+    // ADR 0130 L2 — 계획 기반 진입(Planned Entry) 게이트. default false=박제 skip(현행 byte-동일·zero-regression).
+    //   owner=AUTOPILOT BUY intent 발행 성공 시점에 trade_plan 박제. off 면 plan 미기록(컬럼 NULL=행동 변화 0).
+    @Value("\${magicjar.autopilot.planned-entry.enabled:false}")
+    private val plannedEntryEnabled: Boolean = false,
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(SignalGeneratedKafkaListener::class.java)
@@ -374,6 +387,9 @@ class SignalGeneratedKafkaListener(
         // 2-b. 분할매수 base 박제 — 1차 진입 BUY intent 발행 성공 시 그 시점 buyable 을 strategy_position 에 고정 (ADR 0128 ① R2).
         if (signal.side == SignalSide.BUY && intentPublished) {
             captureScaleInBaseIfFirstSlice(signal, context)
+            // 2-c. 계획 기반 진입(Planned Entry) plan 박제 — owner=AUTOPILOT BUY intent 발행 성공 시 trade_plan write (ADR 0130 L2 R1).
+            //      게이트 off·owner≠AUTOPILOT → skip(현행 byte-동일·zero-regression). USER/SYSTEM 은 plan 미기록.
+            captureTradePlanIfAutopilot(signal, context, quantity)
         }
 
         // 3. TradeFrequencyGuard 누적 — **신규 포지션 오픈(왕복 개시) BUY + 주문 intent 발행 성공** 둘 다일 때만.
@@ -1831,6 +1847,150 @@ class SignalGeneratedKafkaListener(
                 e.message,
             )
         }
+    }
+
+    /**
+     * 계획 기반 진입(Planned Entry) plan 박제 — owner=AUTOPILOT BUY intent 발행 성공 시 trade_plan write (ADR 0130 L2 R1).
+     *
+     * ## 박제 조건 (owner 격리 + 게이트 LOCK)
+     * - **게이트** `magicjar.autopilot.planned-entry.enabled` (default false). off → skip = 현행 byte-동일(plan 미기록·행동 변화 0).
+     * - **owner=AUTOPILOT 한정** — [Signal.strategyOwner](owner-on-signal 단일 출처, #1095/#1096 재사용 — 신규 lookup 0)이
+     *   AUTOPILOT 일 때만. USER/SYSTEM·legacy(null) 는 skip(zero-regression — trade_plan 미기록 → 현행 청산 라우팅 유지).
+     *
+     * ## plan 구성 (진입 시점 박제 — ADR 0130 §6-2)
+     * 산 전략 설정(`take_profit_pct`·`fixed_stop_loss`·`min_hold_bars`·`trailing_stop`·`vi_action_policy`·`allow_overnight`)
+     * + 진입가([Signal.priceAtSignal])로 1회 구성한다. TP/SL 절대가는 진입가 ± 비율로 계산(PlanExecutor 가 평단 연동
+     * 재계산하므로 박제값은 출발점 — R2). status=OPEN·exitReason=null 로 시작.
+     *
+     * ## 멱등·격리
+     * - 이미 plan 이 박제됐으면(분할 후속 회차·재진입) 재기록 skip(1차 진입 thesis·entryPrice 보존).
+     * - upsert 실패는 권위 흐름(주문 intent 는 이미 발행됨) 무손상으로 흡수(2차 ledger 격리 — scale-in base 박제 정합).
+     *   plan 박제 실패해도 L3 안전망(VI·EOD·dll·floor)이 손실을 묶으므로 자본 안전 불변(ADR 0130 §2 L3).
+     */
+    private fun captureTradePlanIfAutopilot(
+        signal: Signal,
+        context: RiskContext,
+        quantity: Int,
+    ) {
+        if (!plannedEntryEnabled) return
+        // owner=AUTOPILOT 한정 — 신호 운반 owner 가 단일 출처(신규 lookup 0). USER/SYSTEM/legacy(null) → skip(zero-regression).
+        if (signal.strategyOwner != StrategyOwner.AUTOPILOT) return
+
+        val strategy = lookupStrategyOrNull(signal) ?: return
+        val definition = strategy.definition
+        val now = clock.now()
+        val entryPrice = signal.priceAtSignal
+        if (entryPrice <= BigDecimal.ZERO) return
+
+        val current =
+            context.strategyPosition?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId }
+        // 멱등 — 이미 plan 박제됨(분할 후속 회차·재진입 사이클)이면 1차 plan 보존(재기록 skip).
+        if (current?.tradePlan != null) return
+
+        val plan =
+            try {
+                buildTradePlan(signal, definition, entryPrice, now.toString())
+            } catch (e: Exception) {
+                log.warn(
+                    "trade_plan 구성 실패 — 박제 skip(권위 흐름 무손상·L3 안전망 보장): strategyId={} code={} err={}",
+                    signal.strategyId,
+                    signal.code,
+                    e.message,
+                )
+                return
+            }
+
+        val port = strategyPositionPortProvider.ifAvailable ?: return
+        try {
+            val target =
+                (current ?: emptyStrategyPosition(signal, now)).copy(
+                    tradePlan = plan,
+                    updatedAt = now,
+                )
+            port.upsert(target)
+            log.info(
+                "trade_plan 박제(Planned Entry 진입 계획 고정): strategyId={} code={} qty={} entryPrice={} tpPct={} slPct={} minHold={}",
+                signal.strategyId,
+                signal.code,
+                quantity,
+                entryPrice.toPlainString(),
+                definition.takeProfitPct?.toPlainString(),
+                definition.fixedStopLoss?.toPlainString(),
+                definition.minHoldBars,
+            )
+        } catch (e: Exception) {
+            // 2차 ledger 격리 — plan 박제 실패해도 주문 intent 는 이미 발행됨. L3 안전망이 손실 bound(ADR 0130 §2).
+            log.warn(
+                "trade_plan 박제 실패 — 권위 흐름 무손상(L3 안전망 유지·zero-regression): strategyId={} code={} err={}",
+                signal.strategyId,
+                signal.code,
+                e.message,
+            )
+        }
+    }
+
+    /**
+     * 산 전략 설정 + 진입가로 [TradePlan] 1회 구성 (ADR 0130 §2 스키마 v1 · §6-2).
+     *
+     * TP/SL 절대가는 진입가 기준으로 산출한다(평단 연동 재계산은 PlanExecutor·R2 책임 — 박제값은 출발점).
+     * 전략에 미설정인 필드(takeProfitPct·fixedStopLoss·minHoldBars 등)는 해당 하위 객체를 null 로 둔다(확장점 add-only).
+     */
+    private fun buildTradePlan(
+        signal: Signal,
+        definition: kr.spdaewoon.magicjar.domain.strategy.StrategyDefinition,
+        entryPrice: BigDecimal,
+        openedAt: String,
+    ): TradePlan {
+        val tpPct = definition.takeProfitPct?.takeIf { it > BigDecimal.ZERO }
+        val slPct = definition.fixedStopLoss?.takeIf { it > BigDecimal.ZERO }
+        val trailPct = definition.trailingStop?.takeIf { it > BigDecimal.ZERO }
+        val minHold = definition.minHoldBars?.takeIf { it >= 0 }
+
+        val hundred = BigDecimal("100")
+        val target =
+            tpPct?.let {
+                TradePlanTarget(
+                    tpPct = it,
+                    tpPrice = entryPrice.add(entryPrice.multiply(it).divide(hundred, 0, RoundingMode.DOWN)),
+                )
+            }
+        val stop =
+            slPct?.let {
+                TradePlanStop(
+                    type = TradePlanStopType.FIXED,
+                    slPct = it,
+                    slPrice = entryPrice.subtract(entryPrice.multiply(it).divide(hundred, 0, RoundingMode.UP)),
+                )
+            }
+        val trailing =
+            trailPct?.let {
+                TradePlanTrailing(enabled = true, trailPct = it)
+            }
+        val hold = minHold?.let { TradePlanHold(minHoldBars = it) }
+        // contingency — 현행 정책(ViActionPolicy·allowOvernight)을 plan 에 동봉해 L3(VI·EOD)가 R3 에서 참조.
+        val contingency =
+            TradePlanContingency(
+                viAction = definition.viActionPolicy.name,
+                eod = if (definition.allowOvernight) "ALLOW_OVERNIGHT" else "LIQUIDATE",
+            )
+
+        return TradePlan(
+            entry =
+                TradePlanEntry(
+                    strategyId = signal.strategyId,
+                    thesis = signal.reason.takeIf { it.isNotBlank() },
+                    entryPrice = entryPrice,
+                    bar = signal.interval.code,
+                    openedAt = openedAt,
+                ),
+            target = target,
+            stop = stop,
+            trailing = trailing,
+            hold = hold,
+            contingency = contingency,
+            status = TradePlanStatus.OPEN,
+            exitReason = null,
+        )
     }
 
     /** 1차 진입 전 strategy_position 행이 없을 때 base 만 채울 빈 lot(quantity=0). 체결 listener 가 평단·수량을 채운다. */

@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.domain.position
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.strategy.TradePlan
 import java.math.BigDecimal
 
 /**
@@ -64,6 +65,21 @@ data class StrategyPosition(
      * 0 = 잔여 없음(정상). quantity=0 전량 청산 시 reset.
      */
     val scaleInRemainderQty: Int = 0,
+    /**
+     * **거래 계획(Planned Entry) 박제값** — ADR 0130 L2. owner=AUTOPILOT 전략이 진입(BUY intent 발행 성공) 시점에
+     * 이 lot 의 thesis·TP·SL·trailing·hold·exitConditions·contingency·status·exitReason 를 1회 박제한다
+     * (`strategy_position.trade_plan` JSONB · V95). R2 [PlanExecutor]가 이 계획을 lot-scoped 로 보장 실행한다.
+     *
+     * null = 미기록 — **USER/SYSTEM 전략(owner 격리)·게이트(`magicjar.autopilot.planned-entry.enabled`) off** 시
+     * 항상 null 이며 현행 청산 라우팅 그대로(zero-regression). 박제 자체는 진입 시
+     * ([SignalGeneratedKafkaListener.captureTradePlanIfAutopilot]) 책임이다.
+     *
+     * ## 전량 청산 reset 규약 (불변식 — 위 quantity=0 reset 과 합류)
+     * `quantity == 0`(전량 청산) 시 `avgPrice`·`filledLots`·`executedExitStages`·`scaleInBaseBudget`·
+     * `scaleInRemainderQty` 와 함께 **`tradePlan` 도 reset(null)** 한다(행은 유지 — 다음 진입 사이클은 새 plan 박제).
+     * 부분 청산만으로는 reset 안 함(계획은 lot 사이클 동안 유효). reset 적용은 R2 체결 listener 책임.
+     */
+    val tradePlan: TradePlan? = null,
     val openedAt: Instant,
     val updatedAt: Instant,
 ) {
