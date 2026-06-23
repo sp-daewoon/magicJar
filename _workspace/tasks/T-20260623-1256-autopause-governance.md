@@ -3,10 +3,10 @@ id: T-20260623-1256-autopause-governance
 agent: backend-core
 model: opus
 branch: agent/backend-core/autopause-governance
-status: RUNNING
+status: DONE
 startedAt: 2026-06-23T12:56:44.181+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-23T13:03:46.519+09:00
+pr: #1115
 parentPhase: ?
 ---
 
