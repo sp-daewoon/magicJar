@@ -57,6 +57,15 @@ class StrategyPositionJpaEntity(
      */
     @Column(name = "scale_in_remainder_qty", nullable = false)
     val scaleInRemainderQty: Int = 0,
+    /**
+     * 거래 계획(Planned Entry) JSONB — ADR 0130 L2 V95. owner=AUTOPILOT 진입 시점 박제(thesis·TP·SL·trailing·
+     * hold·exitConditions·contingency·status·exitReason). NULL=미기록(USER/SYSTEM·게이트 off=현행). 어댑터가
+     * [TradePlanSerde] + ObjectMapper 로 [TradePlan] ↔ JSON String 매핑(executed_exit_stages 와 동일 JSONB String 패턴).
+     * 전량 청산(quantity=0) 시 reset(R2 listener).
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "trade_plan", columnDefinition = "jsonb")
+    val tradePlan: String? = null,
     @Column(name = "opened_at", nullable = false)
     val openedAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
