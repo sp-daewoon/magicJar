@@ -14,7 +14,7 @@ parentPhase: ?
 ADR0130 R1 trade_plan 도메인+영속+박제
 
 ## 결과물 체크리스트
-- [ ] V95·TradePlan·Serde·엔티티매핑·진입박제·테스트
+- [x] V95·TradePlan·Serde·엔티티매핑·진입박제·테스트
 
 ## 의존성
 - (필요 시 기록)
