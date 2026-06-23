@@ -95,6 +95,7 @@ class AutoPauseGuardTest {
 
         // 보유 0 SELL 차단·중복 매수 차단·익절 예약 SELL 가용 0 = 정상 거동 → 임계 제외 의무.
         // ADR 0129 레버5-B — autopilot 자기억제(churn cooldown · code dedup)도 benign 합류.
+        // ADR 0130 R-aux — ADR 0129 진입 가드 3룰(LATE_ENTRY·OPEN_BLACKOUT·REENTRY_PRICE_GUARD)도 benign 합류.
         assertThat(excludedSlot.captured)
             .containsExactlyInAnyOrder(
                 RiskRule.SELL_WITHOUT_POSITION.name,
@@ -102,6 +103,9 @@ class AutoPauseGuardTest {
                 RiskRule.SELL_QUANTITY_UNAVAILABLE.name,
                 RiskRule.AUTOPILOT_REENTRY_COOLDOWN.name,
                 RiskRule.AUTOPILOT_CODE_DEDUP.name,
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED.name,
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT.name,
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD.name,
             )
         // 진짜 자본 위험 신호는 제외하지 않는다(회귀 방지). USER 경로(ownerIsAutopilot=false default)이므로
         // POSITION_LIMIT 은 여전히 카운트(레버5-C 격리 LOCK).
@@ -139,6 +143,48 @@ class AutoPauseGuardTest {
 
         // ownerIsAutopilot=false(USER 경로)에서도 benign set 적용 — 자기억제 룰은 owner 무관 전역 제외.
         val result = guard.checkAndPauseIfNeeded(strategyId = 90L, autoPauseThreshold = 5)
+
+        assertThat(result).isFalse()
+        verify(exactly = 0) { callback.onAutoDisable(any(), any()) }
+    }
+
+    // ── ADR 0130 R-aux — ADR 0129 진입 가드 3룰 benign 합류 (2026-06-23 14:00 라이브 회귀 fix) ──────────
+
+    @Test
+    fun `R-aux — 진입 가드 3룰(LATE_ENTRY·OPEN_BLACKOUT·REENTRY_PRICE_GUARD)은 benign set 에 포함된다`() {
+        // 늦은 진입 차단·개장 blackout·재진입 추격가 차단은 autopilot 의 정상 진입 자기억제 — 임계에 기여하면 안 된다.
+        assertThat(BENIGN_AUTO_PAUSE_EXCLUDED_RULES)
+            .contains(
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED.name,
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT.name,
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD.name,
+            )
+    }
+
+    @Test
+    fun `R-aux — AUTOPILOT set 에도 진입 가드 3룰이 전파된다(BENIGN 합집합)`() {
+        // AUTOPILOT_AUTO_PAUSE_EXCLUDED_RULES = BENIGN ∪ POSITION_LIMIT 이므로 benign 합류분이 자동 전파(DRY).
+        assertThat(AUTOPILOT_AUTO_PAUSE_EXCLUDED_RULES)
+            .contains(
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED.name,
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT.name,
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD.name,
+            )
+    }
+
+    @Test
+    fun `R-aux 회귀 — 진입 가드 3룰만으로 임계 도달해도 제외 후 0 이면 정지 0 (14시 LATE_ENTRY 회귀 해소)`() {
+        // 2026-06-23 14:00 라이브 재현: LATE_ENTRY 등 진입 가드만 누적된 전략이 임계를 채워도 죽지 않아야 한다.
+        every {
+            riskEventRepository.countRecentBlockedByStrategy(
+                strategyId = 103L,
+                windowMinutes = 10L,
+                excludedRules = BENIGN_AUTO_PAUSE_EXCLUDED_RULES,
+            )
+        } returns 0
+
+        // owner 무관 전역 제외 — USER 경로(default)에서도 진입 가드 3룰은 제외된다.
+        val result = guard.checkAndPauseIfNeeded(strategyId = 103L, autoPauseThreshold = 5)
 
         assertThat(result).isFalse()
         verify(exactly = 0) { callback.onAutoDisable(any(), any()) }

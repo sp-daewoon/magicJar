@@ -61,6 +61,18 @@ class AutoPauseGuard(
          *     - 🔄 [리팩토링] 자기억제 룰을 benign set 에 add-only 로 합류 — 임계 산식 무손상(threshold·전환
          *       메커니즘 변경 0). 자기억제는 본질적으로 자본 위험이 아니므로 owner 무관 전역 제외(USER/SYSTEM 엔
          *       애초 미발생하는 autopilot 전용 룰이라 격리 안전).
+         *
+         * **ADR 0129 진입 가드 3룰 합류 (ADR 0130 R-aux · 2026-06-23 14:00 라이브 evidence)**:
+         *   진보 페르소나 (ADR 0087):
+         *     - 💡 [문제] ADR 0129 가 추가한 진입 자기억제 가드 3룰
+         *       (`AUTOPILOT_LATE_ENTRY_BLOCKED`·`AUTOPILOT_OPEN_BLACKOUT`·`AUTOPILOT_REENTRY_PRICE_GUARD`)이
+         *       benign set 에 빠져 있어 BLOCKED 카운트에 기여 → 임계 도달 → 전략 자동정지(레버5-B 와 동형 회귀).
+         *       2026-06-23 14:00 재활성 시 LATE_ENTRY 가 auto-pause 를 실제 발동시킨 것이 라이브 확인됐다.
+         *       위 자기억제 룰(COOLDOWN·CODE_DEDUP) 합류 때와 같은 누락(신규 autopilot 전용 룰을 빠뜨림)이 반복됐다.
+         *     - 🔄 [리팩토링] 진입 가드 3룰을 benign set 에 add-only 로 합류 — 임계 산식 무손상(threshold·전환
+         *       메커니즘 변경 0). "늦은 진입 차단·개장 blackout·재진입 추격가 차단"은 *autopilot 이 스스로 나쁜
+         *       진입을 거르는 정상 거동*이지 자본 위험 신호가 아니므로 owner 무관 전역 제외(USER/SYSTEM 엔 애초
+         *       미발생하는 autopilot 전용 룰이라 격리 안전).
          */
         val BENIGN_AUTO_PAUSE_EXCLUDED_RULES: Set<String> =
             setOf(
@@ -69,6 +81,9 @@ class AutoPauseGuard(
                 RiskRule.SELL_QUANTITY_UNAVAILABLE,
                 RiskRule.AUTOPILOT_REENTRY_COOLDOWN,
                 RiskRule.AUTOPILOT_CODE_DEDUP,
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED,
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT,
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD,
             ).map { it.name }.toSet()
 
         /**
