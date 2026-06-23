@@ -1097,7 +1097,11 @@ class SignalGeneratedKafkaListener(
         }
         val config = configRepo?.let { runCatching { it.getOrDefault(signal.userId, nowKst) }.getOrNull() }
         val threshold = config?.autoPauseThreshold ?: 10
-        autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold)
+        // ADR 0129 레버5-C — owner=AUTOPILOT 은 공유풀 'full(POSITION_LIMIT)'이 정상이므로 auto-pause 카운트에서
+        //   추가 제외(AutoPauseGuard 내부 set 분기). 신호 운반 owner(owner-on-signal #1095/#1096)를 그대로 재사용
+        //   — 신규 lookup 0. legacy(null) signal 은 owner 미상 → 보수적으로 false(USER 격리 경로 = 현행 거동 유지).
+        val ownerIsAutopilot = signal.strategyOwner == StrategyOwner.AUTOPILOT
+        autoPauseGuard.checkAndPauseIfNeeded(signal.strategyId, threshold, ownerIsAutopilot)
     }
 
     /**
