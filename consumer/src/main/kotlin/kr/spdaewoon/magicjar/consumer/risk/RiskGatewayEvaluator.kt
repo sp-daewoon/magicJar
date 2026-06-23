@@ -9,6 +9,7 @@ import kr.spdaewoon.magicjar.domain.risk.RiskRule
 import kr.spdaewoon.magicjar.domain.signal.Signal
 import kr.spdaewoon.magicjar.domain.signal.SignalSide
 import kr.spdaewoon.magicjar.domain.strategy.ScaleInPlan
+import kr.spdaewoon.magicjar.domain.strategy.StrategyOwner
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -42,9 +43,16 @@ import java.math.RoundingMode
 class RiskGatewayEvaluator {
     private val log = LoggerFactory.getLogger(RiskGatewayEvaluator::class.java)
 
+    /**
+     * @param plannedEntryEnabled 계획 기반 진입 게이트(`magicjar.autopilot.planned-entry.enabled`, default false).
+     *   true + owner=AUTOPILOT 일 때만 L1 lot 소유권을 강제한다(SELL holding 의 user+code fallback 차단 — §ADR 0130 L1).
+     *   false(또는 USER/SYSTEM)면 현행 fallback 그대로(zero-regression). caller([SignalGeneratedKafkaListener])가 자신의
+     *   게이트 값을 전달한다. 기본값 false 라 기존 호출·테스트는 byte-동일(전달 안 하면 현행).
+     */
     fun evaluate(
         signal: Signal,
         context: RiskContext,
+        plannedEntryEnabled: Boolean = false,
     ): RiskGatewayResult {
         val signalId = signal.id ?: error("Signal.id must be non-null for risk evaluation")
 
@@ -138,7 +146,7 @@ class RiskGatewayEvaluator {
         }
 
         if (signal.side == SignalSide.SELL) {
-            val holdingQty = holdingQuantity(signal, context)
+            val holdingQty = holdingQuantity(signal, context, plannedEntryEnabled)
             if (holdingQty <= 0) {
                 return blocked(
                     signalId,
@@ -148,6 +156,9 @@ class RiskGatewayEvaluator {
                         mapOf(
                             "code" to signal.code,
                             "currentCodes" to context.currentPositions.map { it.code },
+                            // L1 lot 소유권 차단 가시화 — owner=AUTOPILOT 이 그 종목 lot 미보유로 fallback 차단됐는지 audit.
+                            "ownershipEnforced" to lotOwnershipEnforced(signal, plannedEntryEnabled),
+                            "strategyOwner" to signal.strategyOwner?.name,
                         ),
                 )
             }
@@ -493,7 +504,8 @@ class RiskGatewayEvaluator {
     fun resolveSellQuantity(
         signal: Signal,
         context: RiskContext,
-    ): Int = (holdingQuantity(signal, context) - reservedSellQuantity(signal, context)).coerceAtLeast(0)
+        plannedEntryEnabled: Boolean = false,
+    ): Int = (holdingQuantity(signal, context, plannedEntryEnabled) - reservedSellQuantity(signal, context)).coerceAtLeast(0)
 
     /**
      * BUY 매수 버짓 산정 — **계좌 전체 공유 풀 + 예수금 cap** (사용자 결재 2026-06-16).
@@ -548,14 +560,35 @@ class RiskGatewayEvaluator {
     private fun holdingQuantity(
         signal: Signal,
         context: RiskContext,
-    ): Int =
-        context.strategyPosition
-            ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId && it.quantity > 0 }
-            ?.quantity
-            ?: context.currentPositions
-                .firstOrNull { it.code == signal.code && it.quantity > 0 }
+        plannedEntryEnabled: Boolean = false,
+    ): Int {
+        val byStrategy =
+            context.strategyPosition
+                ?.takeIf { it.code == signal.code && it.strategyId == signal.strategyId && it.quantity > 0 }
                 ?.quantity
+        if (byStrategy != null) return byStrategy
+
+        // ★ ADR 0130 L1 — owner=AUTOPILOT + 게이트 on 이면 user+code 실잔고 fallback 을 **차단**한다.
+        //   산 적 없는 전략(그 종목 lot 미보유)의 SELL 이 holding 0 → SELL_WITHOUT_POSITION BLOCKED → 교차 청산(001820) 원천 차단.
+        //   USER/SYSTEM·legacy(null)·게이트 off 는 현행 fallback 유지(canary D2 청산 마비 방지 — zero-regression).
+        if (lotOwnershipEnforced(signal, plannedEntryEnabled)) return 0
+
+        return context.currentPositions
+            .firstOrNull { it.code == signal.code && it.quantity > 0 }
+            ?.quantity
             ?: 0
+    }
+
+    /**
+     * L1 lot 소유권 강제 여부 (ADR 0130 §6-1) — owner=AUTOPILOT **AND** 게이트 on 일 때만 true.
+     *
+     * true 면 [holdingQuantity] 가 user+code 실잔고 fallback 을 쓰지 않는다(산 전략만 자기 lot 청산). false 면
+     * 현행 fallback(zero-regression). USER/SYSTEM·legacy owner(null)·게이트 off 는 항상 false.
+     */
+    private fun lotOwnershipEnforced(
+        signal: Signal,
+        plannedEntryEnabled: Boolean,
+    ): Boolean = plannedEntryEnabled && signal.strategyOwner == StrategyOwner.AUTOPILOT
 
     /**
      * 미체결 SELL 예약 수량 (ADR 0110 §2-4 + 자본 path hotfix — "먼저 오는 쪽이 이긴다").

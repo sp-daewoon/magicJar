@@ -220,6 +220,54 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     fun findAutopilotHeldPositionsNoOvernight(
         @Param("userId") userId: String?,
     ): List<AutopilotHeldLotProjection>
+
+    /**
+     * 계획 기반 진입(Planned Entry) **PlanExecutor 평가 대상 lot** — owner=AUTOPILOT + 보유(quantity>0) +
+     * trade_plan 박제(trade_plan IS NOT NULL) lot (ADR 0130 L2 R2 · [kr.spdaewoon.magicjar.consumer.order.PlanExecutor] 입력).
+     *
+     * PlanExecutor 는 매 tick 평가하므로 매 tick DB 조회를 피하려고, 본 쿼리로 **주기 refresh** 해 인메모리 plan-index 를
+     * 채운다([HoldingPositionIndex] 60초 refresh 패턴 정합). tick hot path 는 [HoldingPositionIndex.heldBy] 로 1차
+     * 게이트(보유 0 종목 DB 0)하고, 본 쿼리는 refresh 경로에서만 호출한다.
+     *
+     * 격리 LOCK(zero-regression): `s.owner = 'AUTOPILOT'` 조인으로 **USER/SYSTEM lot 은 절대 반환하지 않는다**
+     * (게이트 off 시 PlanExecutor 자체가 no-op 이지만, 쿼리 차원에서도 owner 격리 2중 보장). trade_plan NULL lot(미박제)도 제외.
+     * native query(strategy join). @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        value =
+            "SELECT sp.user_id AS userId, sp.strategy_id AS strategyId, sp.code AS code, " +
+                "sp.quantity AS quantity, sp.avg_price AS avgPrice, " +
+                "sp.opened_at AS openedAt, sp.updated_at AS updatedAt, sp.trade_plan AS tradePlanJson " +
+                "FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.quantity > 0 AND s.owner = 'AUTOPILOT' AND sp.trade_plan IS NOT NULL",
+        nativeQuery = true,
+    )
+    fun findAutopilotPlannedHolding(): List<AutopilotPlannedLotProjection>
+}
+
+/**
+ * Planned Entry PlanExecutor 평가 대상 lot 투영 — [StrategyPositionJpaRepository.findAutopilotPlannedHolding] 결과.
+ *
+ * Spring Data 인터페이스 기반 projection(native query alias → getter 매핑). PlanExecutor 가 plan-index refresh 시
+ * trade_plan JSON·평단·진입시각으로 lot 단위 청산 평가에 사용한다(tradePlanJson 은 어댑터가 [TradePlanSerde] 로 역직렬화).
+ */
+interface AutopilotPlannedLotProjection {
+    fun getUserId(): String
+
+    fun getStrategyId(): Long
+
+    fun getCode(): String
+
+    fun getQuantity(): Int
+
+    fun getAvgPrice(): java.math.BigDecimal
+
+    fun getOpenedAt(): java.time.Instant
+
+    fun getUpdatedAt(): java.time.Instant
+
+    fun getTradePlanJson(): String?
 }
 
 /**

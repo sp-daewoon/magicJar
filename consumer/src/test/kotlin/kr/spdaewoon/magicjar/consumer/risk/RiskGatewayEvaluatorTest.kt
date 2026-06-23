@@ -1044,6 +1044,147 @@ class RiskGatewayEvaluatorTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ADR 0130 L1 — SELL 라우팅 lot 소유권 (교차 청산 차단 · owner=AUTOPILOT + 게이트 on 한정)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `L1 교차 청산 차단 — 산 적 없는 전략(AUTOPILOT)의 SELL 은 게이트 on 이면 BLOCKED (001820 회귀 재현)`() {
+        // 전략 100 이 001820 을 산 적 없다(strategyPosition null = 그 전략 lot 0). 계좌 실잔고엔 105 가 산 001820 보유.
+        // 게이트 on + owner=AUTOPILOT → user+code fallback 차단 → holding 0 → SELL_WITHOUT_POSITION BLOCKED.
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyId = 100L,
+                code = "001820",
+                strategyOwner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.AUTOPILOT,
+            )
+        val context =
+            sampleContext(
+                // 105 가 산 001820 이 계좌 실잔고에 있음 — 과거엔 100 의 SELL 이 이 물량을 교차 청산했다.
+                currentPositions = listOf(samplePosition("001820", quantity = 30)),
+                strategyPosition = null, // 전략 100 lot 미보유.
+            )
+
+        val result = evaluator.evaluate(signal, context, plannedEntryEnabled = true)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Blocked::class.java)
+        assertThat((result as RiskGatewayResult.Blocked).rule).isEqualTo(RiskRule.SELL_WITHOUT_POSITION)
+        assertThat(result.context["ownershipEnforced"]).isEqualTo(true)
+        // resolveSellQuantity 도 0 — 교차 청산 수량 산정 자체가 0.
+        assertThat(evaluator.resolveSellQuantity(signal, context, plannedEntryEnabled = true)).isEqualTo(0)
+    }
+
+    @Test
+    fun `L1 — 산 전략 자기 lot 보유 SELL 은 게이트 on 이어도 ALLOWED (자기 lot 청산은 정상)`() {
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyId = 100L,
+                code = "005930",
+                strategyOwner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.AUTOPILOT,
+            )
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 30), // 전략 100 이 30주 보유.
+            )
+
+        val result = evaluator.evaluate(signal, context, plannedEntryEnabled = true)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+        // 자기 lot 30주 기준 가용 수량.
+        assertThat(evaluator.resolveSellQuantity(signal, context, plannedEntryEnabled = true)).isEqualTo(30)
+    }
+
+    @Test
+    fun `L1 게이트 off — owner=AUTOPILOT 이어도 fallback 유지 (현행 동작 · 게이트 미진입)`() {
+        // 게이트 off(default) → owner 무관 현행 user+code fallback → 실잔고 있으면 ALLOWED(zero-regression).
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyId = 100L,
+                code = "001820",
+                strategyOwner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.AUTOPILOT,
+            )
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("001820", quantity = 30)),
+                strategyPosition = null,
+            )
+
+        // 게이트 off (명시 false = default).
+        val result = evaluator.evaluate(signal, context, plannedEntryEnabled = false)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+        assertThat(evaluator.resolveSellQuantity(signal, context, plannedEntryEnabled = false)).isEqualTo(30)
+    }
+
+    @Test
+    fun `L1 USER zero-regression — owner=USER 는 게이트 on 이어도 fallback 유지 (사용자 전략 청산 마비 방지)`() {
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyId = 100L,
+                code = "001820",
+                strategyOwner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.USER,
+            )
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("001820", quantity = 30)),
+                strategyPosition = null,
+            )
+
+        // 게이트 on 이지만 owner=USER → fallback 유지(현행) → ALLOWED.
+        val result = evaluator.evaluate(signal, context, plannedEntryEnabled = true)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `L1 legacy owner(null) zero-regression — owner null 은 게이트 on 이어도 fallback 유지`() {
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyId = 100L,
+                code = "001820",
+                strategyOwner = null, // legacy 신호(owner 미운반).
+            )
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("001820", quantity = 30)),
+                strategyPosition = null,
+            )
+
+        val result = evaluator.evaluate(signal, context, plannedEntryEnabled = true)
+
+        assertThat(result).isInstanceOf(RiskGatewayResult.Allowed::class.java)
+    }
+
+    @Test
+    fun `L1 — owner=AUTOPILOT 자기 lot 보유 시 게이트 on 이어도 fallback 차단과 무관(lot 우선)`() {
+        // 자기 lot 이 있으면 fallback 자체가 불필요 — byStrategy 우선. 게이트 on/off 동일 결과.
+        val signal =
+            sampleSignal(
+                side = SignalSide.SELL,
+                priceAtSignal = BigDecimal("10000"),
+                strategyOwner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.AUTOPILOT,
+            )
+        val context =
+            sampleContext(
+                currentPositions = listOf(samplePosition("005930", quantity = 50)),
+                strategyPosition = sampleStrategyPosition(quantity = 20),
+            )
+
+        assertThat(evaluator.resolveSellQuantity(signal, context, plannedEntryEnabled = true)).isEqualTo(20)
+        assertThat(evaluator.resolveSellQuantity(signal, context, plannedEntryEnabled = false)).isEqualTo(20)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // fixtures
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1051,12 +1192,15 @@ class RiskGatewayEvaluatorTest {
         id: Long = 1L,
         side: SignalSide = SignalSide.BUY,
         priceAtSignal: BigDecimal = BigDecimal("10000"),
+        strategyId: Long = 100L,
+        code: String = "005930",
+        strategyOwner: kr.spdaewoon.magicjar.domain.strategy.StrategyOwner? = null,
     ): Signal =
         Signal(
             id = id,
-            strategyId = 100L,
+            strategyId = strategyId,
             userId = "user-A",
-            code = "005930",
+            code = code,
             interval = CandleInterval.FIVE_MIN,
             ts = now,
             side = side,
@@ -1065,6 +1209,7 @@ class RiskGatewayEvaluatorTest {
             priceAtSignal = priceAtSignal,
             contextJson = null,
             createdAt = now,
+            strategyOwner = strategyOwner,
         )
 
     private fun sampleConfig(
