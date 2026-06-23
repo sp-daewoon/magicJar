@@ -47,6 +47,31 @@ enum class RiskRule {
      * USER/SYSTEM·SELL·청산은 영향 없음([AUTOPILOT_CODE_DEDUP] 와 직교 — 동시 중복 vs 시간차 재진입).
      */
     AUTOPILOT_REENTRY_COOLDOWN,
+
+    /**
+     * autopilot 개장 blackout (ADR 0129 레버 2) — owner=AUTOPILOT BUY 가 개장 직후 윈도우
+     * (default 09:00~09:15 KST) 안에 진입하려 할 때 suppress 한다. **한도 위반이 아니라 개장 변동성 회피**다 —
+     * 모멘텀 진입이 vwap 진동에 사자마자 청산되는 휩쏘(2026-06-23 09:00~09:33 집중)를 막는다. 청산(SELL)·손절·
+     * 익절은 절대 차단하지 않는다(보유분 보호 항상 보장 — 롱온리 §13). USER/SYSTEM 전략은 영향 없음(owner 격리).
+     */
+    AUTOPILOT_OPEN_BLACKOUT,
+
+    /**
+     * autopilot late-entry 차단 (ADR 0129 레버 1) — owner=AUTOPILOT + allow_overnight=false 전략이 late-entry-cutoff
+     * (default 14:30 KST) 이후 신규 BUY 진입하려 할 때 suppress 한다. 늦은 오후 진입분이 당일 청산되지 못하고
+     * 오버나잇 갭 리스크에 노출되는 것(2026-06-23 080220 −16,137 = 손실 55%)을 막는다. 청산(SELL)은 영향 없음.
+     * allow_overnight=true 전략·USER/SYSTEM 전략은 영향 없음(owner 격리 + 토글).
+     */
+    AUTOPILOT_LATE_ENTRY_BLOCKED,
+
+    /**
+     * autopilot 추격 가격 가드 (ADR 0129 레버 3) — owner=AUTOPILOT BUY 가 같은 code 의 직전 청산가 대비
+     * `magicjar.autopilot.reentry-price-guard-pct`(default 1.0%) 이상 높은 가격에 재매수하려 할 때 suppress 한다.
+     * 시간 쿨다운([AUTOPILOT_REENTRY_COOLDOWN])이 풀린 뒤 *더 비싼 가격*에 같은 종목을 추격하는 것
+     * (2026-06-23 006340 11,070→12,340 +11% 추격)을 막는 **가격 축**(시간 축과 직교)이다. "더 싸게·같은 가격에만
+     * 재진입 허용". USER/SYSTEM·SELL 은 영향 없음(owner 격리). 한도 위반이 아니라 추격 비용 억제(self-suppress, benign).
+     */
+    AUTOPILOT_REENTRY_PRICE_GUARD,
 }
 
 /**

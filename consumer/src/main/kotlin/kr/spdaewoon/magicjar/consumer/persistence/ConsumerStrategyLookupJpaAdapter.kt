@@ -106,6 +106,9 @@ class ConsumerStrategyLookupJpaAdapter(
                 takeProfitPct = entity.takeProfitPct,
                 // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
                 minHoldBars = entity.minHoldBars,
+                // V94 ADR 0129 레버 1 — 오버나잇 토글. default true(현행 거동). false + owner=AUTOPILOT 이면
+                //   EOD 청산·late-entry 게이트 대상(USER/SYSTEM 은 owner 격리로 미적용). 매핑 LOCK(scale_in drift 교훈).
+                allowOvernight = entity.allowOvernight,
                 // V82 VI 행동 정책 — invalid row는 ALERT_ONLY(주문 0)로 흡수.
                 viActionPolicy = safeViActionPolicy(entity.viActionPolicy),
                 // ADR 0114 진입 정책 JSONB(V72) → 도메인 (BUY 가격 산정 입력). 역직렬화 실패 시 null = 전역 default.

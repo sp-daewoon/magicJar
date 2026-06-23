@@ -193,6 +193,33 @@ interface StrategyPositionJpaRepository : JpaRepository<StrategyPositionJpaEntit
     fun findAutopilotHeldPositions(
         @Param("userId") userId: String?,
     ): List<AutopilotHeldLotProjection>
+
+    /**
+     * magicjar-autopilot **EOD 청산 대상 보유 lot** — owner=AUTOPILOT **AND allow_overnight=false** 전략이
+     * 보유(quantity>0)한 lot (ADR 0129 레버 1 · [kr.spdaewoon.magicjar.consumer.autopilot.AutopilotEodLiquidationWorker] 입력).
+     *
+     * [findAutopilotHeldPositions] 의 `allow_overnight=false` 필터판이다. 오버나잇 금지(allow_overnight=false) 전략의
+     * 보유분만 장마감 전 시장가 청산해 갭 리스크를 회피한다(2026-06-23 080220 −16,137 = 손실 55% 복기).
+     *
+     * 격리 LOCK(zero-regression): `s.owner = 'AUTOPILOT'` 조인으로 **USER/SYSTEM 전략 lot 은 절대 반환하지 않는다**
+     * (allow_overnight 값과 무관 — 사용자 스윙 전략 보호). allow_overnight=true 인 AUTOPILOT lot 도 제외(토글 존중).
+     *
+     * - userId not null → 해당 user 의 대상 lot. userId null → 전체 대상 lot(account-wide EOD).
+     * native query(strategy join). @Query 명시 — 헌법 §6 default-fun 추론 함정 회피.
+     */
+    @Query(
+        value =
+            "SELECT sp.user_id AS userId, sp.strategy_id AS strategyId, sp.code AS code, " +
+                "sp.quantity AS quantity, sp.avg_price AS avgPrice " +
+                "FROM strategy_position sp " +
+                "JOIN strategy s ON s.id = sp.strategy_id " +
+                "WHERE sp.quantity > 0 AND s.owner = 'AUTOPILOT' AND s.allow_overnight = false " +
+                "AND (:userId IS NULL OR sp.user_id = :userId)",
+        nativeQuery = true,
+    )
+    fun findAutopilotHeldPositionsNoOvernight(
+        @Param("userId") userId: String?,
+    ): List<AutopilotHeldLotProjection>
 }
 
 /**

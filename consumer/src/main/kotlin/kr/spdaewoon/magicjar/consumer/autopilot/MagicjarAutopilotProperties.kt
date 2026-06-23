@@ -67,6 +67,21 @@ data class MagicjarAutopilotProperties(
      * (게이트 통째 skip = 기존 경로 byte 동일). [enabled]=false 면 autopilot BUY 자체가 안 생성되므로 본 값도 무의미.
      */
     val reentryCooldownMinutes: Long = DEFAULT_REENTRY_COOLDOWN_MINUTES,
+    /**
+     * 추격 가격 가드 (ADR 0129 레버 3) — owner=AUTOPILOT 가 같은 code 를 직전 청산가 대비 본 % 이상 **비싸게**
+     * 재매수하려 하면 suppress 한다. ENV `MAGICJAR_AUTOPILOT_REENTRY_PRICE_GUARD_PCT`. default
+     * [DEFAULT_REENTRY_PRICE_GUARD_PCT]=1.0%.
+     *
+     * ## 가격 축 (시간 축과 직교)
+     * 시간 쿨다운([reentryCooldownMinutes])이 풀린 뒤라도, 같은 세션 직전 청산가보다 본 % 이상 높은 가격이면
+     * 추격으로 보고 차단한다(2026-06-23 006340 11,070→12,340 +11% 추격 복기). "더 싸게·같은 가격에만 재진입" 이
+     * 추세추종-비용 균형의 보수적 디폴트. 직전 청산가는 [AutopilotReentryCooldownGuard] 가 쿨다운 키에 `ts:price` 로
+     * 동반 기록하므로 쿨다운 윈도우가 살아있는 동안에만 적용된다(윈도우 경과 시 키 자연 소멸 → 가격 축도 무효).
+     *
+     * **0 이하면 가격 축 비활성**(시간 축만 유지 — 즉시 롤백 경로). [enabled]=false 면 autopilot BUY 자체가 안
+     * 생성되므로 본 값도 무의미.
+     */
+    val reentryPriceGuardPct: BigDecimal = DEFAULT_REENTRY_PRICE_GUARD_PCT,
 ) {
     /**
      * 실시간 BUY 신호 구동 평가 쿼리에 넘길 **owner 집합** (spec 2026-06-22 §2 Phase 1 wiring · DRY 단일 출처).
@@ -106,6 +121,12 @@ data class MagicjarAutopilotProperties(
          * 너무 빡빡하면(예: 60분) 정당 추세추종 재진입까지 막으니 단타 TF 1분봉 기준 보수적 15분으로 둔다.
          */
         const val DEFAULT_REENTRY_COOLDOWN_MINUTES: Long = 15L
+
+        /**
+         * 추격 가격 가드 default = 1.0% (ADR 0129 레버 3). 직전 청산가 +1% 이상 비싸면 추격으로 차단.
+         * 보수적 작은 값 — 정당한 추세 재진입의 자연 호흡(작은 등락)은 허용하되 명확한 추격(+1%↑)만 막는다.
+         */
+        val DEFAULT_REENTRY_PRICE_GUARD_PCT: BigDecimal = BigDecimal("1.0")
 
         /**
          * BUY 구동 평가 owner 집합 — [StrategyOwner] enum name 과 동일 문자열(DB owner VARCHAR 값과 정합).

@@ -138,14 +138,22 @@ class ConsumerExecutionStrategyPositionAdapter(
             //   (어댑터는 SELL+전량청산 조건만). 비대상이면 가드가 no-op. 어떤 실패도 graceful(체결 권위 무손상).
             if (next.quantity == 0) {
                 autopilotReentryCooldownGuardProvider?.ifAvailable?.let { cooldownGuard ->
-                    runCatching { cooldownGuard.recordLiquidation(request.userId, request.code, request.strategyId) }
-                        .onFailure { e ->
-                            log.warn(
-                                "autopilot 재진입 쿨다운 기록 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
-                                request.strategyId,
-                                e.message,
-                            )
-                        }
+                    // ADR 0129 레버 3 — 청산 평단(SELL 체결가 = execution.executedPrice)을 가격 축 기준으로 동반 기록.
+                    //   이후 같은 code 를 이 가격 +pct% 이상 비싸게 추격하면 evaluate 가 suppress 한다(가격 축).
+                    runCatching {
+                        cooldownGuard.recordLiquidation(
+                            request.userId,
+                            request.code,
+                            request.strategyId,
+                            execution.executedPrice,
+                        )
+                    }.onFailure { e ->
+                        log.warn(
+                            "autopilot 재진입 쿨다운 기록 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
+                            request.strategyId,
+                            e.message,
+                        )
+                    }
                 }
             }
         }

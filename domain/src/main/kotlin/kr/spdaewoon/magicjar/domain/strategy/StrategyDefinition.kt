@@ -24,6 +24,9 @@ import java.math.BigDecimal
  *   **DSL 매도 시그널만 무시**(손절·익절 라인은 절대 차단 안 함 — 안전망 우선). null=비활성(현행). scale-in 재진입 시
  *   기준 시점은 최초 진입 ts 유지(추가 매수로 리셋하지 않음). 0..[MinHoldLimits.MAX_BARS] 범위.
  * @param viActionPolicy VI 발동 시 전략별 행동 정책. 자동청산은 EXIT_MARKET에서만 수행한다.
+ * @param allowOvernight 오버나잇 보유 허용 토글 (ADR 0129 레버 1). default `true` = 현행 거동 보존(zero-regression).
+ *   `false` + owner=AUTOPILOT 이면 EOD 청산 워커가 장마감 전(cutoff 15:15 KST) 시장가 청산 + late-entry-cutoff(14:30 KST)
+ *   이후 신규 BUY 금지. **USER/SYSTEM 전략은 owner 격리로 EOD 워커·게이트 미적용**(값 무관 — 사용자 스윙 전략 보호).
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -39,6 +42,7 @@ data class StrategyDefinition(
     val entryPolicy: EntryPolicy? = null,
     val minHoldBars: Int? = null,
     val viActionPolicy: ViActionPolicy = ViActionPolicy.ALERT_ONLY,
+    val allowOvernight: Boolean = true,
 ) {
     init {
         // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.

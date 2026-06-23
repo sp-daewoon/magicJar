@@ -140,6 +140,19 @@ class SignalGeneratedKafkaListener(
     // 동일 키·동일 default(true=yml 정합)로 정렬. OFF 면 scaleIn 설정 전략도 현행 전량 경로(zero-regression).
     @Value("\${magicjar.strategy.scale-in.enabled:true}")
     private val scaleInEnabled: Boolean = true,
+    // ADR 0129 레버 2 — autopilot 개장 blackout 윈도우(KST). enabled=false 면 윈도우 해제(롤백). owner=AUTOPILOT BUY 한정.
+    @Value("\${magicjar.autotrading.open-blackout.enabled:true}")
+    private val openBlackoutEnabled: Boolean = true,
+    @Value("\${magicjar.autotrading.open-blackout.start:09:00}")
+    private val openBlackoutStartRaw: String = "09:00",
+    @Value("\${magicjar.autotrading.open-blackout.end:09:15}")
+    private val openBlackoutEndRaw: String = "09:15",
+    // ADR 0129 레버 1 — autopilot late-entry 게이트(KST). enabled=false 면 게이트 해제(롤백).
+    //   allow_overnight=false AND owner=AUTOPILOT 전략의 late-entry-cutoff 이후 신규 BUY 차단.
+    @Value("\${magicjar.autotrading.eod-liquidation.enabled:true}")
+    private val eodLiquidationEnabled: Boolean = true,
+    @Value("\${magicjar.autotrading.eod-liquidation.late-entry-cutoff:14:30}")
+    private val lateEntryCutoffRaw: String = "14:30",
     private val clock: Clock = Clock.System,
 ) {
     private val log = LoggerFactory.getLogger(SignalGeneratedKafkaListener::class.java)
@@ -1143,6 +1156,13 @@ class SignalGeneratedKafkaListener(
             RiskRule.KILL_SWITCH_ON -> false
             // 개선 C — autopilot 종목 dedup 은 한도 위반이 아니라 정상 분산이므로 auto-PAUSE 카운트에서 제외.
             RiskRule.AUTOPILOT_CODE_DEDUP -> false
+            // ADR 0129 레버 1·2·3 — open-blackout·late-entry·추격 가격가드 는 autopilot 의 정상 self-suppress(churn/추격/
+            //   오버나잇 회피)이지 한도 위반이 아니므로 strategy-local auto-pause 카운트에서 제외(자기억제 가드가 임계를
+            //   채워 전략을 죽이는 회귀 회피 — AUTOPILOT_CODE_DEDUP 와 동형). benign self-suppress 격리.
+            RiskRule.AUTOPILOT_OPEN_BLACKOUT -> false
+            RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED -> false
+            RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD -> false
+            RiskRule.AUTOPILOT_REENTRY_COOLDOWN -> false
             RiskRule.SELL_QUANTITY_UNAVAILABLE -> {
                 val reasonCode = context["reasonCode"]?.toString().orEmpty()
                 !(reasonCode.startsWith("KIS_BALANCE_LOOKUP_FAILED") || reasonCode == "KIS_BALANCE_LOOKUP_UNAVAILABLE")
@@ -1486,6 +1506,54 @@ class SignalGeneratedKafkaListener(
 
         // ── 여기 도달 = owner=AUTOPILOT BUY 확정 (carried 또는 legacy lookup) ──────────────────────────────
 
+        // ── ADR 0129 레버 2: 개장 blackout — 개장 직후 윈도우(09:00~09:15 KST) owner=AUTOPILOT 신규 BUY 억제 ──────
+        //   개장 변동성에서 모멘텀 진입이 vwap 진동에 사자마자 청산되는 휩쏘(2026-06-23 09:00~09:33 집중)를 막는다.
+        //   SELL·손절·익절은 함수 진입부 `if (side != BUY) Proceed` 로 이미 제외(보유분 보호 항상 보장). USER/SYSTEM 은
+        //   위 owner 분기에서 이미 Proceed 됨(구조적 제외). enabled=false 면 윈도우 해제(롤백).
+        if (openBlackoutEnabled && isWithinOpenBlackout()) {
+            log.info(
+                "autopilot BUY 개장 blackout suppress(개장 변동성 회피): signalId={} code={} strategyId={} window={}~{}",
+                signal.id,
+                signal.code,
+                signal.strategyId,
+                openBlackoutStartRaw,
+                openBlackoutEndRaw,
+            )
+            return AutopilotGateResult.Block(
+                autopilotBlocked(
+                    allowed,
+                    signal,
+                    RiskRule.AUTOPILOT_OPEN_BLACKOUT,
+                    "AUTOPILOT_OPEN_BLACKOUT:$openBlackoutStartRaw~$openBlackoutEndRaw 신규 BUY 억제",
+                ),
+            )
+        }
+
+        // ── ADR 0129 레버 1: late-entry 게이트 — allow_overnight=false 전략의 14:30 KST 이후 신규 BUY 차단 ──────────
+        //   늦은 오후 진입분이 당일 청산되지 못하고 오버나잇 갭에 노출되는 것(2026-06-23 080220 −16,137 = 손실 55%)을
+        //   막는다. cutoff 이전이면 lookup 비용 0(after-cutoff 일 때만 allow_overnight 확인). enabled=false=게이트 해제.
+        if (eodLiquidationEnabled && isAfterLateEntryCutoff()) {
+            val strategyForOvernight = lookupStrategyForGuardOrNull(signal)
+            // allow_overnight=false 인 전략만 차단. true(또는 lookup 실패=보수적 허용)면 통과(swing 의도 보존).
+            if (strategyForOvernight?.definition?.allowOvernight == false) {
+                log.info(
+                    "autopilot BUY late-entry suppress(allow_overnight=false·오버나잇 갭 회피): signalId={} code={} strategyId={} cutoff={}",
+                    signal.id,
+                    signal.code,
+                    signal.strategyId,
+                    lateEntryCutoffRaw,
+                )
+                return AutopilotGateResult.Block(
+                    autopilotBlocked(
+                        allowed,
+                        signal,
+                        RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED,
+                        "AUTOPILOT_LATE_ENTRY_BLOCKED:after $lateEntryCutoffRaw KST + allow_overnight=false",
+                    ),
+                )
+            }
+        }
+
         // ── 개선 C (2026-06-22): 종목 충돌 dedup — 같은 code 중복 진입 suppress → N전략 종목 분산 ──────────────
         //   owner=AUTOPILOT BUY 만 도달하는 지점이라 USER/SYSTEM·SELL 은 구조적으로 본 dedup 을 절대 타지 않는다.
         //   같은 cycle 타 autopilot 전략이 같은 code 를 이미 선점했거나(SETNX) autopilot 이 이미 보유 중이면 suppress —
@@ -1515,20 +1583,26 @@ class SignalGeneratedKafkaListener(
         //   buy→TP/exit→분 뒤 재매수 반복이 매 왕복 거래비용으로 알파를 깎으므로(오늘 gross 의 66% 잠식), 윈도우 내
         //   재매수만 차단하고 윈도우 경과 후 정당 추세 재진입은 허용한다. owner=AUTOPILOT BUY 만 도달 — USER/SYSTEM·
         //   SELL 구조적 제외. 쿨다운 결함(Redis 실패·비활성)은 가드 내부 fail-open 으로 흡수(분산·비용 최적화 ≠ 안전 게이트).
+        //   ADR 0129 레버 3 — evaluate 에 priceAtSignal(현재 BUY 가격) 을 전달해 시간 축 + 가격 축(직전 청산가 +pct%
+        //   추격 차단)을 함께 판정한다. Suppress 사유 prefix 로 시간 축(AUTOPILOT_REENTRY_COOLDOWN)·가격 축
+        //   (AUTOPILOT_REENTRY_PRICE_GUARD)을 구분해 관측 rule 을 분기한다(§6-3 관측 매트릭스).
         val cooldownGuard = autopilotReentryCooldownGuardProvider?.getIfAvailable()
         if (cooldownGuard != null) {
-            when (val cooldown = cooldownGuard.evaluate(signal.userId, signal.code, signal.strategyId)) {
+            when (val cooldown = cooldownGuard.evaluate(signal.userId, signal.code, signal.strategyId, signal.priceAtSignal)) {
                 is AutopilotReentryCooldownGuard.Decision.Proceed -> Unit
                 is AutopilotReentryCooldownGuard.Decision.Suppress -> {
+                    val priceAxis = cooldown.reason.startsWith("AUTOPILOT_REENTRY_PRICE_GUARD")
+                    val rule = if (priceAxis) RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD else RiskRule.AUTOPILOT_REENTRY_COOLDOWN
                     log.info(
-                        "autopilot BUY 재진입 쿨다운 suppress(churn 억제): signalId={} code={} strategyId={} reason={}",
+                        "autopilot BUY 재진입 suppress({}): signalId={} code={} strategyId={} reason={}",
+                        if (priceAxis) "추격 가격가드" else "churn 쿨다운",
                         signal.id,
                         signal.code,
                         signal.strategyId,
                         cooldown.reason,
                     )
                     return AutopilotGateResult.Block(
-                        autopilotBlocked(allowed, signal, RiskRule.AUTOPILOT_REENTRY_COOLDOWN, cooldown.reason),
+                        autopilotBlocked(allowed, signal, rule, cooldown.reason),
                     )
                 }
             }
@@ -1602,9 +1676,41 @@ class SignalGeneratedKafkaListener(
         }
     }
 
+    /** 현재 KST LocalTime — 주입된 [clock](kotlinx) 에서 파생(테스트 결정론·운영 동일 경로). */
+    private fun nowKstTime(): java.time.LocalTime =
+        java.time.Instant
+            .ofEpochMilli(clock.now().toEpochMilliseconds())
+            .atZone(KST_ZONE)
+            .toLocalTime()
+
+    /**
+     * 현재 KST 시각이 개장 blackout 윈도우 `[start, end)` 안인가 (ADR 0129 레버 2). 파싱 실패·start>=end 면 false(보수적 — 막지 않음).
+     */
+    private fun isWithinOpenBlackout(): Boolean {
+        val start = parseKstLocalTime(openBlackoutStartRaw) ?: return false
+        val end = parseKstLocalTime(openBlackoutEndRaw) ?: return false
+        if (!start.isBefore(end)) return false // 잘못된 구성(start>=end) — 윈도우 없음으로 본다.
+        val now = nowKstTime()
+        return !now.isBefore(start) && now.isBefore(end)
+    }
+
+    /**
+     * 현재 KST 시각이 late-entry cutoff 이상인가 (ADR 0129 레버 1). 파싱 실패면 false(보수적 — 막지 않음).
+     */
+    private fun isAfterLateEntryCutoff(): Boolean {
+        val cutoff = parseKstLocalTime(lateEntryCutoffRaw) ?: return false
+        return !nowKstTime().isBefore(cutoff)
+    }
+
+    private fun parseKstLocalTime(raw: String): java.time.LocalTime? =
+        runCatching { java.time.LocalTime.parse(raw.trim()) }
+            .onFailure { log.warn("KST LocalTime 파싱 실패 — 게이트 비적용: raw={}", raw) }
+            .getOrNull()
+
     /**
      * autopilot fail-closed BUY 차단 [RiskGatewayResult.Blocked] 빌더 (DRY) — Guard Reject/Kill·provider 미가용·owner
-     * 미상·price<=0 차단 분기가 동일 context 형태로 [handleBlocked] 경로(intent 미발행·SystemEvent·STOMP)에 흐르게 한다.
+     * 미상·price<=0·open-blackout·late-entry·추격 가격가드 차단 분기가 동일 context 형태로 [handleBlocked] 경로
+     * (intent 미발행·SystemEvent·STOMP)에 흐르게 한다.
      */
     private fun autopilotBlocked(
         allowed: RiskGatewayResult.Allowed,
@@ -1820,12 +1926,23 @@ class SignalGeneratedKafkaListener(
         val OPEN_STATUSES =
             setOf(OrderStatus.REQUESTED, OrderStatus.ACK, OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_RECONCILE)
 
+        /** ADR 0129 레버 1·2 — KST 윈도우 비교용 zone. */
+        val KST_ZONE: java.time.ZoneId = java.time.ZoneId.of("Asia/Seoul")
+
         /**
          * flat 반복 차단 알람 쿨다운 대상 룰 — NotificationDispatcher RISK_REPEAT_COOLDOWN_RULES 정합.
          * [RiskRule.AUTOPILOT_CODE_DEDUP] 은 종목 분산 dedup(정상·빈번 가능)이므로 STOMP 플러딩 완화 대상에 포함.
+         * ADR 0129 — open-blackout·late-entry·price-guard 도 윈도우 동안 매분 재발하는 self-suppress 라 STOMP 플러딩 완화 포함.
          */
         val REPEAT_BLOCK_COOLDOWN_RULES =
-            setOf(RiskRule.SELL_WITHOUT_POSITION, RiskRule.POSITION_LIMIT, RiskRule.AUTOPILOT_CODE_DEDUP)
+            setOf(
+                RiskRule.SELL_WITHOUT_POSITION,
+                RiskRule.POSITION_LIMIT,
+                RiskRule.AUTOPILOT_CODE_DEDUP,
+                RiskRule.AUTOPILOT_OPEN_BLACKOUT,
+                RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED,
+                RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD,
+            )
 
         /** 동일 (user·strategy·code·rule) STOMP 알람 1회 허용 간격(매분 플러딩 완화). */
         val BLOCKED_ALARM_COOLDOWN = kotlin.time.Duration.parse("5m")

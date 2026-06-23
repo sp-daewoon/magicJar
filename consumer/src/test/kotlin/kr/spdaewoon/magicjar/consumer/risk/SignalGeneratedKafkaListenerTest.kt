@@ -900,6 +900,151 @@ class SignalGeneratedKafkaListenerTest {
         verify(exactly = 1) { riskNotifier.notifyViolation(any(), any()) }
     }
 
+    // ── ADR 0129 레버 1·2 — 개장 blackout · late-entry 게이트 + owner 격리 ───────────────────────────────
+
+    /** NotApplicable Guard mock(enabled=true) — owner=AUTOPILOT BUY 가 게이트 통과 시 정상 발행되도록. */
+    private fun notApplicableGuard(): kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard =
+        mockk {
+            every { enabled } returns true
+            every { evaluate(any(), any(), any(), any()) } returns
+                kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyDecision.NotApplicable
+        }
+
+    /** owner=AUTOPILOT BUY 게이트 시나리오 공통 stub — clock 의 시각으로 risk 통과(ALLOWED). */
+    private fun autopilotBuyContext(
+        gateClock: Clock,
+        allowOvernight: Boolean = false,
+    ) {
+        every { riskConfigRepository.getOrDefault(any(), any()) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl(any(), any()) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.record(any(), any(), any(), any()) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+        // late-entry 게이트는 allow_overnight=false 전략만 차단 — lookupStrategyForGuardOrNull(findSellEval) 경로 stub.
+        every { strategyLookupPort.findSellEvalByCodeAndInterval(any(), any()) } returns
+            listOf(autopilotStrategy(allowOvernight = allowOvernight))
+    }
+
+    @Test
+    fun `레버2 — 개장 blackout(09_10 KST) owner=AUTOPILOT BUY 차단·intent 미발행`() {
+        val gateClock = clockAtKst(9, 10)
+        autopilotBuyContext(gateClock)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock)
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        verify(exactly = 1) {
+            riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_OPEN_BLACKOUT })
+        }
+    }
+
+    @Test
+    fun `레버2 — 개장 윈도우 종료 후(09_16 KST) owner=AUTOPILOT BUY 통과·발행`() {
+        val gateClock = clockAtKst(9, 16)
+        autopilotBuyContext(gateClock)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock, autopilotGuard = notApplicableGuard())
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_OPEN_BLACKOUT }) }
+    }
+
+    @Test
+    fun `레버2 — blackout enabled=false면 윈도우 안(09_10)이어도 통과(롤백)`() {
+        val gateClock = clockAtKst(9, 10)
+        autopilotBuyContext(gateClock)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock, openBlackoutEnabled = false, autopilotGuard = notApplicableGuard())
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_OPEN_BLACKOUT }) }
+    }
+
+    @Test
+    fun `레버2 격리 — USER BUY 는 개장 윈도우(09_10) 안이어도 무영향(통과)`() {
+        val gateClock = clockAtKst(9, 10)
+        every { riskConfigRepository.getOrDefault(any(), any()) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns emptyList()
+        every { dailyPnlCalculator.getDailyPnl(any(), any()) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.record(any(), any(), any(), any()) } just Runs
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        // strategyOwner 미지정(=USER 취급) payload → blackout/late-entry 게이트 비적용.
+        listener(entryLimitEnabled = true, listenerClock = gateClock)
+            .onSignalGenerated(record(payload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_OPEN_BLACKOUT }) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED }) }
+    }
+
+    @Test
+    fun `레버1 — late-entry(14_31 KST) allow_overnight=false owner=AUTOPILOT BUY 차단`() {
+        val gateClock = clockAtKst(14, 31)
+        autopilotBuyContext(gateClock, allowOvernight = false)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock)
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 0) { orderIntentKafkaProducer.publish(any(), any(), any(), any()) }
+        verify(exactly = 1) {
+            riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED })
+        }
+    }
+
+    @Test
+    fun `레버1 — late-entry(14_31) allow_overnight=true 전략은 무영향(통과)`() {
+        val gateClock = clockAtKst(14, 31)
+        autopilotBuyContext(gateClock, allowOvernight = true)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock, autopilotGuard = notApplicableGuard())
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED }) }
+    }
+
+    @Test
+    fun `레버1 — cutoff 이전(14_00)에는 allow_overnight=false라도 통과`() {
+        val gateClock = clockAtKst(14, 0)
+        autopilotBuyContext(gateClock, allowOvernight = false)
+
+        listener(entryLimitEnabled = true, listenerClock = gateClock, autopilotGuard = notApplicableGuard())
+            .onSignalGenerated(record(autopilotPayload(side = "BUY", price = "50000")), ack())
+
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), any(), any()) }
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED }) }
+    }
+
+    @Test
+    fun `레버1 격리 — late-entry(14_31) owner=AUTOPILOT 라도 SELL 은 무영향(청산 보장)`() {
+        val gateClock = clockAtKst(14, 31)
+        every { riskConfigRepository.getOrDefault(any(), any()) } returns sampleConfig()
+        every { capitalSnapshotProvider.capitalOutcome("user-A") } returns CapitalOutcome.Available(BigDecimal("10000000"))
+        every { riskPositionPort.findCurrentByUser("user-A") } returns
+            listOf(Position(userId = "user-A", code = "005930", quantity = 7, avgPrice = BigDecimal("70000"), updatedAt = now))
+        every { dailyPnlCalculator.getDailyPnl(any(), any()) } returns BigDecimal.ZERO
+        every { tradeFrequencyGuard.countRecentMinute(any(), any(), any()) } returns 0
+        every { tradeFrequencyGuard.countRecentDay(any(), any(), any()) } returns 0
+        every { killSwitchQueryPort.isOn("user-A") } returns false
+
+        listener(listenerClock = gateClock)
+            .onSignalGenerated(record(autopilotPayload(side = "SELL", price = "72000")), ack())
+
+        // SELL 은 게이트 진입부에서 제외 — late-entry 차단 risk_event 없음(청산 항상 보장).
+        verify(exactly = 0) { riskEventRepository.save(match { it.rule == RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED }) }
+        verify(exactly = 1) { orderIntentKafkaProducer.publish(match { it.id == 77L }, any(), eq(OrderPriceType.MARKET), isNull()) }
+    }
+
     private fun listener(
         magicjarMode: String = "MOCK",
         // 자본 정합 hotfix(2026-06-08) — 체결 sync는 REAL·MOCK 모두 실행되므로 default로 PASS sync 제공
@@ -921,6 +1066,16 @@ class SignalGeneratedKafkaListenerTest {
         entryLimitEnabled: Boolean = false,
         // 2026-06-10 incident: consumer ApplicationContext에 RiskConfigRepository 빈 부재(null) 재현용.
         riskConfigProvider: ObjectProvider<RiskConfigRepository> = providerOf(riskConfigRepository),
+        // ADR 0129 — autopilot 하드닝 게이트 테스트용 wiring(default=기존 거동 보존).
+        listenerClock: Clock = clock,
+        openBlackoutEnabled: Boolean = true,
+        openBlackoutStart: String = "09:00",
+        openBlackoutEnd: String = "09:15",
+        eodLiquidationEnabled: Boolean = true,
+        lateEntryCutoff: String = "14:30",
+        // ADR 0129 — owner=AUTOPILOT BUY 가 게이트 통과 시 발행되도록 NotApplicable Guard 를 wiring(없으면 fail-closed).
+        //   USER/SYSTEM owner 는 guard 도달 전 Proceed 라 본 wiring 이 기존 테스트 거동에 영향 0.
+        autopilotGuard: kr.spdaewoon.magicjar.consumer.autopilot.AutopilotBuyGuard? = null,
     ): SignalGeneratedKafkaListener {
         every { strategyLookupPort.findActiveByCodeAndInterval(any(), any()) } returns strategies
         every { orderRequestRepository.findOpenByUserId(any()) } returns openOrders
@@ -959,9 +1114,31 @@ class SignalGeneratedKafkaListenerTest {
             entryOrderPriceResolver = entryOrderPriceResolver,
             restingSellOrderCanceller = restingSellOrderCanceller,
             systemEventLoggerProvider = providerOf(systemEventLogger),
+            autopilotBuyGuardProvider = autopilotGuard?.let { providerOf(it) } ?: nullableProvider(),
             magicjarMode = magicjarMode,
-            clock = clock,
+            openBlackoutEnabled = openBlackoutEnabled,
+            openBlackoutStartRaw = openBlackoutStart,
+            openBlackoutEndRaw = openBlackoutEnd,
+            eodLiquidationEnabled = eodLiquidationEnabled,
+            lateEntryCutoffRaw = lateEntryCutoff,
+            clock = listenerClock,
         )
+    }
+
+    /** ADR 0129 게이트 테스트용 — 지정한 KST 시각의 kotlinx Clock(2026-06-23 평일). */
+    private fun clockAtKst(
+        hour: Int,
+        minute: Int,
+    ): Clock {
+        val instant =
+            java.time.LocalDateTime
+                .of(2026, 6, 23, hour, minute)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                .toInstant()
+        val fixed = Instant.fromEpochMilliseconds(instant.toEpochMilli())
+        return object : Clock {
+            override fun now(): Instant = fixed
+        }
     }
 
     /** SELL 경로 공통 stub — 보유 [positionQty]주(기본 7) + ALLOWED 통과(resting SELL 시나리오 전용). */
@@ -1045,6 +1222,50 @@ class SignalGeneratedKafkaListenerTest {
                     estimatedEvalTimeMs = 1,
                     complexityClass = ComplexityClass.LOW,
                 ),
+        )
+
+    /** owner=AUTOPILOT 전략 (ADR 0129 게이트 테스트용) — allow_overnight 토글 + lookup 매칭(id=100). */
+    private fun autopilotStrategy(allowOvernight: Boolean): Strategy =
+        Strategy(
+            id = 100L,
+            userId = 1L,
+            owner = kr.spdaewoon.magicjar.domain.strategy.StrategyOwner.AUTOPILOT,
+            definition =
+                StrategyDefinition(
+                    dsl = DslStrategyDefinition(name = "ap", buyCondition = null),
+                    fixedStopLoss = BigDecimal("5.00"),
+                    takeProfitPct = BigDecimal("10.00"),
+                    allowOvernight = allowOvernight,
+                ),
+            complexity =
+                StrategyComplexity(
+                    astDepth = 1,
+                    nodeCount = 1,
+                    indicatorCallCount = 0,
+                    estimatedEvalTimeMs = 1,
+                    complexityClass = ComplexityClass.LOW,
+                ),
+        )
+
+    /** strategyOwner=AUTOPILOT 를 운반하는 payload — 게이트가 owner=AUTOPILOT BUY 로 확정하도록. */
+    private fun autopilotPayload(
+        side: String,
+        price: String,
+    ): String =
+        objectMapper.writeValueAsString(
+            buildMap<String, Any?> {
+                put("id", 77)
+                put("strategyId", 100)
+                put("userId", "user-A")
+                put("code", "005930")
+                put("interval", CandleInterval.FIVE_MIN.code)
+                put("ts", now.epochSeconds)
+                put("side", side)
+                put("strength", 80)
+                put("reason", "test")
+                put("priceAtSignal", price)
+                put("strategyOwner", "AUTOPILOT")
+            },
         )
 
     private fun sampleKisBalance(quantity: Int): KisAccountBalance =

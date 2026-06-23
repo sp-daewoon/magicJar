@@ -45,6 +45,11 @@ class ConsumerStrategyJpaEntity(
     // V73 추가 컬럼 — 잔익절 방어 B안. 진입 후 N캔들 동안 DSL 매도 무시(손절·익절 무관). null=비활성(현행).
     @Column(name = "min_hold_bars")
     val minHoldBars: Int? = null,
+    // V94 추가 컬럼 — ADR 0129 레버 1 오버나잇 토글. default true = 현행 거동 보존(zero-regression).
+    //   false + owner=AUTOPILOT 이면 EOD 청산 워커(15:15 KST)·late-entry 게이트(14:30 KST) 대상.
+    //   ★ ADR 0128 scale_in_config 매핑 누락 drift 교훈 — 컬럼 매핑 LOCK(도메인까지 전달돼야 게이트가 작동).
+    @Column(name = "allow_overnight", nullable = false)
+    val allowOvernight: Boolean = true,
     // V82 추가 컬럼 — VI 발동 행동 정책. 기본 ALERT_ONLY(기존 전략 주문 0).
     @Column(name = "vi_action_policy", nullable = false, length = 24)
     val viActionPolicy: String = "ALERT_ONLY",
