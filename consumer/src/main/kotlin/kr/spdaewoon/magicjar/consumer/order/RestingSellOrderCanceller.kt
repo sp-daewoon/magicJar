@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import kr.spdaewoon.magicjar.consumer.account.AccountSnapshotCoordinator
+import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -105,14 +106,32 @@ class RestingSellOrderCanceller(
             when (val cancelResult = kisOrderPort.cancel(order, order.mode)) {
                 is OrderResult.Right -> publishCancelled(orderRepo, order)
                 is OrderResult.Left -> {
-                    log.warn(
-                        "resting SELL 보류: open SELL 취소 실패(다음 기회 재시도) userId={} code={} orderId={} reason={}",
-                        userId,
-                        code,
-                        order.id,
-                        cancelResult.value,
-                    )
-                    return Result.CancelFailed(order)
+                    val reason = cancelResult.value
+                    // rtCd=7 = "원주문정보가 존재하지않습니다" — KIS에 원주문 부재(일중주문 장마감 자동 소멸 등).
+                    // 이미 KIS상 소멸한 주문이므로 already-cancelled로 간주해 로컬 status를 KIS 현실에 동기화한다.
+                    // publishCancelled는 status만 CANCELLED로 종결할 뿐 보유 수량을 줄이지 않으므로 오버셀 risk 0(롱온리 청산).
+                    // ExpiredDayOrderSyncWorker의 RT_CD_7 EXPIRE와 동일 시맨틱을 활성 청산 경로에 앞당겨, 예약 수량(reservedSell)을
+                    // 즉시 풀어 손절 SELL 차단(SELL_QUANTITY_UNAVAILABLE)을 해소한다. 그 외 Left는 기존대로 재시도 보류.
+                    if (reason is DenyReason.KisRejected && reason.rtCd == "7") {
+                        log.warn(
+                            "resting SELL already-cancelled: 원주문 KIS 부재(rtCd=7) — 로컬 CANCELLED 종결 후 계속 " +
+                                "userId={} code={} orderId={} kisMsg={}",
+                            userId,
+                            code,
+                            order.id,
+                            reason.msg,
+                        )
+                        publishCancelled(orderRepo, order)
+                    } else {
+                        log.warn(
+                            "resting SELL 보류: open SELL 취소 실패(다음 기회 재시도) userId={} code={} orderId={} reason={}",
+                            userId,
+                            code,
+                            order.id,
+                            reason,
+                        )
+                        return Result.CancelFailed(order)
+                    }
                 }
             }
         }
