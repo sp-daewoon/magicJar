@@ -410,6 +410,38 @@ class KisRestCandleAdapterPaginationTest {
     }
 
     @Test
+    fun `one-minute-range BACKFILL fetch도 upstream 설정 실패를 예외로 전파한다 (fail-closed)`() {
+        // ADR 0132 R2a — fetchOneMinuteCandlesForBackfill 은 BACKFILL 버킷 전용 경로지만 fail-closed 동작은
+        // USER_PATH 변형과 동일(credential 부재 시 빈 결과로 숨기지 않고 예외 전파 → 호출자가 정합성 등급으로 노출).
+        val instrumentRepository = mockk<ConsumerInstrumentJpaRepository>()
+        val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { instrumentRepository.findById("005930") } returns
+            Optional.of(instrument("005930", "KOSPI", isKospi200 = true))
+        every { credentialRepository.findAllByAccountType("REAL") } returns emptyList()
+        val adapter =
+            buildAdapter(
+                instrumentRepository = instrumentRepository,
+                credentialRepository = credentialRepository,
+            )
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val from =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 0)
+                .atZone(zone)
+                .toInstant()
+        val to =
+            java.time.LocalDateTime
+                .of(2026, 6, 1, 9, 1)
+                .atZone(zone)
+                .toInstant()
+
+        assertThatThrownBy {
+            adapter.fetchOneMinuteCandlesForBackfill("005930", from, to)
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("REAL credential 없음")
+    }
+
+    @Test
     fun `one-minute-range fetch는 HTTP 200 EGW00201을 success가 아니라 TPS 실패로 처리한다`() {
         val kisRateLimiterPort = mockk<KisRateLimiterPort>(relaxed = true)
         val adapter = buildAdapter(kisRateLimiterPort = kisRateLimiterPort)
