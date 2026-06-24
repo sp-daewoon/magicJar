@@ -1,4 +1,4 @@
-package kr.spdaewoon.magicjar.consumer.backtest
+package kr.spdaewoon.magicjar.api.service.backtest
 
 import kr.spdaewoon.magicjar.domain.market.candle.CandleConfidence
 import kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport
@@ -14,10 +14,14 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * 캔들 정합성 검사기 — ADR 0132 기둥3 §D3 (mock 절대 금지 LOCK · R2a).
+ * 캔들 정합성 검사기 — ADR 0132 기둥3 §D3 (mock 절대 금지 LOCK) · ADR 0133 §3-A1 (consumer → api 이동).
+ *
+ * 의존이 **domain port + 값객체만**([CandleRepository]·[CandleIntegrityReport]·[CandleConfidence]·[CandleInterval]).
+ * Spring·KIS·Kafka 의존 0 이라 ADR 0132 R2a 의 consumer 위치에서 api 로 무손실 이동(헥사고날 정합 · 백테스트 엔진과
+ * co-locate). 로직은 consumer 원본과 byte-동일 — 패키지만 api.
  *
  * backfill 후 거래일별 **기대 봉 수 대비 실제 봉 수**(결측률)로 백테스트 결과 신뢰도를 등급화한다.
- * 결측 봉을 직전봉 복제·선형보간 등으로 **절대 메우지 않고**([feedback_no_mock_data]) 등급([CandleConfidence])
+ * 결측 봉을 직전봉 복제·선형보간 등으로 **절대 메우지 않고**(`feedback_no_mock_data`) 등급([CandleConfidence])
  * 으로만 정직하게 노출한다(거짓 수익률보다 "신뢰도 낮음/데이터 부족"이 정직).
  *
  * ## 기대 봉 수 산정 (candle-data-policy-v2 §3-B 근사)

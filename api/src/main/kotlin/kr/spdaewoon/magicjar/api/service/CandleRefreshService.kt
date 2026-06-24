@@ -486,6 +486,57 @@ class CandleRefreshService(
         )
     }
 
+    /**
+     * 백테스트 INTRADAY_REALISTIC 분봉 backfill 전용 진입점 — ADR 0133 §3-A1 (#4 · api in-process 통합).
+     *
+     * [BacktestCandlePrepareApiAdapter] 가 종목별로 호출하는 **add-only public entrypoint**. 기존
+     * `refresh`/`recollect`/`refreshRange` 시그니처는 일절 건드리지 않고, 이미 존재하는 private 부품
+     * ([refreshRange] 1m fetch + [rebuildAggregateIntervals] 합산봉 재생성)을 **`BACKFILL` priority 고정**으로
+     * 조립해 재사용한다(신규 KIS 호출 코드 0 · DRY).
+     *
+     * - **priority = [KisCallPriority.BACKFILL]**(LOCK): 라이브 매매(USER_PATH)·warmup(REALTIME_MARKET) 쿼터
+     *   침범 0. 전역 Redis token bucket 공유라 api↔consumer 어느 쪽이 fetch 하든 한도는 동일하게 보호된다.
+     * - **range padding 0**: 리서치 path([CandleRecollectRangeRequest.toEffectiveRange]) 의 워밍업/패딩 로직은
+     *   타지 않는다. caller(adapter)가 이미 lookback clamp 한 정확한 [from,to] 를 분봉 fetch 범위로 그대로 쓴다.
+     * - **fail-soft 책임은 caller**: 본 메서드는 KIS 결함을 삼키지 않는다(adapter 가 per-symbol try/catch 로 다른
+     *   종목 backfill 을 계속하고, 실패 종목은 DB 기존 봉만으로 정합성 등급에 노출 — mock 보간 0).
+     *
+     * @param code 종목코드 6자리(존재 검증은 호출 전 adapter 또는 KIS 응답 0건이 자연 방어).
+     * @param from backfill 시작 시각(inclusive · KST). adapter 가 lookback clamp 한 경계.
+     * @param to backfill 종료 시각(inclusive · KST).
+     * @return 1m fetch + 합산봉 재생성 interval 별 결과(관측·로그용). 실제 정합성 판정은 adapter 의
+     *   [CandleIntegrityChecker] 가 DB 재조회로 수행.
+     */
+    fun backfillIntradayRange(
+        code: String,
+        from: Instant,
+        to: Instant,
+    ): List<IntervalRefreshResult> {
+        require(!from.isAfter(to)) { "backfillIntradayRange: from > to (from=$from to=$to)" }
+        val range = EffectiveCandleRange(from = from, to = to, paddingTradingDays = 0)
+
+        // 1m 기준봉 BACKFILL fetch (refreshRange 재사용 — 사용자 path 불변).
+        val minuteResults =
+            refreshRange(
+                code = code,
+                intervals = listOf(CandleInterval.ONE_MIN.code),
+                priority = KisCallPriority.BACKFILL,
+                range = range,
+                progress = null,
+            ).refreshedIntervals
+
+        // 합산봉(3m~12h) 재생성 — 동일 range 한정(KIS 콜 0 · CandleAggregator).
+        val aggregateResults =
+            rebuildAggregateIntervals(
+                code = code,
+                targets = AGGREGATE_INTERVALS,
+                progress = null,
+                range = range,
+            )
+
+        return minuteResults + aggregateResults
+    }
+
     private data class EffectiveCandleRange(
         val from: Instant,
         val to: Instant,
