@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration
     MarketDailyBackfillProperties::class,
     // ADR 0118 R2 — MARKET_DAILY 야간 전종목 일봉 today snapshot 스케줄러 설정.
     MarketDailySnapshotProperties::class,
-    // ADR 0132 R2a — 초단타 백테스트 분봉 backfill lookback clamp 설정.
-    BacktestIntradayProperties::class,
+    // ADR 0132 R2a 의 BacktestIntradayProperties 는 ADR 0133 #4(api in-process 통합)로 제거 —
+    // 백테스트 backfill lookback clamp 는 api IntradayRealisticBacktestProperties 가 단일 출처.
 )
 class ChartCandleConfiguration

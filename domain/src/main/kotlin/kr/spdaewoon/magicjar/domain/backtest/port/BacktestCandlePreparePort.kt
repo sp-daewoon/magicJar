@@ -17,7 +17,12 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport
  * 3. KIS 1m lookback bound(최대 1년·ENV `max-lookback-days`)로 from clamp(거짓 결과 차단 — lookbackClamped 플래그).
  * 4. backfill 후 기대/실제 봉수 대비 정합성 보고([CandleIntegrityReport]) — **mock 보간 0**(결측은 등급으로만).
  *
- * 구현은 consumer(market-data 어댑터). 헥사고날상 api(엔진)는 본 포트로만 호출한다.
+ * ## 구현 모듈 (ADR 0133 §3-A1 — consumer → api 이동 · 인터페이스 불변 LOCK)
+ * 본 포트의 구현은 **api 모듈**(`BacktestCandlePrepareApiAdapter`)에 둔다. 호출자 [JvmBacktestEngine] 이
+ * api 프로세스라, 구현이 consumer 에 있던 ADR 0132 R2a 배치는 cross-process 단절(api 에서 빈 null →
+ * `@Autowired(required=false)` → backfill 0)이었다(ADR 0133 #4). api 의 `CandleRefreshService` 가 이미
+ * KIS 1m fetch + 합산봉 재생성 + `BACKFILL` priority 를 보유하므로, 신규 KIS 어댑터 0 으로 port 구현을
+ * api in-process 로 둔다. **본 인터페이스 시그니처는 불변**(엔진 호출부 변경 0).
  */
 interface BacktestCandlePreparePort {
     /**
