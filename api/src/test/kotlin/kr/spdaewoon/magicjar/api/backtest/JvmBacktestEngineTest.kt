@@ -20,6 +20,7 @@ import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import kr.spdaewoon.magicjar.domain.backtest.TradeSide
+import kr.spdaewoon.magicjar.domain.market.candle.CandleConfidence
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.EntryPolicy
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
@@ -833,5 +834,366 @@ class JvmBacktestEngineTest {
         assertEquals(listOf(0, 1, 2), buys.map { it.signalReason["sliceIndex"] }, "회차 인덱스 0/1/2(기존 동작)")
         // 균등 분할 — 초기자본 base로 산정된 각 회차 수량이 양수(슬롯 base가 cash 아닌 초기자본임을 확인).
         assertTrue(buys.all { it.quantity > 0 }, "AllCapital 각 회차 수량 > 0(회귀 0)")
+    }
+
+    // =====================================================================
+    // ADR 0132 §4-A R2b — INTRADAY_REALISTIC 모드 분기 (라이브 parity 청산 + 정합성 가드)
+    //   LEGACY default zero-regression / 게이트 OFF 강등 / IntradayExitSimulation 청산(intrabar SL 우선·EOD) /
+    //   정합성 등급 분기(INSUFFICIENT skip · 전부 skip → Aborted) / candleIntegrity·confidence 동봉.
+    // =====================================================================
+
+    /** 게이트 ON 엔진 + 정합성 포트(선택) — INTRADAY_REALISTIC 경로 검증용. */
+    private fun intradayEngine(
+        port: kr.spdaewoon.magicjar.domain.backtest.port.BacktestCandlePreparePort? = null,
+        backfillEnabled: Boolean = false,
+    ): JvmBacktestEngine =
+        JvmBacktestEngine(
+            evaluatorBridge = evaluatorBridge,
+            strategyRepository = strategyRepo,
+            candleJpaRepository = candleRepo,
+            modelRegistry = modelRegistry,
+            performanceCalculator = performanceCalculator,
+            intradayProperties =
+                kr.spdaewoon.magicjar.api.config.IntradayRealisticBacktestProperties(
+                    enabled = true,
+                    backfillEnabled = backfillEnabled,
+                ),
+            candlePreparePort = port,
+        )
+
+    /** TP/SL/allowOvernight 을 가진 1m 전략(초단타). 진입 봉이 blackout(09:00~09:15 KST) 밖이 되도록 ts 는 caller 가 제어. */
+    private fun makeIntradayStrategy(
+        buyCondition: kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode,
+        takeProfitPct: BigDecimal? = null,
+        fixedStopLoss: BigDecimal? = null,
+        allowOvernight: Boolean = true,
+        minHoldBars: Int? = null,
+    ): Strategy {
+        val baseDef = makeStrategy(buyCondition).definition
+        return makeStrategy(buyCondition).copy(
+            definition =
+                baseDef.copy(
+                    dsl = DslStrategyDefinition(name = "intraday", buyCondition = buyCondition, sellCondition = null),
+                    takeProfitPct = takeProfitPct,
+                    fixedStopLoss = fixedStopLoss,
+                    allowOvernight = allowOvernight,
+                    minHoldBars = minHoldBars,
+                ),
+        )
+    }
+
+    /**
+     * KST 시각 base + OHLC 시퀀스로 1m 캔들 생성(intrabar 시뮬용 high/low 제어).
+     * @param startUtc 첫 봉 ts(UTC ISO) — KST = +9h. blackout/EOD 경계 제어용.
+     * @param bars (open, high, low, close) 4-tuple 리스트.
+     */
+    private fun ohlcCandles(
+        startUtc: String,
+        bars: List<List<String>>,
+        stepSeconds: Long = 60,
+    ): List<CandleJpaEntity> {
+        val base = Instant.parse(startUtc)
+        return bars.mapIndexed { i, b ->
+            CandleJpaEntity(
+                id = i.toLong(),
+                code = "005930",
+                interval = "1m",
+                ts = base.plusSeconds(i.toLong() * stepSeconds),
+                openRaw = BigDecimal(b[0]),
+                highRaw = BigDecimal(b[1]),
+                lowRaw = BigDecimal(b[2]),
+                closeRaw = BigDecimal(b[3]),
+                openAdj = BigDecimal(b[0]),
+                highAdj = BigDecimal(b[1]),
+                lowAdj = BigDecimal(b[2]),
+                closeAdj = BigDecimal(b[3]),
+                volume = 10000L,
+                source = "TEST",
+            )
+        }
+    }
+
+    private fun intradayRequest(backfillIfMissing: Boolean = false): BacktestRequest =
+        makeRequest().copy(
+            interval = "1m",
+            taxModel = "none",
+            commissionModel = "none",
+            slippageModel = "none",
+            executionMode = kr.spdaewoon.magicjar.domain.backtest.BacktestExecutionMode.INTRADAY_REALISTIC,
+            backfillIfMissing = backfillIfMissing,
+        )
+
+    @Test
+    fun `R2b INTRADAY - 게이트 OFF면 INTRADAY_REALISTIC 요청도 LEGACY로 강등(zero-regression)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // 게이트 OFF 엔진(default 필드). LEGACY 와 동일 결과 — confidence 기본 OK, candleIntegrity 빈 Map.
+        whenever(strategyRepo.findById(1L)).thenReturn(makeIntradayStrategy(buyNode))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(makeCandleEntities(3))
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        // default engine = 게이트 OFF.
+        val result = engine.run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertTrue(success.candleIntegrity.isEmpty(), "LEGACY 강등이므로 정합성 보고 없음")
+        assertEquals(CandleConfidence.OK, success.confidence, "LEGACY 강등이므로 confidence=OK")
+    }
+
+    @Test
+    fun `R2b INTRADAY - intrabar SL 우선 청산(봉 low가 SL 라인 도달)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // SL 5% → 1000 진입 시 SL 라인 = floor(1000 × 0.95) = 950. t1 봉 low 940 → SL 체결(가격=950).
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeIntradayStrategy(buyNode, fixedStopLoss = BigDecimal("5"), takeProfitPct = BigDecimal("3")),
+        )
+        // 첫 봉 10:00 KST(01:00 UTC = blackout·EOD 밖). t0 진입(close 1000), t1 폭락(high 1010·low 940·close 945).
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(
+                ohlcCandles(
+                    "2024-01-02T01:00:00Z",
+                    listOf(
+                        listOf("1000", "1000", "1000", "1000"),
+                        listOf("1000", "1010", "940", "945"),
+                        listOf("945", "945", "945", "945"),
+                    ),
+                ),
+            )
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = intradayEngine().run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val sell = success.trades.single { it.side == TradeSide.SELL }
+        assertEquals("SL", sell.signalReason["exitReason"], "봉 low가 SL 라인 도달 → SL 청산")
+        assertEquals(0, BigDecimal("950").compareTo(sell.executedPrice), "SL 체결가 = SL 라인(950)")
+    }
+
+    @Test
+    fun `R2b INTRADAY - intrabar SL과 TP 동시 도달 시 SL 우선(보수적·낙관 편향 차단)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // SL 5%(라인 950)·TP 3%(라인 floor(1000×1.03)=1030). t1 봉 high 1050(TP 도달)∧low 940(SL 도달) → SL 우선.
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeIntradayStrategy(buyNode, fixedStopLoss = BigDecimal("5"), takeProfitPct = BigDecimal("3")),
+        )
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(
+                ohlcCandles(
+                    "2024-01-02T01:00:00Z",
+                    listOf(
+                        listOf("1000", "1000", "1000", "1000"),
+                        listOf("1000", "1050", "940", "1000"),
+                    ),
+                ),
+            )
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = intradayEngine().run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val sell = success.trades.single { it.side == TradeSide.SELL }
+        assertEquals("SL", sell.signalReason["exitReason"], "같은 봉 SL∧TP 동시 도달 → SL 우선(손실 먼저)")
+    }
+
+    @Test
+    fun `R2b INTRADAY - allowOvernight=false면 봉 ts 15시15분 이상에서 EOD 강제 청산`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // allowOvernight=false. 진입 봉 10:00 KST, 둘째 봉 15:15 KST(06:15 UTC) → EOD 청산.
+        whenever(strategyRepo.findById(1L)).thenReturn(
+            makeIntradayStrategy(buyNode, takeProfitPct = BigDecimal("50"), fixedStopLoss = BigDecimal("50"), allowOvernight = false),
+        )
+        // t0 = 10:00 KST 진입, t1 = 15:15 KST EOD. 큰 step 으로 두 봉 시각을 명시 배치.
+        val t0 = "2024-01-02T01:00:00Z" // 10:00 KST
+        val candles =
+            listOf(
+                CandleJpaEntity(
+                    0,
+                    "005930",
+                    "1m",
+                    Instant.parse(t0),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    BigDecimal("1000"),
+                    1L,
+                    "TEST",
+                ),
+                CandleJpaEntity(
+                    1,
+                    "005930",
+                    "1m",
+                    Instant.parse("2024-01-02T06:15:00Z"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    BigDecimal("1010"),
+                    1L,
+                    "TEST",
+                ),
+            )
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any())).thenReturn(candles)
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        val result = intradayEngine().run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        val sell = success.trades.single { it.side == TradeSide.SELL }
+        assertEquals("EOD", sell.signalReason["exitReason"], "allowOvernight=false ∧ 봉 ts≥15:15 → EOD 청산")
+    }
+
+    @Test
+    fun `R2b INTRADAY - 개장 blackout 09시00분~09시15분 봉에서는 진입 억제`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeIntradayStrategy(buyNode, takeProfitPct = BigDecimal("50")))
+        // 모든 봉이 09:00 KST(00:00 UTC) blackout 구간 — BUY 신호여도 진입 0.
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(
+                ohlcCandles(
+                    "2024-01-02T00:00:00Z", // 09:00 KST
+                    listOf(
+                        listOf("1000", "1000", "1000", "1000"),
+                        listOf("1000", "1000", "1000", "1000"),
+                    ),
+                ),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any()))
+            .thenReturn(StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L))
+
+        val result = intradayEngine().run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertTrue(success.trades.isEmpty(), "blackout 구간(09:00~09:15) BUY 억제 → 매매 0건")
+    }
+
+    @Test
+    fun `R2b INTRADAY - 정합성 INSUFFICIENT_DATA 종목 skip, 전부면 Aborted`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeIntradayStrategy(buyNode, takeProfitPct = BigDecimal("3")))
+        // 포트가 005930 을 INSUFFICIENT_DATA(>20% 결측)로 보고 → 종목 skip → universe 전부 skip → Aborted.
+        val port =
+            mock<kr.spdaewoon.magicjar.domain.backtest.port.BacktestCandlePreparePort> {
+                on { prepareAndReport(any(), any(), any(), any(), any()) }.thenReturn(
+                    mapOf(
+                        "005930" to
+                            kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport(
+                                code = "005930",
+                                interval = "1m",
+                                expectedBars = 100,
+                                actualBars = 50,
+                                missingBars = 50,
+                                missingRatio = BigDecimal("0.50"),
+                                confidence = CandleConfidence.INSUFFICIENT_DATA,
+                                tradingDaysCovered = 1,
+                            ),
+                    ),
+                )
+            }
+
+        val result = intradayEngine(port = port).run(intradayRequest())
+        val aborted = assertInstanceOf(BacktestResult.Aborted::class.java, result)
+        assertEquals("INSUFFICIENT_CANDLE_INTEGRITY", aborted.reason, "universe 전부 INSUFFICIENT → Aborted")
+    }
+
+    @Test
+    fun `R2b INTRADAY - LOW_CONFIDENCE 종목은 진행하고 정합성·confidence 동봉`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        // TP 3% → 1030 라인. t1 봉 high 1050 → TP 체결.
+        whenever(strategyRepo.findById(1L)).thenReturn(makeIntradayStrategy(buyNode, takeProfitPct = BigDecimal("3")))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(
+                ohlcCandles(
+                    "2024-01-02T01:00:00Z",
+                    listOf(
+                        listOf("1000", "1000", "1000", "1000"),
+                        listOf("1000", "1050", "1000", "1040"),
+                    ),
+                ),
+            )
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+        val port =
+            mock<kr.spdaewoon.magicjar.domain.backtest.port.BacktestCandlePreparePort> {
+                on { prepareAndReport(any(), any(), any(), any(), any()) }.thenReturn(
+                    mapOf(
+                        "005930" to
+                            kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport(
+                                code = "005930",
+                                interval = "1m",
+                                expectedBars = 100,
+                                actualBars = 90,
+                                missingBars = 10,
+                                missingRatio = BigDecimal("0.10"),
+                                confidence = CandleConfidence.LOW_CONFIDENCE,
+                                tradingDaysCovered = 1,
+                            ),
+                    ),
+                )
+            }
+
+        val result = intradayEngine(port = port).run(intradayRequest())
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertEquals(CandleConfidence.LOW_CONFIDENCE, success.confidence, "LOW_CONFIDENCE 진행 + 등급 동봉")
+        assertTrue(success.candleIntegrity.containsKey("005930"), "정합성 보고 동봉")
+        val sell = success.trades.single { it.side == TradeSide.SELL }
+        assertEquals("TP", sell.signalReason["exitReason"], "봉 high가 TP 라인 도달 → TP 청산")
+        assertEquals(0, BigDecimal("1030").compareTo(sell.executedPrice), "TP 체결가 = TP 라인(1030)")
+    }
+
+    @Test
+    fun `R2b INTRADAY - 포트 부재(R2a 미머지) 시 DB 기존 봉만으로 진행(정합성 빈 Map)`() {
+        val buyNode = IndicatorRef("close", emptyList())
+        whenever(strategyRepo.findById(1L)).thenReturn(makeIntradayStrategy(buyNode, takeProfitPct = BigDecimal("3")))
+        whenever(candleRepo.findByCodeAndIntervalAndTsBetween(any(), any(), any(), any()))
+            .thenReturn(
+                ohlcCandles(
+                    "2024-01-02T01:00:00Z",
+                    listOf(
+                        listOf("1000", "1000", "1000", "1000"),
+                        listOf("1000", "1050", "1000", "1040"),
+                    ),
+                ),
+            )
+        var idx = 0
+        val results =
+            listOf(
+                StrategyEvalResult(Signal.BUY, BigDecimal.ONE, mapOf("trigger" to "BUY"), Clock.System.now(), 1L),
+                StrategyEvalResult(Signal.HOLD, BigDecimal.ZERO, mapOf(), Clock.System.now(), 1L),
+            )
+        whenever(evaluatorBridge.evaluateBacktest(any(), any(), any())).thenAnswer { results[idx++.coerceAtMost(results.size - 1)] }
+
+        // port=null(R2a 미머지) → 정합성 미상(빈 Map) · confidence OK · backfill 0.
+        val result = intradayEngine(port = null).run(intradayRequest(backfillIfMissing = true))
+        val success = assertInstanceOf(BacktestResult.Success::class.java, result)
+        assertTrue(success.candleIntegrity.isEmpty(), "포트 부재 시 정합성 보고 없음")
+        assertEquals(CandleConfidence.OK, success.confidence, "정합성 미상 → confidence=OK")
+        assertTrue(success.trades.any { it.side == TradeSide.SELL }, "DB 기존 봉만으로도 청산 시뮬 진행")
     }
 }

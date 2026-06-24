@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.api.service.backtest
 
 import kotlinx.datetime.toKotlinLocalDate
 import kr.spdaewoon.magicjar.domain.backtest.BacktestException
+import kr.spdaewoon.magicjar.domain.backtest.BacktestExecutionMode
 import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
 import kr.spdaewoon.magicjar.domain.backtest.BacktestResult
 import kr.spdaewoon.magicjar.domain.backtest.OverfitDiagnostics
@@ -66,6 +67,8 @@ class BacktestService(
         slippageModel: String = "fixed_0.05",
         priceAdjustmentMode: String = "ADJUSTED",
         sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
+        executionMode: String = "LEGACY",
+        backfillIfMissing: Boolean = false,
     ): BacktestResult {
         // 파라미터 검증
         if (universe.isEmpty()) {
@@ -91,6 +94,16 @@ class BacktestService(
                 )
             }
 
+        // ADR 0132 §1-A — executionMode 파싱(미지정/공백 시 LEGACY 하위호환). 게이트 분기는 엔진 책임.
+        val mode =
+            try {
+                BacktestExecutionMode.valueOf(executionMode.uppercase())
+            } catch (e: IllegalArgumentException) {
+                throw BacktestException.InvalidRequestException(
+                    "executionMode 값이 올바르지 않습니다: '$executionMode'. 허용 값: ${BacktestExecutionMode.entries.map { it.name }}",
+                )
+            }
+
         val request =
             BacktestRequest(
                 strategyId = strategyId,
@@ -104,9 +117,20 @@ class BacktestService(
                 slippageModel = slippageModel,
                 priceAdjustmentMode = adjMode,
                 sizingPolicy = sizingPolicy,
+                executionMode = mode,
+                backfillIfMissing = backfillIfMissing,
             )
 
-        log.info("백테스트 서비스 요청: strategyId={}, universe={}, interval={}, from={}, to={}", strategyId, universe, interval, from, to)
+        log.info(
+            "백테스트 서비스 요청: strategyId={}, universe={}, interval={}, from={}, to={}, executionMode={}, backfillIfMissing={}",
+            strategyId,
+            universe,
+            interval,
+            from,
+            to,
+            mode,
+            backfillIfMissing,
+        )
 
         return backtestEngine.run(request)
     }

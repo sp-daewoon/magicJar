@@ -122,6 +122,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenReturn(makeSuccessResult())
 
@@ -165,6 +167,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenReturn(fractionalResult)
 
@@ -202,6 +206,8 @@ class BacktestControllerTest {
             slippageModel = any(),
             priceAdjustmentMode = any(),
             sizingPolicy = captor.capture(),
+            executionMode = any(),
+            backfillIfMissing = any(),
         )
         val captured = captor.firstValue
         org.junit.jupiter.api.Assertions
@@ -248,6 +254,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenReturn(abortedResult)
 
@@ -297,6 +305,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenReturn(abortedResult)
 
@@ -325,6 +335,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenThrow(BacktestException.StrategyNotFoundException(99L))
 
@@ -352,6 +364,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenThrow(BacktestException.InvalidRequestException("universe는 비어있을 수 없습니다."))
 
@@ -379,6 +393,8 @@ class BacktestControllerTest {
                 slippageModel = any(),
                 priceAdjustmentMode = any(),
                 sizingPolicy = any(),
+                executionMode = any(),
+                backfillIfMissing = any(),
             ),
         ).thenThrow(BacktestException.InvalidStrategyDslException(1L, "buyCondition이 없습니다."))
 

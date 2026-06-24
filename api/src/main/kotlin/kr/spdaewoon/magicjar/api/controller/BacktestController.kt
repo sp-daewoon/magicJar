@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.api.controller.dto.BacktestPositionDto
 import kr.spdaewoon.magicjar.api.controller.dto.BacktestRunRequest
 import kr.spdaewoon.magicjar.api.controller.dto.BacktestRunResponse
 import kr.spdaewoon.magicjar.api.controller.dto.BacktestTradeDto
+import kr.spdaewoon.magicjar.api.controller.dto.CandleIntegrityDto
 import kr.spdaewoon.magicjar.api.controller.dto.OverfitDetectRequest
 import kr.spdaewoon.magicjar.api.controller.dto.OverfitDetectResponse
 import kr.spdaewoon.magicjar.api.controller.dto.SensitivityAnalyzeRequest
@@ -27,6 +28,7 @@ import kr.spdaewoon.magicjar.domain.backtest.BacktestTrade
 import kr.spdaewoon.magicjar.domain.backtest.OverfitDiagnostics
 import kr.spdaewoon.magicjar.domain.backtest.SensitivityResult
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
+import kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -107,6 +109,8 @@ class BacktestController(
                     slippageModel = req.slippageModel,
                     priceAdjustmentMode = req.priceAdjustmentMode,
                     sizingPolicy = toSizingPolicy(req.sizingPolicy),
+                    executionMode = req.executionMode,
+                    backfillIfMissing = req.backfillIfMissing,
                 )
             } catch (e: BacktestException.StrategyNotFoundException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message, e)
@@ -132,6 +136,8 @@ class BacktestController(
                         abortReason = null,
                         durationMs = result.durationMs,
                         sizingPolicy = toSizingEcho(result.request.sizingPolicy),
+                        confidence = result.confidence.name,
+                        candleIntegrity = result.candleIntegrity.values.map { toIntegrityDto(it) },
                     )
                 ResponseEntity.ok(response)
             }
@@ -368,6 +374,20 @@ class BacktestController(
             openedAt = pos.openedAt.toString(),
             closedAt = pos.closedAt?.toString(),
             realizedPnl = pos.realizedPnl,
+        )
+
+    /** 도메인 [CandleIntegrityReport] → DTO (ADR 0132 §D3-3 — 정합성 결측률·등급 투명 노출). */
+    private fun toIntegrityDto(report: CandleIntegrityReport): CandleIntegrityDto =
+        CandleIntegrityDto(
+            code = report.code,
+            interval = report.interval,
+            expectedBars = report.expectedBars,
+            actualBars = report.actualBars,
+            missingBars = report.missingBars,
+            missingRatio = report.missingRatio,
+            confidence = report.confidence.name,
+            tradingDaysCovered = report.tradingDaysCovered,
+            lookbackClamped = report.lookbackClamped,
         )
 
     private fun toPerformanceDto(perf: BacktestPerformance): BacktestPerformanceDto =
