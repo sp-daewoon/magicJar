@@ -3,10 +3,10 @@ id: T-20260624-1607-planned-entry-rebuy-churn
 agent: strategy
 model: opus
 branch: agent/strategy/planned-entry-rebuy-churn
-status: RUNNING
+status: DONE
 startedAt: 2026-06-24T16:07:16.257+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-24T16:09:18.001+09:00
+pr: #1129
 parentPhase: ?
 ---
 
