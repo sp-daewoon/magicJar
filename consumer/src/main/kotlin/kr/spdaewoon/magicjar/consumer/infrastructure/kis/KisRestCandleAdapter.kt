@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyRangeUnavailableException
+import kr.spdaewoon.magicjar.domain.market.port.KisMinuteBackfillRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisOneMinuteCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisRestPort
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
@@ -85,6 +86,7 @@ class KisRestCandleAdapter(
     private val kisBaseVps: String,
 ) : KisRestPort,
     KisOneMinuteCandleRangePort,
+    KisMinuteBackfillRangePort,
     KisDailyCandleRangePort {
     private val log = LoggerFactory.getLogger(KisRestCandleAdapter::class.java)
 
@@ -303,12 +305,47 @@ class KisRestCandleAdapter(
         if (from.isAfter(to)) return emptyList()
         val mrktDivCodes = resolveMrktDivCodeCandidates(code)
         for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
-            val candles = fetchOneMinCandlesBetween(code, mrktDivCode, from, to)
+            val candles = fetchOneMinCandlesBetween(code, mrktDivCode, from, to, KisCallPriority.USER_PATH)
             if (candles.isNotEmpty() || index == mrktDivCodes.lastIndex) {
                 return candles
             }
             log.warn(
                 "KIS 1m range UN 응답 0건 — J fallback 재시도: code={} from={} to={} mrktDivCode={}",
+                code,
+                from,
+                to,
+                mrktDivCode,
+            )
+        }
+        return emptyList()
+    }
+
+    /**
+     * KIS 1m range 조회 — **BACKFILL 버킷** (ADR 0132 기둥2 · R2a).
+     *
+     * [fetchOneMinuteCandlesBetween](USER_PATH 버킷·SymbolDetail user path)과 분리된 백테스트 분봉 선수집 전용
+     * 경로. 동일 endpoint(FHKST03010230)·동일 페이지네이션 알고리즘이되 acquire 를
+     * [KisCallPriority.BACKFILL](최저) 로 고정한다 — 라이브 매매(USER_PATH)·warmup(REALTIME_MARKET) 쿼터 침범 0
+     * (ADR 0132 §D2-3 LOCK). EGW00201(초당 거래건수 초과) 시 backoff 후 예외 전파(호출자가 fail-closed 정합성
+     * 등급으로 노출 — mock 보간 0).
+     *
+     * KIS-first raw 출처 (헌법 §3):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/inquire_time_dailychartprice/inquire_time_dailychartprice.py
+     */
+    override fun fetchOneMinuteCandlesForBackfill(
+        code: String,
+        from: java.time.Instant,
+        to: java.time.Instant,
+    ): List<Candle> {
+        if (from.isAfter(to)) return emptyList()
+        val mrktDivCodes = resolveMrktDivCodeCandidates(code)
+        for ((index, mrktDivCode) in mrktDivCodes.withIndex()) {
+            val candles = fetchOneMinCandlesBetween(code, mrktDivCode, from, to, KisCallPriority.BACKFILL)
+            if (candles.isNotEmpty() || index == mrktDivCodes.lastIndex) {
+                return candles
+            }
+            log.warn(
+                "KIS 1m range(BACKFILL) UN 응답 0건 — J fallback 재시도: code={} from={} to={} mrktDivCode={}",
                 code,
                 from,
                 to,
@@ -609,6 +646,7 @@ class KisRestCandleAdapter(
         mrktDivCode: String,
         from: java.time.Instant,
         to: java.time.Instant,
+        priority: KisCallPriority,
     ): List<Candle> {
         val cred =
             credentialRepository
@@ -682,6 +720,7 @@ class KisRestCandleAdapter(
                             accessToken = accessToken,
                             appKeyStr = appKeyStr,
                             secretKeyStr = secretKeyStr,
+                            priority = priority,
                         )
                     pageCount++
 
@@ -740,6 +779,7 @@ class KisRestCandleAdapter(
         accessToken: String,
         appKeyStr: String,
         secretKeyStr: String,
+        priority: KisCallPriority,
     ): List<Candle> {
         var lastException: WebClientResponseException? = null
         for (attempt in 0 until RETRY_MAX_ATTEMPTS) {
@@ -760,7 +800,10 @@ class KisRestCandleAdapter(
             var signalSent = false
             var acquired = false
             try {
-                kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = TR_ID_1MIN)
+                // ADR 0132 §D2-3 — backtest 선수집은 BACKFILL(최저) 로 라이브 매매·warmup 쿼터 침범 0.
+                // USER_PATH(SymbolDetail) 는 즉시성 위해 짧은 timeout, BACKFILL 은 라이브 양보 위해 긴 timeout.
+                val acquireTimeout = if (priority == KisCallPriority.BACKFILL) 5000L else 3000L
+                kisRateLimiterPort.acquire(priority, timeoutMillis = acquireTimeout, trId = TR_ID_1MIN)
                 acquired = true
 
                 val body =
