@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>magicJar 일일 운영 보고 — 2026-06-24 (canary 11일차)</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:24px; line-height:1.6; }
+  h1 { font-size:22px; border-bottom:2px solid #6366f1; padding-bottom:8px; }
+  h2 { font-size:17px; color:#a5b4fc; margin-top:28px; border-left:4px solid #6366f1; padding-left:10px; }
+  .banner { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
+  .stat { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:12px 16px; min-width:120px; }
+  .stat .v { font-size:21px; font-weight:700; } .stat .l { font-size:11px; color:#94a3b8; }
+  .green{color:#34d399;} .red{color:#f87171;} .amber{color:#fbbf24;} .blue{color:#60a5fa;}
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:12.5px; }
+  th,td { border:1px solid #334155; padding:6px 9px; text-align:left; }
+  th { background:#1e293b; color:#cbd5e1; } tr:nth-child(even){ background:#16203a; }
+  code { background:#1e293b; padding:1px 5px; border-radius:4px; font-size:11.5px; color:#a5b4fc; }
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;}
+  .t-fix{background:#312e81;color:#c7d2fe;} .t-bug{background:#7f1d1d;color:#fecaca;} .t-design{background:#064e3b;color:#a7f3d0;}
+  .note{font-size:12px;color:#94a3b8;}
+</style>
+</head>
+<body>
+<h1>🫙 magicJar 일일 운영 보고 — 2026-06-24 (수, canary 11일차)</h1>
+<p class="note">작성: orchestrator · autopilot 흑자전환일 + 사상 최대 개선 배포일(ADR 0129~0132 · 15+ PR) · KIS 진실원 대조 matched=true</p>
+
+<h2>① 요약</h2>
+<div class="banner">
+  <div class="stat"><div class="v green">+13,193</div><div class="l">KIS net 실현손익 (어제 −29,382 → 흑자전환)</div></div>
+  <div class="stat"><div class="v amber">46%</div><div class="l">거래비용/gross (churn 잠식 — 개선대상)</div></div>
+  <div class="stat"><div class="v blue">39/38</div><div class="l">매수/매도 체결(과회전)</div></div>
+  <div class="stat"><div class="v green">4 ADR</div><div class="l">0129·0130·0131·0132 배포/설계</div></div>
+  <div class="stat"><div class="v green">흑자 6종</div><div class="l">신규 discovery universe가 승자 생성</div></div>
+  <div class="stat"><div class="v amber">예스티 1주</div><div class="l">EOD 청산 실패→오버나잇(결함#1)</div></div>
+</div>
+<p>autopilot 두 번째 손실일 우려를 깨고 <b>KIS net +13,193 흑자 마감</b>(matched=true·gross 26,016−비용 12,084). 핵심 동력 = ① <b>오늘 discovery universe 자동 적용</b>(고정 대형주 폐기)으로 강동씨앤엘+10,965·씨피시스템+11,630 등 실승자 발굴, ② <b>계획기반진입(planned-entry) 게이트 ON</b>으로 청산이 threshold 휩쏘 → 박제 TP/SL로 전환, ③ 개장 blackout·dll 5%로 손실 bound. 단 <b>churn 비용 46%</b>가 알파 절반을 먹어 최우선 개선과제로 식별.</p>
+
+<h2>② 종목별 실현손익 (KIS 진실원 net · matched=true)</h2>
+<table>
+<tr><th>종목</th><th>KIS net</th><th>구분</th></tr>
+<tr><td>413630 씨피시스템</td><td class="green">+11,630</td><td>discovery 신규</td></tr>
+<tr><td>198440 강동씨앤엘</td><td class="green">+10,965</td><td>discovery 신규</td></tr>
+<tr><td>030960 양지사</td><td class="green">+5,259</td><td>discovery 신규</td></tr>
+<tr><td>067290 JW신약</td><td class="green">+4,005</td><td>유지(전일∩오늘)</td></tr>
+<tr><td>014950 삼익제약</td><td class="green">+1,754</td><td>discovery 신규</td></tr>
+<tr><td>026940 부국철강</td><td class="red">−8,200</td><td>discovery 신규</td></tr>
+<tr><td>475430 키스트론</td><td class="red">−3,973</td><td>discovery 신규</td></tr>
+<tr><td>056090 시지메드텍</td><td class="red">−2,572</td><td>discovery 신규</td></tr>
+<tr><td>122640 예스티</td><td class="red">−2,237</td><td>유지 · 1주 오버나잇</td></tr>
+<tr><td>356680 엑스게이트</td><td class="red">−2,108</td><td>discovery 신규</td></tr>
+<tr><td><b>합계</b></td><td class="green"><b>+13,193</b></td><td>gross 26,016 / 비용 12,084</td></tr>
+</table>
+
+<h2>③ universe 변경 (전일 대비 — 자동재생성 수동 적용)</h2>
+<p>전일 <b>고정 16 대형주</b>(삼성·SK하이닉스 등) → 오늘 <b>discovery TOP16</b>(08:30 스코어카드). orchestrator가 개장 전 수동 적용, 자동화(ADR 0131)는 코드 배포 완료·내일 08:35 가동 대기.</p>
+<table>
+<tr><th>구분</th><th>종목</th></tr>
+<tr><td class="green">➕ 추가(13)</td><td>034730 SK·320000 한울반도체·356680 엑스게이트·475430 키스트론·026940 부국철강·198440 강동씨앤엘·014950 삼익제약·000890 보해양조·084670 동양고속·030960 양지사·056090 시지메드텍·413630 씨피시스템·000650 천일고속</td></tr>
+<tr><td class="red">➖ 제외(13)</td><td>005930·000660·035420·005380·000270·105560·035720·051910·000500·001820·080220·091590·355690</td></tr>
+<tr><td class="blue">＝ 유지(3)</td><td>006340 대원전선·067290 JW신약·122640 예스티</td></tr>
+</table>
+
+<h2>④ 전략별 평가 (오늘 진입 ALLOWED BUY)</h2>
+<table>
+<tr><th>전략</th><th>진입(ALLOWED)</th><th>신호수</th><th>비고</th></tr>
+<tr><td>103 오더블록(5m)</td><td>16</td><td>161</td><td>최다 진입 · 백테스트 승률 37.5%(과회전)</td></tr>
+<tr><td>100 모멘텀(3m)</td><td>13</td><td>31</td><td>백테스트 승률 0%(000650) — 강등 후보</td></tr>
+<tr><td>104 거래량(3m)</td><td>12</td><td>58</td><td>백테스트 승률 20%</td></tr>
+<tr><td>102 FVG(5m)</td><td>10</td><td>138</td><td>백테스트 승률 36.4%(과회전)</td></tr>
+<tr><td>105 VWAP(5m)</td><td>10</td><td>35</td><td>★백테스트 승률 60%(000650) — 최선</td></tr>
+<tr><td>101 눌림목(5m)</td><td>4</td><td>60</td><td>백테스트 승률 27.8%</td></tr>
+</table>
+<p class="note">종목별 P&L(②)은 KIS-exact, 전략별 net 귀속은 교차청산으로 정밀 분리 미완(개선 큐). 백테스트 승률은 000650 단일종목 30일(§⑧) — 다종목 검증은 #4 후.</p>
+
+<h2>⑤ 오늘 배포/설계된 개선 (ADR 4건)</h2>
+<table>
+<tr><th>ADR</th><th>내용</th><th>상태</th></tr>
+<tr><td>0129</td><td>매매행위 하드닝 5레버(오버나잇 토글·EOD청산·개장 blackout·추격 가격가드·auto-pause 거버넌스 B+C) + R-aux 신규룰 제외</td><td class="green">배포</td></tr>
+<tr><td>0130</td><td>계획기반진입(trade_plan 박제·PlanExecutor·lot 소유권 교차청산 차단) — 게이트 ON(09:57)</td><td class="green">배포·가동</td></tr>
+<tr><td>0131</td><td>universe 일일 자동재생성(discovery→codes 08:35) — 게이트 OFF·내일 가동 대기</td><td class="green">배포(게이트OFF)</td></tr>
+<tr><td>0132</td><td>초단타 정합 백테스트(라이브 parity·분봉 backfill·정합성 가드) — 게이트 ON(검증용)</td><td class="green">배포·검증</td></tr>
+</table>
+<p class="note">부수: rtCd=7 청산 fast-path(#1113)·dll 10→5 복귀·planned-entry/intraday-backtest ENV 게이트.</p>
+
+<h2>⑥ 검증 실증 (라이브 evidence)</h2>
+<ul>
+<li><b>개장 blackout</b>: 09:00~09:15 신규매수 0 → 09:15:01 해제 즉시 진입(어제 개장 휩쏘 회피 검증).</li>
+<li><b>planned-entry TP</b>: 067290 박제 TP @2,685(+1.9%) 정확 체결 · 122640 trade_plan(entry 38,300/TP 39,257/SL 37,534) 실증.</li>
+<li><b>초단타 백테스트 parity</b>: LEGACY 2거래(12일 스윙) vs INTRADAY_REALISTIC 14~112거래(라이브 청산 동일) — 방법론 정합 확인.</li>
+<li><b>auto-pause</b>: B+C+신규룰 제외로 어제 "12분 5/6 전략 죽음" 회귀 0(DAILY_LOSS만 정상 카운트).</li>
+</ul>
+
+<h2>⑦ 발견 결함 / 진행중 개선 (장마감 후 fan-out)</h2>
+<table>
+<tr><th>#</th><th>항목</th><th>유형</th><th>상태</th></tr>
+<tr><td>1</td><td>EOD 청산이 resting auto-TP SELL 선취소 안 함 → 예스티 overnight(allow_overnight=false 위배)</td><td><span class="tag t-bug">결함</span></td><td>fix 디스패치(backend-core)</td></tr>
+<tr><td>2</td><td>재매수/scale-in에 trade_plan 미박제 → PlanExecutor 미관리(현 보유 plan 0/40)</td><td><span class="tag t-bug">결함</span></td><td>fix 디스패치(strategy)</td></tr>
+<tr><td>3</td><td>churn 비용 46% — 과회전이 gross 알파 절반 잠식</td><td><span class="tag t-fix">튜닝</span></td><td>분석+레버 디스패치(strategy)</td></tr>
+<tr><td>4</td><td>백테스트 분봉 backfill cross-process 갭(R2a consumer↔R2b api)</td><td><span class="tag t-design">통합</span></td><td>설계 디스패치(architect)</td></tr>
+<tr><td>5</td><td>전략 ACTIVE 검증 게이트(백테스트 통과→승격)</td><td><span class="tag t-design">트랙</span></td><td>설계 디스패치(architect·#4 선결)</td></tr>
+</table>
+
+<h2>⑧ 백테스트 결과 (000650 천일고속 · INTRADAY_REALISTIC · 30일)</h2>
+<table>
+<tr><th>전략</th><th>거래</th><th>승률</th><th>수익률</th></tr>
+<tr><td>105 VWAP</td><td>60</td><td class="green">60%</td><td>−1.0%</td></tr>
+<tr><td>100 모멘텀</td><td>14</td><td class="red">0%</td><td>−11.6%</td></tr>
+<tr><td>101 눌림목</td><td>72</td><td>27.8%</td><td class="red">−27.8%</td></tr>
+<tr><td>102 FVG</td><td>88</td><td>36.4%</td><td class="red">−27.0%</td></tr>
+<tr><td>103 오더블록</td><td>112</td><td>37.5%</td><td class="red">−33.0%</td></tr>
+<tr><td>104 거래량</td><td>20</td><td>20%</td><td>−11.5%</td></tr>
+</table>
+<p class="note">⚠️ 단일종목·하락장 30일 — 최종판정 아님. 다종목 검증은 #4(backfill 통합) 후. 시사: VWAP 외 edge 약함 → 오늘 +13,193은 proven edge보다 regime(좋은 장) 기여 큼. 과회전 전략(101·102·103)이 −27~−33%로 churn 손실 최대.</p>
+
+<h2>⑨ 내일 인계</h2>
+<ul>
+<li>장마감 후 개선 5건(#1~#5) 머지·배포 → 내일 개장 적용.</li>
+<li><b>universe 자동재생성 ON</b> 결정(현 게이트 OFF) → 내일 08:35 자동 후보 적용.</li>
+<li>예스티 1주 오버나잇(EOD 결함) — 개장 갭 주의, #1 fix로 재발 방지.</li>
+<li>다종목 백테스트(#4 후) → 검증 게이트(#5)로 음의 기대값 전략(모멘텀 등) 강등.</li>
+<li>전략별 net 귀속 분리(교차청산 정밀화) — 전략별 평가 정확도.</li>
+</ul>
+<p class="note">main: 배포 후 갱신 · autopilot REAL 가동 11일차 · kill OFF · dll 5%</p>
+</body>
+</html>
