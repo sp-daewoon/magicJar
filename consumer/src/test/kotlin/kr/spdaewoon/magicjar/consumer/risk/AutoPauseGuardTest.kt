@@ -106,6 +106,8 @@ class AutoPauseGuardTest {
                 RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED.name,
                 RiskRule.AUTOPILOT_OPEN_BLACKOUT.name,
                 RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD.name,
+                // 종목당 1일 왕복 cap(2026-06-24) — churn 자기억제 benign 합류.
+                RiskRule.AUTOPILOT_REENTRY_DAY_CAP.name,
             )
         // 진짜 자본 위험 신호는 제외하지 않는다(회귀 방지). USER 경로(ownerIsAutopilot=false default)이므로
         // POSITION_LIMIT 은 여전히 카운트(레버5-C 격리 LOCK).

@@ -84,6 +84,8 @@ class AutoPauseGuard(
                 RiskRule.AUTOPILOT_LATE_ENTRY_BLOCKED,
                 RiskRule.AUTOPILOT_OPEN_BLACKOUT,
                 RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD,
+                // 종목당 1일 왕복 cap(2026-06-24) — churn 자기억제 = 정상 거동(쿨다운·dedup 정합, auto-pause 미기여).
+                RiskRule.AUTOPILOT_REENTRY_DAY_CAP,
             ).map { it.name }.toSet()
 
         /**

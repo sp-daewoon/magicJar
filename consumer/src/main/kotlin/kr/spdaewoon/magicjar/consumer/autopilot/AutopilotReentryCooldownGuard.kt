@@ -8,6 +8,9 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * magicjar-autopilot **재진입 쿨다운** 가드 (follow-up I — 2026-06-22, owner=AUTOPILOT 격리).
@@ -62,6 +65,13 @@ class AutopilotReentryCooldownGuard(
         get() = Duration.ofMinutes(properties.reentryCooldownMinutes)
 
     /**
+     * 종목당 1일 왕복 cap 활성 여부 (누적 축, 2026-06-24) — enabled + cap 양수일 때만 동작. 0 이하면 통째 no-op
+     * (byte 동일·롤백 경로). 시간 축([cooldownActive])·가격 축([reentryPriceGuardPct])과 독립으로 켜고 끌 수 있다.
+     */
+    private val dayCapActive: Boolean
+        get() = properties.enabled && properties.maxReentriesPerCodePerDay > 0
+
+    /**
      * 전량 청산 ts 기록 — **호출자는 SELL + nextQty==0(전량 청산) 확정 후 호출**. owner=AUTOPILOT 격리는 가드 내부 판정.
      *
      * owner 판정([strategyRepository] — [AutopilotLossAccumulator] 와 동일 출처)을 가드 안에 내장해 호출자(체결 어댑터)는
@@ -76,7 +86,8 @@ class AutopilotReentryCooldownGuard(
         strategyId: Long,
         exitPrice: BigDecimal,
     ) {
-        if (!cooldownActive) return
+        // 시간/가격 축(cooldown)·누적 축(dayCap) 중 하나라도 활성이어야 기록할 의미가 있다(둘 다 off 면 no-op).
+        if (!cooldownActive && !dayCapActive) return
         if (strategyId == 0L) return
 
         val isAutopilot =
@@ -88,6 +99,11 @@ class AutopilotReentryCooldownGuard(
                 return
             }
         if (!isAutopilot) return
+
+        // 누적 축(2026-06-24) — 왕복(전량 청산) 1회 완료 → 종목당 1일 카운터 INCR(KST EOD TTL). 시간/가격 축과 독립.
+        recordDayRoundTrip(userId, code, strategyId)
+
+        if (!cooldownActive) return
 
         val key = RedisKeyRegistry.Autopilot.reentryCooldown(userId, code)
         try {
@@ -125,6 +141,10 @@ class AutopilotReentryCooldownGuard(
         strategyId: Long,
         currentPrice: BigDecimal,
     ): Decision {
+        // 누적 축(2026-06-24) — 종목당 1일 왕복 cap 이 먼저. 오늘 이 code 의 autopilot 왕복 횟수가 cap 에 도달했으면
+        //   시간/가격 축과 무관하게 suppress(누적 비용 출혈 bound). 시간/가격 축보다 우선 — 가장 강한 누적 게이트.
+        evaluateDayCap(userId, code, strategyId)?.let { return it }
+
         // 시간 축·가격 축은 직교. 둘 중 하나라도 활성이면 키를 읽어야 한다(시간 축 cooldownActive·가격 축 pct>0).
         val priceGuardActive = properties.reentryPriceGuardPct > BigDecimal.ZERO
         if (!cooldownActive && !priceGuardActive) return Decision.Proceed
@@ -216,6 +236,99 @@ class AutopilotReentryCooldownGuard(
     }
 
     /**
+     * 누적 축 (2026-06-24) — 종목당 1일 왕복(전량 청산) 카운터 INCR. 첫 카운트일 때만 KST EOD 까지 TTL 을 건다
+     * (날짜 경계에 키 자연 소멸 → 익일 리셋). [evaluate] 의 [evaluateDayCap] 가 이 카운트를 읽어 cap 도달 시 suppress.
+     *
+     * 어떤 실패도 graceful(체결 권위 무손상 — 카운터는 부가 비용 신호이지 체결 자체가 아니다). dayCap 비활성이면 호출
+     * 시점에 이미 걸러지나(recordLiquidation 의 `cooldownActive && dayCapActive` 게이트), 직접 호출 대비 한 번 더 가드한다.
+     */
+    private fun recordDayRoundTrip(
+        userId: String,
+        code: String,
+        strategyId: Long,
+    ) {
+        if (!dayCapActive) return
+        val kstDate = kstToday()
+        val key = RedisKeyRegistry.Autopilot.reentryDayCount(userId, code, kstDate)
+        try {
+            val count = redisTemplate.opsForValue().increment(key) ?: return
+            // 첫 카운트(1)일 때만 TTL 설정 — 이후 INCR 은 TTL 을 건드리지 않아(set 아닌 increment) 날짜 경계까지 유지된다.
+            if (count == 1L) {
+                redisTemplate.expire(key, secondsToKstEod())
+            }
+            log.info(
+                "autopilot 종목 1일 왕복 카운트(전량 청산): userId={} code={} strategyId={} count={} cap={} date={}",
+                userId,
+                code,
+                strategyId,
+                count,
+                properties.maxReentriesPerCodePerDay,
+                kstDate,
+            )
+        } catch (e: Exception) {
+            log.warn(
+                "autopilot 1일 왕복 카운트 기록 실패 — skip(체결 권위 무손상): userId={} code={} err={}",
+                userId,
+                code,
+                e.message,
+            )
+        }
+    }
+
+    /**
+     * 누적 축 판정 (2026-06-24) — 오늘 이 code 의 autopilot 왕복 횟수가 cap 이상이면 [Decision.Suppress]. 그 외 null
+     * (다음 축으로 진행). dayCap 비활성·카운트 미달·Redis 실패(fail-open)면 null 을 반환해 churn 게이트가 정상 매매를 막지 않는다.
+     */
+    private fun evaluateDayCap(
+        userId: String,
+        code: String,
+        strategyId: Long,
+    ): Decision? {
+        if (!dayCapActive) return null
+        val cap = properties.maxReentriesPerCodePerDay
+        val kstDate = kstToday()
+        val key = RedisKeyRegistry.Autopilot.reentryDayCount(userId, code, kstDate)
+        val count =
+            try {
+                redisTemplate.opsForValue().get(key)?.toIntOrNull() ?: 0
+            } catch (e: Exception) {
+                // fail-open — Redis 결함으로 정상 신호를 막지 않는다(누적 cap 은 비용 최적화이지 자본 안전 게이트가 아니다).
+                log.warn(
+                    "autopilot 1일 왕복 카운트 조회 실패 — fail-open(진행): userId={} code={} err={}",
+                    userId,
+                    code,
+                    e.message,
+                )
+                return null
+            }
+        if (count < cap) return null
+
+        log.info(
+            "autopilot BUY 1일 왕복 cap suppress(종목 누적 churn 차단): userId={} code={} strategyId={} count={} cap={} date={}",
+            userId,
+            code,
+            strategyId,
+            count,
+            cap,
+            kstDate,
+        )
+        return Decision.Suppress(
+            "AUTOPILOT_REENTRY_DAY_CAP:$code roundtrips $count >= cap $cap (KST $kstDate) — 누적 churn 차단",
+        )
+    }
+
+    /** 현재 KST 날짜(yyyy-MM-dd) — 카운터 키의 날짜 슬롯(날짜 경계 자연 리셋). */
+    private fun kstToday(): String = ZonedDateTime.now(KST_ZONE).format(KST_DATE_FMT)
+
+    /** 현재 시각부터 KST 자정(익일 00:00)까지 남은 시간 — 카운터 TTL(날짜 경계에 키 소멸). 최소 1분 보장(경계 직전 0초 회피). */
+    private fun secondsToKstEod(): Duration {
+        val now = ZonedDateTime.now(KST_ZONE)
+        val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(KST_ZONE)
+        val remaining = Duration.between(now, nextMidnight)
+        return if (remaining.toMinutes() < 1) Duration.ofMinutes(1) else remaining
+    }
+
+    /**
      * 쿨다운 판정 결과(sealed) — 매수 경로가 소비.
      */
     sealed interface Decision {
@@ -226,5 +339,11 @@ class AutopilotReentryCooldownGuard(
         data class Suppress(
             val reason: String,
         ) : Decision
+    }
+
+    companion object {
+        /** 누적 축 카운터 날짜 슬롯·TTL 계산 기준 — KST(한국 거래일 경계). */
+        private val KST_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
+        private val KST_DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     }
 }

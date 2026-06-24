@@ -223,6 +223,65 @@ class ConsumerExecutionStrategyPositionAdapterTest {
         assertThat(saved.scaleInRemainderQty).isEqualTo(5)
     }
 
+    // ── ADR 0130 L2 #2 — trade_plan 박제 보존/전량청산 reset (재매수 plan NULL 결함 fix) ──────────────
+
+    @Test
+    fun `#2 BUY 회차 체결 — 박제된 trade_plan 보존(baseOf 가 plan 을 null 로 덮어쓰지 않음)`() {
+        // 결함 재현 방지: 과거 baseOf 가 tradePlan 을 미보존해 1차 진입 후 모든 체결이 plan 을 NULL 로 덮어썼다.
+        port.preset = strategyPosition(quantity = 9, avgPrice = "10000", filledLots = 1, tradePlan = samplePlan())
+
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 100L, orderedQty = 4),
+            execution(quantity = 4, price = "10000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(13)
+        assertThat(saved.tradePlan).isNotNull
+        assertThat(saved.tradePlan!!.entry.thesis).isEqualTo("RSI<30 reversal")
+    }
+
+    @Test
+    fun `#2 SELL 부분 청산 — trade_plan 보존(lot 사이클 동안 유효)`() {
+        port.preset = strategyPosition(quantity = 20, avgPrice = "10000", tradePlan = samplePlan())
+
+        adapter.applyExecution(
+            request(side = OrderSide.SELL, strategyId = 100L, signalId = 0L, orderedQty = 5),
+            execution(quantity = 5, price = "12000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(15)
+        assertThat(saved.tradePlan).isNotNull
+    }
+
+    @Test
+    fun `#2 SELL 전량 청산 — trade_plan reset(null) (재매수가 새 plan 박제하도록)`() {
+        port.preset = strategyPosition(quantity = 10, avgPrice = "10000", filledLots = 2, tradePlan = samplePlan())
+
+        adapter.applyExecution(
+            request(side = OrderSide.SELL, strategyId = 100L, signalId = 0L, orderedQty = 10),
+            execution(quantity = 10, price = "11000"),
+        )
+
+        val saved = port.lastUpsert!!
+        assertThat(saved.quantity).isEqualTo(0)
+        assertThat(saved.tradePlan).isNull()
+    }
+
+    @Test
+    fun `#2 게이트 off (plan 부재) — tradePlan 항상 null (byte 동일·zero-regression)`() {
+        // 게이트 off 면 captureTradePlanIfAutopilot 가 박제하지 않아 preset.tradePlan=null. 보존/리셋 모두 null → no-op.
+        port.preset = strategyPosition(quantity = 9, avgPrice = "10000", filledLots = 1, tradePlan = null)
+
+        adapter.applyExecution(
+            request(side = OrderSide.BUY, strategyId = 100L, orderedQty = 4),
+            execution(quantity = 4, price = "10000"),
+        )
+
+        assertThat(port.lastUpsert!!.tradePlan).isNull()
+    }
+
     @Test
     fun `MANUAL sentinel(strategyId=0) — upsert skip`() {
         adapter.applyExecution(
@@ -251,6 +310,7 @@ class ConsumerExecutionStrategyPositionAdapterTest {
         filledLots: Int = 1,
         realizedPnl: String = "0",
         executedExitStages: Set<Int> = emptySet(),
+        tradePlan: kr.spdaewoon.magicjar.domain.strategy.TradePlan? = null,
     ): StrategyPosition =
         StrategyPosition(
             id = 1L,
@@ -262,8 +322,21 @@ class ConsumerExecutionStrategyPositionAdapterTest {
             filledLots = filledLots,
             realizedPnl = BigDecimal(realizedPnl),
             executedExitStages = executedExitStages,
+            tradePlan = tradePlan,
             openedAt = NOW,
             updatedAt = NOW,
+        )
+
+    private fun samplePlan(): kr.spdaewoon.magicjar.domain.strategy.TradePlan =
+        kr.spdaewoon.magicjar.domain.strategy.TradePlan(
+            entry =
+                kr.spdaewoon.magicjar.domain.strategy.TradePlanEntry(
+                    strategyId = 100L,
+                    thesis = "RSI<30 reversal",
+                    entryPrice = BigDecimal("10000"),
+                    bar = "1m",
+                    openedAt = NOW.toString(),
+                ),
         )
 
     private fun request(

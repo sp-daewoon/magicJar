@@ -1600,11 +1600,22 @@ class SignalGeneratedKafkaListener(
             when (val cooldown = cooldownGuard.evaluate(signal.userId, signal.code, signal.strategyId, signal.priceAtSignal)) {
                 is AutopilotReentryCooldownGuard.Decision.Proceed -> Unit
                 is AutopilotReentryCooldownGuard.Decision.Suppress -> {
-                    val priceAxis = cooldown.reason.startsWith("AUTOPILOT_REENTRY_PRICE_GUARD")
-                    val rule = if (priceAxis) RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD else RiskRule.AUTOPILOT_REENTRY_COOLDOWN
+                    // 축 구분(관측 매트릭스) — 누적 축(DAY_CAP) > 가격 축(PRICE_GUARD) > 시간 축(COOLDOWN). reason prefix 로 분기.
+                    val rule =
+                        when {
+                            cooldown.reason.startsWith("AUTOPILOT_REENTRY_DAY_CAP") -> RiskRule.AUTOPILOT_REENTRY_DAY_CAP
+                            cooldown.reason.startsWith("AUTOPILOT_REENTRY_PRICE_GUARD") -> RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD
+                            else -> RiskRule.AUTOPILOT_REENTRY_COOLDOWN
+                        }
+                    val axisLabel =
+                        when (rule) {
+                            RiskRule.AUTOPILOT_REENTRY_DAY_CAP -> "1일 왕복 cap"
+                            RiskRule.AUTOPILOT_REENTRY_PRICE_GUARD -> "추격 가격가드"
+                            else -> "churn 쿨다운"
+                        }
                     log.info(
                         "autopilot BUY 재진입 suppress({}): signalId={} code={} strategyId={} reason={}",
-                        if (priceAxis) "추격 가격가드" else "churn 쿨다운",
+                        axisLabel,
                         signal.id,
                         signal.code,
                         signal.strategyId,

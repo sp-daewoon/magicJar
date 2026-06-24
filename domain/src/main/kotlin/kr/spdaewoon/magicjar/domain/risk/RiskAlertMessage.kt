@@ -146,6 +146,16 @@ data class RiskAlertMessage(
                         setting = "autopilot 추격 가격 가드 (ADR 0129)",
                         action = "정상 동작입니다 - 추격 가드 %를 0으로 두면 가격 축이 비활성화됩니다.",
                     )
+                RiskRule.AUTOPILOT_REENTRY_DAY_CAP ->
+                    RiskAlertMessage(
+                        title = "autopilot 종목 1일 왕복 한도 - 과회전 매수 생략",
+                        message =
+                            "${codeLabel(code, context)} 은 오늘 이미 여러 번 사고 판 종목이라 추가 재매수를 생략했습니다" +
+                                "(한 종목을 하루 종일 반복 왕복하면 매 왕복 거래비용이 쌓여 수익을 깎습니다).",
+                        formula = "오늘 같은 종목 왕복 횟수 >= 1일 왕복 cap = 생략",
+                        setting = "autopilot 종목당 1일 왕복 cap",
+                        action = "정상 동작입니다 - 날짜가 바뀌면 카운터가 리셋되어 재진입이 다시 허용됩니다.",
+                    )
             }
 
         private fun positionLimit(

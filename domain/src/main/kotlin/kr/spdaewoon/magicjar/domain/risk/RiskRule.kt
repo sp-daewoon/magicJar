@@ -72,6 +72,16 @@ enum class RiskRule {
      * 재진입 허용". USER/SYSTEM·SELL 은 영향 없음(owner 격리). 한도 위반이 아니라 추격 비용 억제(self-suppress, benign).
      */
     AUTOPILOT_REENTRY_PRICE_GUARD,
+
+    /**
+     * autopilot 종목당 1일 왕복 cap (planned-entry churn 저감, 2026-06-24) — owner=AUTOPILOT 가 같은 code 를 하루에
+     * `magicjar.autopilot.max-reentries-per-code-per-day`(default 3)회 전량 청산(왕복 완료)하면, 그날 같은 code 의 신규
+     * BUY 재진입을 suppress 한다. 시간 축([AUTOPILOT_REENTRY_COOLDOWN])·가격 축([AUTOPILOT_REENTRY_PRICE_GUARD])이
+     * *직후/추격* 재진입을 막는다면, 본 rule 은 윈도우 경과 후의 **누적 왕복 횟수**(실측 2026-06-23 122640 ~8왕복,
+     * 거래비용 46% 잠식)를 종목 단위로 bound 하는 **누적 축**이다. 날짜 경계에 카운터 리셋(익일 재진입 정상). USER/
+     * SYSTEM·SELL·청산은 영향 없음(owner 격리). 한도 위반이 아니라 churn 비용 억제(self-suppress, benign).
+     */
+    AUTOPILOT_REENTRY_DAY_CAP,
 }
 
 /**
