@@ -1,13 +1,16 @@
 package kr.spdaewoon.magicjar.consumer.autopilot
 
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
+import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
 import kr.spdaewoon.magicjar.consumer.persistence.AutopilotHeldLotProjection
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
 import java.time.Instant
@@ -21,10 +24,15 @@ import java.time.Instant
  * ### 데이터 흐름 (신규 KIS endpoint 0 — 기존 청산 경로 재사용)
  * 1. [StrategyPositionJpaRepository.findAutopilotHeldPositions] 로 owner=AUTOPILOT 보유 lot 조회
  *    (lot = (user, strategy, code, quantity) — strategy_position UQ 단위, `s.owner='AUTOPILOT'` 조인 격리).
- * 2. lot 별 **시장가 SELL** [OrderIntent] 를 기존 [OrderIntentKafkaProducer.publishExitIntent]
+ * 2. lot 별 **resting auto-TP SELL 선취소** ([RestingSellOrderCanceller.cancelRestingSells]) — 같은 종목에
+ *    걸린 미체결 익절 LIMIT(`auto-tp:`)이 보유 수량을 잠그면 KIS 가 후속 시장가 청산을 "매도가능수량 부족"으로
+ *    거부한다(2026-06-24 라이브 080220/122640 EOD 청산 REJECTED → 오버나잇 결함). 매도 시그널·손절 경로
+ *    ([kr.spdaewoon.magicjar.consumer.risk.SignalGeneratedKafkaListener]·[kr.spdaewoon.magicjar.consumer.order.PositionStopLossTickWatcher])
+ *    와 동일 패턴을 재사용(DRY)해 청산 발행 **전에** resting SELL 을 풀어준다.
+ * 3. lot 별 **시장가 SELL** [OrderIntent] 를 기존 [OrderIntentKafkaProducer.publishExitIntent]
  *    (`Order.INTENT = kafka.shared.cmd.order.intent.v1`) 로 발행한다. 그 뒤 OrderRouter →
  *    KisOrderHttpAdapter 의 기존 자동청산 경로를 그대로 탄다.
- * 3. 멱등 키는 [AutoOrderIdempotencyKeys.autopilotLiquidation] (`auto-lq:` prefix) — 한 청산 호출
+ * 4. 멱등 키는 [AutoOrderIdempotencyKeys.autopilotLiquidation] (`auto-lq:` prefix) — 한 청산 호출
  *    (동일 reason·ts) 내 이중 발행은 OrderRouter `idem:order:{key}` 가 흡수한다.
  *
  * ### 롱온리·격리 LOCK (`docs/architecture/policies/long-only-trading.md`)
@@ -43,6 +51,8 @@ import java.time.Instant
 class AutopilotLiquidationService(
     private val strategyPositionJpaRepository: StrategyPositionJpaRepository,
     private val orderIntentKafkaProducer: OrderIntentKafkaProducer,
+    private val restingSellOrderCanceller: RestingSellOrderCanceller,
+    private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
 ) : AutopilotLiquidator {
     private val log = LoggerFactory.getLogger(AutopilotLiquidationService::class.java)
 
@@ -85,6 +95,16 @@ class AutopilotLiquidationService(
         val nowEpoch = Instant.now().epochSecond
         val liquidatedCodes = LinkedHashSet<String>()
         var totalSellIntents = 0
+        // resting auto-TP SELL 선취소용 open SELL 영속 포트. 미합류 시 선취소 없이 진행(degraded — 청산 우선 성격상
+        // 보류하지 않는다. 매도 시그널·손절 경로의 fail-closed 보류와 달리 EOD/kill 청산은 오버나잇·자본 회수가 목적).
+        val orderRepo = orderRequestRepositoryProvider.getIfAvailable()
+        if (orderRepo == null) {
+            log.warn(
+                "autopilot 청산 — OrderRequestRepository 미합류: resting SELL 선취소 없이 진행(degraded) userId={} reason={}",
+                userId ?: "ALL",
+                reason,
+            )
+        }
 
         log.warn(
             "autopilot 청산 시작 — owner=AUTOPILOT lot {}건: userId={} reason={}",
@@ -105,6 +125,29 @@ class AutopilotLiquidationService(
                     quantity,
                 )
                 return@forEach
+            }
+
+            // 같은 종목 resting auto-TP SELL(미체결 익절 LIMIT) 선취소 — 발행 가능해야 청산 진행("먼저 오는 쪽이 이긴다").
+            // 선취소 미완료(수동/타전략 SELL 침범·KIS ACK 미확정·취소 실패) lot 은 이 회차 skip → 다음 청산 호출/EOD tick·
+            // 손절 watcher 가 재시도. rtCd=7(원주문 KIS 부재)은 canceller 가 already-cancelled 로 종결해 그대로 진행한다.
+            if (orderRepo != null) {
+                val cancelResult =
+                    restingSellOrderCanceller.cancelRestingSells(
+                        orderRepo = orderRepo,
+                        userId = lot.getUserId(),
+                        strategyId = lot.getStrategyId(),
+                        code = lot.getCode(),
+                    )
+                if (!cancelResult.canProceed) {
+                    log.warn(
+                        "autopilot 청산 skip(resting SELL 선취소 미완료 — 다음 기회 재시도): userId={} strategyId={} code={} result={}",
+                        lot.getUserId(),
+                        lot.getStrategyId(),
+                        lot.getCode(),
+                        cancelResult::class.simpleName,
+                    )
+                    return@forEach
+                }
             }
 
             val priceAtSignal = lot.getAvgPrice().takeIf { it > BigDecimal.ZERO } ?: BigDecimal.ZERO
