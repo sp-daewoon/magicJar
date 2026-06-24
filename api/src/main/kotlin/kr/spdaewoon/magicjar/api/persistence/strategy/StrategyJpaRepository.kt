@@ -179,6 +179,25 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     ): Int
 
     /**
+     * owner=AUTOPILOT 평가 전략(ACTIVE·BUY_BLOCKED) 전건 — ADR 0133 §3-B3 검증 게이트(#5) 대상 전략 목록.
+     *
+     * universe refresh(08:35) 가 codes 를 갱신한 뒤, 본 메서드로 각 전략을 읽어 INTRADAY_REALISTIC 백테스트→
+     * `BacktestPassCriteria` 판정→PASS=ACTIVE 유지 / FAIL=BUY_BLOCKED 전이한다(전략 단위 게이트 — §3-B2).
+     *
+     * ## 격리 (zero-regression LOCK)
+     * owner='AUTOPILOT' AND status IN ('ACTIVE','BUY_BLOCKED') — USER/SYSTEM 전략은 본 검증 경로에 절대 진입 0.
+     *
+     * 헌법 §6 (ADR 0051): query inference 회피 명시 @Query, abstract fun(body 0).
+     */
+    @Query(
+        value =
+            "SELECT * FROM strategy " +
+                "WHERE owner = 'AUTOPILOT' AND status IN ('ACTIVE', 'BUY_BLOCKED')",
+        nativeQuery = true,
+    )
+    fun findAutopilotEvaluableStrategies(): List<StrategyJpaEntity>
+
+    /**
      * owner=AUTOPILOT 평가 전략(ACTIVE·BUY_BLOCKED)의 현재 codes JSONB(raw String) 목록 — ADR 0131 직전 universe 산출.
      *
      * refresh 시 "직전 universe ∖ 신규 universe" 회전 종목 집계(보유 lot 잔존 가시화 §6-3)에 사용한다. read-only.

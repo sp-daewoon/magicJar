@@ -159,6 +159,22 @@ magicjar:
       enabled: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_ENABLED:false}
       cron: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_CRON:0 35 8 * * *}
       size: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_SIZE:16}
+    # 전략 ACTIVE 검증 게이트 (ADR 0133 §3-B · #5) — universe refresh 직후 owner=AUTOPILOT 전략을
+    #   INTRADAY_REALISTIC 백테스트로 검증해 PASS=ACTIVE 유지(+backtest_run 영속) / FAIL=BUY_BLOCKED(매수 억제·보유 lot hold-until-exit).
+    #   enabled: default false(간접 최고위험 — "어떤 전략이 REAL ACTIVE 가 되는가" 판정). off → 검증 단계 no-op = ADR 0131 거동 byte-동일.
+    #     ※ 가시적 효과는 backtest.intraday-realistic.enabled(ADR 0132·default false) ON 이 전제(off 면 backfill·parity 미발화).
+    #   min-trades/min-win-rate/min-expectancy/max-mdd/require-confidence: BacktestPassCriteria 합격 기준(AND). default = ADR 0133 §3-B1 보수값.
+    #   lookback-days: INTRADAY_REALISTIC 백테스트 lookback 거래일(KIS 1m 1년 ∧ ENV clamp). interval: 검증 백테스트 분봉.
+    activation-gate:
+      enabled: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_ENABLED:false}
+      min-trades: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_MIN_TRADES:20}
+      min-win-rate: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_MIN_WIN_RATE:0.40}
+      min-expectancy: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_MIN_EXPECTANCY:0}
+      max-mdd: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_MAX_MDD:0.15}
+      require-confidence: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_REQUIRE_CONFIDENCE:OK}
+      lookback-days: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_LOOKBACK_DAYS:30}
+      interval: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_INTERVAL:1m}
+      initial-capital: ${MAGICJAR_AUTOPILOT_ACTIVATION_GATE_INITIAL_CAPITAL:10000000}
   # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
   screener:
     # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)

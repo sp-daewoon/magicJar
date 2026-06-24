@@ -198,4 +198,122 @@ class AutopilotUniverseRefreshServiceTest {
         val written = objectMapper.readValue(codesSlot.captured, Array<String>::class.java).toList()
         assertThat(written).hasSize(40)
     }
+
+    // ── ADR 0133 §3-B3 검증 게이트(#5) append ───────────────────────────────
+
+    private fun serviceWithGate(
+        gate: AutopilotActivationGateService?,
+        strategy: StrategyJpaRepository = mockk(relaxed = true),
+    ): AutopilotUniverseRefreshService {
+        val provider = mockk<ObjectProvider<SystemEventLogger>>()
+        every { provider.getIfAvailable() } returns mockk<SystemEventLogger>(relaxed = true)
+        return AutopilotUniverseRefreshService(
+            discoveryScorecardJpaRepository = mockk(relaxed = true),
+            strategyJpaRepository = strategy,
+            strategyPositionReadJpaRepository = mockk(relaxed = true),
+            objectMapper = objectMapper,
+            systemEventLoggerProvider = provider,
+            enabled = true,
+            sizeRaw = 16,
+            activationGateService = gate,
+        )
+    }
+
+    @Test
+    fun `validateActivations — 게이트 미배선(null) 이면 DISABLED no-op`() {
+        val strategy = mockk<StrategyJpaRepository>(relaxed = true)
+        val result = serviceWithGate(gate = null, strategy = strategy).validateActivations(today)
+
+        assertThat(result.status).isEqualTo(AutopilotUniverseRefreshService.GateStatus.DISABLED)
+        verify(exactly = 0) { strategy.findAutopilotEvaluableStrategies() }
+    }
+
+    @Test
+    fun `validateActivations — 게이트 OFF(enabled false) 면 DISABLED no-op`() {
+        val gate = mockk<AutopilotActivationGateService>()
+        every { gate.isEnabled() } returns false
+        val strategy = mockk<StrategyJpaRepository>(relaxed = true)
+
+        val result = serviceWithGate(gate = gate, strategy = strategy).validateActivations(today)
+
+        assertThat(result.status).isEqualTo(AutopilotUniverseRefreshService.GateStatus.DISABLED)
+        verify(exactly = 0) { strategy.findAutopilotEvaluableStrategies() }
+    }
+
+    @Test
+    fun `validateActivations — 전략 0건 이면 NO_STRATEGIES`() {
+        val gate = mockk<AutopilotActivationGateService>()
+        every { gate.isEnabled() } returns true
+        val strategy = mockk<StrategyJpaRepository>()
+        every { strategy.findAutopilotEvaluableStrategies() } returns emptyList()
+
+        val result = serviceWithGate(gate = gate, strategy = strategy).validateActivations(today)
+
+        assertThat(result.status).isEqualTo(AutopilotUniverseRefreshService.GateStatus.NO_STRATEGIES)
+    }
+
+    @Test
+    fun `validateActivations — PASS_FAIL 집계 + 전략별 evaluate 호출`() {
+        val gate = mockk<AutopilotActivationGateService>()
+        every { gate.isEnabled() } returns true
+        val s1 = autopilotEntity(1L)
+        val s2 = autopilotEntity(2L)
+        val strategy = mockk<StrategyJpaRepository>()
+        every { strategy.findAutopilotEvaluableStrategies() } returns listOf(s1, s2)
+        every { gate.evaluateStrategy(s1, today) } returns
+            kr.spdaewoon.magicjar.domain.backtest.BacktestPassResult(
+                kr.spdaewoon.magicjar.domain.backtest.AutopilotActivationVerdict.PASS,
+                emptyList(),
+                null,
+            )
+        every { gate.evaluateStrategy(s2, today) } returns
+            kr.spdaewoon.magicjar.domain.backtest.BacktestPassResult
+                .error()
+
+        val result = serviceWithGate(gate = gate, strategy = strategy).validateActivations(today)
+
+        assertThat(result.status).isEqualTo(AutopilotUniverseRefreshService.GateStatus.EVALUATED)
+        assertThat(result.evaluated).isEqualTo(2)
+        assertThat(result.passed).isEqualTo(1)
+        assertThat(result.failed).isEqualTo(1)
+        verify(exactly = 1) { gate.evaluateStrategy(s1, today) }
+        verify(exactly = 1) { gate.evaluateStrategy(s2, today) }
+    }
+
+    @Test
+    fun `validateActivations — 한 전략 평가 예외가 다른 전략 검증을 막지 않음(fail-soft)`() {
+        val gate = mockk<AutopilotActivationGateService>()
+        every { gate.isEnabled() } returns true
+        val s1 = autopilotEntity(1L)
+        val s2 = autopilotEntity(2L)
+        val strategy = mockk<StrategyJpaRepository>()
+        every { strategy.findAutopilotEvaluableStrategies() } returns listOf(s1, s2)
+        every { gate.evaluateStrategy(s1, today) } throws RuntimeException("boom")
+        every { gate.evaluateStrategy(s2, today) } returns
+            kr.spdaewoon.magicjar.domain.backtest.BacktestPassResult(
+                kr.spdaewoon.magicjar.domain.backtest.AutopilotActivationVerdict.PASS,
+                emptyList(),
+                null,
+            )
+
+        val result = serviceWithGate(gate = gate, strategy = strategy).validateActivations(today)
+
+        assertThat(result.evaluated).isEqualTo(2)
+        assertThat(result.passed).isEqualTo(1) // s2 정상 평가됨.
+        assertThat(result.failed).isEqualTo(1) // s1 예외 → 집계상 FAIL.
+        verify(exactly = 1) { gate.evaluateStrategy(s2, today) }
+    }
+
+    private fun autopilotEntity(id: Long) =
+        kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaEntity(
+            id = id,
+            userId = 7L,
+            owner = "AUTOPILOT",
+            name = "autopilot-$id",
+            nameKo = null,
+            dslEntry = "RSI(14) < 30",
+            dslExit = null,
+            codes = """["005930"]""",
+            status = "ACTIVE",
+        )
 }
