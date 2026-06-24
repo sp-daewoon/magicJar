@@ -299,7 +299,34 @@ export function DaytradeDiscoverPage() {
       return
     }
     const topCode = data?.matches[0]?.instrumentCode ?? ''
-    const result = buildDaytradePresetDraft(candidate, topCode, '1d')
+    const result = buildDaytradePresetDraft(candidate, [topCode], '1d')
+    if (!result.draft) {
+      showToast(result.reason ?? '빌더 draft 변환에 실패했습니다.', 'error')
+      return
+    }
+    const draftId = storeStrategyResearchDraft(result.draft)
+    navigate(`/strategy/builder?researchDraftId=${encodeURIComponent(draftId)}`)
+  }
+
+  /**
+   * 다중선택한 N종을 전략 universe로 빌더에 프리필 (ADR 0134 R2).
+   * 현재 프리셋(presetKey) entry DSL(DB 권위)을 평가 조건으로, 선택 codes를 universe로 운반한다.
+   * 선택 0개면 발굴 1위 1종으로 fallback(기존 "빌더로 보내기" 거동 — zero-regression).
+   * 자동 진입·자동 주문 0 — 빌더 저장모달 프리필 navigate일 뿐(사용자가 명시 확인·저장).
+   */
+  function handleSendSelectionToBuilder() {
+    if (presetKey === null) {
+      showToast("'전체(합집합)' 모드는 단일 setup으로 묶을 수 없습니다. 특정 프리셋을 선택해 주세요.", 'error')
+      return
+    }
+    const candidate = (candidateDefsQuery.data ?? []).find((c) => c.key === presetKey)
+    if (!candidate) {
+      showToast('프리셋 정의를 불러오지 못했습니다. 잠시 후 다시 시도하세요.', 'error')
+      return
+    }
+    // 선택 codes(dedup은 buildDaytradePresetDraft 내부) — 0개면 발굴 1위 1종 fallback.
+    const codes = selectedArr.length > 0 ? selectedArr : [data?.matches[0]?.instrumentCode ?? '']
+    const result = buildDaytradePresetDraft(candidate, codes, '1d')
     if (!result.draft) {
       showToast(result.reason ?? '빌더 draft 변환에 실패했습니다.', 'error')
       return
@@ -528,14 +555,28 @@ export function DaytradeDiscoverPage() {
                       : "'전체(합집합)' 모드는 단일 setup 으로 묶을 수 없습니다. 특정 프리셋을 선택해 주세요."}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  disabled={!canPromote || selectedCodes.size === 0 || registeredUserId === null}
-                  onClick={() => setPromoteModalOpen(true)}
-                  className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
-                >
-                  모의로 굴려보기
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* 발굴 다중선택 → 전략 universe 프리필 (ADR 0134 R2) */}
+                  <button
+                    type="button"
+                    disabled={!canPromote || registeredUserId === null}
+                    onClick={handleSendSelectionToBuilder}
+                    title="선택한 종목을 전략 universe로 빌더에 프리필합니다 (선택 0개면 1위 1종). 저장은 빌더에서 확인합니다 — 자동매매 0."
+                    className="rounded-lg border border-indigo-700/60 px-4 py-1.5 text-sm font-semibold text-indigo-300 hover:bg-indigo-950/40 disabled:cursor-not-allowed disabled:border-gray-700 disabled:text-gray-500"
+                  >
+                    {selectedCodes.size > 0
+                      ? `빌더로 ${selectedCodes.size}종 보내기`
+                      : '빌더로 보내기 (1위 1종)'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canPromote || selectedCodes.size === 0 || registeredUserId === null}
+                    onClick={() => setPromoteModalOpen(true)}
+                    className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+                  >
+                    모의로 굴려보기
+                  </button>
+                </div>
               </div>
 
               <DaytradeMatchTable

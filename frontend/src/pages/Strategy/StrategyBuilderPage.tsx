@@ -608,6 +608,11 @@ export function StrategyBuilderPage() {
           <div className="mt-1 text-xs text-gray-500">
             {researchDraftMeta.code} · {researchDraftMeta.interval} · 익절 {researchDraftMeta.takeProfitPct}% · 손절 {researchDraftMeta.stopLossPct}%
           </div>
+          {(researchDraftMeta.universeCodes?.length ?? 0) > 1 && (
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-emerald-950/40 px-2 py-0.5 text-[11px] text-emerald-300">
+              universe {researchDraftMeta.universeCodes!.length}종 프리필됨 · 평가 기준 {researchDraftMeta.code}
+            </div>
+          )}
           {researchDraftMeta.conversionNotes.length > 0 && (
             <div className="mt-2 space-y-1 text-xs text-amber-300">
               {researchDraftMeta.conversionNotes.map((note) => (
@@ -880,7 +885,7 @@ export function StrategyBuilderPage() {
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
-          initialCodes={loadedStrategy?.codes}
+          initialCodes={loadedStrategy?.codes ?? researchDraftMeta?.universeCodes}
           initialCodeNames={loadedStrategy?.codeNames}
           initialStopLossPct={
             loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? startItemMeta?.fixedStopLossPct ?? undefined

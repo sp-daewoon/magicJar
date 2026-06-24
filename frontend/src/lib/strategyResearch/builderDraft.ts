@@ -11,6 +11,13 @@ export interface StrategyResearchBuilderDraft {
   candidateKey: string
   candidateTitle: string
   code: string
+  /**
+   * 전략 universe 프리필용 다종목 codes (ADR 0134, optional add-only).
+   * 빌더 저장모달 `initialCodes`로 전달돼 "자동매매 대상 종목 N개"를 프리필한다.
+   * 미존재(기존 단일 흐름) 시 빌더는 `[code]` fallback — zero-regression.
+   * `code`(평가 기준 단일 종목)는 `universeCodes[0]` 미러.
+   */
+  universeCodes?: string[]
   interval: string
   entryDsl: string
   exitDsl?: string
@@ -235,9 +242,12 @@ function toFiniteNumber(value: string | number | null): number | null {
  */
 export function buildDaytradePresetDraft(
   candidate: StrategyResearchCandidateDefinitionDto,
-  code: string,
+  codes: string[],
   interval: string,
 ): StrategyResearchDraftBuildResult {
+  // dedup(순서 보존) — 첫 종목 = 평가 기준 code, 전체 = universe (ADR 0134 §2-1).
+  const universeCodes = Array.from(new Set((codes ?? []).filter((c) => !!c)))
+  const code = universeCodes[0] ?? ''
   if (!code) {
     return { draft: null, reason: '평가 기준 종목이 없습니다. 후보 발굴 후 다시 시도하세요.' }
   }
@@ -258,15 +268,22 @@ export function buildDaytradePresetDraft(
     candidateKey: candidate.key,
     candidateTitle: candidate.title,
     code,
+    universeCodes,
     interval,
     entryDsl: normalizeDslLogicalKeywords(candidate.entryDsl),
     stopLossPct,
     takeProfitPct,
     maxHoldBars,
     name: researchStrategyName(code, candidate.key),
-    nameKo: `${candidate.title} (${code})`,
+    nameKo:
+      universeCodes.length > 1
+        ? `${candidate.title} (${code} 외 ${universeCodes.length - 1}종)`
+        : `${candidate.title} (${code})`,
     conversionNotes: [
       '단타 발굴 프리셋의 entry DSL(DB 권위)을 변환 없이 그대로 가져왔습니다 — 발굴 판정 조건과 동일합니다.',
+      ...(universeCodes.length > 1
+        ? [`발굴에서 선택한 ${universeCodes.length}종을 전략 universe로 프리필했습니다 — 평가 기준은 ${code} 입니다.`]
+        : []),
     ],
   }
 
