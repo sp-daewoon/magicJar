@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>전략 102 추천기반 재현 워크스루 가이드 + UI 갭 리포트 (2026-06-24)</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131822; --panel2: #1a212e; --border: #283044;
+    --text: #e6edf3; --muted: #9aa7b8; --accent: #4f8cff; --green: #34d399;
+    --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    line-height: 1.65; font-size: 15px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 21px; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 17px; margin: 26px 0 8px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 4px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 8px; }
+  .tag { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 12px; font-size: 12px; color: var(--muted); }
+  .tag.green { color: var(--green); border-color: #1f5f4a; }
+  .tag.amber { color: var(--amber); border-color: #6b551c; }
+  .tag.red { color: var(--red); border-color: #6b2626; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin: 16px 0; }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0; margin: 18px 0; overflow: hidden; }
+  .step-head { background: var(--panel2); padding: 12px 18px; font-weight: 600; font-size: 16px;
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .step-num { background: var(--accent); color: #fff; border-radius: 8px; width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+  .step-body { padding: 16px 18px; }
+  figure { margin: 14px 0; }
+  figure img { width: 100%; border: 1px solid var(--border); border-radius: 8px; display: block; background:#000; }
+  figure.shot-tall img { max-height: 540px; object-fit: cover; object-position: top; }
+  figcaption { color: var(--muted); font-size: 12.5px; margin-top: 6px; padding-left: 2px; }
+  code { background: #0d1117; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px; color: #ffd9a0; }
+  pre { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+    overflow-x: auto; font-size: 13px; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); }
+  .gap { border-left: 4px solid var(--red); background: rgba(248,113,113,0.07); }
+  .gap .step-head { background: rgba(248,113,113,0.10); }
+  .ok { border-left: 4px solid var(--green); }
+  .warn { border-left: 4px solid var(--amber); background: rgba(251,191,36,0.06); }
+  .pill { display:inline-block; border-radius:6px; padding:1px 8px; font-size:11px; font-weight:700; }
+  .pill.p0 { background:#6b2626; color:#ffb4b4; }
+  .pill.p1 { background:#6b551c; color:#ffe08a; }
+  .pill.p2 { background:#2a3a55; color:#9cc0ff; }
+  .callout { background: var(--panel2); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .flow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; }
+  .flow .node { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-size:13px; }
+  .flow .arrow { color: var(--muted); }
+  .flow .node.bad { border-color:#6b2626; color:#ffb4b4; }
+  .footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>전략 102 추천기반 재현 워크스루 가이드 + UI 갭 리포트</h1>
+  <p class="sub">사용자(최고 관리자)가 <code>autopilot-fvg-bullish-reclaim</code>(전략 102 · FVG · 5m · 16종목)을 <strong>UI로 직접</strong> 재현하되, 종목을 <strong>수동 입력이 아니라 추천(discovery) 기반</strong>으로 담는 흐름을 실제 화면 순서대로 검증한 결과.</p>
+  <div class="meta">
+    <span class="tag">작성: qa (품질 헌터)</span>
+    <span class="tag">일자: 2026-06-24</span>
+    <span class="tag green">실화면 캡처 (mock 0)</span>
+    <span class="tag">frontend: http://localhost:3000 (magicjar-frontend 컨테이너)</span>
+    <span class="tag">테스트 사용자: 74683223</span>
+    <span class="tag red">코드 변경 0 — 가이드·캡처만</span>
+  </div>
+
+  <div class="callout">
+    <strong>한 줄 결론 (★핵심 의문에 대한 답):</strong>
+    프론트 전략 빌더·발굴 화면 어디에도 <strong>"discovery 추천 종목을 전략 universe(자동매매 대상 종목)로 담는" 사용자 흐름은 존재하지 않는다.</strong>
+    발굴 후보의 종착지는 ① 관심종목(watchlist · polling) ② 모의(페이퍼) 묶음 ③ 빌더(DSL 조건만, 단일 평가종목) 세 갈래뿐이며,
+    세 갈래 모두 <strong>"전략의 자동매매 universe codes"와 연결되지 않는다.</strong> 전략의 universe는 저장 모달에서 <strong>오직 수동 종목 검색/코드 입력</strong>으로만 채울 수 있다.
+    즉 전략 102가 받은 "오늘 discovery TOP16을 universe로" 라는 결과는 <strong>현재 UI로는 재현 불가능</strong>하며, orchestrator의 DB 직접 UPDATE가 그 갭을 메우고 있었다.
+  </div>
+
+  <h2>0. 검증 환경 · 대상 사실 확인</h2>
+  <div class="card">
+    <p>DB 직접 조회로 전략 102의 현재 상태를 확정했다 (진실원 대조 — 사용자 메모리 정합).</p>
+    <pre>id  | name                          | name_ko                  | owner     | tf | status
+102 | autopilot-fvg-bullish-reclaim | 오토파일럿 FVG 매수 재진입 | AUTOPILOT | 5m | ACTIVE
+codes (jsonb, 16종): ["034730","320000","006340","067290","356680","122640","475430","026940","198440","014950","000890","084670","030960","056090", ... +2]</pre>
+    <ul>
+      <li>owner=<strong>AUTOPILOT</strong>, user_id=74683223 (테스트 사용자 본인 소유 — 그래서 사용자 전략 목록에 노출됨)</li>
+      <li>codes 16종은 오늘 discovery TOP16(SK 034730, 한울반도체 320000, 대원전선 006340, JW신약 067290 …)과 일치 → orchestrator가 DB UPDATE로 주입한 것</li>
+      <li>전략 목록 API <code>GET /api/strategy?userId=</code>는 <code>findAllByUserId</code> — <strong>owner 필터 없음</strong> → AUTOPILOT 전략도 사용자 목록에 그대로 섞여 노출됨</li>
+    </ul>
+  </div>
+
+  <h2>1. 의도된 "추천기반 재현" 흐름 vs 실제 가능한 흐름</h2>
+  <div class="card">
+    <p><strong>사용자가 기대하는 흐름 (의도):</strong></p>
+    <div class="flow">
+      <span class="node">단타 발굴 실행</span><span class="arrow">→</span>
+      <span class="node">후보 TOP16 선택</span><span class="arrow">→</span>
+      <span class="node bad">"전략 universe에 담기"</span><span class="arrow">→</span>
+      <span class="node">빌더에서 FVG·5m·TP/SL 작성</span><span class="arrow">→</span>
+      <span class="node">저장(universe=추천16종)</span>
+    </div>
+    <p style="color:var(--red)">↑ 가운데 빨간 노드("전략 universe에 담기")가 <strong>UI에 존재하지 않는다.</strong></p>
+    <p><strong>실제 UI로 가능한 흐름 (현재):</strong></p>
+    <div class="flow">
+      <span class="node">단타 발굴 실행</span><span class="arrow">→</span>
+      <span class="node">프리셋 "빌더로 보내기"</span><span class="arrow">→</span>
+      <span class="node">빌더(DSL만 채워짐·평가종목 1개)</span><span class="arrow">→</span>
+      <span class="node">저장 모달</span><span class="arrow">→</span>
+      <span class="node bad">universe 16종 수동 1개씩 검색·추가</span>
+    </div>
+  </div>
+
+  <h2>2. 단계별 워크스루 (실제 화면 캡처)</h2>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">1</span> 단타 발굴(Discovery) 진입 — <code>/strategy/daytrade-discover</code></div>
+    <div class="step-body">
+      <p>상단 메뉴 <strong>전략 ▾ → 단타 발굴</strong>. "전략을 미리 작성하지 않아도 오늘의 후보 TOP30을 점수와 함께 제시"하는 진입점. 빌트인 프리셋 6종(전체 합집합 / 갭상승·RVOL·거래대금 / 모멘텀 양봉 / 강한 갭상승 / 거래량 폭발 신고가 / 박스권 상단 돌파+ADX)이 보인다. 전략 102의 setup과 직결되는 프리셋 선택 가능.</p>
+      <figure><img src="assets/01-discovery-landing.png" alt="단타 발굴 랜딩" />
+        <figcaption>그림 1 — 단타 발굴 랜딩. 프리셋 6종 + "후보 발굴" 버튼 + "발굴 후보 실시간 관찰 시작(30분)" 토글(STRATEGY owner WS 수요, watchlist write 0).</figcaption></figure>
+      <figure><img src="assets/z1-preset-card-actions.png" alt="프리셋 칩" />
+        <figcaption>그림 1b — 빌트인 프리셋 칩 확대. 전략 102는 FVG setup이지만 이 단타 프리셋 목록에 FVG 프리셋은 보이지 않음(갭상승·거래대금 계열 위주).</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">2</span> "후보 발굴" 실행 → 오늘의 TOP 후보</div>
+    <div class="step-body">
+      <p>"후보 발굴" 클릭 → 약 수 초 내 universe 2,517종 평가 후 점수순 TOP30 표 출력(실데이터, KIS 추가 호출 0·일봉 기준). 1위 SK(034730) 98.6점, 2위 한울반도체(320000) 97.4, 3위 대원전선(006340) 97.1 … — <strong>전략 102 codes와 동일한 종목들</strong>이 상위에 올라온다. 즉 발굴 엔진 자체는 정상 동작하며 102의 universe 토대를 만들 수 있다.</p>
+      <figure class="shot-tall"><img src="assets/02-discovery-results.png" alt="발굴 결과 TOP" />
+        <figcaption>그림 2 — 발굴 결과(전체 합집합 모드). 점수·미니 게이지·확장 chevron(▼). 102 codes(SK·한울반도체·대원전선·JW신약 …)가 상위에 그대로 보인다.</figcaption></figure>
+      <figure><img src="assets/z2-candidate-row-actions.png" alt="후보 행 확대" />
+        <figcaption>그림 2b — 후보 행 확대. 행에는 순위·종목·점수·게이지·<strong>확장 chevron(▼)만</strong> 있고, "전략에 담기" 같은 직접 버튼은 없다.</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step gap">
+    <div class="step-head"><span class="step-num">3</span> 후보를 "전략 universe로 담기" 시도 — <strong>경로 부재 확인 (★ 최대 갭)</strong></div>
+    <div class="step-body">
+      <p>후보 행을 펼치면 종목별 액션은 정확히 두 가지뿐이다: <strong>"종목 상세"</strong>, <strong>"관심종목 추가"</strong>. (소스 <code>DaytradeMatchTable.tsx</code> L225·L243 확인.) 특정 프리셋 선택 시 상단에 다중선택 + <strong>"모의로 굴려보기"</strong>(페이퍼 승격) 툴바가 추가된다.</p>
+      <ul>
+        <li><strong>관심종목 추가</strong> → watchlist (ADR 0124로 <em>polling 전용</em>) — 자동매매 universe 아님</li>
+        <li><strong>모의로 굴려보기</strong> → 페이퍼 트레이딩 묶음 — 실전 전략 universe 아님</li>
+        <li><strong>빌더로 보내기 → 백테스트</strong>(프리셋 레벨) → DSL 조건만 전달, 평가 대상은 <em>발굴 1위 단일 종목</em></li>
+      </ul>
+      <p style="color:var(--red)"><strong>어떤 액션도 "이 후보들을 전략의 자동매매 대상 종목(universe codes)으로 담는다"로 이어지지 않는다.</strong> 다중선택 체크박스조차 페이퍼 승격 전용이며, "선택한 N종을 전략 universe로" 라는 분기가 없다.</p>
+      <figure><img src="assets/z3-promote-area.png" alt="페이퍼 승격 툴바" />
+        <figcaption>그림 3 — 특정 프리셋 선택 시 나타나는 "모의로 굴려보기" 툴바. 다중선택의 종착지는 페이퍼뿐 — 실전 전략 universe로 가는 분기 없음.</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">4</span> 그나마 가장 가까운 도선 — 프리셋 "빌더로 보내기 → 백테스트"</div>
+    <div class="step-body">
+      <p>발굴 결과 상단 프리셋 메타 카드에 <strong>"빌더로 보내기 → 백테스트"</strong> 버튼이 있다(<code>onSendToBuilder</code>). 누르면 <code>/strategy/builder?researchDraftId=...</code>로 이동한다. 그러나 이 draft가 옮기는 것은:</p>
+      <pre>StrategyResearchBuilderDraft {
+  entryDsl, exitDsl,     // 진입/청산 조건 (DSL)
+  code,                  // ← 발굴 "1위" 단일 종목 1개만 (평가 기준)
+  stopLossPct, takeProfitPct
+}
+// ✗ 후보 리스트(16종)는 전혀 포함되지 않음</pre>
+      <p>즉 빌더로 넘어가도 <strong>universe codes는 비어 있고 평가종목 1개만</strong> 채워진다. 추천 16종을 universe로 옮기는 기능이 아니다.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">5</span> 전략 빌더 시작 화면 — <code>/strategy/builder</code></div>
+    <div class="step-body">
+      <p>빌더 진입 시 "전략 만들기 시작" 화면(템플릿·내 전략·검색·말로 설명·빈 캔버스). 흥미롭게도 검증 템플릿에 <strong>"오토파일럿 FVG 매수 재진입"</strong>(=전략 102와 동명) 카드가 보인다 — 즉 102의 DSL은 템플릿으로 불러올 수 있으나, 이는 <em>조건</em>만이고 universe와 무관.</p>
+      <figure class="shot-tall"><img src="assets/06-builder-start-screen.png" alt="빌더 시작 화면" />
+        <figcaption>그림 5 — 전략 빌더 시작 화면. 좌상단 "오토파일럿 FVG 매수 재진입" 템플릿 카드 존재(조건 DSL만 로드).</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">6</span> 빈 캔버스 / 조건 작성 (FVG · 5m)</div>
+    <div class="step-body">
+      <p>"빈 캔버스로 직접" → 3분할 빌더(좌 블록 팔레트 / 중 캔버스 entry·exit 탭 / 우 전략 실행). 좌측 팔레트에서 지표·패턴·캔들·연산자 블록을 골라 FVG 매수 재탈환 조건을 구성하고, 우측 종목·기준봉에서 평가 인터벌을 <code>5m</code>로 선택한다.</p>
+      <figure><img src="assets/07-builder-blank-canvas.png" alt="빈 캔버스 빌더" />
+        <figcaption>그림 6 — 빌더 3분할. 우측 "전략 실행" 패널의 종목·기준봉은 <strong>평가용 단일 종목</strong>이지 universe가 아니다(여기서 5m 선택).</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step gap">
+    <div class="step-head"><span class="step-num">7</span> 저장 모달 — universe 입력 단계 (<strong>수동 입력만 가능 입증</strong>)</div>
+    <div class="step-body">
+      <p>조건 작성 후 "저장" → 저장 모달. "자동매매 대상 종목"(=universe codes) 필드는 <strong>"종목명 또는 코드 검색" 입력창 + "추가" 버튼</strong>뿐이다. 한 종목씩 검색해 추가하는 방식 — 16종을 담으려면 <strong>수동으로 16번</strong> 반복해야 한다. 발굴/추천 결과를 불러오는 버튼·"추천에서 담기"·"발굴 TOP N 가져오기" 같은 연결고리가 전혀 없다.</p>
+      <figure class="shot-tall"><img src="assets/08-save-modal-universe-input.png" alt="저장 모달 universe" />
+        <figcaption>그림 7 — 저장 모달(102와 동명 템플릿 로드 상태). universe·RiskPlan(손절 -2% / 익절 +2.5%) 입력. 종목 입력은 검색+추가 수동 방식뿐.</figcaption></figure>
+      <figure><img src="assets/z5-universe-input-zoom.png" alt="universe 입력 확대" />
+        <figcaption>그림 7b — "자동매매 대상 종목 *(1개)" 확대. <strong>"종목명 또는 코드 검색" + "추가"</strong> 외 다른 입력 수단 없음 → <strong>수동 입력만 가능 확정.</strong></figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">8</span> owner=AUTOPILOT 전략이 목록에 어떻게 보이는가 — <code>/strategy/list</code></div>
+    <div class="step-body">
+      <p>전략 목록에서 102 카드를 확인했다. 결과적으로 <strong>일반 USER 전략과 시각적으로 구분되지 않는다</strong> — owner=AUTOPILOT 배지가 없고, "빌더에서 수정 / 복제 / 자동매매 중지 / 삭제" 동일 액션이 모두 노출된다. 사용자가 무심코 AUTOPILOT 관리 전략을 수정·삭제할 수 있다.</p>
+      <p class="warn" style="padding:10px 14px; border-radius:8px;">또한 카드에 <strong>"자동매매 점검 필요 — 성공한 백테스트가 있어야 전략을 ACTIVE로 전환할 수 있습니다"</strong> 경고가 떠 있다. 그러나 DB status는 이미 <code>ACTIVE</code>이고 배지는 "자동매매중"이다 → DB 직접 ACTIVE 주입이 UI의 "백테스트 게이트"를 우회해 생긴 <strong>상태 표시 모순.</strong></p>
+      <figure><img src="assets/z7-autopilot-102-full-card.png" alt="전략 102 카드" />
+        <figcaption>그림 8 — 전략 102 카드. codes(SK·한울반도체·대원전선·JW신약 +12)·5m·"자동매매중" 배지·"전략 ID 102"·매수/매도 DSL·손절-2%/익절+2.5%. 단 <strong>AUTOPILOT 표식 없음</strong> + "점검 필요"와 "자동매매중" 동시 표출(모순).</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="step-num">9</span> (참고) 발굴 스코어카드 — <code>/strategy/scorecard</code></div>
+    <div class="step-body">
+      <p>발굴 TOP N의 다음 거래일 실제 적중률(forward-test)을 누적 기록하는 화면. 추천 품질을 사후 검증하는 데이터는 존재하나, 이 화면에서도 "이 후보를 전략 universe로" 같은 액션은 없다. (스코어카드 전체는 매우 긴 표 — 캡처 <code>assets/05-scorecard.png</code> 참조.)</p>
+    </div>
+  </div>
+
+  <h2>3. 발견한 갭 목록 (우선순위순)</h2>
+
+  <table>
+    <thead><tr><th style="width:60px">우선</th><th style="width:230px">갭</th><th>내용 · 증거</th><th style="width:170px">제안 (후속 트랙)</th></tr></thead>
+    <tbody>
+      <tr class="gap">
+        <td><span class="pill p0">P0</span></td>
+        <td><strong>추천(discovery) → 전략 universe 연결 부재</strong></td>
+        <td>발굴 후보 → watchlist / 페이퍼 / 빌더(DSL만) 3갈래뿐. <strong>"선택한 후보를 전략 자동매매 대상 종목으로 담기" 경로가 UI·백엔드 모두 없음.</strong> (그림 2b·3·7b / <code>DaytradeMatchTable.tsx</code> L225·243 / <code>builderDraft.ts</code> code 단일 / <code>StrategyResearchController</code>에 universe-build 엔드포인트 없음). → 사용자 의도 재현 불가, orchestrator DB UPDATE가 이 갭을 우회 중.</td>
+        <td>발굴 다중선택 → "전략 universe로 보내기" 액션 + 빌더 universe 프리필 / draft에 codes[] 추가 + 백엔드 universe set 경로</td>
+      </tr>
+      <tr class="gap">
+        <td><span class="pill p0">P0</span></td>
+        <td><strong>빌더 draft가 universe를 운반하지 않음</strong></td>
+        <td>"빌더로 보내기 → 백테스트" draft는 <code>code</code> 단일(발굴 1위)만 운반, 후보 리스트 미포함 → 빌더 진입 후 universe는 여전히 빈 칸. (그림 4 / <code>StrategyResearchBuilderDraft</code> 필드)</td>
+        <td>draft 스키마에 <code>universeCodes: string[]</code> 추가 → 저장 모달 <code>initialCodes</code> 프리필</td>
+      </tr>
+      <tr class="warn">
+        <td><span class="pill p1">P1</span></td>
+        <td><strong>universe 일괄/대량 입력 수단 부재</strong></td>
+        <td>저장 모달 universe는 1종씩 검색+추가만. 16종을 담으려면 16회 반복. 붙여넣기(콤마 코드)·다중선택·CSV·프리셋 가져오기 없음. (그림 7·7b)</td>
+        <td>코드 다건 붙여넣기 파서 + "발굴/관심종목에서 가져오기" 버튼</td>
+      </tr>
+      <tr class="warn">
+        <td><span class="pill p1">P1</span></td>
+        <td><strong>owner=AUTOPILOT 전략 식별 표식 없음</strong></td>
+        <td>전략 목록·카드에서 AUTOPILOT 전략이 USER 전략과 동일하게 보이고 수정·삭제 가능. owner 배지·자물쇠·"자동 관리됨" 경고 없음. (그림 8 / <code>StrategyCard.tsx</code> owner 미사용 / list API owner 필터 없음)</td>
+        <td>AUTOPILOT 배지 + 수정/삭제 가드(또는 확인) + 목록 필터 옵션</td>
+      </tr>
+      <tr class="warn">
+        <td><span class="pill p1">P1</span></td>
+        <td><strong>status 표시 모순 (ACTIVE인데 "점검 필요")</strong></td>
+        <td>DB status=ACTIVE·배지 "자동매매중"이면서 동시에 "자동매매 점검 필요 — 성공한 백테스트 필요" 경고 표출. DB 직접 ACTIVE 주입이 UI 백테스트 게이트를 우회해 생긴 불일치. (그림 8)</td>
+        <td>백테스트 게이트 충족 여부와 status를 일관 판정 / AUTOPILOT은 게이트 예외 명시</td>
+      </tr>
+      <tr>
+        <td><span class="pill p2">P2</span></td>
+        <td><strong>발굴 프리셋과 전략 setup 단절</strong></td>
+        <td>단타 발굴 프리셋(갭상승·거래대금 계열)과 전략 102 FVG setup이 별개 체계. 발굴은 일봉 장전 setup, 전략은 5m FVG → "발굴로 찾은 종목을 FVG 5m 전략에 그대로 쓰는" 의미적 연결이 화면상 설명되지 않음.</td>
+        <td>발굴 setup ↔ 전략 빌더 관계 안내(이 후보는 어떤 전략에 적합한지) UX</td>
+      </tr>
+      <tr>
+        <td><span class="pill p2">P2</span></td>
+        <td><strong>watchlist=polling vs universe 혼동 위험</strong></td>
+        <td>발굴의 가장 눈에 띄는 액션이 "관심종목 추가"인데, ADR 0124로 watchlist는 polling 전용이라 자동매매 종목군과 무관. 사용자가 "관심종목에 넣으면 그 전략이 매매하겠지"로 오해할 여지. (그림 1 안내문구는 있으나 universe 경로 부재로 오해 증폭)</td>
+        <td>"관심종목 ≠ 자동매매 대상" 명시 + universe 경로 신설로 근본 해소</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3.5 추천기반 universe의 실제 답 — 자동재생성 worker (ADR 0131 · 2026-06-24 ON)</h2>
+  <div class="callout">
+    <strong>핵심:</strong> 위 P0 갭(추천→전략 universe UI 부재)은 <strong>USER 수동 흐름</strong>에 대한 것이다.
+    autopilot 전략(102 등)의 "오늘 discovery TOP16을 universe로"는 <strong>UI가 아니라 백엔드 자동 worker가 매일 수행</strong>한다 —
+    이것이 orchestrator의 임시 DB UPDATE를 대체하는 정식 메커니즘이며, <strong>2026-06-24 사용자 결재로 ON</strong> 되었다.
+  </div>
+  <div class="card">
+    <p><strong>AutopilotUniverseRefreshWorker</strong> (api · ADR 0131) — owner=AUTOPILOT 전략의 universe codes를 매일 장전 자동 갱신:</p>
+    <div class="flow">
+      <span class="node">매일 08:30 스코어카드</span><span class="arrow">→</span>
+      <span class="node">08:35 worker 기동(cron)</span><span class="arrow">→</span>
+      <span class="node"><code>discovery_scorecard</code> 당일 TOP16(code별 max score·dedup)</span><span class="arrow">→</span>
+      <span class="node">owner=AUTOPILOT 전략 <code>codes</code> 일괄 UPDATE</span><span class="arrow">→</span>
+      <span class="node">09:01 warmup 분봉 적재 → 09:00~ 평가</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:230px">설정 (ENV)</th><th>값 · 의미</th></tr></thead>
+      <tbody>
+        <tr><td><code>MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_ENABLED</code></td><td><strong>true</strong> (2026-06-24 ON · 기본 false) — off면 worker no-op, 고정 universe 유지</td></tr>
+        <tr><td><code>...UNIVERSE_REFRESH_CRON</code></td><td><code>0 35 8 * * *</code> (08:35 KST · 스코어카드 08:30 직후·개장 09:00 전)</td></tr>
+        <tr><td><code>...UNIVERSE_REFRESH_SIZE</code></td><td>16 (TOP N · WS slot 예산 ADR 0124 내)</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>안전장치</strong>: 거래일 게이트(주말/휴장 skip) · 1일 1회 멱등 · fail-safe(스코어카드 0건/빈 TOP → 갱신 skip, 빈 universe 사고 차단) · owner=AUTOPILOT 한정(USER/SYSTEM codes 무영향).</li>
+      <li><strong>보유 lot 처리</strong>: universe에서 빠지는 종목에 보유분이 있으면 <em>강제청산 0</em> — hold-until-exit(계획 TP/SL·EOD가 청산, codes는 매수 평가 대상만 변경).</li>
+      <li><strong>오늘 실증</strong>: 2026-06-24 orchestrator가 수동으로 한 "고정 16대형주 → discovery TOP16" 갱신을 worker가 <strong>내일(다음 거래일) 08:35부터 자동</strong> 수행 → 그날의 강동씨앤엘·씨피시스템 같은 신규 승자 종목을 자동 편입.</li>
+    </ul>
+    <p class="warn" style="padding:10px 14px; border-radius:8px;">
+      <strong>정리:</strong> 추천기반 universe는 <strong>① autopilot 전략 = worker가 자동(현 시점 ON·정식 경로)</strong> / <strong>② USER 수동 전략 = UI 경로 부재(위 P0 갭, 후속 트랙)</strong>.
+      즉 전략 102가 받은 결과는 이제 DB 직접 UPDATE가 아니라 ADR 0131 worker가 재현·유지한다. USER가 같은 걸 손으로 하려면 P0 갭 해소가 필요하다.
+    </p>
+  </div>
+
+  <h2>4. 캡처 인덱스</h2>
+  <div class="card">
+    <p>저장 위치: <code>docs/operations/guides/assets/</code> (총 12개)</p>
+    <ul>
+      <li><code>01-discovery-landing.png</code> — 단타 발굴 랜딩</li>
+      <li><code>02-discovery-results.png</code> — 발굴 결과 TOP (102 codes 상위 노출)</li>
+      <li><code>05-scorecard.png</code> — 발굴 스코어카드 (전체 긴 표)</li>
+      <li><code>06-builder-start-screen.png</code> — 빌더 시작 화면</li>
+      <li><code>07-builder-blank-canvas.png</code> — 빈 캔버스 3분할 빌더</li>
+      <li><code>08-save-modal-universe-input.png</code> — 저장 모달(universe·RiskPlan)</li>
+      <li><code>10-strategy-list-autopilot.png</code> — 전략 목록 전체</li>
+      <li><code>z1-preset-card-actions.png</code> — 프리셋 칩 확대</li>
+      <li><code>z2-candidate-row-actions.png</code> — 후보 행 확대 (chevron만)</li>
+      <li><code>z3-promote-area.png</code> — "모의로 굴려보기" 툴바</li>
+      <li><code>z5-universe-input-zoom.png</code> — universe 입력 확대 (수동 입증)</li>
+      <li><code>z7-autopilot-102-full-card.png</code> — 전략 102 카드 (AUTOPILOT 표식 부재·status 모순)</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <p>품질 헌터(qa) dispatch · 2026-06-24 · 실화면 기반(mock 0·방향성 가드 정합) · 운영 코드 0 touch. 캡처는 Playwright(chromium·1440x900·ko-KR·Asia/Seoul)로 magicjar-frontend(:3000) 라이브에 접속해 수집했고, 임시 캡처 스크립트는 실행 후 제거했다.</p>
+    <p>갭 수정은 본 가이드 범위 밖 — orchestrator가 후속 트랙(P0 우선)으로 분배 권장.</p>
+  </div>
+
+</div>
+</body>
+</html>
