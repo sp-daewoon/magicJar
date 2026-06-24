@@ -106,6 +106,23 @@
 
 ---
 
+## 7.5. 일일 universe 자동 재생성 (ADR 0131)
+
+> **autopilot 이 "오늘 무엇을 매수 평가하는가"(universe)는 매일 장전 발굴 결과로 자동 재생성된다.** 무엇을 청산하는가(lot)는 §2~§6(plan·소유권·안전망)이 책임진다 — universe 와 청산은 직교한다.
+
+- **입력**: 발굴 레이어(`discovery_scorecard` — 매 영업일 08:30 KST snapshot, DAYTRADE_* 6 프리셋 TOP N).
+- **합성**: 08:35 KST `AutopilotUniverseRefreshWorker` 가 오늘 snapshot 전 프리셋 후보를 **deduped 가중 TOP N**(instrument_code 별 max score · score DESC · default 16 · 상한 40 = WS slot 예산 ADR 0124)으로 합성.
+- **적용**: owner=AUTOPILOT ACTIVE/BUY_BLOCKED 전략 `codes` 일괄 UPDATE(단일 트랜잭션). **전 전략 동일 universe**(옵션 B — ADR 0130 lot 소유권이 전략 교차를 차단하므로 동일 universe 가 안전·단순).
+- **codes 의 의미 = BUY 평가 대상**일 뿐 청산 대상이 아니다. universe 에서 빠지는 종목의 보유 lot 은 **hold-until-exit**(강제 청산 0 — §2~§6 plan·안전망이 계획대로 청산). 추가 매수만 멈춘다.
+- **게이트**: `magicjar.autopilot.universe-refresh.enabled`(default **false** — 최고위험 자본경로). off → worker no-op = 고정 universe 유지.
+- **fail-safe**: snapshot 0건·빈 TOP N → codes 갱신 skip(기존 universe 유지 — 빈 universe 사고 차단) + WARN.
+- **거래일 게이트**(ADR 0104) + 1일 1회 멱등(KST). 주말·휴장 skip.
+- **owner 격리**: USER/SYSTEM codes touch 0(zero-regression).
+- **신규 종목 연계**: codes 갱신 후 `ActiveStrategyCodeProvider`(시세 universe·BUY 평가)·`ActiveStrategyIntradayWarmupRunner`(09:01 캔들 warmup)가 자동 read — 신규 배선 0.
+- **롤백**: 게이트 off 1줄 → 고정 universe 복귀.
+
+---
+
 ## 8. 운영 체크 (게이트 on 시 evidence 의무)
 
 `feedback_verification_strict`·`feedback_kis_ground_truth_crosscheck`:
@@ -122,4 +139,5 @@
 
 | 날짜 | 변경 | ADR |
 |------|------|-----|
+| 2026-06-24 | §7.5 추가 — 일일 universe 자동 재생성(발굴 08:30→autopilot codes 08:35·deduped 가중 TOP N·전 전략 동일 universe·보유 lot hold-until-exit·게이트 default OFF·fail-safe) | ADR 0131 |
 | 2026-06-24 | 최초 작성 — 3층 모델(L1 소유권/L2 TradePlan/L3 안전망)·교차 청산 금지·TradePlan 스키마 v1·owner 격리·게이트 default OFF | ADR 0130 |
