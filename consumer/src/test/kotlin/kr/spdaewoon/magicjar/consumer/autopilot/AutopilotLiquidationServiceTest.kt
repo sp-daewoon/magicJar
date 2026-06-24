@@ -3,14 +3,17 @@ package kr.spdaewoon.magicjar.consumer.autopilot
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
 import kr.spdaewoon.magicjar.consumer.persistence.AutopilotHeldLotProjection
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
+import kr.spdaewoon.magicjar.domain.order.execution.port.OrderRequestRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.ObjectProvider
 import java.math.BigDecimal
 
 /**
@@ -25,11 +28,31 @@ import java.math.BigDecimal
 class AutopilotLiquidationServiceTest {
     private val positionRepo = mockk<StrategyPositionJpaRepository>()
     private val intentProducer = mockk<OrderIntentKafkaProducer>(relaxed = true)
+    private val restingSellCanceller = mockk<RestingSellOrderCanceller>(relaxed = true)
+    private val orderRepo = mockk<OrderRequestRepository>(relaxed = true)
 
+    private fun <T : Any> providerOf(value: T?): ObjectProvider<T> =
+        mockk<ObjectProvider<T>>().also { every { it.getIfAvailable() } returns value }
+
+    /**
+     * 기본 service — orderRepo 미합류(null) 경로(degraded). resting SELL 선취소를 거치지 않으므로 기존 발행 검증이
+     * 영향받지 않는다(zero-regression). 선취소 동작은 [service(canceller)] 로 별도 검증.
+     */
     private fun service() =
         AutopilotLiquidationService(
             strategyPositionJpaRepository = positionRepo,
             orderIntentKafkaProducer = intentProducer,
+            restingSellOrderCanceller = restingSellCanceller,
+            orderRequestRepositoryProvider = providerOf(null),
+        )
+
+    /** orderRepo 합류 경로 — resting SELL 선취소 동작 검증용. */
+    private fun serviceWithRepo() =
+        AutopilotLiquidationService(
+            strategyPositionJpaRepository = positionRepo,
+            orderIntentKafkaProducer = intentProducer,
+            restingSellOrderCanceller = restingSellCanceller,
+            orderRequestRepositoryProvider = providerOf(orderRepo),
         )
 
     private fun lot(
@@ -234,6 +257,115 @@ class AutopilotLiquidationServiceTest {
                 triggerRefId = 100L,
             )
         }
+    }
+
+    // ── 자본경로 결함 fix — EOD 청산 resting SELL 선취소 (2026-06-24 080220/122640 overnight) ──────────────
+
+    @Test
+    fun `EOD 청산은 발행 전 resting auto-TP SELL 을 선취소 — 해당 종목 strategyId 로 cancelRestingSells 호출`() {
+        // 122640 1주 보유 + 13:40 걸린 auto-TP LIMIT SELL(미체결) → 수량 잠금. 선취소가 없으면 EOD 시장가 REJECTED.
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight("U1") } returns
+            listOf(lot(code = "122640", quantity = 1, avgPrice = BigDecimal("4500")))
+        // canceller 가 resting SELL 취소 성공 → 청산 진행 가능.
+        every {
+            restingSellCanceller.cancelRestingSells(orderRepo, "U1", 100L, "122640", any())
+        } returns RestingSellOrderCanceller.Result.Cancelled(emptyList())
+
+        val outcome = serviceWithRepo().liquidateNoOvernightAutopilot(userId = "U1", reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(1)
+        // 선취소가 시장가 발행 전에 같은 (userId·strategyId·code) 로 호출됐는가.
+        verify(exactly = 1) { restingSellCanceller.cancelRestingSells(orderRepo, "U1", 100L, "122640", any()) }
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "U1",
+                strategyId = 100L,
+                code = "122640",
+                intervalCode = "1m",
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.MARKET,
+                quantity = 1,
+                limitPrice = null,
+                priceAtSignal = BigDecimal("4500"),
+                idempotencyKey = match { it.startsWith("auto-lq:") },
+                orderTrigger = OrderTrigger.AUTO_EXIT,
+                triggerRefId = 100L,
+            )
+        }
+    }
+
+    @Test
+    fun `선취소 미완료(수동 SELL 침범 등 canProceed false)면 그 lot 청산 skip — 시장가 미발행`() {
+        // resting SELL 이 수동/타전략(AbortedForeignSell)이라 취소 불가 → 침범 금지로 해당 lot skip(다음 기회 재시도).
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight("U1") } returns
+            listOf(lot(code = "122640", quantity = 1, avgPrice = BigDecimal("4500")))
+        every {
+            restingSellCanceller.cancelRestingSells(orderRepo, "U1", 100L, "122640", any())
+        } returns RestingSellOrderCanceller.Result.AbortedForeignSell(mockk(relaxed = true))
+
+        val outcome = serviceWithRepo().liquidateNoOvernightAutopilot(userId = "U1", reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(0)
+        verify(exactly = 0) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `rtCd=7(원주문 KIS 부재)은 canceller 가 Cancelled 로 종결 — 청산 그대로 진행`() {
+        // #1113 fast-path: 원주문이 이미 KIS 에서 소멸(rtCd=7)하면 canceller 가 already-cancelled 로 Cancelled 반환.
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight(null) } returns
+            listOf(lot(code = "080220", quantity = 1, avgPrice = BigDecimal("134600")))
+        every {
+            restingSellCanceller.cancelRestingSells(orderRepo, "U1", 100L, "080220", any())
+        } returns RestingSellOrderCanceller.Result.Cancelled(emptyList())
+
+        val outcome = serviceWithRepo().liquidateNoOvernightAutopilot(userId = null, reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(1)
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                eq("080220"),
+                any(),
+                eq(OrderSide.SELL),
+                eq(OrderPriceType.MARKET),
+                eq(1),
+                isNull(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `orderRepo 미합류면 선취소 없이 청산 진행(degraded) — 청산 우선 성격`() {
+        // EOD/kill 청산은 오버나잇·자본 회수가 목적이라 매도 시그널 경로의 fail-closed 보류와 달리 보류하지 않는다.
+        every { positionRepo.findAutopilotHeldPositionsNoOvernight("U1") } returns
+            listOf(lot(code = "122640", quantity = 1, avgPrice = BigDecimal("4500")))
+
+        val outcome = service().liquidateNoOvernightAutopilot(userId = "U1", reason = "EOD_NO_OVERNIGHT")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(1)
+        verify(exactly = 0) { restingSellCanceller.cancelRestingSells(any(), any(), any(), any(), any()) }
     }
 
     @Test
