@@ -66,6 +66,8 @@ class AutopilotUniverseRefreshWorkerTest {
         val service = mockk<AutopilotUniverseRefreshService>()
         every { service.refresh(any()) } returns
             AutopilotUniverseRefreshService.RefreshResult(AutopilotUniverseRefreshService.RefreshStatus.UPDATED)
+        every { service.validateActivations(any()) } returns
+            AutopilotUniverseRefreshService.GateResult.disabled()
         val worker =
             AutopilotUniverseRefreshWorker(
                 refreshService = service,
@@ -76,6 +78,8 @@ class AutopilotUniverseRefreshWorkerTest {
         worker.refreshTick()
 
         verify(exactly = 1) { service.refresh(LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))) }
+        // ADR 0133 §3-B3 — codes 갱신 후 검증 게이트 append 호출.
+        verify(exactly = 1) { service.validateActivations(LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))) }
     }
 
     @Test
@@ -83,6 +87,8 @@ class AutopilotUniverseRefreshWorkerTest {
         val service = mockk<AutopilotUniverseRefreshService>()
         every { service.refresh(any()) } returns
             AutopilotUniverseRefreshService.RefreshResult(AutopilotUniverseRefreshService.RefreshStatus.UPDATED)
+        every { service.validateActivations(any()) } returns
+            AutopilotUniverseRefreshService.GateResult.disabled()
         val worker =
             AutopilotUniverseRefreshWorker(
                 refreshService = service,
@@ -102,6 +108,8 @@ class AutopilotUniverseRefreshWorkerTest {
         val service = mockk<AutopilotUniverseRefreshService>()
         every { service.refresh(any()) } throws RuntimeException("boom") andThen
             AutopilotUniverseRefreshService.RefreshResult(AutopilotUniverseRefreshService.RefreshStatus.UPDATED)
+        every { service.validateActivations(any()) } returns
+            AutopilotUniverseRefreshService.GateResult.disabled()
         val worker =
             AutopilotUniverseRefreshWorker(
                 refreshService = service,

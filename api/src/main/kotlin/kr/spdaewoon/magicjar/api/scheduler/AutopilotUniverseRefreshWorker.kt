@@ -83,6 +83,16 @@ class AutopilotUniverseRefreshWorker(
                 result.droppedCodes.size,
                 result.heldLotsRemaining.size,
             )
+            // ADR 0133 §3-B3 (#5 · R2b) — codes 갱신(커밋) 후 검증 게이트 append.
+            // 게이트 OFF/미배선이면 no-op(ADR 0131 거동 byte-동일). non-transactional(긴 backfill/백테스트 분리).
+            val gate = refreshService.validateActivations(today)
+            log.info(
+                "autopilot 검증 게이트 발사: status={} evaluated={} passed={} failed={}",
+                gate.status,
+                gate.evaluated,
+                gate.passed,
+                gate.failed,
+            )
         } catch (e: Exception) {
             // 실패 시 당일 마킹 해제 → 다음 부팅·수동 트리거 재시도 가능(멱등 산식이라 재실행 무해).
             lastRefreshedDate.set(null)

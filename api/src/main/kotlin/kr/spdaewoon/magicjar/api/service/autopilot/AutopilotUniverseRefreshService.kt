@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.api.persistence.screener.DiscoveryScorecardJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
+import kr.spdaewoon.magicjar.domain.backtest.AutopilotActivationVerdict
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
@@ -50,6 +51,8 @@ class AutopilotUniverseRefreshService(
     private val enabled: Boolean = false,
     @Value("\${magicjar.autopilot.universe-refresh.size:16}")
     private val sizeRaw: Int = DEFAULT_SIZE,
+    // ADR 0133 §3-B (#5 · R2b) — 검증 게이트. nullable=게이트 미배선·게이트 OFF 시 no-op(ADR 0131 거동 byte-동일).
+    private val activationGateService: AutopilotActivationGateService? = null,
 ) {
     private val log = LoggerFactory.getLogger(AutopilotUniverseRefreshService::class.java)
 
@@ -140,6 +143,78 @@ class AutopilotUniverseRefreshService(
     }
 
     /**
+     * codes 갱신 후 owner=AUTOPILOT 평가 전략 검증 게이트 — ADR 0133 §3-B3 (#5 · R2b).
+     *
+     * [refresh] 가 codes 를 갱신한 **뒤**(트랜잭션 커밋 후) 워커가 본 메서드를 호출한다. 각 owner=AUTOPILOT 전략을
+     * INTRADAY_REALISTIC 백테스트로 검증해 PASS=ACTIVE 유지(+backtest_run 영속) / FAIL=BUY_BLOCKED(매수 억제·
+     * 보유 lot hold-until-exit) 로 전이한다.
+     *
+     * ## 트랜잭션 분리 (의도 LOCK)
+     * 본 메서드는 **non-transactional** — 전략당 KIS 1m backfill + 백테스트는 길게 걸리므로 codes UPDATE 트랜잭션
+     * ([refresh])과 분리해 DB 잠금을 길게 잡지 않는다. 상태 전이·run 영속은 [AutopilotActivationGateService] 내부
+     * 단일 쿼리/persist 트랜잭션으로 종목별 독립 수행(한 전략 실패가 다른 전략 검증을 막지 않음).
+     *
+     * ## 게이트 (default OFF · §3-B5)
+     * - `activationGateService` null(미배선) 또는 `activation-gate.enabled=false` → no-op(ADR 0131 거동 byte-동일).
+     * - owner 격리: [StrategyJpaRepository.findAutopilotEvaluableStrategies] 가 owner='AUTOPILOT' 전략만 반환 →
+     *   USER/SYSTEM touch 0.
+     *
+     * @param snapshotDate 검증 기준일(= 오늘 KST · backtest to).
+     * @return [GateResult] — status·evaluated·passed·failed.
+     */
+    fun validateActivations(snapshotDate: LocalDate): GateResult {
+        val gate = activationGateService
+        if (gate == null || !gate.isEnabled()) {
+            log.debug("autopilot 검증 게이트 skip — 미배선/게이트 OFF (no-op · ADR 0131 거동 유지)")
+            return GateResult.disabled()
+        }
+
+        val strategies = strategyJpaRepository.findAutopilotEvaluableStrategies()
+        if (strategies.isEmpty()) {
+            log.info("autopilot 검증 게이트 — 평가 대상 owner=AUTOPILOT 전략 0건(skip)")
+            return GateResult(status = GateStatus.NO_STRATEGIES)
+        }
+
+        var passed = 0
+        var failed = 0
+        for (strategy in strategies) {
+            // 한 전략 검증 실패(예외)가 나머지 전략 검증을 막지 않도록 격리(fail-soft per-strategy).
+            val verdict =
+                runCatching { gate.evaluateStrategy(strategy, snapshotDate) }
+                    .getOrElse { e ->
+                        log.warn("autopilot 검증 게이트 전략 평가 예외(보수 FAIL 간주): strategyId={} err={}", strategy.id, e.message, e)
+                        null
+                    }
+            when {
+                // 게이트 내부에서 모든 정상 경로는 applyVerdict 로 상태 전이됨. 여기 escape 예외는 상태 write 자체 실패
+                // (DB 장애 등) — 더 안전한 후속 조치가 없으므로 집계상 FAIL 로만 노출(silent 0 · 다음 검증 재시도).
+                verdict == null -> failed++
+                verdict.verdict == AutopilotActivationVerdict.PASS -> passed++
+                else -> failed++
+            }
+        }
+
+        log.info(
+            "autopilot 검증 게이트 완료 — date={} evaluated={} passed={} failed={}",
+            snapshotDate,
+            strategies.size,
+            passed,
+            failed,
+        )
+        emit(
+            SystemEventSeverity.INFO,
+            "ACTIVATION_GATE_RUN",
+            """{"snapshotDate":"$snapshotDate","evaluated":${strategies.size},"passed":$passed,"failed":$failed}""",
+        )
+        return GateResult(
+            status = GateStatus.EVALUATED,
+            evaluated = strategies.size,
+            passed = passed,
+            failed = failed,
+        )
+    }
+
+    /**
      * deduped TOP N 합성 (결정성 LOCK — ADR 0131 §6-1).
      * group by instrument_code → max(score) → sort score DESC, code ASC → take(size).
      */
@@ -218,5 +293,28 @@ class AutopilotUniverseRefreshService(
 
         /** codes 갱신 완료. */
         UPDATED,
+    }
+
+    /** 검증 게이트(#5) 결과 — 워커 로그·관측·테스트 단언 대상 (ADR 0133 §3-B3). */
+    data class GateResult(
+        val status: GateStatus,
+        val evaluated: Int = 0,
+        val passed: Int = 0,
+        val failed: Int = 0,
+    ) {
+        companion object {
+            fun disabled() = GateResult(GateStatus.DISABLED)
+        }
+    }
+
+    enum class GateStatus {
+        /** 게이트 미배선/OFF — no-op(ADR 0131 거동 byte-동일). */
+        DISABLED,
+
+        /** owner=AUTOPILOT 평가 전략 0건 — 검증 skip. */
+        NO_STRATEGIES,
+
+        /** 전략별 검증 수행 완료(passed/failed 집계). */
+        EVALUATED,
     }
 }
