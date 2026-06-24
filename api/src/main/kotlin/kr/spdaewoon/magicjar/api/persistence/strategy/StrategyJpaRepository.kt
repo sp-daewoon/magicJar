@@ -149,6 +149,50 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     ): List<Long>
 
     /**
+     * owner=AUTOPILOT 평가 전략(ACTIVE·BUY_BLOCKED)의 codes JSONB 컬럼을 일괄 갱신 — ADR 0131 일일 universe 자동 재생성.
+     *
+     * ## 격리 (zero-regression LOCK)
+     * WHERE 절이 `owner='AUTOPILOT' AND status IN ('ACTIVE','BUY_BLOCKED')` 로 격리 — USER/SYSTEM 전략 codes 는 touch 0.
+     * 단일 UPDATE 문이라 대상 전략 전체가 같은 트랜잭션에서 동일 codes JSON 으로 갱신된다(split-brain 0 — §6-2).
+     *
+     * ## codesJson 포맷 (StrategyJpaAdapter 직렬화 패턴 1:1)
+     * `codesJson` = `ObjectMapper.writeValueAsString(List<String>)` (예: `["005930","000660"]`). caller(서비스)가
+     * dedup·정렬·TOP N 합성 후 동일 codec 으로 직렬화한 JSON 배열 String. JSONB 컬럼에 CAST 로 그대로 set.
+     *
+     * codes 의 의미 = "BUY 평가 대상 종목"일 뿐 청산 대상이 아니다(ADR 0131 §2-3 hold-until-exit). 보유 lot 은
+     * 건드리지 않는다 — 매수 평가 universe 만 교체된다.
+     *
+     * 헌법 §6 (ADR 0051): @Modifying @Query abstract fun(body 0). JSONB CAST 가 JPQL 로 표현 불가 → native query.
+     *
+     * @return 실제 갱신된 전략 row 수 (0 = 대상 owner=AUTOPILOT ACTIVE/BUY_BLOCKED 전략 없음).
+     */
+    @Modifying
+    @Query(
+        value =
+            "UPDATE strategy " +
+                "SET codes = CAST(:codesJson AS jsonb), updated_at = NOW() " +
+                "WHERE owner = 'AUTOPILOT' AND status IN ('ACTIVE', 'BUY_BLOCKED')",
+        nativeQuery = true,
+    )
+    fun updateAutopilotUniverse(
+        @Param("codesJson") codesJson: String,
+    ): Int
+
+    /**
+     * owner=AUTOPILOT 평가 전략(ACTIVE·BUY_BLOCKED)의 현재 codes JSONB(raw String) 목록 — ADR 0131 직전 universe 산출.
+     *
+     * refresh 시 "직전 universe ∖ 신규 universe" 회전 종목 집계(보유 lot 잔존 가시화 §6-3)에 사용한다. read-only.
+     * 헌법 §6 (ADR 0051): query inference 회피 명시 @Query, abstract fun(body 0).
+     */
+    @Query(
+        value =
+            "SELECT s.codes FROM strategy s " +
+                "WHERE s.owner = 'AUTOPILOT' AND s.status IN ('ACTIVE', 'BUY_BLOCKED')",
+        nativeQuery = true,
+    )
+    fun findAutopilotUniverseCodesRaw(): List<String?>
+
+    /**
      * 내 전략 목록 — "자동매매 시작(ACTIVE) 전략 우선 + 그룹 내 최신 변경순" 정렬.
      *
      * Spring Data [org.springframework.data.domain.Sort]는 CASE식 정렬을 표현하지 못하므로 @Query JPQL로 처리.

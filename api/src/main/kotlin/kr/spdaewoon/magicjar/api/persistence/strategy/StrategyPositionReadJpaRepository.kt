@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.api.persistence.strategy
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository
 
 /**
@@ -11,6 +12,22 @@ import org.springframework.stereotype.Repository
  */
 @Repository
 interface StrategyPositionReadJpaRepository : JpaRepository<StrategyPositionReadJpaEntity, Long> {
+    /**
+     * owner=AUTOPILOT 전략이 quantity>0 으로 보유 중인 종목 코드 집합 — ADR 0131 hold-until-exit 가시화(§6-3).
+     *
+     * universe 재생성 시 "직전 universe ∖ 신규 universe" 회전 종목 중 보유 lot 잔존 종목을 집계하는 입력.
+     * strategy_position.strategy_id 를 strategy.id 와 join 해 owner=AUTOPILOT 으로 격리(USER/SYSTEM 보유분 미포함).
+     * read-only. 헌법 §6 (ADR 0051): abstract fun(body 0) — 집계 로직은 @Query 위임.
+     */
+    @Query(
+        value =
+            "SELECT DISTINCT p.code FROM strategy_position p " +
+                "JOIN strategy s ON s.id = p.strategy_id " +
+                "WHERE s.owner = 'AUTOPILOT' AND p.quantity > 0",
+        nativeQuery = true,
+    )
+    fun findAutopilotHeldCodes(): List<String>
+
     /** 전략 단위 보유 행 조회(UQ user+strategy+code라 전략당 종목별 1행 — 전략에 종목 1개면 단건). */
     fun findByStrategyId(strategyId: Long): List<StrategyPositionReadJpaEntity>
 

@@ -151,6 +151,14 @@ magicjar:
     max-positions: ${MAGICJAR_AUTOPILOT_MAX_POSITIONS:3}
     daily-loss-pct: ${MAGICJAR_AUTOPILOT_DAILY_LOSS_PCT:30}
     cum-loss-pct: ${MAGICJAR_AUTOPILOT_CUM_LOSS_PCT:50}
+    # 일일 universe 자동 재생성 (ADR 0131) — 발굴 scorecard 오늘 snapshot → deduped TOP N → owner=AUTOPILOT codes 갱신.
+    #   enabled: default false(최고위험 자본경로 — 매수 종목 자체가 매일 바뀜). off → 08:35 worker no-op = 고정 universe 유지(zero-regression).
+    #   cron: default 08:35 KST(scorecard snapshot 08:30 직후·개장 09:00 전). 거래일 게이트 + 1일1회 멱등.
+    #   size: deduped TOP N 종목 수(default 16·1~40, 상한 40 = ADR 0124 WS slot 예산). 코드에서 coerceIn(1,40).
+    universe-refresh:
+      enabled: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_ENABLED:false}
+      cron: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_CRON:0 35 8 * * *}
+      size: ${MAGICJAR_AUTOPILOT_UNIVERSE_REFRESH_SIZE:16}
   # T-SC Screener 설정 (ADR 0071 §2-4 D-2)
   screener:
     # 옵션 영속 — true 시 screening_run + screening_match INSERT (default false = Redis cache-only)
