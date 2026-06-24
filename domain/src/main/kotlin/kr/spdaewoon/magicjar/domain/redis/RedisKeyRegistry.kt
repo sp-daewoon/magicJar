@@ -296,6 +296,16 @@ object RedisKeyRegistry {
      *
      * dedup(buyCodeLock)이 *같은 cycle 동시* 중복을 막는다면, 본 키는 *시간차 재진입*(분 단위 churn)을 막는
      * 직교 보강이다. TTL=쿨다운 윈도우(default 보수)라 윈도우 경과 후 정당 추세추종 재진입은 자연 허용된다.
+     *
+     * ### reentryDayCount — owner=AUTOPILOT 종목당 1일 왕복 cap (planned-entry churn 저감, 2026-06-24)
+     * key = `autopilot:reentry:count:user:{userId}:code:{code}:{kstDate}`
+     *
+     * 쿨다운(reentryCooldown)은 *청산 직후 N분* 의 즉시 재진입만 막는다. 하지만 윈도우(15분) 경과 후엔 같은 code 를
+     * 하루 종일 반복 왕복할 수 있어(실측 2026-06-23 122640 ~8왕복 — 거래비용 46% 잠식) **누적 왕복 횟수**는
+     * 묶이지 않았다. 본 키는 한 code 의 owner=AUTOPILOT **전량 청산(왕복 완료)** 횟수를 KST 날짜 단위로 카운트하고
+     * (INCR + 첫 카운트 시 KST EOD 까지 TTL), 그 횟수가 cap 에 도달하면 같은 날 같은 code 의 신규 BUY 재진입을
+     * suppress 한다. 시간 축(쿨다운)·가격 축(추격가드)과 직교한 **누적 축** 보강이다. 날짜 경계에 키 자연 소멸 → 익일 리셋.
+     * SELL/청산은 본 키를 절대 게이트로 쓰지 않는다(보유분 청산 항상 보장 — 롱온리).
      */
     object Autopilot {
         fun buyCodeLock(
@@ -308,6 +318,12 @@ object RedisKeyRegistry {
             code: String,
         ): String = Standard.reentryCooldown(userId, code)
 
+        fun reentryDayCount(
+            userId: String,
+            code: String,
+            kstDate: String,
+        ): String = Standard.reentryDayCount(userId, code, kstDate)
+
         object Standard {
             fun buyCodeLock(
                 userId: String,
@@ -318,6 +334,12 @@ object RedisKeyRegistry {
                 userId: String,
                 code: String,
             ): String = "autopilot:reentry:user:$userId:code:$code"
+
+            fun reentryDayCount(
+                userId: String,
+                code: String,
+                kstDate: String,
+            ): String = "autopilot:reentry:count:user:$userId:code:$code:$kstDate"
         }
     }
 

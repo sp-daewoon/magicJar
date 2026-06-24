@@ -53,6 +53,8 @@ class AutopilotReentryCooldownGuardTest {
         enabled: Boolean = true,
         cooldownMinutes: Long = 15L,
         priceGuardPct: BigDecimal = BigDecimal.ZERO,
+        // 시간/가격 축 레거시 테스트는 누적 축(dayCap) 비활성(0)으로 둬 거동을 분리한다(dayCap 전용 테스트는 명시 지정).
+        maxReentriesPerCodePerDay: Int = 0,
     ) = AutopilotReentryCooldownGuard(
         redisTemplate = redisTemplate,
         properties =
@@ -60,11 +62,14 @@ class AutopilotReentryCooldownGuardTest {
                 enabled = enabled,
                 reentryCooldownMinutes = cooldownMinutes,
                 reentryPriceGuardPct = priceGuardPct,
+                maxReentriesPerCodePerDay = maxReentriesPerCodePerDay,
             ),
         strategyRepository = strategyRepo,
     )
 
     private fun cooldownKey(code: String) = "autopilot:reentry:user:$userId:code:$code"
+
+    private fun dayCountKeyPrefix(code: String) = "autopilot:reentry:count:user:$userId:code:$code:"
 
     private fun recorded(
         ts: Long,
@@ -233,5 +238,92 @@ class AutopilotReentryCooldownGuardTest {
         guard().recordLiquidation(userId, "006340", strategyId = 100L, exitPrice = BigDecimal("11070"))
 
         verify(exactly = 0) { valueOps.set(any(), any<String>(), any<Duration>()) }
+    }
+
+    // ── 누적 축 (종목당 1일 왕복 cap, 2026-06-24) ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `(q) 오늘 왕복 count cap 도달 — Suppress (누적 churn 차단)`() {
+        // dayCap=3, 오늘 카운트 3 도달 → 추가 재진입 suppress. day-count get 만 보고 시간 축 키는 읽지 않는다.
+        every { valueOps.get(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) } returns "3"
+
+        val decision =
+            guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+                .evaluate(userId, "006340", strategyId = 100L, currentPrice = price)
+
+        assertThat(decision).isInstanceOf(AutopilotReentryCooldownGuard.Decision.Suppress::class.java)
+        assertThat((decision as AutopilotReentryCooldownGuard.Decision.Suppress).reason)
+            .contains("AUTOPILOT_REENTRY_DAY_CAP")
+    }
+
+    @Test
+    fun `(r) 오늘 왕복 count cap 미달 — Proceed (정상 재진입)`() {
+        every { valueOps.get(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) } returns "2"
+
+        val decision =
+            guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+                .evaluate(userId, "006340", strategyId = 100L, currentPrice = price)
+
+        assertThat(decision).isEqualTo(AutopilotReentryCooldownGuard.Decision.Proceed)
+    }
+
+    @Test
+    fun `(s) dayCap=0 — 누적 축 비활성 Proceed + day-count 조회 0 (롤백 경로)`() {
+        val decision =
+            guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 0)
+                .evaluate(userId, "006340", strategyId = 100L, currentPrice = price)
+
+        assertThat(decision).isEqualTo(AutopilotReentryCooldownGuard.Decision.Proceed)
+        verify(exactly = 0) { valueOps.get(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) }
+    }
+
+    @Test
+    fun `(t) day-count Redis 장애 — fail-open Proceed (정상 신호 막지 않음)`() {
+        every { valueOps.get(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) } throws
+            RedisConnectionFailureException("redis down")
+
+        val decision =
+            guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+                .evaluate(userId, "006340", strategyId = 100L, currentPrice = price)
+
+        assertThat(decision).isEqualTo(AutopilotReentryCooldownGuard.Decision.Proceed)
+    }
+
+    @Test
+    fun `(u) owner=AUTOPILOT 전량 청산 — day-count INCR + 첫 카운트 TTL 설정`() {
+        every { strategyRepo.countAutopilotStrategyById(100L) } returns 1L
+        every { valueOps.increment(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) } returns 1L
+        every { redisTemplate.expire(any(), any<Duration>()) } returns true
+
+        guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+            .recordLiquidation(userId, "006340", strategyId = 100L, exitPrice = BigDecimal("11070"))
+
+        verify(exactly = 1) { valueOps.increment(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) }
+        // 첫 카운트(1)에서만 TTL 설정.
+        verify(exactly = 1) {
+            redisTemplate.expire(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }, any<Duration>())
+        }
+    }
+
+    @Test
+    fun `(v) day-count 2회차 이상 — TTL 재설정 안 함(날짜 경계까지 유지)`() {
+        every { strategyRepo.countAutopilotStrategyById(100L) } returns 1L
+        every { valueOps.increment(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) } returns 2L
+
+        guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+            .recordLiquidation(userId, "006340", strategyId = 100L, exitPrice = BigDecimal("11070"))
+
+        verify(exactly = 1) { valueOps.increment(match<String> { it.startsWith(dayCountKeyPrefix("006340")) }) }
+        verify(exactly = 0) { redisTemplate.expire(any(), any<Duration>()) }
+    }
+
+    @Test
+    fun `(w) owner not AUTOPILOT — day-count INCR 0 (격리 LOCK)`() {
+        every { strategyRepo.countAutopilotStrategyById(200L) } returns 0L
+
+        guard(cooldownMinutes = 0L, maxReentriesPerCodePerDay = 3)
+            .recordLiquidation(userId, "006340", strategyId = 200L, exitPrice = BigDecimal("11070"))
+
+        verify(exactly = 0) { valueOps.increment(any<String>()) }
     }
 }

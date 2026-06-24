@@ -82,6 +82,21 @@ data class MagicjarAutopilotProperties(
      * 생성되므로 본 값도 무의미.
      */
     val reentryPriceGuardPct: BigDecimal = DEFAULT_REENTRY_PRICE_GUARD_PCT,
+    /**
+     * 종목당 1일 왕복 cap (planned-entry churn 저감, 2026-06-24) — owner=AUTOPILOT 가 같은 code 를 하루에 본 횟수만큼
+     * **전량 청산(왕복 완료)** 하면, 그날 같은 code 의 신규 BUY 재진입을 suppress 한다. ENV
+     * `MAGICJAR_AUTOPILOT_MAX_REENTRIES_PER_CODE_PER_DAY`. default [DEFAULT_MAX_REENTRIES_PER_CODE_PER_DAY].
+     *
+     * ## 근거 (누적 축 — 시간/가격 축과 직교)
+     * 쿨다운([reentryCooldownMinutes]=15분)은 청산 직후 즉시 재진입만 막아, 윈도우 경과 후 같은 code 를 하루 종일
+     * 반복 왕복하는 누적 churn 은 못 묶는다. 실측 2026-06-23: 122640 한 종목이 ~8왕복, gross 26,016 중 거래비용
+     * 12,084(46%)가 알파 잠식. 본 cap 은 한 종목의 **누적 왕복 횟수**를 묶어 비용 출혈을 종목 단위로 bound 한다.
+     * default 3 = "한 종목 하루 최대 3왕복" — 정당한 추세 재진입 몇 회는 허용하되 8왕복 같은 churn 은 차단(보수적 큰 값).
+     *
+     * **0 이하면 cap 비활성**(누적 축 통째 skip = 기존 경로 byte 동일·롤백 경로). [enabled]=false 면 autopilot BUY 자체가
+     * 안 생성되므로 본 값도 무의미.
+     */
+    val maxReentriesPerCodePerDay: Int = DEFAULT_MAX_REENTRIES_PER_CODE_PER_DAY,
 ) {
     /**
      * 실시간 BUY 신호 구동 평가 쿼리에 넘길 **owner 집합** (spec 2026-06-22 §2 Phase 1 wiring · DRY 단일 출처).
@@ -127,6 +142,12 @@ data class MagicjarAutopilotProperties(
          * 보수적 작은 값 — 정당한 추세 재진입의 자연 호흡(작은 등락)은 허용하되 명확한 추격(+1%↑)만 막는다.
          */
         val DEFAULT_REENTRY_PRICE_GUARD_PCT: BigDecimal = BigDecimal("1.0")
+
+        /**
+         * 종목당 1일 왕복 cap default = 3 (planned-entry churn 저감, 2026-06-24). 한 code 하루 3왕복 도달 후 재진입 차단.
+         * 보수적 큰 값 — 정당한 추세 재진입 몇 회는 허용하되 실측 8왕복 같은 누적 churn 만 묶는다. 0 이하면 비활성.
+         */
+        const val DEFAULT_MAX_REENTRIES_PER_CODE_PER_DAY: Int = 3
 
         /**
          * BUY 구동 평가 owner 집합 — [StrategyOwner] enum name 과 동일 문자열(DB owner VARCHAR 값과 정합).

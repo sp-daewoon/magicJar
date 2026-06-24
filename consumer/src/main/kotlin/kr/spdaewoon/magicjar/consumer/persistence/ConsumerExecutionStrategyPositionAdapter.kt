@@ -292,6 +292,10 @@ class ConsumerExecutionStrategyPositionAdapter(
                     filledLots = rebuiltPos.filledLots,
                     realizedPnl = rebuiltPos.realizedPnl,
                     executedExitStages = rebuiltPos.executedExitStages,
+                    // ADR 0130 L2 — trade_plan 보존(보유 중) / 전량 청산이면 null reset(StrategyPosition §77-80 불변식).
+                    //   rebuild 는 order_execution 진실원 재계산이라 plan(진입 박제 thesis)을 산출하지 않으므로 기존 박제를 그대로
+                    //   이어받되, 청산 도달(quantity==0)이면 사이클 종료로 비운다(다음 진입이 새 plan 박제).
+                    tradePlan = if (rebuiltPos.quantity == 0) null else existing?.tradePlan,
                     openedAt = existing?.openedAt ?: now,
                     updatedAt = now,
                 )
@@ -415,6 +419,8 @@ class ConsumerExecutionStrategyPositionAdapter(
         return if (nextQty == 0) {
             // 전량 청산 — avgPrice·filledLots·executedExitStages reset (행 유지, 재진입 새 사이클).
             // ADR 0128 ①② — 분할 base·잔여도 reset(다음 진입은 새 1차 buyable 로 새 base 박제).
+            // ADR 0130 L2 — trade_plan 도 reset(null) — StrategyPosition §77-80 불변식. lot 사이클이 종료됐으므로
+            //   계획을 비워 다음 진입(재매수)이 captureTradePlanIfAutopilot 으로 새 plan 을 박제하게 한다.
             baseOf(request, current, now).copy(
                 quantity = 0,
                 avgPrice = BigDecimal.ZERO,
@@ -423,6 +429,7 @@ class ConsumerExecutionStrategyPositionAdapter(
                 executedExitStages = emptySet(),
                 scaleInBaseBudget = null,
                 scaleInRemainderQty = 0,
+                tradePlan = null,
             )
         } else {
             baseOf(request, current, now).copy(
@@ -477,6 +484,11 @@ class ConsumerExecutionStrategyPositionAdapter(
             // ADR 0128 ①② — base 고정·잔여는 기본 보존(applyBuy 잔여 차감·applySell 전량청산 reset 만 명시 변경).
             scaleInBaseBudget = current?.scaleInBaseBudget,
             scaleInRemainderQty = current?.scaleInRemainderQty ?: 0,
+            // ADR 0130 L2 — trade_plan 박제 보존(불변식: StrategyPosition §77-80). lot 사이클 동안 유지해야 PlanExecutor 가
+            //   재진입·scale-in·부분청산 후속 체결도 lot-scoped 로 실행한다. 과거 baseOf 가 이 필드를 누락해 **모든 체결이
+            //   plan 을 null 로 덮어써(#2)** 재매수 lot 이 권위 plan 없이 구 auto-TP 경로로 새는 결함이 있었다.
+            //   전량 청산(nextQty==0)일 때만 applySell 분기에서 명시 null reset(다음 사이클 새 plan 박제).
+            tradePlan = current?.tradePlan,
             openedAt = current?.openedAt ?: now,
             updatedAt = now,
         )
@@ -890,6 +902,8 @@ class ConsumerExecutionStrategyPositionAdapter(
                         // 전량 청산 도달 — 분할 base·잔여도 reset (applySell nextQty==0 정합, ADR 0128 ①②).
                         scaleInBaseBudget = null,
                         scaleInRemainderQty = 0,
+                        // ADR 0130 L2 — trade_plan 도 reset (applySell nextQty==0 정합, StrategyPosition §77-80).
+                        tradePlan = null,
                         updatedAt = now,
                     )
                 } else {
