@@ -8,10 +8,12 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
+import kr.spdaewoon.magicjar.api.config.IntradayRealisticBacktestProperties
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.backtest.BacktestEntrySkip
 import kr.spdaewoon.magicjar.domain.backtest.BacktestException
+import kr.spdaewoon.magicjar.domain.backtest.BacktestExecutionMode
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPerformance
 import kr.spdaewoon.magicjar.domain.backtest.BacktestPosition
 import kr.spdaewoon.magicjar.domain.backtest.BacktestRequest
@@ -23,11 +25,14 @@ import kr.spdaewoon.magicjar.domain.backtest.LookaheadGuard
 import kr.spdaewoon.magicjar.domain.backtest.PriceAdjustmentMode
 import kr.spdaewoon.magicjar.domain.backtest.SizingPolicy
 import kr.spdaewoon.magicjar.domain.backtest.TradeSide
+import kr.spdaewoon.magicjar.domain.backtest.port.BacktestCandlePreparePort
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestCommissionModel
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestEngine
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestSlippageModel
 import kr.spdaewoon.magicjar.domain.backtest.port.BacktestTaxModel
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
+import kr.spdaewoon.magicjar.domain.market.candle.CandleConfidence
+import kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
 import kr.spdaewoon.magicjar.domain.strategy.ResolvedEntryPolicy
 import kr.spdaewoon.magicjar.domain.strategy.Signal
@@ -36,6 +41,10 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.IntradayExitReason
+import kr.spdaewoon.magicjar.strategy.IntradayExitSimulation
+import kr.spdaewoon.magicjar.strategy.IntradayTradingClock
+import kr.spdaewoon.magicjar.strategy.TradePlanFactory
 import kr.spdaewoon.magicjar.strategy.entry.EntryPriceDecision
 import kr.spdaewoon.magicjar.strategy.entry.EntryPriceInput
 import kr.spdaewoon.magicjar.strategy.entry.EntryPricePolicy
@@ -43,10 +52,13 @@ import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitDecision
 import kr.spdaewoon.magicjar.strategy.scalein.ScaleInExitSimulation
 import kr.spdaewoon.magicjar.strategy.scalein.VirtualStrategyPosition
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
@@ -85,6 +97,16 @@ class JvmBacktestEngine(
     private val candleJpaRepository: CandleJpaRepository,
     private val modelRegistry: BacktestModelRegistry,
     private val performanceCalculator: BacktestPerformanceCalculator,
+    /** 초단타 정합 백테스트 게이트(ADR 0132 §2-B · R2b) — default off 시 INTRADAY_REALISTIC 요청은 LEGACY 강등. */
+    private val intradayProperties: IntradayRealisticBacktestProperties = IntradayRealisticBacktestProperties(),
+    /**
+     * 분봉 선수집 + 정합성 보고 포트(ADR 0132 §1-E · R2a market-data 구현).
+     *
+     * R2a 머지 전에는 빈(null)일 수 있으므로 [Autowired] required=false 로 선택 주입한다(엔진은 인터페이스만 의존 ·
+     * R2b/R2a 병렬 LOCK). 포트가 없으면 INTRADAY_REALISTIC 은 DB 기존 봉만으로 정합성 평가(backfill 0).
+     */
+    @Autowired(required = false)
+    private val candlePreparePort: BacktestCandlePreparePort? = null,
 ) : BacktestEngine {
     private val log = LoggerFactory.getLogger(JvmBacktestEngine::class.java)
 
@@ -96,9 +118,32 @@ class JvmBacktestEngine(
         private const val DEFAULT_MARKET = "KOSPI"
 
         private val ZERO = BigDecimal.ZERO
+
+        /** 봉 ts(KST) 산출 타임존 — EOD/blackout 시간 판정(ADR 0132 §D1-3). */
+        private val SEOUL_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
     }
 
     override fun run(request: BacktestRequest): BacktestResult {
+        // ── 모드 분기 (ADR 0132 §4-A R2b) ──────────────────────────────────────
+        // INTRADAY_REALISTIC 은 ENV 게이트(magicjar.backtest.intraday-realistic.enabled)가 ON 일 때만 발화한다.
+        // 게이트 OFF(default) 면 요청 모드와 무관하게 LEGACY 로 강등 — 신규 경로 차단(opt-in · zero-regression LOCK).
+        val intradayActive =
+            request.executionMode == BacktestExecutionMode.INTRADAY_REALISTIC && intradayProperties.enabled
+        if (request.executionMode == BacktestExecutionMode.INTRADAY_REALISTIC && !intradayProperties.enabled) {
+            log.info(
+                "백테스트 INTRADAY_REALISTIC 요청이나 게이트 OFF(magicjar.backtest.intraday-realistic.enabled=false) — LEGACY 로 강등: strategyId={}",
+                request.strategyId,
+            )
+        }
+        return if (intradayActive) runIntradayRealistic(request) else runLegacy(request)
+    }
+
+    /**
+     * LEGACY 백테스트 (ADR 0056 — 기존 동작 byte-동일 · zero-regression LOCK).
+     *
+     * DSL sell + scale-in/exit 경로 그대로. 본 메서드는 [run] 분기 도입(ADR 0132 §4-A R2b) 전 원본 본문을 그대로 옮긴 것이다.
+     */
+    private fun runLegacy(request: BacktestRequest): BacktestResult {
         val startMs = System.currentTimeMillis()
         val executedAt = Clock.System.now()
 
@@ -411,6 +456,392 @@ class JvmBacktestEngine(
             durationMs = durationMs,
             entrySkip = entrySkip,
         )
+    }
+
+    // =====================================================================
+    // INTRADAY_REALISTIC 백테스트 (ADR 0132 §3 기둥1·2·3 — 라이브 parity 청산 + backfill 선수집 + 정합성 가드)
+    // =====================================================================
+
+    /**
+     * 초단타 정합 백테스트 (ADR 0132 §4-A R2b).
+     *
+     * LEGACY 와 다른 점은 **청산 두뇌**뿐이다:
+     *  - ① 분봉 선수집 + 정합성 보고([BacktestCandlePreparePort.prepareAndReport]) — 기둥2·3. 포트 부재(R2a 미머지) 시 backfill 0.
+     *  - ② 진입은 기존 DSL entry 유지(LEGACY 와 동일 BUY 신호). 개장 blackout(09:00~09:15)·EOD 후 신규 진입은 억제.
+     *  - ③ 청산은 [IntradayExitSimulation.evaluateBar](라이브 [kr.spdaewoon.magicjar.strategy.TradePlanEvaluator] 재사용 +
+     *       intrabar SL 우선 + EOD/min_hold) — 청산 재구현 0(parity LOCK).
+     *  - ④ 정합성 등급 분기: OK 진행 · LOW_CONFIDENCE 진행+배지 · INSUFFICIENT_DATA 종목 skip · 전부 skip 이면 Aborted.
+     *
+     * 세금·수수료·슬리피지·MTM equity·진입 정책 게이트·사이징은 LEGACY 헬퍼를 그대로 재사용한다(코드 중복 0 — DRY LOCK).
+     */
+    private fun runIntradayRealistic(request: BacktestRequest): BacktestResult {
+        val startMs = System.currentTimeMillis()
+        val executedAt = Clock.System.now()
+
+        log.info(
+            "초단타 정합 백테스트 시작(INTRADAY_REALISTIC): strategyId={}, universe={}, interval={}, from={}, to={}, backfillIfMissing={}",
+            request.strategyId,
+            request.universe,
+            request.interval,
+            request.from,
+            request.to,
+            request.backfillIfMissing,
+        )
+
+        // 1. 전략 조회 (LEGACY 와 동일).
+        val strategy =
+            strategyRepository.findById(request.strategyId)
+                ?: throw BacktestException.StrategyNotFoundException(request.strategyId)
+        val definition = applyExitParamOverride(strategy.definition, request.exitParamOverride)
+        val dslDef: DslStrategyDefinition = definition.dsl
+        val buyAst: DslNode =
+            dslDef.buyCondition
+                ?: throw BacktestException.InvalidStrategyDslException(request.strategyId, "buyCondition (진입 조건)이 없습니다.")
+
+        // 2. 분봉 선수집 + 정합성 보고 (기둥2·3). 게이트(ENV) ∧ 요청 플래그 ∧ 포트 존재 셋 모두 충족 시 backfill 발화.
+        val backfillEnabled = intradayProperties.resolveBackfillEnabled(request.backfillIfMissing)
+        val integrity: Map<String, CandleIntegrityReport> = prepareCandles(request, backfillEnabled)
+
+        // 3. 정합성 등급 분기 — INSUFFICIENT_DATA 종목 skip, 전부 skip 이면 Aborted (mock 보간 0 — 등급으로만).
+        val tradableUniverse =
+            request.universe.filter { code ->
+                val report = integrity[code]
+                val skip = report?.confidence == CandleConfidence.INSUFFICIENT_DATA
+                if (skip) {
+                    log.warn(
+                        "초단타 백테스트 종목 skip(INSUFFICIENT_DATA): code={} missingRatio={} (mock 보간 0 — 등급으로만 노출)",
+                        code,
+                        report?.missingRatio,
+                    )
+                }
+                !skip
+            }
+        if (tradableUniverse.isEmpty()) {
+            val durationMs = System.currentTimeMillis() - startMs
+            log.warn("초단타 백테스트 abort: universe 전부 INSUFFICIENT_DATA — strategyId={}", request.strategyId)
+            return BacktestResult.Aborted(
+                request = request,
+                partialTrades = emptyList(),
+                reason = "INSUFFICIENT_CANDLE_INTEGRITY",
+                timeoutCount = 0,
+                executedAt = executedAt,
+                durationMs = durationMs,
+            )
+        }
+
+        // 4. 모델 lookup (LEGACY 와 동일).
+        val taxModel: BacktestTaxModel = modelRegistry.taxModel(request.taxModel)
+        val commissionModel: BacktestCommissionModel = modelRegistry.commissionModel(request.commissionModel)
+        val slippageModel: BacktestSlippageModel = modelRegistry.slippageModel(request.slippageModel)
+        val resolvedEntryPolicy: ResolvedEntryPolicy? =
+            definition.entryPolicy?.resolved(ResolvedEntryPolicy.DEFAULTS)
+
+        // 5. 캔들 조회 범위 (LEGACY 와 동일 — KST 경계 instant).
+        val interval = CandleInterval.fromCode(request.interval)
+        val seoulTz = TimeZone.of("Asia/Seoul")
+        val fromInstant: Instant =
+            LocalDateTime(request.from.year, request.from.monthNumber, request.from.dayOfMonth, 0, 0)
+                .toInstant(seoulTz)
+                .toJavaInstant()
+        val toInstant: Instant =
+            LocalDateTime(request.to.year, request.to.monthNumber, request.to.dayOfMonth, 23, 59, 59)
+                .toInstant(seoulTz)
+                .toJavaInstant()
+
+        // 6. 시뮬 상태.
+        val trades = mutableListOf<BacktestTrade>()
+        val positions = mutableListOf<BacktestPosition>()
+        val equityCurve = mutableListOf<BigDecimal>(request.initialCapital)
+        var cash = request.initialCapital
+        var entrySkip = BacktestEntrySkip.NONE
+        val openPositions = mutableMapOf<String, BacktestPosition>()
+        // 청산 두뇌 입력 추적 — 진입 봉 index(elapsedBars 산출) + 봉 high 누적(트레일링 highWatermark).
+        val entryBarIndex = mutableMapOf<String, Int>()
+        val highWatermark = mutableMapOf<String, BigDecimal>()
+
+        // 7. universe 순회 시뮬 (skip 제외).
+        for (code in tradableUniverse) {
+            val entities: List<CandleJpaEntity> =
+                candleJpaRepository.findByCodeAndIntervalAndTsBetween(
+                    code = code,
+                    interval = interval.code,
+                    fromTs = fromInstant,
+                    toTs = toInstant,
+                )
+            if (entities.isEmpty()) {
+                // 정합성 보고는 INSUFFICIENT 가 아니었으나 실제 조회 0 — DB-only 모드(포트 부재)에서 발생 가능. 종목 skip(부분 결과).
+                log.warn("초단타 백테스트 캔들 0건 — 종목 skip: code={}, interval={}", code, interval.code)
+                continue
+            }
+            val allCandles: List<Candle> = entities.map { toDomain(it, request.priceAdjustmentMode) }
+
+            for (t in allCandles.indices) {
+                val slice = LookaheadGuard.safeSlice(allCandles, t)
+                val currentCandle = allCandles[t]
+                val rawPrice = currentCandle.closeRaw
+                val evalPrice =
+                    if (request.priceAdjustmentMode == PriceAdjustmentMode.ADJUSTED) {
+                        currentCandle.closeAdj ?: rawPrice
+                    } else {
+                        rawPrice
+                    }
+                val candleTs = currentCandle.ts
+                val barTimeKst: LocalTime =
+                    currentCandle.ts
+                        .toJavaInstant()
+                        .atZone(SEOUL_ZONE)
+                        .toLocalTime()
+
+                if (openPositions.containsKey(code)) {
+                    // ── 보유 중 — 청산 평가(라이브 두뇌 parity) ──
+                    val pos = openPositions.getValue(code)
+                    highWatermark[code] = maxHigh(highWatermark[code], currentCandle, request.priceAdjustmentMode)
+                    val plan =
+                        TradePlanFactory.build(
+                            strategyId = request.strategyId,
+                            definition = definition,
+                            entryPrice = pos.avgEntryPrice,
+                            bar = interval.code,
+                            openedAt = pos.openedAt.toString(),
+                        )
+                    val elapsedBars = (t - (entryBarIndex[code] ?: t)).coerceAtLeast(0)
+                    val decision =
+                        IntradayExitSimulation.evaluateBar(
+                            plan = plan,
+                            bar = currentCandle,
+                            avgPrice = pos.avgEntryPrice,
+                            elapsedBars = elapsedBars,
+                            highWatermark = highWatermark[code],
+                            minHoldBars = definition.minHoldBars,
+                            allowOvernight = definition.allowOvernight,
+                            barTimeKst = barTimeKst,
+                            adjusted = request.priceAdjustmentMode == PriceAdjustmentMode.ADJUSTED,
+                        )
+                    if (decision != null) {
+                        // 청산 — IntradayExitSimulation 가 산정한 triggerPrice 를 체결가로 사용(SL/TP 라인 · EOD/MAX_HOLD/TRAIL close).
+                        val result =
+                            executeIntradayExit(
+                                code = code,
+                                pos = pos,
+                                rawPrice = rawPrice,
+                                exitPrice = decision.triggerPrice,
+                                candleTs = candleTs,
+                                reason = decision.reason,
+                                taxModel = taxModel,
+                                commissionModel = commissionModel,
+                            )
+                        trades.add(result.trade)
+                        cash = cash.add(result.proceeds)
+                        positions.add(pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl))
+                        openPositions.remove(code)
+                        entryBarIndex.remove(code)
+                        highWatermark.remove(code)
+                    }
+                } else {
+                    // ── 미보유 — DSL 진입 평가(LEGACY 와 동일 BUY 신호) + 개장 blackout/late-entry 억제 ──
+                    val buyResult = evaluateBuySignal(request.strategyId, buyAst, slice)
+                    val blackout = IntradayTradingClock.isOpenBlackout(barTimeKst)
+                    // allow_overnight=false 전략은 late-entry cutoff(14:30↑) 이후 신규 진입 금지(라이브 parity).
+                    val lateBlocked = !definition.allowOvernight && IntradayTradingClock.isLateEntryBlocked(barTimeKst)
+                    if (buyResult?.signal == Signal.BUY && !blackout && !lateBlocked && cash > ZERO) {
+                        val skipReason = entryPolicySkip(resolvedEntryPolicy, evalPrice, candleTs, slippageModel)
+                        if (skipReason != null) {
+                            entrySkip = entrySkip.accumulate(skipReason)
+                        } else {
+                            val result =
+                                executeBuy(
+                                    code = code,
+                                    buyBudget = buyBudget(request.sizingPolicy, request.initialCapital, cash),
+                                    rawPrice = rawPrice,
+                                    evalPrice = evalPrice,
+                                    candleTs = candleTs,
+                                    signalReason = buyResult.reason,
+                                    commissionModel = commissionModel,
+                                    slippageModel = slippageModel,
+                                )
+                            if (result != null) {
+                                trades.add(result.trade)
+                                cash = cash.subtract(result.cost)
+                                openPositions[code] = result.position
+                                entryBarIndex[code] = t
+                                highWatermark[code] = maxHigh(null, currentCandle, request.priceAdjustmentMode)
+                            }
+                        }
+                    }
+                }
+
+                equityCurve.add(markToMarketEquity(cash, openPositions, evalPrice))
+            }
+
+            // 시뮬 종료 — 미종료 포지션을 마지막 봉 close 로 강제 청산(LEGACY 와 동일 정합).
+            if (openPositions.containsKey(code)) {
+                val pos = openPositions.getValue(code)
+                val lastCandle = allCandles.last()
+                val lastRaw = lastCandle.closeRaw
+                val lastEval =
+                    if (request.priceAdjustmentMode == PriceAdjustmentMode.ADJUSTED) lastCandle.closeAdj ?: lastRaw else lastRaw
+                val result =
+                    executeIntradayExit(
+                        code = code,
+                        pos = pos,
+                        rawPrice = lastRaw,
+                        exitPrice = lastEval,
+                        candleTs = lastCandle.ts,
+                        reason = IntradayExitReason.EOD,
+                        signalTrigger = "FORCE_CLOSE_END_OF_BACKTEST",
+                        taxModel = taxModel,
+                        commissionModel = commissionModel,
+                    )
+                trades.add(result.trade)
+                cash = cash.add(result.proceeds)
+                positions.add(pos.copy(closedAt = lastCandle.ts, realizedPnl = result.realizedPnl))
+                openPositions.remove(code)
+                entryBarIndex.remove(code)
+                highWatermark.remove(code)
+                if (equityCurve.isNotEmpty()) equityCurve[equityCurve.size - 1] = cash else equityCurve.add(cash)
+            }
+        }
+
+        // 8. 성과 지표.
+        val periodDays = ChronoUnit.DAYS.between(fromInstant, toInstant)
+        val businessDays = calculateBusinessDays(request)
+        val performance: BacktestPerformance =
+            performanceCalculator.calculate(
+                trades = trades,
+                initialCapital = request.initialCapital,
+                finalCapital = cash,
+                equityCurve = equityCurve,
+                periodDays = periodDays,
+                businessDays = businessDays,
+            )
+
+        // universe 최저 신뢰 등급(OK < LOW_CONFIDENCE < INSUFFICIENT_DATA) — UI 배지 단일 진실원.
+        val confidence = worstConfidence(integrity.values.map { it.confidence })
+        val durationMs = System.currentTimeMillis() - startMs
+        log.info(
+            "초단타 정합 백테스트 완료: strategyId={}, trades={}, finalCapital={}, confidence={}, skipped={}/{}, durationMs={}",
+            request.strategyId,
+            trades.size,
+            cash,
+            confidence,
+            request.universe.size - tradableUniverse.size,
+            request.universe.size,
+            durationMs,
+        )
+
+        return BacktestResult.Success(
+            request = request,
+            trades = trades.toList(),
+            positions = positions.toList(),
+            finalCapital = cash,
+            performance = performance,
+            executedAt = executedAt,
+            durationMs = durationMs,
+            entrySkip = entrySkip,
+            candleIntegrity = integrity,
+            confidence = confidence,
+        )
+    }
+
+    /**
+     * 분봉 선수집 + 정합성 보고 — 포트([BacktestCandlePreparePort]) 위임(ADR 0132 §1-E · 기둥2·3).
+     *
+     * 포트가 주입돼 있으면(R2a 머지) universe 전 종목에 대해 정합성 보고를 받는다(backfill 은 [backfillEnabled] AND 결과).
+     * 포트 부재(R2a 미머지) 면 DB 기존 봉만으로 시뮬하며 정합성 메트릭은 비운다(빈 Map → confidence=OK · skip 0).
+     */
+    private fun prepareCandles(
+        request: BacktestRequest,
+        backfillEnabled: Boolean,
+    ): Map<String, CandleIntegrityReport> {
+        val port =
+            candlePreparePort ?: run {
+                log.info("BacktestCandlePreparePort 미주입(R2a 미머지) — 정합성 보고 생략, DB 기존 봉만으로 시뮬: strategyId={}", request.strategyId)
+                return emptyMap()
+            }
+        return try {
+            port.prepareAndReport(
+                universe = request.universe,
+                interval = request.interval,
+                from = request.from,
+                to = request.to,
+                backfillEnabled = backfillEnabled,
+            )
+        } catch (e: RuntimeException) {
+            // 정합성/backfill 실패는 백테스트 자체를 막지 않는다 — 정합성 미상(빈 Map)으로 DB 기존 봉 시뮬 진행.
+            log.warn("초단타 백테스트 분봉 선수집 실패 — 정합성 미상으로 진행: strategyId={}, cause={}", request.strategyId, e.message)
+            emptyMap()
+        }
+    }
+
+    /** universe 정합성 등급 중 최저(OK < LOW_CONFIDENCE < INSUFFICIENT_DATA). 비어 있으면 OK. */
+    private fun worstConfidence(confidences: Collection<CandleConfidence>): CandleConfidence =
+        confidences.maxByOrNull { it.ordinal } ?: CandleConfidence.OK
+
+    /** 봉 high(가격 모드 반영)와 직전 watermark 중 최대 — 트레일링 highWatermark 누적. */
+    private fun maxHigh(
+        prev: BigDecimal?,
+        bar: Candle,
+        mode: PriceAdjustmentMode,
+    ): BigDecimal {
+        val high = if (mode == PriceAdjustmentMode.ADJUSTED) bar.highAdj ?: bar.highRaw else bar.highRaw
+        return if (prev == null) high else prev.max(high)
+    }
+
+    /** BUY 신호 1회 평가 — timeout 1회는 HOLD 간주(null). 초단타 진입은 LEGACY 와 동일 DSL entry. */
+    private fun evaluateBuySignal(
+        strategyId: Long,
+        buyAst: DslNode,
+        slice: List<Candle>,
+    ): kr.spdaewoon.magicjar.domain.strategy.StrategyEvalResult? =
+        try {
+            evaluatorBridge.evaluateBacktest(strategyId, buyAst, slice)
+        } catch (e: StrategyException.StrategyTimeoutException) {
+            null
+        }
+
+    /**
+     * 초단타 청산 체결 — IntradayExitSimulation 가 산정한 [exitPrice] 로 보유분 전량 SELL(세금·수수료 반영).
+     *
+     * SL/TP 는 라인 가격, MAX_HOLD/EOD/TRAIL/EXIT_COND 는 봉 close 가 [exitPrice] 로 들어온다(parity 체결가).
+     * 슬리피지는 적용하지 않는다 — IntradayExitSimulation 의 청산가는 이미 KRX tick 라인(라이브 PlanExecutor 산정가)이며,
+     * 라인 위에 슬리피지를 또 얹으면 라이브 parity 가 깨진다(보수적 — 청산 라인 그대로 체결).
+     */
+    private fun executeIntradayExit(
+        code: String,
+        pos: BacktestPosition,
+        rawPrice: BigDecimal,
+        exitPrice: BigDecimal,
+        candleTs: kotlinx.datetime.Instant,
+        reason: IntradayExitReason,
+        signalTrigger: String? = null,
+        taxModel: BacktestTaxModel,
+        commissionModel: BacktestCommissionModel,
+    ): SellResult {
+        val quantity = pos.quantity
+        val notional = exitPrice.multiply(BigDecimal(quantity))
+        val commission = commissionModel.calculate(TradeSide.SELL, notional)
+        val tax = taxModel.calculate(TradeSide.SELL, exitPrice, quantity, DEFAULT_MARKET)
+        val proceeds = notional.subtract(commission).subtract(tax)
+        val realizedPnl = proceeds.subtract(pos.avgEntryPrice.multiply(BigDecimal(quantity)))
+        val trade =
+            BacktestTrade(
+                code = code,
+                side = TradeSide.SELL,
+                quantity = quantity,
+                executedPrice = exitPrice,
+                rawPrice = rawPrice,
+                executedAt = candleTs,
+                commission = commission,
+                tax = tax,
+                slippage = ZERO,
+                signalReason =
+                    mapOf(
+                        "trigger" to (signalTrigger ?: reason.name),
+                        "exitReason" to reason.name,
+                        "realizedPnl" to realizedPnl,
+                    ),
+            )
+        return SellResult(trade = trade, proceeds = proceeds, realizedPnl = realizedPnl)
     }
 
     // =====================================================================

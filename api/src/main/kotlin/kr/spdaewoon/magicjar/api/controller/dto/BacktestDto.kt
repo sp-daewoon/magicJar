@@ -77,6 +77,26 @@ data class BacktestRunRequest(
         required = false,
     )
     val sizingPolicy: SizingPolicyRequestDto? = null,
+    @field:Schema(
+        description =
+            "백테스트 청산 모드 (ADR 0132 §1-A · 미지정 시 LEGACY — 하위호환 LOCK). " +
+                "LEGACY=기존 DSL sell/scale-in 청산. " +
+                "INTRADAY_REALISTIC=라이브 TradePlanEvaluator 청산(SL>MAX_HOLD>exitCond>TP>TRAIL) + intrabar SL 우선 + " +
+                "EOD(15:15)/개장 blackout(09:00~09:15)/min_hold. " +
+                "INTRADAY_REALISTIC 은 서버 게이트(magicjar.backtest.intraday-realistic.enabled) ON 일 때만 발화하며, OFF 면 LEGACY 로 강등된다.",
+        example = "LEGACY",
+        required = false,
+    )
+    val executionMode: String = "LEGACY",
+    @field:Schema(
+        description =
+            "분봉 부재 시 KIS on-demand backfill 허용 (ADR 0132 §1-A · default false). " +
+                "INTRADAY_REALISTIC 모드에서만 의미 있으며, 서버 게이트(magicjar.backtest.intraday-realistic.backfill-enabled)와 AND 로만 발화한다. " +
+                "false 면 DB 기존 봉만으로 시뮬(부족 시 INSUFFICIENT_DATA 등급).",
+        example = "false",
+        required = false,
+    )
+    val backfillIfMissing: Boolean = false,
 )
 
 // ─── 응답 DTO ────────────────────────────────────────────────────────────────
@@ -102,6 +122,46 @@ data class BacktestRunResponse(
     val durationMs: Long,
     @field:Schema(description = "적용 사이징 정책 echo (ADR 0121 §2-2 — G3 MDD 판정 맥락)")
     val sizingPolicy: SizingPolicyEchoDto,
+    @field:Schema(
+        description =
+            "캔들 정합성 신뢰 등급 (ADR 0132 §D3-3 — INTRADAY_REALISTIC 모드 universe 최저 등급). " +
+                "OK=결측 ≤5% · LOW_CONFIDENCE=5~20%(경고 배지) · INSUFFICIENT_DATA=종목 skip. LEGACY 모드는 OK.",
+        example = "OK",
+    )
+    val confidence: String = "OK",
+    @field:Schema(
+        description =
+            "종목별 캔들 정합성 보고 (ADR 0132 §D3-3 — INTRADAY_REALISTIC 모드 backfill 후 결측률·등급). " +
+                "LEGACY 모드 또는 정합성 미상 시 빈 리스트(mock 보간 0 — 등급으로만 노출).",
+    )
+    val candleIntegrity: List<CandleIntegrityDto> = emptyList(),
+)
+
+/**
+ * 캔들 정합성 보고 DTO (ADR 0132 §D3-1 — 기대/실제 봉수·결측률·등급).
+ *
+ * INTRADAY_REALISTIC 백테스트가 분봉 backfill 후 종목별로 "몇 % 봉이 결측인가"를 정직하게 노출한다(mock 절대 금지).
+ */
+@Schema(description = "캔들 정합성 보고 (ADR 0132 §D3-1)")
+data class CandleIntegrityDto(
+    @field:Schema(description = "종목코드", example = "005930")
+    val code: String,
+    @field:Schema(description = "캔들 interval", example = "1m")
+    val interval: String,
+    @field:Schema(description = "기대 봉 수", example = "11700")
+    val expectedBars: Int,
+    @field:Schema(description = "실제 봉 수", example = "11500")
+    val actualBars: Int,
+    @field:Schema(description = "결측 봉 수", example = "200")
+    val missingBars: Int,
+    @field:Schema(description = "결측률 (0.0~1.0)", example = "0.0171")
+    val missingRatio: BigDecimal,
+    @field:Schema(description = "신뢰 등급 (OK · LOW_CONFIDENCE · INSUFFICIENT_DATA)", example = "OK")
+    val confidence: String,
+    @field:Schema(description = "보고 범위 거래일 수(근사)", example = "30")
+    val tradingDaysCovered: Int,
+    @field:Schema(description = "요청 from 이 KIS 1m lookback bound 보다 과거여서 clamp 됐는지", example = "false")
+    val lookbackClamped: Boolean,
 )
 
 /**

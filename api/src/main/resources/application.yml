@@ -177,6 +177,16 @@ magicjar:
       command: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_COMMAND:claude}
       bridge-url: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL:}
       timeout-seconds: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS:180}
+  # 초단타 정합 백테스트 (ADR 0132 — INTRADAY_REALISTIC 모드 · 분봉 backfill · 정합성 가드)
+  #   라이브 TradePlanEvaluator 청산을 백테스트에 재사용(parity) + 분봉 부재 시 KIS on-demand backfill + 정합성 등급.
+  #   enabled: default false(opt-in · zero-regression LOCK) — OFF 면 INTRADAY_REALISTIC 요청도 LEGACY 로 강등.
+  #   backfill-enabled: default false(라이브 자본경로 보호 — KIS 호출 폭증 차단). 요청 backfillIfMissing 과 AND.
+  #   max-lookback-days: default 30 거래일(약 150 call/종목 — KIS 1m 보관 최대 1년 내 보수적 클램프).
+  backtest:
+    intraday-realistic:
+      enabled: ${MAGICJAR_BACKTEST_INTRADAY_REALISTIC_ENABLED:false}
+      backfill-enabled: ${MAGICJAR_BACKTEST_INTRADAY_REALISTIC_BACKFILL_ENABLED:false}
+      max-lookback-days: ${MAGICJAR_BACKTEST_INTRADAY_REALISTIC_MAX_LOOKBACK_DAYS:30}
   # ─────────────────────────────────────────────────
   # 차트 캔들 페이지네이션 매트릭스 (ADR 0093 §3-1 LOCK)
   #   key 매트릭스 = spec PR #609 §5 정합 — chart-curator + backend-core 공동 LOCK
