@@ -59,7 +59,14 @@ class AutopilotEodLiquidationWorker(
     companion object {
         val KST: ZoneId = ZoneId.of("Asia/Seoul")
         const val LIQUIDATION_REASON: String = "EOD_NO_OVERNIGHT"
-        private val FALLBACK_CUTOFF: LocalTime = LocalTime.of(15, 15)
+
+        /**
+         * EOD cutoff fallback — ADR 0132 §D1-3 단일 출처.
+         * strategy-engine [kr.spdaewoon.magicjar.strategy.IntradayTradingClock.EOD_LIQUIDATE_KST] 를 참조해
+         * 라이브(본 워커)·백테스트([kr.spdaewoon.magicjar.strategy.IntradayExitSimulation])가 동일 default(15:15)를 공유한다.
+         */
+        private val FALLBACK_CUTOFF: LocalTime =
+            kr.spdaewoon.magicjar.strategy.IntradayTradingClock.EOD_LIQUIDATE_KST
     }
 
     /**

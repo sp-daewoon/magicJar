@@ -26,6 +26,10 @@ import java.math.BigDecimal
  * @param exitParamOverride 청산 파라미터 1개 override (spec §3-R3 민감도 sweep 전용 · add-only). **null이면 전략 정의 그대로(현행)**.
  *   지정 시 엔진이 조회한 전략 정의의 손절%·익절%·트레일링% 중 1개를 이 값으로 치환해 시뮬레이션한다(DB write 0 — 메모리 override).
  *   민감도 분석([SensitivityRequest])이 그리드 각 점마다 이 필드만 바꿔 [run]을 반복 호출하는 용도.
+ * @param executionMode 백테스트 청산 모드 (ADR 0132 §1-A · add-only). **default [BacktestExecutionMode.LEGACY] → 기존 호출 무변경**.
+ *   [BacktestExecutionMode.INTRADAY_REALISTIC] 이면 라이브 `TradePlanEvaluator` 청산 + intrabar SL 우선 + EOD/blackout/min_hold 경로(parity).
+ * @param backfillIfMissing 분봉 부재 시 KIS on-demand backfill 허용 (ADR 0132 §1-A · add-only). **default false**.
+ *   ENV 게이트(`magicjar.backtest.intraday-realistic.backfill-enabled`)와 AND 로만 발화한다(엔진/포트 책임 — 자본경로 보호).
  */
 data class BacktestRequest(
     val strategyId: Long,
@@ -41,6 +45,8 @@ data class BacktestRequest(
     val sizingPolicy: SizingPolicy = SizingPolicy.AllCapital,
     val outOfSampleSplit: LocalDate? = null,
     val exitParamOverride: ExitParamOverride? = null,
+    val executionMode: BacktestExecutionMode = BacktestExecutionMode.LEGACY,
+    val backfillIfMissing: Boolean = false,
 ) {
     init {
         require(from <= to) { "from must be <= to: from=$from, to=$to" }
