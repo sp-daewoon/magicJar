@@ -68,7 +68,7 @@ describe('buildDaytradePresetDraft', () => {
         entryDsl:
           'open >= prev_close * 1.025 and volume > volume_ma(20) * 2.5 and close * volume > 16000000000',
       }),
-      '005930',
+      ['005930'],
       '1d',
     )
 
@@ -77,6 +77,55 @@ describe('buildDaytradePresetDraft', () => {
     expect(result.draft?.entryDsl).toContain('AND')
     expect(result.draft?.code).toBe('005930')
     expect(result.draft?.interval).toBe('1d')
+  })
+
+  it('단일 종목 흐름은 universeCodes=[code]로 정합한다 (zero-regression)', () => {
+    const result = buildDaytradePresetDraft(daytradeCandidate(), ['005930'], '1d')
+
+    expect(result.reason).toBeUndefined()
+    expect(result.draft?.code).toBe('005930')
+    expect(result.draft?.universeCodes).toEqual(['005930'])
+    // 단일 종목이면 N종 프리필 안내 note를 남기지 않는다.
+    expect(result.draft?.conversionNotes.join(' ')).not.toContain('universe로 프리필')
+  })
+
+  it('다중선택한 N종을 universeCodes로 운반하고 평가 기준=첫 종목으로 둔다 (ADR 0134)', () => {
+    const result = buildDaytradePresetDraft(
+      daytradeCandidate(),
+      ['005930', '000660', '035720'],
+      '1d',
+    )
+
+    expect(result.reason).toBeUndefined()
+    expect(result.draft?.code).toBe('005930') // 평가 기준 = 첫 종목
+    expect(result.draft?.universeCodes).toEqual(['005930', '000660', '035720'])
+    expect(result.draft?.nameKo).toContain('외 2종')
+    expect(result.draft?.conversionNotes.join(' ')).toContain('3종')
+  })
+
+  it('universeCodes는 dedup하고 순서를 보존한다', () => {
+    const result = buildDaytradePresetDraft(
+      daytradeCandidate(),
+      ['005930', '000660', '005930', '', '035720'],
+      '1d',
+    )
+
+    expect(result.draft?.universeCodes).toEqual(['005930', '000660', '035720'])
+    expect(result.draft?.code).toBe('005930')
+  })
+
+  it('빈 codes 배열은 평가 기준 종목 없음으로 거부한다', () => {
+    const result = buildDaytradePresetDraft(daytradeCandidate(), [], '1d')
+
+    expect(result.draft).toBeNull()
+    expect(result.reason).toContain('평가 기준 종목')
+  })
+
+  it('빈 문자열만 담긴 codes도 거부한다', () => {
+    const result = buildDaytradePresetDraft(daytradeCandidate(), ['', ''], '1d')
+
+    expect(result.draft).toBeNull()
+    expect(result.reason).toContain('평가 기준 종목')
   })
 })
 
