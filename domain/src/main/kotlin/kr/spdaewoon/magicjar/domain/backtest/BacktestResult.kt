@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.domain.backtest
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.market.candle.CandleConfidence
+import kr.spdaewoon.magicjar.domain.market.candle.CandleIntegrityReport
 import java.math.BigDecimal
 
 /**
@@ -21,6 +23,10 @@ sealed class BacktestResult {
      * @param executedAt 실행 완료 시각
      * @param durationMs 소요 시간 (ms)
      * @param entrySkip 진입 정책(EntryPricePolicy) 적용으로 스킵된 BUY 기회 집계 (ADR 0114 R3). 진입 정책 미설정 전략은 0.
+     * @param candleIntegrity 종목별 캔들 정합성 보고 (ADR 0132 §D3-3 · add-only). LEGACY 모드는 빈 Map(기존 결과 무변경).
+     *   INTRADAY_REALISTIC 모드에서 backfill 후 기대/실제 봉수 대비 결측률·등급을 종목별로 동봉한다(mock 금지 — 등급으로만 노출).
+     * @param confidence universe 최저 신뢰 등급 (ADR 0132 §D3-3 · add-only). default [CandleConfidence.OK](기존 결과 무변경).
+     *   종목별 [candleIntegrity] 중 가장 낮은 등급(OK<LOW_CONFIDENCE<INSUFFICIENT_DATA). UI 경고 배지의 단일 진실원.
      */
     data class Success(
         val request: BacktestRequest,
@@ -31,6 +37,8 @@ sealed class BacktestResult {
         val executedAt: Instant,
         val durationMs: Long,
         val entrySkip: BacktestEntrySkip = BacktestEntrySkip.NONE,
+        val candleIntegrity: Map<String, CandleIntegrityReport> = emptyMap(),
+        val confidence: CandleConfidence = CandleConfidence.OK,
     ) : BacktestResult()
 
     /**
