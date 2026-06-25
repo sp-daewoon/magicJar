@@ -81,6 +81,35 @@ class RiskGatewayEvaluatorTest {
     }
 
     @Test
+    fun `dailyLossLimitBreach — percent 한도 도달 시 위반, 미도달이면 null`() {
+        val config = sampleConfig(dailyLossLimitPercent = BigDecimal("3.00"))
+        // -5% (한도 -3%) → 위반
+        assertThat(
+            evaluator.isDailyLossLimitReached(config, BigDecimal("-50000"), BigDecimal("1000000")),
+        ).isTrue()
+        // -2% → 미도달
+        assertThat(
+            evaluator.isDailyLossLimitReached(config, BigDecimal("-20000"), BigDecimal("1000000")),
+        ).isFalse()
+        // capital 0 → percent 분모 불가 → 자연 비활성(미도달)
+        assertThat(
+            evaluator.isDailyLossLimitReached(config, BigDecimal("-50000"), BigDecimal.ZERO),
+        ).isFalse()
+    }
+
+    @Test
+    fun `dailyLossLimitBreach — amount 한도 도달 + DLL 비활성 처리`() {
+        val amountConfig = sampleConfig(dailyLossLimitAmount = BigDecimal("30000"), dailyLossLimitPercent = null)
+        // -50000 손실 >= 한도 30000 → 위반(capital 무관)
+        assertThat(evaluator.isDailyLossLimitReached(amountConfig, BigDecimal("-50000"), BigDecimal.ZERO)).isTrue()
+        // -10000 손실 < 30000 → 미도달
+        assertThat(evaluator.isDailyLossLimitReached(amountConfig, BigDecimal("-10000"), BigDecimal("1000000"))).isFalse()
+        // DLL 비활성(둘 다 null) → 항상 미도달
+        val inactive = sampleConfig(dailyLossLimitAmount = null, dailyLossLimitPercent = null)
+        assertThat(evaluator.isDailyLossLimitReached(inactive, BigDecimal("-9999999"), BigDecimal("1000000"))).isFalse()
+    }
+
+    @Test
     fun `3 MAX_CONCURRENT_POSITIONS BLOCKED — BUY 시 동시 보유 한도 도달`() {
         val signal = sampleSignal(side = SignalSide.BUY)
         // default config maxConcurrentPositions=5, 현재 5종목 보유

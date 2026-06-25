@@ -80,51 +80,10 @@ class RiskGatewayEvaluator {
             )
         }
 
-        // 2. DAILY_LOSS_LIMIT — B-1 amount OR percent xor
-        if (context.config.isDailyLossLimitActive) {
-            val pnl = context.dailyRealizedPnl
-            val amountLimit = context.config.dailyLossLimitAmount
-            val percentLimit = context.config.dailyLossLimitPercent
-
-            if (amountLimit != null) {
-                if (pnl < BigDecimal.ZERO && pnl.abs() >= amountLimit) {
-                    return blocked(
-                        signalId,
-                        RiskRule.DAILY_LOSS_LIMIT,
-                        reason = "Daily loss ${pnl.toPlainString()} reached amount limit -${amountLimit.toPlainString()}",
-                        context =
-                            mapOf(
-                                "dailyRealizedPnl" to pnl.toPlainString(),
-                                "limit" to amountLimit.toPlainString(),
-                                "limitType" to "amount",
-                            ),
-                    )
-                }
-            } else if (percentLimit != null) {
-                if (context.currentCapital > BigDecimal.ZERO && pnl < BigDecimal.ZERO) {
-                    val pnlPctAbs =
-                        pnl
-                            .abs()
-                            .divide(context.currentCapital, 6, RoundingMode.HALF_UP)
-                            .multiply(BigDecimal("100"))
-                    if (pnlPctAbs >= percentLimit) {
-                        val pnlPctScaled = pnlPctAbs.setScale(2, RoundingMode.HALF_UP).toPlainString()
-                        return blocked(
-                            signalId,
-                            RiskRule.DAILY_LOSS_LIMIT,
-                            reason = "Daily loss $pnlPctScaled% reached percent limit -${percentLimit.toPlainString()}%",
-                            context =
-                                mapOf(
-                                    "dailyRealizedPnl" to pnl.toPlainString(),
-                                    "currentCapital" to context.currentCapital.toPlainString(),
-                                    "pnlPercentAbs" to pnlPctAbs.toPlainString(),
-                                    "limit" to percentLimit.toPlainString(),
-                                    "limitType" to "percent",
-                                ),
-                        )
-                    }
-                }
-            }
+        // 2. DAILY_LOSS_LIMIT — B-1 amount OR percent xor.
+        //   판정 산식은 [dailyLossLimitBreach] 단일 출처(중복 0). RealtimeSignalGenerator 앞단 BUY skip 도 같은 함수를 쓴다.
+        dailyLossLimitBreach(context.config, context.dailyRealizedPnl, context.currentCapital)?.let { breach ->
+            return blocked(signalId, RiskRule.DAILY_LOSS_LIMIT, reason = breach.reason, context = breach.context)
         }
 
         // 3. MAX_CONCURRENT_POSITIONS — BUY만 (SELL은 청산 → 통과)
@@ -614,6 +573,78 @@ class RiskGatewayEvaluator {
             .filterNot { it.isCancellableAutoExit(signal.strategyId) }
             .sumOf { it.quantity }
     }
+
+    /** [dailyLossLimitBreach] 위반 산출 결과(reason/context 운반) — 시그널 단위가 아니라 룰 자체 판정만. */
+    data class DailyLossLimitBreach(
+        val reason: String,
+        val context: Map<String, Any?>,
+    )
+
+    /**
+     * 일일 손실 한도(DAILY_LOSS_LIMIT) 위반 여부 — **B-1 amount XOR percent 단일 산식**(중복 0).
+     *
+     * [evaluate]의 DAILY_LOSS_LIMIT 차단 분기가 본 함수를 호출하고, [RealtimeSignalGenerator]의 앞단 BUY skip 도
+     * 동일하게 본 함수를 호출한다(같은 currentCapital × dll_pct/100 vs 누적 일일손실 기준 — 산식 분기 금지).
+     * 위반이 없으면 null, 위반이면 [DailyLossLimitBreach](reason/context — [evaluate] 차단 메시지와 byte-동일).
+     *
+     * @param config DLL 한도 설정(amount/percent). [RiskConfig.isDailyLossLimitActive] false 면 항상 null.
+     * @param dailyRealizedPnl 누적 일일 실현손익(음수=손실). percent 기준은 손실(< 0) + capital > 0 일 때만 활성.
+     * @param currentCapital 순자산(percent 기준 분모). ≤ 0 이면 percent 한도 자연 비활성(0 fabricate 방지 정합).
+     */
+    fun dailyLossLimitBreach(
+        config: kr.spdaewoon.magicjar.domain.risk.RiskConfig,
+        dailyRealizedPnl: BigDecimal,
+        currentCapital: BigDecimal,
+    ): DailyLossLimitBreach? {
+        if (!config.isDailyLossLimitActive) return null
+        val pnl = dailyRealizedPnl
+        val amountLimit = config.dailyLossLimitAmount
+        val percentLimit = config.dailyLossLimitPercent
+
+        if (amountLimit != null) {
+            if (pnl < BigDecimal.ZERO && pnl.abs() >= amountLimit) {
+                return DailyLossLimitBreach(
+                    reason = "Daily loss ${pnl.toPlainString()} reached amount limit -${amountLimit.toPlainString()}",
+                    context =
+                        mapOf(
+                            "dailyRealizedPnl" to pnl.toPlainString(),
+                            "limit" to amountLimit.toPlainString(),
+                            "limitType" to "amount",
+                        ),
+                )
+            }
+        } else if (percentLimit != null) {
+            if (currentCapital > BigDecimal.ZERO && pnl < BigDecimal.ZERO) {
+                val pnlPctAbs =
+                    pnl
+                        .abs()
+                        .divide(currentCapital, 6, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal("100"))
+                if (pnlPctAbs >= percentLimit) {
+                    val pnlPctScaled = pnlPctAbs.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                    return DailyLossLimitBreach(
+                        reason = "Daily loss $pnlPctScaled% reached percent limit -${percentLimit.toPlainString()}%",
+                        context =
+                            mapOf(
+                                "dailyRealizedPnl" to pnl.toPlainString(),
+                                "currentCapital" to currentCapital.toPlainString(),
+                                "pnlPercentAbs" to pnlPctAbs.toPlainString(),
+                                "limit" to percentLimit.toPlainString(),
+                                "limitType" to "percent",
+                            ),
+                    )
+                }
+            }
+        }
+        return null
+    }
+
+    /** 일일 손실 한도 도달 여부(boolean) — 앞단 BUY skip 게이트용. 산식은 [dailyLossLimitBreach] 단일 출처. */
+    fun isDailyLossLimitReached(
+        config: kr.spdaewoon.magicjar.domain.risk.RiskConfig,
+        dailyRealizedPnl: BigDecimal,
+        currentCapital: BigDecimal,
+    ): Boolean = dailyLossLimitBreach(config, dailyRealizedPnl, currentCapital) != null
 
     private fun blocked(
         signalId: Long,

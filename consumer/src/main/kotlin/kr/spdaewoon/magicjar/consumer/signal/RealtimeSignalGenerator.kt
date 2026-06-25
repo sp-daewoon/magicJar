@@ -81,6 +81,10 @@ class RealtimeSignalGenerator(
     private val auditTrailRepositoryProvider: ObjectProvider<ConsumerAuditTrailJpaRepository>,
     // 분할 미완 catastrophic floor 도달 시 **알람만**(자동 청산 X — 2026-06-19 결재 ⑦, ADR 0128). bean 부재 시 graceful(로그만).
     private val systemEventLoggerProvider: ObjectProvider<kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger>,
+    // 개선 ① (2026-06-25) — 일일손실 한도 도달 시 BUY 발행을 앞단에서 skip(헛수고 제거). 판정·캐시는 [DailyLossLimitGate]
+    //   가 캡슐화하고 산식은 RiskGatewayEvaluator 단일 출처. bean 부재(일부 테스트 컨텍스트)면 ifAvailable null → 게이트 미적용
+    //   (RiskGateway 최종 가드 유지 — zero-regression).
+    private val dailyLossLimitGateProvider: ObjectProvider<DailyLossLimitGate>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -370,6 +374,21 @@ class RealtimeSignalGenerator(
             )
             return
         }
+        // 개선 ① (2026-06-25) — 일일손실 한도 도달 시 신규 BUY 발행을 앞단에서 skip(헛수고 제거 · zero-regression).
+        //   SELL(청산)은 막지 않는다(손실 한도 도달 시에도 청산 허용 — 기존 fail-closed 불변식 동등). 산식은
+        //   RiskGatewayEvaluator.isDailyLossLimitReached 단일 출처 + RiskGateway DAILY_LOSS_LIMIT 차단은 그대로 유지(이중 안전망).
+        if (side == SignalSide.BUY && dailyLossLimitGateProvider.ifAvailable?.isBuyBlockedByDailyLoss(strategy.userId.toString()) == true) {
+            log.info(
+                "RealtimeSignalGenerator BUY skip — 일일손실 한도 도달(앞단 skip, RiskGateway 최종 가드 유지): " +
+                    "strategyId={} userId={} code={} interval={} ts={}",
+                strategyId,
+                strategy.userId,
+                code,
+                interval.code,
+                boundaryTs,
+            )
+            return
+        }
         // ADR 0114 §4-2 P2 — BUY는 ACTIVE 전략만. BUY_BLOCKED·DISABLED(position-driven SELL 폴백으로 들어온)의 신규 BUY는 suppress.
         //   SELL(청산)은 위 게이트만 통과하면 status 무관 진행(보유분 손절/익절 — 자본 회수는 막지 않음).
         if (side == SignalSide.BUY && strategy.status != StrategyStatus.ACTIVE) {
@@ -523,6 +542,13 @@ class RealtimeSignalGenerator(
         if (sellAst != null) {
             val sellResult = evaluateAst(strategyId, code, "SELL", sellAst, candles) ?: return null
             if (mapToSignalSide(sellResult.signal) == SignalSide.BUY) {
+                // 개선 ② (2026-06-25) — 보유 0 종목의 DSL THRESHOLD SELL 은 발행하지 않는다(헛수고 제거 · zero-regression).
+                //   롱온리(공매도 없음)라 보유 0 SELL 은 항상 무의미하고 어차피 RiskGateway 가 SELL_WITHOUT_POSITION 으로
+                //   차단하던 것을 앞당긴다(2026-06-25 실측 1,232건). 손절/익절(평단 기준) 경로는 위에서 이미 처리됐고 자체적으로
+                //   보유를 참조하므로 본 게이트 대상 아님 — 본 게이트는 보유 미참조 DSL SELL 한정.
+                if (shouldSkipDslSellForNoHolding(strategy, code)) {
+                    return SignalDecision(SignalSide.HOLD, buyResult)
+                }
                 // 잔익절 방어 B안 — DSL 매도 시그널이 발화했어도 최소 보유 캔들(minHoldBars) 미충족이면 무시한다.
                 //   기준 시점 = 최초 진입 ts(StrategyPosition.openedAt, scale-in 재진입에도 보존). 손절/익절은 위에서 이미 처리됨.
                 if (shouldSkipDslSellForMinHold(strategy, code, interval, boundaryTs)) {
@@ -539,6 +565,76 @@ class RealtimeSignalGenerator(
         }
 
         return SignalDecision(SignalSide.HOLD, buyResult)
+    }
+
+    /**
+     * 개선 ② (2026-06-25) — 보유 0 종목의 DSL THRESHOLD SELL 을 skip 해야 하는가.
+     *
+     * 롱온리 정책(공매도 없음 — docs/architecture/policies/long-only-trading.md)이라 보유 0 SELL 은 항상 무의미하고,
+     * 현재는 RiskGateway 가 `SELL_WITHOUT_POSITION` 으로 차단하던 것을 신호 생성 단계에서 앞당겨 헛수고를 제거한다.
+     *
+     * ## zero-regression — RiskGateway 의 보유 판정과 **동일 fallback** 으로 보수적 판정
+     * [RiskGatewayEvaluator.holdingQuantity] 는 보유를 ① 전략 lot([StrategyPosition], quantity > 0) →
+     * ② user+code 실잔고([RiskPositionPort.findCurrentByUser], quantity > 0) 순으로 본다(분할매수 진행 중·체결 race 로
+     * lot 이 잠깐 0 으로 보여도 실잔고 fallback 이 청산을 막지 않음). 본 게이트도 **동일하게 두 출처를 모두 확인**하고
+     * **둘 다 0 일 때만** skip 한다. 따라서 어느 한쪽이라도 보유가 보이면 RiskGateway 가 ALLOW 하던 SELL 을 발행 그대로 유지한다.
+     *
+     * ## graceful — 포트 부재·조회 실패 시 false(skip 안 함)
+     * StrategyPositionPort·RiskPositionPort 중 하나라도 부재거나 조회가 실패하면 false 를 반환해 SELL 을 그대로 발행한다
+     * (RiskGateway 최종 가드 유지). 즉 "확신이 있을 때만 보수적으로 skip" 한다(확신 없으면 발행).
+     *
+     * @return true = 보유 0 확정(skip) / false = 보유 가능성 있음·확인 불가(발행 진행)
+     */
+    private fun shouldSkipDslSellForNoHolding(
+        strategy: Strategy,
+        code: String,
+    ): Boolean {
+        val strategyId = strategy.id ?: return false
+        val userId = strategy.userId.toString()
+
+        // ① 전략 lot — quantity > 0 이면 보유 확정 → skip 안 함.
+        val strategyPositionPort = strategyPositionPortProvider.ifAvailable ?: return false
+        val lotQty =
+            try {
+                strategyPositionPort.findByUserStrategyCode(userId, strategyId, code)?.quantity ?: 0
+            } catch (e: Exception) {
+                log.warn(
+                    "보유0 SELL 게이트 StrategyPosition 조회 실패 — DSL 매도 진행(RiskGateway 최종 가드): strategyId={} code={} err={}",
+                    strategyId,
+                    code,
+                    e.message,
+                )
+                return false
+            }
+        if (lotQty > 0) return false
+
+        // ② user+code 실잔고 fallback — RiskGateway 와 동일. quantity > 0 이면 보유 → skip 안 함.
+        val riskPositionPort = riskPositionPortProvider.ifAvailable ?: return false
+        val realQty =
+            try {
+                riskPositionPort
+                    .findCurrentByUser(userId)
+                    .firstOrNull { it.code == code && it.quantity > 0 }
+                    ?.quantity ?: 0
+            } catch (e: Exception) {
+                log.warn(
+                    "보유0 SELL 게이트 실잔고 조회 실패 — DSL 매도 진행(RiskGateway 최종 가드): strategyId={} code={} err={}",
+                    strategyId,
+                    code,
+                    e.message,
+                )
+                return false
+            }
+        if (realQty > 0) return false
+
+        // 두 출처 모두 0 — 보유 0 확정. RiskGateway 가 어차피 SELL_WITHOUT_POSITION 으로 차단할 신호를 앞단에서 skip.
+        log.info(
+            "RealtimeSignalGenerator DSL 매도 보유0 skip(헛수고 제거 · RiskGateway 동등): strategyId={} userId={} code={}",
+            strategyId,
+            strategy.userId,
+            code,
+        )
+        return true
     }
 
     /**
