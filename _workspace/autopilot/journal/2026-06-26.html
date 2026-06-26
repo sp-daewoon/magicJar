@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>autopilot 학습 저널 — 2026-06-26</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--tx:#c9d1d9;--mut:#8b949e;--red:#f85149;--grn:#3fb950;--yel:#d29922;--blu:#58a6ff;--vio:#bc8cff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,'Segoe UI','Apple SD Gothic Neo',sans-serif;line-height:1.65;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:26px;margin:0 0 4px;color:#fff}
+  h2{font-size:20px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--bd);color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--blu)}
+  .sub{color:var(--mut);font-size:14px;margin-bottom:8px}
+  .banner{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}
+  .kpi{flex:1;min-width:150px;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+  .kpi .v{font-size:24px;font-weight:700}
+  .kpi .l{color:var(--mut);font-size:13px;margin-top:2px}
+  .red{color:var(--red)}.grn{color:var(--grn)}.yel{color:var(--yel)}.blu{color:var(--blu)}.vio{color:var(--vio)}.mut{color:var(--mut)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--bd);padding:8px 10px;text-align:left}
+  th{background:#1c2230;color:#fff;font-weight:600}
+  tr:nth-child(even) td{background:#11161e}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px 20px;margin:14px 0}
+  .tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;margin-right:4px}
+  .t-loss{background:#3d1417;color:var(--red)}.t-win{background:#0f2e1a;color:var(--grn)}.t-warn{background:#3a2e0a;color:var(--yel)}.t-info{background:#0d2840;color:var(--blu)}
+  .insight{border-left:3px solid var(--yel);padding-left:14px;margin:12px 0}
+  .good{border-left:3px solid var(--grn);padding-left:14px;margin:12px 0}
+  code{background:#1c2230;padding:1px 6px;border-radius:4px;font-size:13px;color:var(--vio)}
+  ul,ol{margin:8px 0;padding-left:22px}li{margin:4px 0}
+  .hr{height:1px;background:var(--bd);margin:24px 0;border:0}
+  .lead{background:#1a1410;border:1px solid #5a4410;border-radius:8px;padding:6px 10px;color:var(--yel);font-weight:600;display:inline-block;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🤖 autopilot 학습 저널</h1>
+<div class="sub">2026-06-26 (금) · REAL · 장 레짐: <span class="lead">고변동성 + 하락 추세</span> · 익일(6/27) 휴장 · 작성: orchestrator</div>
+
+<div class="banner">
+  <div class="kpi"><div class="v red">-8,649</div><div class="l">실현손익 (어제 -41,351 대비 1/5)</div></div>
+  <div class="kpi"><div class="v yel">4건</div><div class="l">능동 발견 결함 (어제 0건)</div></div>
+  <div class="kpi"><div class="v grn">net+</div><div class="l">scalping 재검증 (trailing 후)</div></div>
+  <div class="kpi"><div class="v blu">107</div><div class="l">신규 전략 생성 (PAUSED)</div></div>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>① 어제 vs 오늘 — 같은 고변동성, 다른 성격</h2>
+<table>
+<tr><th></th><th>어제 (06-25)</th><th>오늘 (06-26)</th></tr>
+<tr><td>레짐</td><td>고변동성 + <b>횡보 휩쏘</b></td><td>고변동성 + <b>하락 추세</b></td></tr>
+<tr><td>손절 성격</td><td>손절 후 반등(휩쏘) — 타이트 손절선이 문제</td><td>손절 후 추가 하락 — <b>정상 보호</b>(종가 저가 근처)</td></tr>
+<tr><td>실현손익</td><td class="red">-41,351 (KIS net)</td><td class="red">-8,649 (1/5 수준)</td></tr>
+<tr><td>매수 차단 사유</td><td>DAILY_LOSS_LIMIT (한도 도달)</td><td><b>TRADE_FREQUENCY_DAY</b> (과회전 12회/일)</td></tr>
+<tr><td>적합 가설</td><td>ATR 손절선(넓게)</td><td>ATR은 <b>역효과</b>(하락장) → 레짐별 차등</td></tr>
+</table>
+<div class="insight">
+<b>핵심 학습:</b> "ATR 손절선이 만능"은 <b>오답</b>이었다. 어제(횡보 휩쏘)엔 손절선을 넓히는 게 맞지만, 오늘(하락 추세)엔 넓히면 손실만 키운다. <b>전략은 레짐에 따라 달라야 한다</b>가 데이터로 확증됨. 또 오늘 손실이 어제의 1/5인 건 <b>빈도 한도(12회/일)가 과매매를 일찍 차단</b>해 브레이크로 작동한 효과로 보인다.
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>② 능동 발견 결함 4종 (어제 0건 → 오늘 4건)</h2>
+<p class="sub">어제는 reactive 매몰 + 운영 실수였다면, 오늘은 자본경로 결함을 능동 규명했다. 전부 안전장치/KIS가 막아 <b>실손실 0</b>.</p>
+<table>
+<tr><th>#</th><th>결함</th><th>증상</th><th>자본영향</th></tr>
+<tr><td>1</td><td>중복 SELL 발사 (멱등성)</td><td>같은 signalId SELL 2번 → 수량초과 reject</td><td>0 (KIS 거부)</td></tr>
+<tr><td>2</td><td>BUY 예수금 경합 (사이징 동시성)</td><td>동시 매수 → 예수금 초과 11건</td><td>0 (KIS 거부)</td></tr>
+<tr><td>3</td><td>KIS 500 / rate limit</td><td>주문 폭주 → PENDING_RECONCILE·timeout(전략104 DISABLED)</td><td>0 (ADR0084 정합)</td></tr>
+<tr><td>4</td><td>포지션 ledger drift (유령)</td><td>ledger 014950·026940 보유 vs KIS 실측 0</td><td>0 (오버나잇 위험 0, 정합 완료)</td></tr>
+</table>
+<div class="insight">
+<b>결함 1·2·3의 공통 뿌리 = "주문 동시성 과다"</b> — autopilot이 한 시점에 여러 전략×종목 주문을 동시 폭사. 결함 4는 정합 문제. <b>주문 순차화/throttle + 예수금 실시간 예약</b>이면 1·2·3이 한꺼번에 해소된다.
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>③ scalping 전략 검증 — 사용자 철학을 데이터로 입증</h2>
+<p>최고 관리자 철학: <span class="lead">"하락장에도 파동은 있다. 짧게 들어가 먹고 빠르게 나온다."</span></p>
+
+<h3>3-1. 1차 검증 (어제, trailing 미영속) — net 음수</h3>
+<p>모든 scalper net 마이너스(최선 -0.51%). SL발화>TP발화(falling-knife). <b>trailing이 유일한 break-even 레버인데 DB 영속 불가</b>가 병목으로 확정.</p>
+
+<h3>3-2. trailing 영속 인프라 구축 (ADR 0135 · V96)</h3>
+<div class="card">
+trailing은 도메인·박제(<code>TradePlanFactory</code>)·평가(<code>TradePlanEvaluator</code> TRAIL)는 이미 완비됐으나 <b>DB 영속만 빠져</b> 항상 null이었다. 해소:
+<ul>
+<li><b>ADR 0135</b> + <b>Flyway V96</b> <code>strategy.trailing_stop_pct</code></li>
+<li>엔티티 매핑 <b>api·consumer 양쪽</b> (함정 #3 — 한쪽 누락 시 drift)</li>
+<li>DTO/서비스 + zero-regression(nullable) + 테스트 GREEN</li>
+<li>배포: api(V96) → consumer, cached plan 에러 해소 확인</li>
+</ul>
+</div>
+
+<h3>3-3. 2차 재검증 (trailing 영속 후) — <span class="grn">net-positive 전환!</span></h3>
+<table>
+<tr><th>config</th><th>IS net/거래·PF</th><th>OOS net/거래·PF·승률</th></tr>
+<tr><td>어제 (trailing 미영속)</td><td class="red">음수</td><td class="red">-0.51%</td></tr>
+<tr><td><b>G2 trailing 1.2 (채택)</b></td><td class="grn">+0.22% · PF 1.67 (n=19)</td><td class="grn">+0.96% · PF 1.80 · 54% (n=52)</td></tr>
+</table>
+<div class="good">
+<b>trailing이 결정적 레버였음이 확증됨.</b> 영속하자마자 IS·OOS 모두 net-positive. trailing plateau(1.0~2.0) 전 구간 양수(과최적화 아님), OOS가 IS보다 좋음(degradation 없음). 유동성 필터는 오히려 해로워 제외. <b>사용자 철학 + trailing = 데이터로 입증.</b>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>④ 오늘 한 일 (구현·배포 완료)</h2>
+<ul>
+<li><span class="tag t-win">배포</span> <b>신호 생성 헛수고 2종 skip</b> (어제 risk_event 9,658건의 90% 제거 목표) — DAILY_LOSS_LIMIT BUY skip + 보유0 SELL skip</li>
+<li><span class="tag t-win">배포</span> <b>trailing 영속 인프라</b> (ADR0135·V96·엔티티 양쪽)</li>
+<li><span class="tag t-info">정리</span> <b>전략 101 pullback-reclaim PAUSED</b> (-23,809 누적 최악) → 슬롯 확보</li>
+<li><span class="tag t-info">생성</span> <b>전략 107 autopilot-oversold-crash-bounce</b> (PAUSED·trailing 1.2 저장 확인·universe 16종 공유)</li>
+<li><span class="tag t-info">정합</span> 유령 포지션(014950·026940) KIS 실측 0 동기화</li>
+</ul>
+
+<h3>전략별 누적 실현손익 (정리 근거)</h3>
+<table>
+<tr><th>전략</th><th>누적손익</th><th>조치</th></tr>
+<tr><td>101 pullback-reclaim</td><td class="red">-23,809</td><td><b>PAUSED</b> (최악)</td></tr>
+<tr><td>102 fvg / 100 momentum</td><td class="red">-17,167 / -15,904</td><td>유지(관찰)</td></tr>
+<tr><td>105 vwap / 104 volume</td><td>-3,885 / +810</td><td>104 DISABLED(timeout)</td></tr>
+<tr><td>103 orderblock</td><td class="grn">+21,175</td><td>유지(최고)</td></tr>
+<tr><td><b>107 oversold-crash-bounce</b></td><td class="grn">검증 net+</td><td><b>신규 PAUSED</b></td></tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>⑤ 내일(6/27 휴장) 이후 인계</h2>
+<ol>
+<li><b>전략 107 OOS 표본 ≥100 확장</b> — 현 OOS n=52. autopilot 16종 universe·분기 단위로 확장해 ADR0117 정식 충족 후 ACTIVE 검토 (ADR0133 게이트 + 최고 관리자 승격)</li>
+<li><b>6월 폭락 regime 직접 OOS</b> — 무버 1m 데이터가 6월 초 끊겨 5월까지만 OOS. 폭락 종목 1m backfill로 보강</li>
+<li><b>주문 동시성 fix</b> (결함 1·2·3 공통 뿌리) — 주문 throttle + 예수금 in-flight 예약</li>
+<li><b>AutoPause 효율 fix</b> — 이미 BUY_BLOCKED 전략 반복 재차단 조기 return (어제 백로그)</li>
+<li><b>레짐 게이트 검토</b> — 하락 추세장 감지 시 추세추종 전략 OFF / scalping은 변동성장 전용</li>
+<li><b>유령 포지션 근본 원인</b> — PENDING_RECONCILE/체결 미정합 경로 정밀 분석</li>
+</ol>
+
+<p class="sub" style="margin-top:30px">생성: 2026-06-26 · 권위 데이터: autopilot/performance · strategy_position(KIS 정합) · 백테스트(라이브 parity INTRADAY_REALISTIC) · risk_event(삭제 전 집계)</p>
+
+</div>
+</body>
+</html>
