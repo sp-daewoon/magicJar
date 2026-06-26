@@ -115,6 +115,7 @@ class StrategyService(
         intervals: List<String> = emptyList(),
         stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
+        trailingStopPct: BigDecimal? = null,
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
         minHoldBars: Int? = null,
@@ -126,6 +127,7 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        val normalizedTrailingStopPct = normalizeTrailingStopPct(trailingStopPct)
         val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
         // ADR 0128 amend 갭① — floor null → yml default 채워 항상 명시 floor 로 persist + floor 깊이 검증.
         val resolvedScaleIn = resolveScaleIn(scaleIn)
@@ -146,6 +148,8 @@ class StrategyService(
                 tf = tf,
                 fixedStopLoss = normalizedStopLossPct,
                 takeProfitPct = normalizedTakeProfitPct,
+                // ADR 0135 trailing stop — take_profit·fixed_stop 동급 청산 레버. null=비활성(현행 zero-regression).
+                trailingStop = normalizedTrailingStopPct,
                 // ADR 0111 scale-in/partial-exit — 도메인 init이 cap·weight 검증(분할매수 R3-a). floor 는 resolveScaleIn 가 명시화.
                 scaleIn = resolvedScaleIn,
                 partialExits = partialExits?.takeIf { it.isNotEmpty() },
@@ -182,6 +186,7 @@ class StrategyService(
         intervals: List<String> = emptyList(),
         stopLossPct: BigDecimal? = null,
         takeProfitPct: BigDecimal? = null,
+        trailingStopPct: BigDecimal? = null,
         scaleIn: ScaleInPlan? = null,
         partialExits: List<PartialExit>? = null,
         minHoldBars: Int? = null,
@@ -200,6 +205,7 @@ class StrategyService(
         val combinedComplexity = mergeComplexity(entryComplexity, exitComplexity)
         val normalizedStopLossPct = normalizeStopLossPct(stopLossPct)
         val normalizedTakeProfitPct = normalizeTakeProfitPct(takeProfitPct)
+        val normalizedTrailingStopPct = normalizeTrailingStopPct(trailingStopPct)
         val normalizedMinHoldBars = normalizeMinHoldBars(minHoldBars)
         // ADR 0128 amend 갭① — floor null → yml default 채워 항상 명시 floor 로 persist + floor 깊이 검증.
         val resolvedScaleIn = resolveScaleIn(scaleIn)
@@ -222,6 +228,8 @@ class StrategyService(
                         tf = tf,
                         fixedStopLoss = normalizedStopLossPct,
                         takeProfitPct = normalizedTakeProfitPct,
+                        // ADR 0135 trailing stop — take_profit·fixed_stop 동급 청산 레버. null=비활성(현행 zero-regression).
+                        trailingStop = normalizedTrailingStopPct,
                         // ADR 0111 scale-in/partial-exit (분할매수 R3-a). floor 는 resolveScaleIn 가 명시화.
                         scaleIn = resolvedScaleIn,
                         partialExits = partialExits?.takeIf { it.isNotEmpty() },
@@ -507,6 +515,20 @@ class StrategyService(
         if (value == null) return null
         if (value <= BigDecimal.ZERO) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stopLossPct는 0보다 커야 합니다")
+        }
+        return value
+    }
+
+    /**
+     * ADR 0135 — trailing stop(트레일링 스탑) 비율 정규화.
+     *
+     * 고점(high-watermark) 대비 trailingStopPct% 하락 시 TRAIL 청산이 발화한다(TradePlanEvaluator). null=비활성(현행).
+     * 0 이하는 의미 없는 입력이므로 takeProfitPct·stopLossPct 패턴과 동일하게 400으로 선노출한다(도메인 init 500 회피).
+     */
+    private fun normalizeTrailingStopPct(value: BigDecimal?): BigDecimal? {
+        if (value == null) return null
+        if (value <= BigDecimal.ZERO) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "trailingStopPct는 0보다 커야 합니다")
         }
         return value
     }

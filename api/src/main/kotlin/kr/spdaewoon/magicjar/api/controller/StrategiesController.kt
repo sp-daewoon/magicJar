@@ -185,6 +185,7 @@ class StrategiesController(
                 intervals = req.intervals,
                 stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
+                trailingStopPct = req.trailingStopPct,
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
                 minHoldBars = req.minHoldBars,
@@ -311,6 +312,7 @@ class StrategiesController(
                 intervals = req.intervals,
                 stopLossPct = req.stopLossPct,
                 takeProfitPct = req.takeProfitPct,
+                trailingStopPct = req.trailingStopPct,
                 scaleIn = toScaleInDomain(req.scaleIn),
                 partialExits = toPartialExitsDomain(req.partialExits),
                 minHoldBars = req.minHoldBars,
@@ -625,6 +627,7 @@ class StrategiesController(
             tf = strategy.definition.tf,
             stopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
+            trailingStopPct = strategy.definition.trailingStop,
             minHoldBars = strategy.definition.minHoldBars,
             viActionPolicy = strategy.definition.viActionPolicy.name,
             warnings = strategyService.exitNoiseWarnings(strategy),
@@ -753,6 +756,14 @@ data class StrategyCreateRequest(
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
     @field:Schema(
+        description =
+            "트레일링 스탑 비율 (%) — 진입 후 갱신되는 고점 대비 이 비율만큼 하락하면 자동 청산. " +
+                "1분봉 단타(scalping) break-even 핵심 레버. null=비활성(현행). 0보다 커야 함",
+        example = "1.20",
+        nullable = true,
+    )
+    val trailingStopPct: BigDecimal? = null,
+    @field:Schema(
         description = "잔익절 방어 B안 — 최소 보유 캔들 수. 진입 후 N캔들 동안 DSL 매도 시그널만 무시(손절·익절은 항상 작동). null·0=비활성(현행)",
         example = "3",
     )
@@ -789,6 +800,14 @@ data class StrategyUpdateRequest(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(
+        description =
+            "트레일링 스탑 비율 (%) — 진입 후 갱신되는 고점 대비 이 비율만큼 하락하면 자동 청산. " +
+                "1분봉 단타(scalping) break-even 핵심 레버. null=비활성(현행). 0보다 커야 함",
+        example = "1.20",
+        nullable = true,
+    )
+    val trailingStopPct: BigDecimal? = null,
     @field:Schema(
         description = "잔익절 방어 B안 — 최소 보유 캔들 수. 진입 후 N캔들 동안 DSL 매도 시그널만 무시(손절·익절은 항상 작동). null·0=비활성(현행)",
         example = "3",
@@ -841,6 +860,12 @@ data class StrategyDetailResponse(
     val stopLossPct: BigDecimal? = null,
     @field:Schema(description = "보유 포지션 평가 수익률 기준 익절 비율 (%)", example = "5.00")
     val takeProfitPct: BigDecimal? = null,
+    @field:Schema(
+        description = "트레일링 스탑 비율 (%) — 고점 대비 하락 자동 청산. null=비활성(현행)",
+        example = "1.20",
+        nullable = true,
+    )
+    val trailingStopPct: BigDecimal? = null,
     @field:Schema(description = "잔익절 방어 B안 — 최소 보유 캔들 수. null=비활성(현행)", example = "3")
     val minHoldBars: Int? = null,
     @field:Schema(description = "VI 발동 행동 정책(EXIT_MARKET·ALERT_ONLY·HOLD)", example = "ALERT_ONLY")

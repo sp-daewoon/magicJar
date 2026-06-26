@@ -72,6 +72,8 @@ object StrategyEntityMapper {
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // V96 ADR 0135 — trailing stop 영속(고점 대비 trailing_stop_pct 하락 시 TRAIL 청산). null=비활성(현행).
+                trailingStop = entity.trailingStopPct,
                 // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
                 minHoldBars = entity.minHoldBars,
                 // V82 VI 행동 정책 — invalid row는 ALERT_ONLY(주문 0)로 흡수.

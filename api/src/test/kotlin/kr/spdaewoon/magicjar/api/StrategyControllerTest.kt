@@ -169,6 +169,7 @@ class StrategyControllerTest {
                 intervals = any(),
                 stopLossPct = anyOrNull(),
                 takeProfitPct = anyOrNull(),
+                trailingStopPct = anyOrNull(),
                 scaleIn = anyOrNull(),
                 partialExits = anyOrNull(),
                 minHoldBars = anyOrNull(),

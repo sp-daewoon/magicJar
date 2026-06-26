@@ -371,6 +371,54 @@ class ConsumerStrategyLookupJpaAdapterTest {
         assertThat(summary["recentRuns"]).isEqualTo(300)
     }
 
+    // ── ADR 0135 trailing stop 영속 매핑 (consumer hot path drift 가드) ──────
+
+    @Test
+    fun `trailing_stop_pct 컬럼은 definition trailingStop 으로 적재된다 (consumer 매핑 누락 drift 가드)`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        // ★ 이 매핑이 빠지면 consumer hot path 에서 trailing 이 null 로 덮여 1분봉 scalping break-even 레버가 dead.
+        val entity =
+            jpaEntity(
+                id = 90L,
+                userId = 1L,
+                dslEntry = "MA(5) > MA(20)",
+                dslExit = null,
+                trailingStopPct = BigDecimal("1.2"),
+            )
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        assertThat(result.single().definition.trailingStop).isEqualByComparingTo(BigDecimal("1.2"))
+    }
+
+    @Test
+    fun `trailing_stop_pct 미설정 행은 trailingStop null 로 유지된다 (zero-regression)`() {
+        val buyAst = condition("1", Operator.GT, "0")
+        val entity = jpaEntity(id = 91L, userId = 1L, dslEntry = "MA(5) > MA(20)", dslExit = null)
+
+        every {
+            strategyJpaRepository.findActiveByCodeAndInterval(
+                owners = listOf("USER"),
+                codeJson = """["005930"]""",
+                intervalJson = """["5m"]""",
+            )
+        } returns listOf(entity)
+        every { kisYamlDslParser.parse("MA(5) > MA(20)") } returns buyAst
+
+        val result = adapter.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN)
+
+        assertThat(result.single().definition.trailingStop).isNull()
+    }
+
     // ── magicjar-autopilot Phase 1 wiring (spec 2026-06-22 §2) ──────────────
 
     @Test
@@ -484,6 +532,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
         evalMetricSummary: String? = null,
         scaleInConfig: String? = null,
         partialExits: String? = null,
+        trailingStopPct: BigDecimal? = null,
     ): ConsumerStrategyJpaEntity =
         ConsumerStrategyJpaEntity(
             id = id,
@@ -494,6 +543,7 @@ class ConsumerStrategyLookupJpaAdapterTest {
             dslExit = dslExit,
             universeMarket = "KOSPI",
             tf = "5m",
+            trailingStopPct = trailingStopPct,
             scaleInConfig = scaleInConfig,
             partialExits = partialExits,
             astDepth = 1,

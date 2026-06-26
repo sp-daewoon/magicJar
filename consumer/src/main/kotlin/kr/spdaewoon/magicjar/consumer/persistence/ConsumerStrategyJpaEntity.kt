@@ -42,6 +42,11 @@ class ConsumerStrategyJpaEntity(
     val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
+    // V96 추가 컬럼 — ADR 0135 trailing stop 영속. consumer hot path 시그널 평가가 trailing 을 적재해야
+    //   TradePlanFactory 가 TradePlanTrailing 을 박제하고 TRAIL 청산이 작동한다. ★ 이 매핑이 빠지면 신호평가 시
+    //   trailing 이 null 로 덮여 1분봉 scalping break-even 레버가 영구 dead(scale_in_config drift 와 동형 사고). null=비활성.
+    @Column(name = "trailing_stop_pct", precision = 9, scale = 4)
+    val trailingStopPct: BigDecimal? = null,
     // V73 추가 컬럼 — 잔익절 방어 B안. 진입 후 N캔들 동안 DSL 매도 무시(손절·익절 무관). null=비활성(현행).
     @Column(name = "min_hold_bars")
     val minHoldBars: Int? = null,
