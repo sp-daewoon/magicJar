@@ -50,6 +50,11 @@ class StrategyJpaEntity(
     val fixedStopLossPct: BigDecimal? = null,
     @Column(name = "take_profit_pct", precision = 9, scale = 4)
     val takeProfitPct: BigDecimal? = null,
+    // V96 추가 컬럼 — ADR 0135 trailing stop 영속. take_profit_pct·fixed_stop_loss_pct 동급 청산 레버.
+    //   고점 대비 trailing_stop_pct 하락 시 TRAIL 청산(TradePlanEvaluator). null=비활성(현행 — zero-regression).
+    //   ★ scale_in_config·allow_overnight 매핑 누락 drift 교훈 — 컬럼 매핑 LOCK(도메인까지 전달돼야 박제·평가 작동).
+    @Column(name = "trailing_stop_pct", precision = 9, scale = 4)
+    val trailingStopPct: BigDecimal? = null,
     // V73 추가 컬럼 — 잔익절 방어 B안. 진입 후 N캔들 동안 DSL 매도 무시(손절·익절 무관). null=비활성(현행).
     @Column(name = "min_hold_bars")
     val minHoldBars: Int? = null,

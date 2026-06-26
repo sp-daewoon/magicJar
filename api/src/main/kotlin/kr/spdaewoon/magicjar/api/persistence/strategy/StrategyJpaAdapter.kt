@@ -98,6 +98,8 @@ class StrategyJpaAdapter(
             tf = strategy.definition.tf,
             fixedStopLossPct = strategy.definition.fixedStopLoss,
             takeProfitPct = strategy.definition.takeProfitPct,
+            // V96 ADR 0135 — trailing stop 영속 (null=비활성 현행 zero-regression). take_profit·fixed_stop 동급 청산 레버.
+            trailingStopPct = strategy.definition.trailingStop,
             // V73 잔익절 방어 B안 — minHoldBars 영속 (null=비활성 현행).
             minHoldBars = strategy.definition.minHoldBars,
             // V82 VI 행동 정책 — EXIT_MARKET/ALERT_ONLY/HOLD.

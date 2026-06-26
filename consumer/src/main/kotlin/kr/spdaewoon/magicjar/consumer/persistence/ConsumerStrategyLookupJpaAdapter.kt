@@ -104,6 +104,9 @@ class ConsumerStrategyLookupJpaAdapter(
                 tf = entity.tf,
                 fixedStopLoss = entity.fixedStopLossPct,
                 takeProfitPct = entity.takeProfitPct,
+                // V96 ADR 0135 — trailing stop 영속 → 도메인 (TradePlanFactory 가 TradePlanTrailing 박제·TRAIL 청산 입력).
+                //   ★ 이 매핑 누락 시 consumer hot path 에서 trailing 이 null 로 덮여 break-even 레버가 dead. null=비활성(현행).
+                trailingStop = entity.trailingStopPct,
                 // V73 잔익절 방어 B안 — minHoldBars(진입 후 N캔들 DSL 매도 무시). null=비활성(현행).
                 minHoldBars = entity.minHoldBars,
                 // V94 ADR 0129 레버 1 — 오버나잇 토글. default true(현행 거동). false + owner=AUTOPILOT 이면
