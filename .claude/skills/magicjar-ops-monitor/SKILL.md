@@ -43,6 +43,7 @@ description: magicJar 실운영(REAL) 상시 모니터링 + 일일 운영 보고
 | `SELL_WITHOUT_POSITION` 차단 | flat 상태 정상 가드 (롱 온리 — 주문 미발행) | 무해 — Slack mute됨 (PR #926) |
 | 재배포 직후 STREAM-RESET/구독 로그 | 컨테이너 교체 | 정상 — healthy + 재구독 + 캔들 재개 3종만 확인 |
 | WS 단발 단절 후 grace 내 회복 | KIS 측 세션 정리 | 무해 — **회복 없이 침묵이 3분+면 F3 유령 → 재시작** |
+| 신규 편입 보유종목 1m 캔들 수천초 경과 ALERT | 매수 직후 1m 캔들 on-demand 백필 일시 지연(ADR 0119) | 무해 오탐 — 종목별 실측 시 즉시 회복. 시세맥박 모니터에 **편입 5분 grace**(opened_at) 적용 (2026-06-25) |
 
 ## E. 금지·주의
 

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>autopilot 학습 저널 — 2026-06-25</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--tx:#c9d1d9;--mut:#8b949e;--red:#f85149;--grn:#3fb950;--yel:#d29922;--blu:#58a6ff;--vio:#bc8cff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,'Segoe UI','Apple SD Gothic Neo',sans-serif;line-height:1.65;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:26px;margin:0 0 4px;color:#fff}
+  h2{font-size:20px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--bd);color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--blu)}
+  .sub{color:var(--mut);font-size:14px;margin-bottom:8px}
+  .banner{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}
+  .kpi{flex:1;min-width:150px;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+  .kpi .v{font-size:24px;font-weight:700}
+  .kpi .l{color:var(--mut);font-size:13px;margin-top:2px}
+  .red{color:var(--red)}.grn{color:var(--grn)}.yel{color:var(--yel)}.blu{color:var(--blu)}.vio{color:var(--vio)}.mut{color:var(--mut)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--bd);padding:8px 10px;text-align:left}
+  th{background:#1c2230;color:#fff;font-weight:600}
+  tr:nth-child(even) td{background:#11161e}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px 20px;margin:14px 0}
+  .tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;margin-right:4px}
+  .t-loss{background:#3d1417;color:var(--red)}.t-win{background:#0f2e1a;color:var(--grn)}.t-warn{background:#3a2e0a;color:var(--yel)}.t-info{background:#0d2840;color:var(--blu)}
+  .flow{background:#11161e;border:1px solid var(--bd);border-radius:8px;padding:14px 18px;font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap;color:var(--mut)}
+  code{background:#1c2230;padding:1px 6px;border-radius:4px;font-size:13px;color:var(--vio)}
+  ul{margin:8px 0;padding-left:22px}li{margin:4px 0}
+  .insight{border-left:3px solid var(--yel);padding-left:14px;margin:12px 0}
+  .hr{height:1px;background:var(--bd);margin:24px 0;border:0}
+  .lead{background:#1a1410;border:1px solid #5a4410;border-radius:8px;padding:6px 10px;color:var(--yel);font-weight:600;display:inline-block;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🤖 autopilot 학습 저널</h1>
+<div class="sub">2026-06-25 (목) · REAL · 장 레짐: <span class="lead">HIGH_VOL (고변동성)</span> · 작성: orchestrator</div>
+
+<div class="banner">
+  <div class="kpi"><div class="v red">-41,351원</div><div class="l">KIS net 실현손익 (진실원)</div></div>
+  <div class="kpi"><div class="v">20</div><div class="l">거래 (승6 / 패14)</div></div>
+  <div class="kpi"><div class="v red">30.0%</div><div class="l">승률</div></div>
+  <div class="kpi"><div class="v red">0.56</div><div class="l">손익비 (이익/손실)</div></div>
+  <div class="kpi"><div class="v yel">9,658</div><div class="l">리스크 위반 (BLOCKED)</div></div>
+</div>
+
+<p class="mut">우리 DB gross −35,150 + KIS 거래비용 6,201 = <b>KIS net −41,351원</b>. 보유 평가손익 0 (전 포지션 청산 완료). 진실원 대조 matched=true.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>① 오늘 수행된 전략 (autopilot universe)</h2>
+<p class="sub">owner=AUTOPILOT 전략 6종. 모두 1분/3분/5분봉 기반 <b>단타(intraday)</b> setup. ADR 0131로 매일 08:35 발굴 TOP N으로 universe 자동 재생성.</p>
+
+<table>
+<tr><th>ID</th><th>전략</th><th>유형</th><th>진입 조건 (entry DSL)</th><th>청산</th><th>TP/SL</th><th>오늘 net</th></tr>
+<tr><td>100</td><td>momentum-breakout</td><td><span class="tag t-warn">돌파추종</span></td><td><code>close가 donchian상단(20) 돌파 AND vol>MA(20)×1.5 AND close>vwap</code></td><td>close&lt;vwap</td><td>2.5/1.5</td><td class="mut">진입無</td></tr>
+<tr><td>101</td><td>pullback-reclaim</td><td><span class="tag t-warn">추세눌림</span></td><td><code>close>ma50 AND ma20>ma50 AND rsi14>40 AND close>ma20</code></td><td>close&lt;ma20</td><td>2.0/1.5</td><td class="mut">—</td></tr>
+<tr><td>102</td><td>fvg-bullish-reclaim</td><td><span class="tag t-warn">FVG추종</span></td><td><code>FVG상승활성(50) AND close>FVG중간</code></td><td>close&lt;FVG하단</td><td>2.5/2.0</td><td class="mut">—</td></tr>
+<tr><td>103</td><td>orderblock-bullish-retest</td><td><span class="tag t-warn">OB추종</span></td><td><code>오더블록상승활성 AND close>OB중간</code></td><td>close&lt;OB하단</td><td>2.5/2.0</td><td class="mut">—</td></tr>
+<tr><td>104</td><td>volume-spike</td><td><span class="tag t-warn">거래량돌파</span></td><td><code>vol>MA(20)×2 AND mfi14>55 AND close>vwap</code></td><td>close&lt;vwap</td><td>3.0/2.0</td><td class="mut">—</td></tr>
+<tr><td>105</td><td>vwap-reversion</td><td><span class="tag t-info">역추세</span></td><td><code>close&lt;BB하단(20) AND rsi14&lt;30 AND close&lt;vwap</code></td><td>close&gt;vwap</td><td>2.0/2.0</td><td class="mut">—</td></tr>
+</table>
+<p class="sub">＊ 종목별 성과는 전략 lot이 합산되어 §3에 종목 기준으로 표기(전략 100·104가 같은 종목 동시 진입 多). 추가로 사용자가 15:23 발굴 기반 <code>356680 엑스게이트</code> owner=USER 전략을 직접 생성(ADR 0134 흐름 실사용).</p>
+
+<div class="insight">
+<b>구성 진단:</b> 6종 중 <b>5종(100·101·102·103·104)이 추세/돌파/모멘텀 "추종(following)"</b> 계열이고, 역추세는 105 하나뿐이다. 즉 <b>오늘 universe는 "상승 추세가 이어진다"에 베팅하는 쏠린 포트폴리오</b>였다. 이것이 오늘 장과 정면충돌했다(→ §4).
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>② 전략 플로우 (8단계 자율 루프)</h2>
+<div class="flow">관찰 → 발굴(08:30 scorecard·08:35 universe refresh) → 진입(계획기반 TradePlan 박제)
+   → 청산(PlanExecutor: TP지정가 / SL틱워처 / VI·EOD 안전망) → 강등·킬 → <b>저널</b> → 반복
+
+[진입]  신호생성(RealtimeSignalGenerator) → RiskGateway 통과 → AutopilotBuyGuard(fail-closed)
+        → KIS 주문(marketable limit) → 체결 → TradePlan 박제(TP/SL/trailing/minHold)
+[청산]  PlanExecutor가 박제 계획대로:  TP=auto take-profit LIMIT 선주문 (avg+2~3%)
+                                     SL=PositionStopLossTickWatcher (avg−1.5~2%, 시장가)
+[안전]  L3 항상-on: VI 시장가청산 · EOD 청산(allow_overnight=false) · 계좌 dll · 종목 floor</div>
+<p class="sub">오늘 청산은 거의 전부 <b>SL 틱워처</b>가 먼저 발동(진입 직후 손절선 도달). TP 지정가는 선주문만 걸리고 도달 실패. VI·EOD 강제청산은 0.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>③ 종목별 성과 (KIS net 기준)</h2>
+<table>
+<tr><th>종목</th><th>net</th><th>거래</th><th>비고</th></tr>
+<tr><td>014950 삼익제약</td><td class="grn">+3,600</td><td>6</td><td><span class="tag t-win">최대 익절</span> 추세 유지된 종목</td></tr>
+<tr><td>058730 다스코</td><td class="grn">+3,410</td><td>1</td><td>당일 +30% 급등 익절</td></tr>
+<tr><td>122640 예스티</td><td class="red">-700</td><td>1</td><td>소액 손절</td></tr>
+<tr><td>356680 엑스게이트</td><td class="red">-2,460</td><td>1</td><td>사용자 생성 전략 종목</td></tr>
+<tr><td>034940 조아제약</td><td class="red">-3,230</td><td>1</td><td>진입 직후 손절</td></tr>
+<tr><td>198440 강동씨앤엘</td><td class="red">-3,920</td><td>1</td><td>매수 1,930 → 7분 만에 손절</td></tr>
+<tr><td>026940 부국철강</td><td class="red">-6,100</td><td>1</td><td>당일 -12.6% 추세 하락 (손절 정상 보호)</td></tr>
+<tr><td>413630 씨피시스템</td><td class="red">-12,000</td><td>3</td><td><span class="tag t-loss">휩쏘</span> 진입→손절→재진입→손절 반복</td></tr>
+<tr><td>475430 키스트론</td><td class="red">-13,750</td><td>5</td><td><span class="tag t-loss">휩쏘 최대손실</span> 5회전</td></tr>
+</table>
+<div class="insight">
+승자 2종(+7,010) vs 패자 7종(−42,160). <b>휩쏘 2종(413630·475430)만으로 −25,750</b> = 오늘 손실의 62%. 이 둘은 진입 후 손절선이 터지고 → 다시 진입 → 또 손절의 반복이었다.
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>④ 고찰 — 왜 안 먹혔나 (핵심)</h2>
+
+<h3>4-1. 시장 레짐 ✕ 전략 유형의 정면충돌</h3>
+<p>오늘 장은 <b>HIGH_VOL(고변동성)</b>이었다. 거래 종목들이 일중 <b>±10~30%로 막춤</b>(058730 +30%, 026940 −12.6%, 413630 저점 −2.2%→고점 +10.6%). 이런 장에서:</p>
+<ul>
+<li><b>돌파/모멘텀 추종 5종</b>(100·101·102·103·104)은 "돌파가 이어진다"에 베팅하는데, 고변동성 장의 돌파는 <b>가짜 돌파(false breakout)</b>가 대부분 → 진입 직후 역행.</li>
+<li>청산 조건 <code>close &lt; vwap</code>(100·104) / <code>close &lt; ma20</code>(101)이 고변동성에선 <b>noise만으로 너무 쉽게 발화</b> → 진입하자마자 vwap/ma 깨고 청산.</li>
+</ul>
+
+<h3>4-2. 손절선이 종목 변동성에 비례하지 않음 (휩쏘의 근본)</h3>
+<p>SL이 <b>고정 % (1.5~2.0%)</b>인데, 오늘 종목들의 일중 변동폭(ATR)은 그보다 훨씬 컸다. 결과: <b>정상적인 출렁임(noise) 안에서 손절선이 터짐</b>.</p>
+<div class="card">
+<b>413630 휩쏘 실증:</b> 1차 진입 3,565 → 09:37 손절(3,570선) −3,300 → 재진입 3,605 → 09:58 손절(3,550선) −6,540. <b>그런데 현재가는 3,590</b>(저점 3,330 찍고 반등). → 두 번 다 <b>손절만 안 당했으면 손실이 아니었을 자리</b>. 손절선이 일중 noise 범위 안에 있었다.
+</div>
+
+<h3>4-3. 손익비 0.56의 실체</h3>
+<p>설계 손익비는 1.0~1.67(TP 2~3% &gt; SL 1.5~2%)로 정상이지만, <b>실현 손익비는 0.56</b>. TP는 도달 못 하고 SL/vwap청산만 빈발했기 때문. 승률 30% + 손익비 0.56 = <b>기대값 음수</b>(거래할수록 깎임).</p>
+
+<div class="insight">
+<b>한 줄 결론:</b> "그냥 운이 나쁜 케이스"가 아니다. <b>고변동성 장에 추세추종 쏠림 포트폴리오 + 종목 변동성을 무시한 고정 손절선</b>이라는 <b>구조적 불일치</b>가 손실을 만들었다. 단, 026940(−12.6% 추세하락)처럼 손절이 큰 손실을 막은 정상 케이스도 있어 손절 자체가 틀린 건 아니다 — <b>손절 "폭"이 변동성에 안 맞은 것</b>이 문제.
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>⑤ 리스크 위반 9,658건 분석</h2>
+<table>
+<tr><th>rule</th><th>건수</th><th>성격</th><th>의미</th></tr>
+<tr><td>DAILY_LOSS_LIMIT</td><td class="red">2,297</td><td><span class="tag t-loss">비효율</span></td><td>11시 한도 도달 후 장 끝까지 BUY 생성→차단 무한반복</td></tr>
+<tr><td>SELL_WITHOUT_POSITION</td><td class="yel">1,232</td><td><span class="tag t-warn">비효율</span></td><td>보유0 종목에 THRESHOLD SELL 생성→롱온리 차단</td></tr>
+<tr><td>MAX_CONCURRENT_POSITIONS</td><td>35</td><td><span class="tag t-info">정상</span></td><td>동시3종목 한도</td></tr>
+<tr><td>AUTOPILOT_OPEN_BLACKOUT</td><td>32</td><td><span class="tag t-info">정상</span></td><td>장 시작 직후 진입금지</td></tr>
+<tr><td>AUTOPILOT_CODE_DEDUP</td><td>32</td><td><span class="tag t-info">정상</span></td><td>같은종목 중복진입 억제</td></tr>
+<tr><td>AUTOPILOT_LATE_ENTRY_BLOCKED</td><td>15</td><td><span class="tag t-info">정상</span></td><td>마감직전 진입금지</td></tr>
+<tr><td>그 외(쿨다운·daycap·position)</td><td>15</td><td><span class="tag t-info">정상</span></td><td>의도된 가드</td></tr>
+</table>
+<p>상위 2건(3,529건 = 전체의 <b>90%</b>)이 "어차피 차단될 신호를 계속 생성하는 헛수고"였다. → <b>오늘 코드로 개선 완료(§6)</b>. 나머지는 모두 의도된 정상 가드.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>⑥ 오늘 한 개선 (배포 완료)</h2>
+<div class="card">
+<b>✅ 신호 생성 헛수고 2종 앞단 skip</b> (커밋 ef378b83, consumer 재배포 완료 · zero-regression)
+<ul>
+<li><b>① DAILY_LOSS_LIMIT 도달 시 BUY 신호 발행 skip</b> — <code>DailyLossLimitGate</code> 신규(10s 캐시), RiskGateway 산식 재사용. RiskGateway 최종 차단은 유지(이중 안전망).</li>
+<li><b>② 보유 0 종목 SELL 신호 skip</b> — lot·실잔고 둘 다 0일 때만 보수적 skip. 분할매수·체결 race 안전.</li>
+</ul>
+내일 장중 BUY/SELL skip 로그로 실효(2천여 건 헛 신호 감소) 검증 예정.
+</div>
+<div class="card">
+<b>🗑️ risk_event 정리</b> — 15,322행 → 0 (내일부터 깨끗하게). 저널에 분석 보존 후 삭제.
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>⑦ 학습 가설 — "이런 장엔 이런 전략" (다음 개선 우선순위)</h2>
+
+<div class="card">
+<h3 style="margin-top:0">가설 1 (1순위) — ATR 비례 손절선</h3>
+고정 % SL → <code>진입가 − k×ATR</code>. 변동성 큰 종목은 손절선을 넓게 잡아 noise 흡수, 작은 종목은 좁게. TP도 ATR 비례로 가야 손익비 유지. <span class="tag t-info">이미 설계됨</span> <code>TradePlanStopType.ATR</code>이 도메인에 존재(ADR 0130 §2), <code>TradePlanFactory</code>만 FIXED 구현 → 확장점 채우기. <b>반드시 INTRADAY_REALISTIC 백테스트로 효과 검증 후 ON.</b>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">가설 2 — 레짐 인식 → 전략 가중</h3>
+<b>HIGH_VOL 장 = 돌파/모멘텀 추종 부적합</b>(가짜 돌파 휩쏘). 레짐별 전략 적합성을 누적 학습(ADR 0126 성과히스토리 + 지수 레짐 태깅)해서, autopilot이 "오늘 레짐 → 적합 전략 가중/억제"하도록 루프를 닫아야 한다. <b>현재는 데이터만 쌓이고 학습 루프가 안 닫혀 있음</b> = 진짜 자기증대의 미완성 지점.
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">가설 3 — 고변동성 종목 진입 억제 / 청산 조건 확정화</h3>
+① 당일 변동폭 과대(예: ±10%↑) 종목은 진입 필터. ② 청산 <code>close&lt;vwap</code>을 "2봉 연속" 또는 "ATR 버퍼"로 확정화해 noise 청산 방지.
+</div>
+
+<hr class="hr">
+<h2>⑧ 오늘의 운영 사건 (참고)</h2>
+<ul>
+<li><span class="tag t-warn">인터넷 끊김</span> 12:49~13:14(우리망 25분). KIS 9443·복구. 1m 캔들 그 구간 갭(미 backfill).</li>
+<li><span class="tag t-loss">WS 재시작 사고</span> dll 캐시 갱신하려 consumer 재시작 → 살아있던 KIS WS를 좀비 세션화 → tick silent 누락. <b>운영 실수, 메모리 기록</b>(살아있는 WS 재시작 금지).</li>
+<li><span class="tag t-info">재개 보류</span> dll 10%→5% 원복, 전략 PAUSED. WS는 장후/내일 정상화. 내일 ATR 개선 + WS 정상 상태로 재개.</li>
+</ul>
+
+<hr class="hr">
+<h2>⑨ 내일 인계</h2>
+<ol>
+<li>WS tick 정상화 확인 (KIS 좀비 세션 정리)</li>
+<li>오늘 배포한 신호 skip 2종 <b>실효 검증</b>(BUY/SELL skip 로그, 리스크위반 급감 확인)</li>
+<li><b>ATR 비례 손절선</b> 구현 + INTRADAY_REALISTIC 백테스트 검증 (가설 1)</li>
+<li>1m 캔들 12:49~13:14 갭 backfill</li>
+<li>dll 정책 재결정(5% 유지 vs 조정) → 전략 ACTIVE 복귀 → 재개</li>
+<li>(중기) 레짐-전략 적합성 학습 루프 설계 (가설 2)</li>
+</ol>
+
+<p class="sub" style="margin-top:30px">생성: 2026-06-25 · magicjar-autopilot 학습 저널 · 권위 데이터: KIS net reconcile(matched) · autopilot/performance · risk_event(삭제 전 집계)</p>
+
+</div>
+</body>
+</html>
