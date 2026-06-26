@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.14.1</div>
-      <div class="sub">2026-06-22</div>
+      <div class="value">v3.14.2</div>
+      <div class="sub">2026-06-27</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>chore(release): v3.14.1 — autopilot 첫 REAL 자율 매매일 </div>
+    <div>perf(strategy): RealtimeSignalGenerator 헛 신호 생성 2종 → feat(backend): ADR 0135 — trailing stop 영속 인프라 (st → chore(autopilot): oversold-crash-bounce seed 스크립트  → chore(ops): ops-monitor 오탐사전 보강 + 06-25 학습저널 보존</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">633 lines · 갱신 2026-06-22</div>
+        <div class="card-meta">634 lines · 갱신 2026-06-26</div>
       </div>
     
       <div class="card">
@@ -143,43 +143,92 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0128</div>
-          <div class="adr-title">분할매수(scale-in) 자본 로직 재설계 — base 고정·잔여추적·floor 알람강등·한도/0% 버그 fix</div>
+          <div class="adr-number">0135</div>
+          <div class="adr-title">Trailing Stop 영속 (strategy.trailing_stop_pct)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0127</div>
-          <div class="adr-title">TP tick fail-safe(익절 tick 안전망) — SL/TP 비대칭 해소</div>
+          <div class="adr-number">0134</div>
+          <div class="adr-title">발굴 추천 후보 → 전략 universe 담기 (Discovery → Strategy Universe)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0126</div>
-          <div class="adr-title">전략별 일자별 성과 누적 원장 + 시장 레짐/α + 일자별 메모</div>
+          <div class="adr-number">0133</div>
+          <div class="adr-title">백테스트 분봉 backfill cross-process 통합(api 자급) + 전략 ACTIVE 검증 게이트</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0125</div>
-          <div class="adr-title">실시간 토픽 명명규칙 채택 + wire clean-cut 마이그레이션</div>
+          <div class="adr-number">0132</div>
+          <div class="adr-title">초단타 정합 백테스트(Intraday-Realistic Backtest) + 분봉 on-demand backfill + 캔들 정합성 가드</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0124</div>
-          <div class="adr-title">KIS WS 구독 수요 재편 — H0UNCNT0 단일 채널 + watchlist polling 강등 + owner 우선순위 재정렬</div>
+          <div class="adr-number">0131</div>
+          <div class="adr-title">autopilot 일일 universe 자동 재생성 (Daily Universe Regeneration)</div>
           <div class="adr-meta">Accepted · -</div>
         </div>
       
     </div>
-    <h3>전체 124건 (검색·정렬 가능)</h3>
+    <h3>전체 131건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="135 trailing stop 영속 (strategy.trailing_stop_pct) accepted">
+            <td>0135</td>
+            <td><a href="_workspace/arch/adr/0135-trailing-stop-persistence.md">Trailing Stop 영속 (strategy.trailing_stop_pct)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="134 발굴 추천 후보 → 전략 universe 담기 (discovery → strategy universe) accepted">
+            <td>0134</td>
+            <td><a href="_workspace/arch/adr/0134-discovery-to-strategy-universe.md">발굴 추천 후보 → 전략 universe 담기 (Discovery → Strategy Universe)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="133 백테스트 분봉 backfill cross-process 통합(api 자급) + 전략 active 검증 게이트 accepted">
+            <td>0133</td>
+            <td><a href="_workspace/arch/adr/0133-backtest-validation-gate.md">백테스트 분봉 backfill cross-process 통합(api 자급) + 전략 ACTIVE 검증 게이트</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="132 초단타 정합 백테스트(intraday-realistic backtest) + 분봉 on-demand backfill + 캔들 정합성 가드 accepted">
+            <td>0132</td>
+            <td><a href="_workspace/arch/adr/0132-intraday-realistic-backtest.md">초단타 정합 백테스트(Intraday-Realistic Backtest) + 분봉 on-demand backfill + 캔들 정합성 가드</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="131 autopilot 일일 universe 자동 재생성 (daily universe regeneration) accepted">
+            <td>0131</td>
+            <td><a href="_workspace/arch/adr/0131-autopilot-daily-universe-regeneration.md">autopilot 일일 universe 자동 재생성 (Daily Universe Regeneration)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="130 autopilot 계획 기반 진입(planned entry) + lot 소유권 청산 accepted">
+            <td>0130</td>
+            <td><a href="_workspace/arch/adr/0130-autopilot-planned-entry.md">autopilot 계획 기반 진입(Planned Entry) + lot 소유권 청산</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="129 autopilot 매매행위 하드닝 (첫 손실일 복기 기반 5 레버) accepted">
+            <td>0129</td>
+            <td><a href="_workspace/arch/adr/0129-autopilot-trading-behavior-hardening.md">autopilot 매매행위 하드닝 (첫 손실일 복기 기반 5 레버)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="128 분할매수(scale-in) 자본 로직 재설계 — base 고정·잔여추적·floor 알람강등·한도/0% 버그 fix accepted">
             <td>0128</td>
@@ -1059,6 +1108,12 @@
     <div class="cat-cards">
       
         <div class="card">
+          <div class="card-title">📍 autopilot-trade-lifecycle</div>
+          <div class="card-sub">> **현행 권위 정책** — autopilot(자율 매매) 거래 하나(lot)가 어떻게 진입·관리·청산되는가의 단일 출처. > ref: ADR 0130(계획 기반 진입) · ADR 0110(lot ledger) ·…</div>
+          <div class="card-meta">📄 docs/architecture/policies/autopilot-trade-lifecycle.md · 갱신 2026-06-24</div>
+        </div>
+      
+        <div class="card">
           <div class="card-title">📍 autotrading-risk-plan</div>
           <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR-0106 (도입), ADR-0067 (Risk Gateway), ADR-0068 (Order Execution), ADR-0043/00…</div>
           <div class="card-meta">📄 docs/architecture/policies/autotrading-risk-plan.md · 갱신 2026-06-02</div>
@@ -1660,7 +1715,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 97건</h3>
+    <h3>최근 spec 10건 / 전체 107건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1959,6 +2014,56 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-06-24-autopilot-daily-universe-plan.md 구현 plan — autopilot 일일 universe 자동 재생성 (adr 0131)">
+          <div class="card-title">📄 구현 plan — autopilot 일일 universe 자동 재생성 (ADR 0131)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-autopilot-daily-universe-plan.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-autopilot-daily-universe.md spec — autopilot 일일 universe 자동 재생성 (daily universe regeneration)">
+          <div class="card-title">📄 spec — autopilot 일일 universe 자동 재생성 (Daily Universe Regeneration)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-autopilot-daily-universe.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-autopilot-planned-entry-plan.md 구현 plan — autopilot 계획 기반 진입 (adr 0130 · 에이전트별 task)">
+          <div class="card-title">📄 구현 plan — autopilot 계획 기반 진입 (ADR 0130 · 에이전트별 task)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-autopilot-planned-entry-plan.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-autopilot-planned-entry.md spec — autopilot 계획 기반 진입(planned entry) + lot 소유권 청산">
+          <div class="card-title">📄 spec — autopilot 계획 기반 진입(Planned Entry) + lot 소유권 청산</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-autopilot-planned-entry.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-backtest-validation-gate-plan.md plan — 백테스트 backfill 통합(#4) + 전략 active 검증 게이트(#5)">
+          <div class="card-title">📄 plan — 백테스트 backfill 통합(#4) + 전략 ACTIVE 검증 게이트(#5)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-backtest-validation-gate-plan.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-backtest-validation-gate.md spec — 백테스트 backfill cross-process 통합(api 자급) + 전략 active 검증 게이트">
+          <div class="card-title">📄 spec — 백테스트 backfill cross-process 통합(api 자급) + 전략 ACTIVE 검증 게이트</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-backtest-validation-gate.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-discovery-to-strategy-universe.md spec — 발굴 추천 후보 → 전략 universe 담기 (discovery → strategy universe)">
+          <div class="card-title">📄 spec — 발굴 추천 후보 → 전략 universe 담기 (Discovery → Strategy Universe)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-discovery-to-strategy-universe.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-24-intraday-realistic-backtest.md spec — 초단타 정합 백테스트 + 분봉 on-demand backfill + 캔들 정합성 가드">
+          <div class="card-title">📄 spec — 초단타 정합 백테스트 + 분봉 on-demand backfill + 캔들 정합성 가드</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-24-intraday-realistic-backtest.md · 2026-06-24</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-23-autopilot-trading-hardening-plan.md 구현 plan — autopilot 매매행위 하드닝 (에이전트별 task)">
+          <div class="card-title">📄 구현 plan — autopilot 매매행위 하드닝 (에이전트별 task)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-23-autopilot-trading-hardening-plan.md · 2026-06-23</div>
+        </div>
+      
+        <div class="card" data-search="2026-06-23-autopilot-trading-hardening.md spec — autopilot 매매행위 하드닝 (2026-06-23 첫 손실일 복기)">
+          <div class="card-title">📄 spec — autopilot 매매행위 하드닝 (2026-06-23 첫 손실일 복기)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-06-23-autopilot-trading-hardening.md · 2026-06-23</div>
+        </div>
+      
         <div class="card" data-search="2026-06-22-autopilot-phase0-plan.md magicjar-autopilot phase 0 안전 하니스 — 구현 계획">
           <div class="card-title">📄 magicjar-autopilot Phase 0 안전 하니스 — 구현 계획</div>
           <div class="card-meta">📄 _workspace/specs/2026-06-22-autopilot-phase0-plan.md · 2026-06-22</div>
@@ -2185,9 +2290,9 @@
   <div class="cat-cards">
     <div class="card"><div class="card-title">🤖 ai-engineer</div><div class="card-meta">📄 .claude/agents/ai-engineer.md</div></div><div class="card"><div class="card-title">🤖 architect</div><div class="card-meta">📄 .claude/agents/architect.md</div></div><div class="card"><div class="card-title">🤖 backend-core</div><div class="card-meta">📄 .claude/agents/backend-core.md</div></div><div class="card"><div class="card-title">🤖 frontend</div><div class="card-meta">📄 .claude/agents/frontend.md</div></div><div class="card"><div class="card-title">🤖 market-data</div><div class="card-meta">📄 .claude/agents/market-data.md</div></div><div class="card"><div class="card-title">🤖 qa</div><div class="card-meta">📄 .claude/agents/qa.md</div></div><div class="card"><div class="card-title">🤖 strategy-engine</div><div class="card-meta">📄 .claude/agents/strategy-engine.md</div></div>
   </div>
-  <h3>SKILL 8개</h3>
+  <h3>SKILL 9개</h3>
   <div class="cat-cards">
-    <div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-ops-monitor</div><div class="card-meta">📄 .claude/skills/magicjar-ops-monitor/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
+    <div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-autopilot</div><div class="card-meta">📄 .claude/skills/magicjar-autopilot/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-ops-monitor</div><div class="card-meta">📄 .claude/skills/magicjar-ops-monitor/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
   </div>
   <h3>Slash Commands 3개</h3>
   <div class="cat-cards">
@@ -2201,6 +2306,12 @@
     
     <h3>최근 5건 highlight</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.14.2</div>
+          <div class="adr-title">v3.14.2 — v3.14.2 릴리즈</div>
+          <div class="adr-meta">2026-06-26</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.14.1</div>
@@ -2226,17 +2337,13 @@
           <div class="adr-meta">2026-06-18</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.13.5</div>
-          <div class="adr-title">v3.13.5 — REAL canary 3일차 운영 정비 패치</div>
-          <div class="adr-meta">2026-06-15</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.2">v3.14.2</a></td><td>2026-06-26</td><td>v3.14.2 — v3.14.2 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.1">v3.14.1</a></td><td>2026-06-22</td><td>v3.14.1 — v3.14.1 릴리즈</td></tr>
         
@@ -2296,8 +2403,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.16">v3.6.16</a></td><td>2026-05-18</td><td>v3.6.16 — v3.6.16 릴리즈</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.13">v3.6.13</a></td><td>2026-05-18</td><td>v3.6.13 — v3.6.13 릴리즈</td></tr>
-        
       </tbody>
     </table>
   
@@ -2305,14 +2410,24 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 527건 · status별 분포</h3>
+    <h3>전체 529건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">527건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">529건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
+      
+        <div class="card">
+          <div class="card-title">T-20260623-1257-autopilot-hardening-levers.md</div>
+          <div class="card-meta">DONE · strategy · PR #1116</div>
+        </div>
+      
+        <div class="card">
+          <div class="card-title">T-20260623-1059-autopilot-trading-hardening.md</div>
+          <div class="card-meta">DONE · architect · PR #1114</div>
+        </div>
       
         <div class="card">
           <div class="card-title">T-20260618-1034-strategy-start-screen.md</div>
@@ -2352,16 +2467,6 @@
         <div class="card">
           <div class="card-title">T-20260615-1740-watchlist-polling-and-strategy-drift.md</div>
           <div class="card-meta">DONE · backend-core · PR #992</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-1454-canary-strategies-2.md</div>
-          <div class="card-meta">DONE · strategy · PR #989</div>
-        </div>
-      
-        <div class="card">
-          <div class="card-title">T-20260615-1433-kis-ws-unsubscribe-trtype-hotfix.md</div>
-          <div class="card-meta">DONE · market-data · PR #987</div>
         </div>
       
     </div>
