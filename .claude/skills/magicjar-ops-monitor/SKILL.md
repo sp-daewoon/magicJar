@@ -10,11 +10,12 @@ description: magicJar 실운영(REAL) 상시 모니터링 + 일일 운영 보고
 
 ## A. 세션 시작 시 — 감시 3종 무장 (Monitor 도구)
 
-장중(평일 09:00~15:30)이면 아래 3종을 persistent Monitor로 무장한다. 코드는 검증본 그대로 사용:
+장중(평일 09:00~15:30)이면 아래 **4종**을 persistent Monitor로 무장한다. 코드는 검증본 그대로 사용:
 
 1. **주문 이벤트 스트림** (실시간): `docker logs -f magicjar-consumer`를 `OrderRouterKafkaListener (OrderIntent|ACK|REJECTED)|ODNO|order\.filled|체결통보|CANARY|KILLSWITCH|stop-loss MARKET|RealRiskContextUnavailable| ERROR ` 패턴으로 follow. 제외: `today-candle-seed|inquire-daily-itemchartprice|SELL_WITHOUT_POSITION|MAX_CONCURRENT_POSITIONS|잔고조회 실패`. **컨테이너 교체 생존형** — while true 루프로 재attach + 10초+ 부재 시 ALERT.
 2. **이상 패턴 폴링** (10분): ① outbox 위반/시스템 알람 10분 8건+ ② stuck 주문(REQUESTED 5분+ 또는 MARKET ACK 5분+ — **휴면 LIMIT ACK는 정상이므로 제외**) ③ 신규 ERROR 3건+ (기지 계열 `EGW00201|EGW00215|OPSP8997` 제외) ④ 드리프트 재발 2건+.
-3. **시세·평가 생존 맥박** (2.5분, 장중만): ACTIVE 전략 종목의 최신 1m 캔들 경과 **180초+ → ALERT[시세정지]** (F3 유령 세션 — 가장 위험한 무소음 장애) + 최근 5분 해당 종목 처리 로그 0건 → ALERT[평가정지].
+3. **시세·평가 생존 맥박** (2.5분, 장중만): ACTIVE 전략 종목의 최신 1m 캔들 경과 **240초+ → ALERT[시세정지]** (F3 유령 세션 — 가장 위험한 무소음 장애. 1m 분경계 오탐 방지 위해 임계 240초·신규편입 5분 grace) + 최근 5분 해당 종목 처리 로그 0건 → ALERT[평가정지].
+4. **포지션 정합 크로스체크** (10분, 장중 — 2026-06-29 신설): `KIS inquire-balance(9443) 실보유 vs strategy_position` 종목별 대조 → **drift 감지 시 ALERT** (ledger 보유·KIS 0 = 유령 → POSITION_LIMIT 매수막힘 / KIS 보유·ledger 0 = 익절막힘 SELL_WITHOUT_POSITION). autopilot §0-C self-detect 의무. `KisLedgerSelfHealWorker`(ADR0136) 가동 로그 + 증상(SELL_WITHOUT_POSITION·POSITION_LIMIT 차단 급증·매매 멈춤·익절 미체결) 동시 감시. **사용자가 "왜 안 팔려/안 사" 지적하기 전에 잡는다.**
 
 ## B. 이상 발생 시 — 대응 분기 (검증된 순서)
 
