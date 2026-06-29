@@ -108,6 +108,11 @@ class OrderRouterKafkaListener(
     private val sellRejectAutoPauseTracker: SellRejectAutoPauseTracker,
     // WS_PREINSERT race 병합 시 누락된 strategy_position 재생. 부재 환경은 기존 주문 흐름 유지.
     private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
+    // ADR 0136 — WS_PREINSERT 병합 후 strategy_position **rebuild**(order_execution 진실원 재계산 · 재진입 stranded 흡수).
+    //   replayIfMissing 의 "행 기존재 → skip" 가드는 재진입(같은 전략·종목 행이 이미 존재) execution 을 드롭하므로,
+    //   merge 직후 event-멱등·KIS 교차검산 rebuild 를 함께 돌려 누락을 흡수한다. ObjectProvider graceful(부재 시 skip).
+    private val strategyPositionRebuildAdapterProvider:
+        ObjectProvider<kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter>? = null,
     // signal.generated.v1 단계에서 주문 intent 발행 직후 누적한 거래빈도 record 를 gate reject 시 회수한다.
     private val tradeFrequencyGuardProvider: ObjectProvider<TradeFrequencyGuard>? = null,
     // ADR 0122 §6 GAP-0 hotfix — intent.strategyId → strategy.origin 조회(페이퍼 MOCK 강제 판정).
@@ -623,17 +628,21 @@ class OrderRouterKafkaListener(
         canonicalRequest: OrderRequest,
     ) {
         if (wsPreinsert?.id == null) return
-        val replayService = strategyPositionExecutionReplayServiceProvider?.getIfAvailable() ?: return
+
+        // 1) 기존 경로 — 첫 진입(strategy_position 행 부재) stranded execution 재생.
+        val replayService = strategyPositionExecutionReplayServiceProvider?.getIfAvailable()
         val replayed =
-            runCatching { replayService.replayIfMissing(canonicalRequest, "WS_PREINSERT_ACK_MERGE") }
-                .onFailure { e ->
-                    log.warn(
-                        "WS_PREINSERT strategy_position replay 실패 — ACK 병합은 유지: preinsertOrderId={} canonicalOrderId={} err={}",
-                        wsPreinsert.id,
-                        canonicalRequest.id,
-                        e.message,
-                    )
-                }.getOrDefault(0)
+            replayService?.let {
+                runCatching { it.replayIfMissing(canonicalRequest, "WS_PREINSERT_ACK_MERGE") }
+                    .onFailure { e ->
+                        log.warn(
+                            "WS_PREINSERT strategy_position replay 실패 — ACK 병합은 유지: preinsertOrderId={} canonicalOrderId={} err={}",
+                            wsPreinsert.id,
+                            canonicalRequest.id,
+                            e.message,
+                        )
+                    }.getOrDefault(0)
+            } ?: 0
         if (replayed > 0) {
             log.warn(
                 "WS_PREINSERT strategy_position replay: preinsertOrderId={} canonicalOrderId={} strategyId={} code={} replayed={}",
@@ -642,6 +651,29 @@ class OrderRouterKafkaListener(
                 canonicalRequest.strategyId,
                 canonicalRequest.code,
                 replayed,
+            )
+        }
+
+        // 2) ADR 0136 — **재진입 stranded 흡수**. replayIfMissing 은 "행 기존재 → skip"(over-count 회피 의도)이라
+        //    같은 전략·종목을 다시 매수한 재진입 execution(예: 09:40 미래나노텍 26주)이 strategy_position 행이
+        //    이미 있으면 영구 드롭됐다(KIS 보유 vs ledger 0 → 익절 SELL_WITHOUT_POSITION 차단). merge 직후
+        //    order_execution(진실원)은 canonical(strategyId≠0·AUTO)에 재귀속됐으므로, event-멱등·KIS 교차검산
+        //    rebuild 로 누락을 즉시 흡수한다(교차검산 불일치면 미적용 — 없는 물량 인식 risk 0). graceful.
+        if (canonicalRequest.strategyId == 0L) return
+        val rebuildAdapter = strategyPositionRebuildAdapterProvider?.getIfAvailable() ?: return
+        runCatching {
+            rebuildAdapter.rebuildStrategyPositionFromLedger(
+                canonicalRequest.userId,
+                canonicalRequest.code,
+                canonicalRequest.mode.name,
+            )
+        }.onFailure { e ->
+            log.warn(
+                "WS_PREINSERT strategy_position rebuild 실패 — ACK 병합·replay 는 유지: canonicalOrderId={} strategyId={} code={} err={}",
+                canonicalRequest.id,
+                canonicalRequest.strategyId,
+                canonicalRequest.code,
+                e.message,
             )
         }
     }

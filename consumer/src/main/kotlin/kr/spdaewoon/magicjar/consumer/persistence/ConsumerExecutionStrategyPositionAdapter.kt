@@ -221,7 +221,38 @@ class ConsumerExecutionStrategyPositionAdapter(
                 log.warn("rebuild position 권위 조회 실패 — skip: userId={} code={} err={}", maskUserId(userId), code, e.message)
                 return false
             }
+        return rebuildStrategyPositionWithAuthority(userId, code, modeName, authority)
+    }
 
+    /**
+     * ★ ADR 0136 — **외부 주입 권위(KIS 실잔고)** 로 strategy_position rebuild (KIS 실잔고 ↔ ledger self-heal 워커 진입점).
+     *
+     * [rebuildStrategyPositionFromLedger] 가 내부 position 투영을 권위로 쓰는 반면, 본 오버로드는
+     * [kr.spdaewoon.magicjar.consumer.reconcile.KisLedgerSelfHealWorker] 가 **KIS inquire-balance 로 방금 조회한
+     * 실보유 수량**을 직접 주입한다. position 투영 자체가 drift(체결 미반영)였을 때도 broker 진실원 기준으로 교차검산해
+     * 누락(재진입 stranded·부분체결 유실)을 흡수한다.
+     *
+     * 교차검산·멱등·미적용 분기는 [rebuildStrategyPositionWithAuthority] 공통 — KIS 권위와 정확히 일치할 때만 적용.
+     *
+     * @param kisAuthorityQuantity KIS inquire-balance 가 반환한 그 종목 실보유 수량(broker 진실원).
+     */
+    @Transactional
+    fun rebuildStrategyPositionFromKisAuthority(
+        userId: String,
+        code: String,
+        modeName: String,
+        kisAuthorityQuantity: Int,
+    ): Boolean {
+        if (!ledgerRebuildEnabled) return false
+        return rebuildStrategyPositionWithAuthority(userId, code, modeName, kisAuthorityQuantity.coerceAtLeast(0))
+    }
+
+    private fun rebuildStrategyPositionWithAuthority(
+        userId: String,
+        code: String,
+        modeName: String,
+        authority: Int,
+    ): Boolean {
         // hotfix 2026-06-11 (D1): rebuild fold·교차검산을 권위(position) 와 동일 mode 로 정합 — MOCK 과거 체결 혼입 차단.
         val mode = RuntimeModeParser.tradingModeOrMock(modeName)
         val rows =
