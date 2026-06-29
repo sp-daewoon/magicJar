@@ -1,10 +1,12 @@
 package kr.spdaewoon.magicjar.consumer.autopilot
 
+import kr.spdaewoon.magicjar.consumer.order.AuctionLiquidationPrice
 import kr.spdaewoon.magicjar.consumer.order.AutoOrderIdempotencyKeys
 import kr.spdaewoon.magicjar.consumer.order.RestingSellOrderCanceller
 import kr.spdaewoon.magicjar.consumer.persistence.AutopilotHeldLotProjection
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.market.session.KrxAuctionWindow
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
 import kr.spdaewoon.magicjar.domain.order.execution.OrderTrigger
@@ -53,6 +55,8 @@ class AutopilotLiquidationService(
     private val orderIntentKafkaProducer: OrderIntentKafkaProducer,
     private val restingSellOrderCanceller: RestingSellOrderCanceller,
     private val orderRequestRepositoryProvider: ObjectProvider<OrderRequestRepository>,
+    // D1 (2026-06-29 사고) — 단일가(동시호가) 구간 판정 시각 출처. 결정론 테스트용 주입점.
+    private val clock: java.time.Clock = java.time.Clock.systemDefaultZone(),
 ) : AutopilotLiquidator {
     private val log = LoggerFactory.getLogger(AutopilotLiquidationService::class.java)
 
@@ -92,7 +96,7 @@ class AutopilotLiquidationService(
             return AutopilotLiquidationOutcome(liquidatedCodes = emptyList(), totalSellIntents = 0)
         }
 
-        val nowEpoch = Instant.now().epochSecond
+        val nowEpoch = clock.instant().epochSecond
         val liquidatedCodes = LinkedHashSet<String>()
         var totalSellIntents = 0
         // resting auto-TP SELL 선취소용 open SELL 영속 포트. 미합류 시 선취소 없이 진행(degraded — 청산 우선 성격상
@@ -161,15 +165,20 @@ class AutopilotLiquidationService(
                     nowEpoch,
                 )
 
+            // D1 (2026-06-29 사고) — 단일가(동시호가) 구간엔 KIS 가 시장가 SELL 을 거부한다. 롱온리 청산은 체결 보장이
+            // 본질(헌법 §13)이라 시장가 대신 평단 기준 하한가 marketable LIMIT 으로 발행한다. 연속매매 구간은 MARKET 유지.
+            // 단일가 구간이라도 LIMIT 산정 불가(평단 ≤ 0)면 MARKET fallback — 청산 우선(가격 결함으로 청산 보류 안 함).
+            val (priceType, limitPrice) = resolveExitPricing(priceAtSignal)
+
             orderIntentKafkaProducer.publishExitIntent(
                 userId = lot.getUserId(),
                 strategyId = lot.getStrategyId(),
                 code = lot.getCode(),
                 intervalCode = "1m",
                 side = OrderSide.SELL,
-                priceType = OrderPriceType.MARKET,
+                priceType = priceType,
                 quantity = quantity,
-                limitPrice = null,
+                limitPrice = limitPrice,
                 priceAtSignal = priceAtSignal,
                 idempotencyKey = idempotencyKey,
                 // 청산은 자동 익절·롤백 회수 성격 — AUTO_EXIT + 유발 근거 = 청산 대상 전략 id.
@@ -180,11 +189,13 @@ class AutopilotLiquidationService(
             totalSellIntents++
 
             log.warn(
-                "autopilot 청산 SELL intent: userId={} strategyId={} code={} qty={} reason={} idemKey={}",
+                "autopilot 청산 SELL intent: userId={} strategyId={} code={} qty={} priceType={} limitPrice={} reason={} idemKey={}",
                 lot.getUserId(),
                 lot.getStrategyId(),
                 lot.getCode(),
                 quantity,
+                priceType,
+                limitPrice,
                 reason,
                 idempotencyKey,
             )
@@ -201,5 +212,19 @@ class AutopilotLiquidationService(
             liquidatedCodes = liquidatedCodes.toList(),
             totalSellIntents = totalSellIntents,
         )
+    }
+
+    /**
+     * D1 — 청산 주문 가격 유형 결정. 단일가(동시호가) 구간이면 평단 기준 marketable SELL LIMIT, 그 외 MARKET.
+     *
+     * 단일가 구간이라도 LIMIT 산정 불가(referencePrice ≤ 0)면 MARKET fallback — 청산 우선(가격 결함으로 보류 안 함).
+     * 현재 시각은 [Instant.now] — EOD 워커(15:15)는 이미 동시호가 전이라 항상 MARKET, 늦게 발화하는 kill·롤백·재청산
+     * 대비 안전망이다.
+     */
+    private fun resolveExitPricing(referencePrice: BigDecimal): Pair<OrderPriceType, BigDecimal?> {
+        val kotlinNow = kotlinx.datetime.Instant.fromEpochMilliseconds(clock.instant().toEpochMilli())
+        if (!KrxAuctionWindow.isSinglePriceAuction(kotlinNow)) return OrderPriceType.MARKET to null
+        val limit = AuctionLiquidationPrice.marketableSellLimit(referencePrice)
+        return if (limit != null) OrderPriceType.LIMIT to limit else OrderPriceType.MARKET to null
     }
 }

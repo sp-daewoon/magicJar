@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import com.fasterxml.jackson.databind.ObjectMapper
 import kr.spdaewoon.magicjar.consumer.persistence.PositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
+import kr.spdaewoon.magicjar.domain.market.session.KrxAuctionWindow
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
@@ -67,6 +68,8 @@ class PositionStopLossTickWatcher(
     // position UQ=(user,code,source) — source 누락 시 MOCK+REAL 행 공존 종목에서 "2 results" 오류.
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
+    // D1 (2026-06-29 사고) — 단일가(동시호가) 구간 판정·idemKey timeBucket 의 시각 출처. 결정론 테스트용 주입점.
+    private val clock: java.time.Clock = java.time.Clock.systemDefaultZone(),
 ) {
     private val log = LoggerFactory.getLogger(PositionStopLossTickWatcher::class.java)
 
@@ -206,6 +209,9 @@ class PositionStopLossTickWatcher(
             )
         if (!cancelResult.canProceed) return
 
+        val now = clock.instant()
+        // D2 (2026-06-29 사고) — timeBucket 차원으로 영구 차단 함정 회피. 같은 bucket·상태는 동일 키(in-flight 멱등),
+        // bucket 넘어가면 새 키로 terminal(CANCELLED/REJECTED) 행에 막히지 않고 재시도. bucket 폭 = tick cooldown.
         val idempotencyKey =
             AutoOrderIdempotencyKeys.stopLoss(
                 position.userId,
@@ -213,7 +219,12 @@ class PositionStopLossTickWatcher(
                 position.code,
                 position.quantity,
                 position.updatedAtEpoch,
+                idemTimeBucket(now),
             )
+
+        // D1 (2026-06-29 사고) — 단일가(동시호가) 구간엔 KIS 가 시장가 SELL 을 거부한다. 롱온리 청산은 체결 보장이
+        // 본질이므로 시장가 대신 하한가 근처 marketable LIMIT 으로 발행한다(헌법 §13). 연속매매 구간은 기존 MARKET 유지.
+        val (priceType, limitPrice) = resolveExitPricing(tickPrice, now)
 
         orderIntentKafkaProducer.publishExitIntent(
             userId = position.userId,
@@ -221,9 +232,9 @@ class PositionStopLossTickWatcher(
             code = position.code,
             intervalCode = "1m",
             side = OrderSide.SELL,
-            priceType = OrderPriceType.MARKET,
+            priceType = priceType,
             quantity = position.quantity,
-            limitPrice = null,
+            limitPrice = limitPrice,
             priceAtSignal = tickPrice,
             idempotencyKey = idempotencyKey,
             // ADR 0115 §2-P2-⑥ — tick 손절: 발사 출처 STOP_LOSS + 유발 근거 = 청산 대상 전략 id
@@ -232,17 +243,41 @@ class PositionStopLossTickWatcher(
         )
         // 발행 성공 — cooldown 갱신(상태 signature + 발행 시각). 같은 상태 재tick은 임계까지 차단.
         intentCooldown[cooldownKey(position)] =
-            FiredIntent(firedAtEpoch = Instant.now().epochSecond, stateSignature = stateSignatureOf(position))
+            FiredIntent(firedAtEpoch = now.epochSecond, stateSignature = stateSignatureOf(position))
         log.warn(
-            "stop-loss MARKET intent (tick watcher): userId={} strategyId={} code={} tick={} stopPrice={} qty={} idemKey={}",
+            "stop-loss {} intent (tick watcher): userId={} strategyId={} code={} tick={} stopPrice={} qty={} limitPrice={} idemKey={}",
+            priceType,
             position.userId,
             position.strategyId,
             position.code,
             tickPrice,
             stopPrice,
             position.quantity,
+            limitPrice,
             idempotencyKey,
         )
+    }
+
+    /**
+     * D1 — 청산 주문 가격 유형 결정. 단일가(동시호가) 구간이면 marketable SELL LIMIT, 그 외(연속매매)는 MARKET.
+     *
+     * 단일가 구간이라도 LIMIT 가 산정 불가(현재가 ≤ 0 등)면 MARKET fallback — 안전망 성격상 가격 결함으로 손절을
+     * 막지 않는다(KIS 가 거부하면 다음 tick 재시도). 정상 단일가 구간은 [AuctionLiquidationPrice] 하한가 LIMIT.
+     */
+    private fun resolveExitPricing(
+        referencePrice: BigDecimal,
+        now: Instant,
+    ): Pair<OrderPriceType, BigDecimal?> {
+        val kotlinNow = kotlinx.datetime.Instant.fromEpochMilliseconds(now.toEpochMilli())
+        if (!KrxAuctionWindow.isSinglePriceAuction(kotlinNow)) return OrderPriceType.MARKET to null
+        val limit = AuctionLiquidationPrice.marketableSellLimit(referencePrice)
+        return if (limit != null) OrderPriceType.LIMIT to limit else OrderPriceType.MARKET to null
+    }
+
+    /** D2 — 손절 idemKey timeBucket. tick cooldown 폭(초)으로 epochSecond 를 양자화 → 같은 창 안 같은 bucket. */
+    private fun idemTimeBucket(now: Instant): Long {
+        val width = tickCooldownSeconds.coerceAtLeast(1)
+        return now.epochSecond / width
     }
 
     /**
@@ -253,7 +288,7 @@ class PositionStopLossTickWatcher(
         val fired = intentCooldown[cooldownKey(position)] ?: return false
         // 상태 변화(수량/갱신시각) — 정당한 다음 손절. cooldown 무시.
         if (fired.stateSignature != stateSignatureOf(position)) return false
-        val elapsed = Instant.now().epochSecond - fired.firedAtEpoch
+        val elapsed = clock.instant().epochSecond - fired.firedAtEpoch
         return elapsed < tickCooldownSeconds
     }
 

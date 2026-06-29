@@ -1,6 +1,5 @@
 package kr.spdaewoon.magicjar.consumer.order
 
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.event.SystemEvent
 import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
@@ -21,7 +20,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * 2026-06-08 incident — strategy_position 유령 수량(7 vs position 5)이 매도 거부를 무한 유발했다.
  * P1-1 drift 자동보정이 정합을 회복하지만, 그 직전·경합 구간에 거부가 누적되면 자원·알림이 소모된다.
  * 본 tracker는 **같은 전략·종목의 연속 SELL 거부**를 인메모리로 세고, 임계([rejectAutoPauseThreshold], default 10)
- * 도달 시 해당 전략을 자동 정지([ConsumerStrategyJpaRepository.autoDisable])하고 1회만 알림을 emit한다.
+ * 도달 시 해당 전략을 자동 정지([SellRejectStrategyPauseWriter.autoDisable] — 쓰기 트랜잭션 경계)하고 1회만 알림을 emit한다.
+ *
+ * ## D3 — 쓰기 트랜잭션 경계 (2026-06-29 사고)
+ * 자동정지(`autoDisable` `@Modifying` UPDATE)는 Kafka 리스너 스레드(트랜잭션 없음)에서 호출되므로 repository 를
+ * 직접 부르면 Hibernate `Executing an update/delete query` 예외가 났다(자동정지 무작동 → 거부 무한 루프).
+ * 쓰기 책임을 별도 bean [SellRejectStrategyPauseWriter] (`@Transactional`)로 분리해 프록시 트랜잭션 경계를 확보한다.
  *
  * ## 자연 해제 (ADR 0115 §P2-2)
  * 정지는 P1-1 drift 자동보정이 정합을 회복하면 다음 신호가 정상화되어 자연 해소되며, 사용자가 전략을 재활성화한다.
@@ -41,7 +45,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 @Component
 class SellRejectAutoPauseTracker(
-    private val strategyRepositoryProvider: ObjectProvider<ConsumerStrategyJpaRepository>,
+    // D3 (2026-06-29 사고) — 자동정지 쓰기는 별도 @Transactional bean 경유(read-only/무트랜잭션 함정 회피).
+    private val strategyPauseWriterProvider: ObjectProvider<SellRejectStrategyPauseWriter>,
     private val rateLimiterProvider: ObjectProvider<NotificationRateLimiterPort>,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     @Value("\${magicjar.notification.reject-auto-pause.threshold:10}")
@@ -86,10 +91,10 @@ class SellRejectAutoPauseTracker(
         count: Int,
     ) {
         val reason = "AUTO_PAUSE_SELL_REJECT_x$count(code=${order.code})"
-        val repo = strategyRepositoryProvider.getIfAvailable()
-        if (repo == null) {
+        val writer = strategyPauseWriterProvider.getIfAvailable()
+        if (writer == null) {
             log.error(
-                "SELL reject 자동정지 skip — ConsumerStrategyJpaRepository 미합류: userId={} strategyId={} code={}",
+                "SELL reject 자동정지 skip — SellRejectStrategyPauseWriter 미합류: userId={} strategyId={} code={}",
                 maskUserId(order.userId),
                 order.strategyId,
                 order.code,
@@ -97,7 +102,7 @@ class SellRejectAutoPauseTracker(
             return
         }
         val updated =
-            runCatching { repo.autoDisable(order.strategyId, reason) }
+            runCatching { writer.autoDisable(order.strategyId, reason) }
                 .onFailure { e ->
                     log.error(
                         "SELL reject 자동정지 autoDisable 실패: strategyId={} err={}",
