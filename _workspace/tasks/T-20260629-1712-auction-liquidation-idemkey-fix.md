@@ -3,10 +3,10 @@ id: T-20260629-1712-auction-liquidation-idemkey-fix
 agent: backend-core
 model: opus
 branch: agent/backend-core/auction-liquidation-idemkey-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-29T17:12:12.111+09:00
-completedAt: null
-pr: null
+completedAt: 2026-06-29T17:29:19.305+09:00
+pr: #1139
 parentPhase: ?
 ---
 
