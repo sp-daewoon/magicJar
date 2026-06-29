@@ -3,7 +3,6 @@ package kr.spdaewoon.magicjar.consumer.order
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
@@ -21,13 +20,14 @@ import java.time.Instant
  * incident(유령 수량 매도 거부 폭주) 회귀 가드: 임계 도달까지 autoDisable 0, 도달 시 1회만, 성공 체결 시 카운터 reset.
  */
 class SellRejectAutoPauseTrackerTest {
-    private val strategyRepo = mockk<ConsumerStrategyJpaRepository>(relaxed = true)
+    // D3 (2026-06-29 사고) — autoDisable 쓰기는 별도 @Transactional bean(SellRejectStrategyPauseWriter) 경유.
+    private val pauseWriter = mockk<SellRejectStrategyPauseWriter>(relaxed = true)
     private val rateLimiter = mockk<NotificationRateLimiterPort>(relaxed = true)
     private val systemEventLogger = mockk<SystemEventLogger>(relaxed = true)
 
     private fun tracker(threshold: Int = 3) =
         SellRejectAutoPauseTracker(
-            strategyRepositoryProvider = providerOf(strategyRepo),
+            strategyPauseWriterProvider = providerOf(pauseWriter),
             rateLimiterProvider = providerOf(rateLimiter),
             systemEventLoggerProvider = providerOf(systemEventLogger),
             rejectAutoPauseThreshold = threshold,
@@ -38,18 +38,18 @@ class SellRejectAutoPauseTrackerTest {
         every { rateLimiter.shouldEmitOncePerWindow(any(), any(), any()) } returns true
         val t = tracker(threshold = 3)
         repeat(2) { t.onOrderRejected(sellOrder()) }
-        verify(exactly = 0) { strategyRepo.autoDisable(any(), any()) }
+        verify(exactly = 0) { pauseWriter.autoDisable(any(), any()) }
     }
 
     @Test
     fun `임계 도달 — autoDisable 1회 + 알림 1회`() {
         every { rateLimiter.shouldEmitOncePerWindow(any(), any(), any()) } returns true
-        every { strategyRepo.autoDisable(any(), any()) } returns 1
+        every { pauseWriter.autoDisable(any(), any()) } returns 1
         val t = tracker(threshold = 3)
 
         repeat(3) { t.onOrderRejected(sellOrder()) }
 
-        verify(exactly = 1) { strategyRepo.autoDisable(100L, any()) }
+        verify(exactly = 1) { pauseWriter.autoDisable(100L, any()) }
         verify(exactly = 1) { systemEventLogger.emit(any()) }
     }
 
@@ -57,14 +57,14 @@ class SellRejectAutoPauseTrackerTest {
     fun `BUY 거부는 집계 0`() {
         val t = tracker(threshold = 1)
         t.onOrderRejected(sellOrder(side = OrderSide.BUY))
-        verify(exactly = 0) { strategyRepo.autoDisable(any(), any()) }
+        verify(exactly = 0) { pauseWriter.autoDisable(any(), any()) }
     }
 
     @Test
     fun `MANUAL sentinel(strategyId 0) 집계 0`() {
         val t = tracker(threshold = 1)
         t.onOrderRejected(sellOrder(strategyId = 0L))
-        verify(exactly = 0) { strategyRepo.autoDisable(any(), any()) }
+        verify(exactly = 0) { pauseWriter.autoDisable(any(), any()) }
     }
 
     @Test
@@ -76,19 +76,19 @@ class SellRejectAutoPauseTrackerTest {
         t.resetOnSuccess(sellOrder()) // reset
         repeat(2) { t.onOrderRejected(sellOrder()) } // 다시 2회 — 임계 3 미달
 
-        verify(exactly = 0) { strategyRepo.autoDisable(any(), any()) }
+        verify(exactly = 0) { pauseWriter.autoDisable(any(), any()) }
     }
 
     @Test
     fun `rate limiter 디바운스 — 윈도 차단이면 알림 emit 0`() {
         every { rateLimiter.shouldEmitOncePerWindow(any(), any(), any()) } returns false
-        every { strategyRepo.autoDisable(any(), any()) } returns 1
+        every { pauseWriter.autoDisable(any(), any()) } returns 1
         val t = tracker(threshold = 1)
 
         t.onOrderRejected(sellOrder())
 
         // 정지(autoDisable)는 수행하되 알림은 디바운스로 skip.
-        verify(exactly = 1) { strategyRepo.autoDisable(any(), any()) }
+        verify(exactly = 1) { pauseWriter.autoDisable(any(), any()) }
         verify(exactly = 0) { systemEventLogger.emit(any()) }
     }
 

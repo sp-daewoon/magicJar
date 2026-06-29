@@ -34,16 +34,25 @@ class AutopilotLiquidationServiceTest {
     private fun <T : Any> providerOf(value: T?): ObjectProvider<T> =
         mockk<ObjectProvider<T>>().also { every { it.getIfAvailable() } returns value }
 
+    // D1 (2026-06-29 사고) — 연속매매 시각(2026-06-26 10:00 KST = 01:00 UTC) 고정. 기존 MARKET 단언이 결정론으로 성립.
+    private val continuousTradingClock: java.time.Clock =
+        java.time.Clock.fixed(java.time.Instant.parse("2026-06-26T01:00:00Z"), java.time.ZoneOffset.UTC)
+
+    // 15:24 KST = 06:24 UTC — 장 마감 동시호가 구간(단일가).
+    private fun auctionClock(): java.time.Clock =
+        java.time.Clock.fixed(java.time.Instant.parse("2026-06-26T06:24:00Z"), java.time.ZoneOffset.UTC)
+
     /**
      * 기본 service — orderRepo 미합류(null) 경로(degraded). resting SELL 선취소를 거치지 않으므로 기존 발행 검증이
      * 영향받지 않는다(zero-regression). 선취소 동작은 [service(canceller)] 로 별도 검증.
      */
-    private fun service() =
+    private fun service(clock: java.time.Clock = continuousTradingClock) =
         AutopilotLiquidationService(
             strategyPositionJpaRepository = positionRepo,
             orderIntentKafkaProducer = intentProducer,
             restingSellOrderCanceller = restingSellCanceller,
             orderRequestRepositoryProvider = providerOf(null),
+            clock = clock,
         )
 
     /** orderRepo 합류 경로 — resting SELL 선취소 동작 검증용. */
@@ -53,6 +62,7 @@ class AutopilotLiquidationServiceTest {
             orderIntentKafkaProducer = intentProducer,
             restingSellOrderCanceller = restingSellCanceller,
             orderRequestRepositoryProvider = providerOf(orderRepo),
+            clock = continuousTradingClock,
         )
 
     private fun lot(
@@ -143,6 +153,33 @@ class AutopilotLiquidationServiceTest {
                 idempotencyKey = match { it.startsWith("auto-lq:") },
                 orderTrigger = OrderTrigger.AUTO_EXIT,
                 triggerRefId = 200L,
+            )
+        }
+    }
+
+    @Test
+    fun `D1 — 단일가(동시호가) 구간 청산은 marketable LIMIT 으로 발행 (KIS 시장가 거부 회피)`() {
+        every { positionRepo.findAutopilotHeldPositions("U1") } returns
+            listOf(lot(code = "005930", quantity = 7, avgPrice = BigDecimal("70000")))
+
+        val outcome = service(clock = auctionClock()).liquidateAll(userId = "U1", reason = "EOD")
+
+        assertThat(outcome.totalSellIntents).isEqualTo(1)
+        // 평단 70,000 × 0.91 = 63,700 → 호가단위(50,000~199,999=100) 내림 = 63,700.
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "U1",
+                strategyId = 100L,
+                code = "005930",
+                intervalCode = "1m",
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.LIMIT,
+                quantity = 7,
+                limitPrice = BigDecimal("63700"),
+                priceAtSignal = BigDecimal("70000"),
+                idempotencyKey = match { it.startsWith("auto-lq:") },
+                orderTrigger = OrderTrigger.AUTO_EXIT,
+                triggerRefId = 100L,
             )
         }
     }

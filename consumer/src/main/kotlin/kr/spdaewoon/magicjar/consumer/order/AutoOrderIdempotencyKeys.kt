@@ -26,7 +26,24 @@ internal object AutoOrderIdempotencyKeys {
     /** 익절 LIMIT 선주문 키 — `auto-tp:<digest>`. parts: userId·strategyId·code·quantity·avgPrice·epoch. */
     fun takeProfit(vararg parts: Any?): String = shortKey(PREFIX_TAKE_PROFIT, parts.asList())
 
-    /** 손절 MARKET 키 — `auto-sl:<digest>`. parts: userId·strategyId·code·quantity·epoch. */
+    /**
+     * 손절 MARKET 키 — `auto-sl:<digest>`. parts: userId·strategyId·code·quantity·updatedAtEpoch·**timeBucket**.
+     *
+     * ## 왜 timeBucket 차원인가 (2026-06-29 국순당 043650 -9% 오버나잇 사고 D2 — 영구 차단 함정 fix)
+     * 기존 키는 (userId·strategyId·code·quantity·updatedAtEpoch) 만 섞어, 포지션 상태가 안 바뀌면 종일 같은
+     * digest 였다. 손절 SELL 이 단일가 구간·잔량 부족 등으로 한 번 거부(CANCELLED/REJECTED)되면 그 행이
+     * `order_request.idempotency_key` UQ(`uq_order_idempotency`)를 **영구 점유** → 이후 모든 재시도가
+     * `duplicate key value violates unique constraint` 로 INSERT 실패 → **손절이 영구 차단**된다(밤새 30~60초마다
+     * ERROR 스팸 · 라이브 evidence). 익절 tick 키([takeProfitTick])가 KST 날짜 차원으로 같은 함정을 이미 회피한
+     * 것과 정합되게, 손절 키에도 **timeBucket**(손절 평가주기 정합 — watcher tick cooldown 폭)을 섞는다.
+     *
+     * ## 멱등 본래 목적 보존 (이중 발사 방지가 깨지지 않음)
+     * - 같은 bucket 안 동일 (상태) 재발사는 같은 키 → OrderRouter `idem:order:{key}` 가 흡수(in-flight 1건 수렴).
+     * - bucket 이 넘어가면(또는 상태 변동) 새 키 → terminal 행에 막히지 않고 재시도 가능.
+     * - **이중 체결 금지의 최종 보루는 watcher 의 open SELL 선검사·position 권위 잔량 가드 + Redis SETNX** 이며,
+     *   timeBucket 은 "한 번 거부된 키가 영구히 재시도를 막는" 영구 차단만 푼다(과거 동작은 DB UQ 가 사실상
+     *   영구 dedup 으로 오작동한 것 — 정상 멱등 창은 Redis 60s).
+     */
     fun stopLoss(vararg parts: Any?): String = shortKey(PREFIX_STOP_LOSS, parts.asList())
 
     /** VI MARKET 자동청산 키 — `auto-vi:<digest>`. parts: userId·strategyId·code·quantity·epoch·viCode. */

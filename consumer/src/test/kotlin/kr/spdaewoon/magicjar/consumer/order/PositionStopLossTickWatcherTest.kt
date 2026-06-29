@@ -50,9 +50,19 @@ class PositionStopLossTickWatcherTest {
     // 실제 공용 컴포넌트를 그대로 사용(DRY — listener와 동일 취소 경로 검증). cancel 검증은 wrapped kisOrderPort로 유지.
     private val restingSellOrderCanceller = RestingSellOrderCanceller(kisOrderPort, cancelledProducer)
 
+    // D1 (2026-06-29 사고) — 단일가 구간 판정 결정론용 고정 clock. default 는 연속매매 시각(2026-06-26 10:00 KST = 01:00 UTC)
+    // 이라 기존 MARKET 단언이 wall-clock 과 무관하게 항상 성립한다. 단일가 테스트는 auctionClock() 을 넘긴다.
+    private val continuousTradingClock: java.time.Clock =
+        java.time.Clock.fixed(Instant.parse("2026-06-26T01:00:00Z"), java.time.ZoneOffset.UTC)
+
+    private fun auctionClock(): java.time.Clock =
+        // 15:24 KST = 06:24 UTC — 장 마감 동시호가 [15:20, 15:30) 구간.
+        java.time.Clock.fixed(Instant.parse("2026-06-26T06:24:00Z"), java.time.ZoneOffset.UTC)
+
     private fun watcher(
         enabled: Boolean = true,
         tickCooldownSeconds: Long = 30,
+        clock: java.time.Clock = continuousTradingClock,
     ) = PositionStopLossTickWatcher(
         objectMapper = objectMapper,
         holdingPositionIndex = index,
@@ -62,6 +72,7 @@ class PositionStopLossTickWatcherTest {
         positionJpaRepository = positionRepo,
         enabled = enabled,
         tickCooldownSeconds = tickCooldownSeconds,
+        clock = clock,
     )
 
     private fun positionEntity(quantity: Int) =
@@ -148,6 +159,103 @@ class PositionStopLossTickWatcherTest {
             )
         }
         assertThat(keySlot.captured).startsWith("auto-sl:")
+    }
+
+    @Test
+    fun `D1 — 단일가(동시호가) 구간 손절은 marketable LIMIT (하한가 근처) 으로 발행`() {
+        // 15:24 KST(장 마감 동시호가)엔 KIS 가 시장가 SELL 을 거부 → marketable LIMIT 로 체결 보장(롱온리).
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+
+        watcher(clock = auctionClock()).onTick(tickRecord(price = "48000")) // 48,000 ≤ 48,500 stop → 발동
+
+        // 48,000 × (1-0.09) = 43,680 → 호가단위(20,000~49,999=50) 내림 = 43,650(현재가 48,000 보다 낮음 = 체결 보장 방향).
+        verify(exactly = 1) {
+            intentProducer.publishExitIntent(
+                userId = "user-A",
+                strategyId = 100L,
+                code = "005930",
+                intervalCode = any(),
+                side = OrderSide.SELL,
+                priceType = OrderPriceType.LIMIT,
+                quantity = 10,
+                limitPrice = BigDecimal("43650"),
+                priceAtSignal = BigDecimal("48000"),
+                idempotencyKey = any(),
+                orderTrigger = any(),
+                triggerRefId = any(),
+                signalId = any(),
+            )
+        }
+    }
+
+    @Test
+    fun `D2 — 손절 idemKey 에 timeBucket 차원 포함 (terminal 행 영구 차단 회피) · bucket 간 키 변동`() {
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val keys = mutableListOf<String>()
+
+        // bucket 차원만 다른 두 시각을 각각 새 watcher 인스턴스로 발사(인메모리 cooldown 격리). 같은 mock 으로 누적 capture.
+        val clockA = java.time.Clock.fixed(Instant.parse("2026-06-26T01:00:00Z"), java.time.ZoneOffset.UTC)
+        watcher(clock = clockA).onTick(tickRecord(price = "48000"))
+        // bucket B — cooldown 폭(30s) 을 넘긴 시각 → epochSecond/30 양자화 bucket 이 달라짐.
+        val clockB = java.time.Clock.fixed(Instant.parse("2026-06-26T01:00:31Z"), java.time.ZoneOffset.UTC)
+        watcher(clock = clockB).onTick(tickRecord(price = "48000"))
+
+        verify(exactly = 2) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                capture(keys),
+                any(),
+                any(),
+                any(),
+            )
+        }
+        assertThat(keys).hasSize(2)
+        assertThat(keys[0]).startsWith("auto-sl:")
+        assertThat(keys[1]).startsWith("auto-sl:")
+        // 같은 (user·strategy·code·qty·updatedAtEpoch) 인데 bucket 만 달라도 키가 바뀐다 → terminal 행에 영구 차단되지 않음.
+        assertThat(keys[0]).isNotEqualTo(keys[1])
+    }
+
+    @Test
+    fun `D2 — 같은 bucket·같은 상태는 동일 idemKey (in-flight 이중 발사 멱등 보존)`() {
+        every { index.heldBy("005930") } returns listOf(held(avgPrice = "50000", stopLossPct = "3"))
+        every { orderRepo.findOpenByUserId("user-A") } returns emptyList()
+        val keys = mutableListOf<String>()
+        val sameBucketClock = java.time.Clock.fixed(Instant.parse("2026-06-26T01:00:05Z"), java.time.ZoneOffset.UTC)
+
+        // 서로 다른 watcher 인스턴스(cooldown 격리)지만 같은 bucket·같은 상태 → 동일 키여야 OrderRouter 멱등이 흡수.
+        watcher(clock = sameBucketClock).onTick(tickRecord(price = "48000"))
+        watcher(clock = sameBucketClock).onTick(tickRecord(price = "48000"))
+
+        verify(exactly = 2) {
+            intentProducer.publishExitIntent(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                capture(keys),
+                any(),
+                any(),
+                any(),
+            )
+        }
+        assertThat(keys).hasSize(2)
+        assertThat(keys[0]).isEqualTo(keys[1])
     }
 
     @Test
