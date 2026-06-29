@@ -346,6 +346,12 @@ magicjar:
   # 2026-06-15 REAL 장중: 1분 신호가 0초에 KIS USER 경로를 쓰므로 reconcile BACKFILL은 30초로 분산.
   reconcile:
     market-open-cron: "${MAGICJAR_RECONCILE_MARKET_OPEN_CRON:30 */5 9-15 * * MON-FRI}"
+    # ADR 0136 — KIS 실잔고 ↔ strategy_position(ledger) self-heal 워커. broker(KIS) 진실원 교차검증 후 KIS 권위로 자동 정정.
+    #   enabled default false(명시 opt-in — 라이브 검증 후 활성). cron 은 reconcile(5분)과 다른 위상(10분)으로 KIS 호출 분산.
+    kis-ledger-self-heal:
+      enabled: ${MAGICJAR_RECONCILE_KIS_LEDGER_SELF_HEAL_ENABLED:false}
+      cron: "${MAGICJAR_RECONCILE_KIS_LEDGER_SELF_HEAL_CRON:0 */10 9-15 * * MON-FRI}"
+      drift-threshold: ${MAGICJAR_RECONCILE_KIS_LEDGER_SELF_HEAL_DRIFT_THRESHOLD:1}
   # Yahoo Finance cold-start 설정 (ADR 0048 §2-7 + external-api-policy.md §3)
   yahoo:
     base-url: ${MAGICJAR_YAHOO_BASE_URL:https://query1.finance.yahoo.com}

@@ -138,6 +138,14 @@ class OrderRouterKafkaListenerTest {
             every { it.getIfAvailable() } returns strategyReplayService
         }
 
+    // ADR 0136 — WS_PREINSERT 병합 후 strategy_position rebuild(재진입 stranded 흡수). relaxed(부작용 무시) + 호출 검증.
+    private val strategyRebuildAdapter =
+        mockk<kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter>(relaxed = true)
+    private val strategyRebuildAdapterProvider =
+        mockk<ObjectProvider<kr.spdaewoon.magicjar.consumer.persistence.ConsumerExecutionStrategyPositionAdapter>>().also {
+            every { it.getIfAvailable() } returns strategyRebuildAdapter
+        }
+
     // 기존 12 step 흐름 테스트는 장운영시간 게이트를 비활성(enabled=false)으로 격리한다.
     // 게이트 자체 동작은 isWithinTradingHours 단위 테스트 + AUTO/MANUAL 분기 테스트로 별도 검증.
     private val listener =
@@ -159,6 +167,7 @@ class OrderRouterKafkaListenerTest {
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
             strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
+            strategyPositionRebuildAdapterProvider = strategyRebuildAdapterProvider,
             marketHoursGateEnabled = false,
         )
 
@@ -350,6 +359,46 @@ class OrderRouterKafkaListenerTest {
 
         verify(exactly = 1) { orderRepo.findByKisOrderNo("ODNO_RACE") }
         verify(exactly = 1) { strategyReplayService.replayIfMissing(canonical, "WS_PREINSERT_ACK_MERGE") }
+        // ADR 0136 — 병합 직후 rebuild 동반(재진입 stranded 흡수, replay 와 함께 belt-and-suspenders).
+        verify(exactly = 1) {
+            strategyRebuildAdapter.rebuildStrategyPositionFromLedger("12345678", "005930", "MOCK")
+        }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `ADR0136 재진입 stranded — replay가 행 기존재로 0이어도 rebuild가 누락 execution을 흡수한다`() {
+        // 09:40 미래나노텍 재진입 재현: WS_PREINSERT 병합 후 strategy_position 행이 이미 존재(직전 lot)해
+        // replayIfMissing 은 0(skip) 이지만, rebuild 가 order_execution 진실원으로 재진입 26주를 흡수해야 한다.
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(TradingMode.MOCK)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 99L) }
+        every { kisOrderPort.submit(any(), TradingMode.MOCK) } returns
+            OrderResult.Right(
+                KisOrderAck(kisOrderNo = "ODNO_REENTRY", kisFwdgOrgno = "ORG001", rtCd = "0", msg = "OK"),
+            )
+        every { orderRepo.findByKisOrderNo("ODNO_REENTRY") } returns
+            stubOrderRequest(id = 778L, strategyId = 0L, idempotencyKey = "WS_PREINSERT:ODNO_REENTRY")
+        val canonical =
+            stubOrderRequest(
+                id = 99L,
+                signalId = 99002L,
+                strategyId = 103L,
+                kisOrderNo = "ODNO_REENTRY",
+                idempotencyKey = "99002:12345678",
+            )
+        every { orderRepo.updateKisAck(99L, "ODNO_REENTRY", "ORG001", any()) } returns canonical
+        // 재진입 — 행 기존재로 replay skip(0).
+        every { strategyReplayService.replayIfMissing(canonical, "WS_PREINSERT_ACK_MERGE") } returns 0
+
+        val ack = mockk<Acknowledgment>(relaxed = true)
+        listener.onOrderIntent(buildRecord(stubPayload()), ack)
+
+        // replay 가 0이어도 rebuild 는 무조건 동반 호출(누락 흡수 보장).
+        verify(exactly = 1) {
+            strategyRebuildAdapter.rebuildStrategyPositionFromLedger("12345678", "005930", "MOCK")
+        }
         verify(exactly = 1) { ack.acknowledge() }
     }
 
