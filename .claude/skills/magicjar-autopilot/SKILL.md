@@ -15,9 +15,16 @@ PR 머지·`gradlew check` GREEN만으로 "완료" 종결 **금지**. **라이�
 ### §0-B KIS 크로스체크 (진실원)
 실현손익·잔고·체결은 **우리 DB만 보지 말고 KIS(브로커=진실원)와 대조**. `GET consumer:8082/admin/reconcile/realized-pnl?userId=<id>` → `matched=true`·`kisPeriodTotalRealizedPnl` 권위. 우리 gross는 과대(거래비용·net 미반영) 상습 — **autopilot_state.daily_realized_loss는 손실만 누적값**이라 net 아님(승리 상계 안 됨). "흑자/적자"는 KIS net로만 확정.
 
+### §0-C 포지션 정합 self-detect (능동 감지 — 2026-06-29 강한 교훈)
+**autopilot의 본질은 사용자가 지적하기 전에 스스로 결함을 찾아 고치는 것이다.** 사용자가 "왜 안 팔려/안 사"라고 지적해야 발견되면 스킬 실패다. ledger(strategy_position) ↔ KIS 실잔고는 **체결 정합 race(WS_PREINSERT — 재진입 시 ACK 전 WS 체결통보 도달 → strategyId=0 stub → strategy_position early-return → replay skip → 체결 영구 드롭)로 전면 drift날 수 있다.** 2026-06-29 실증: 095500 KIS 26주인데 ledger 0 → 익절 SELL이 `SELL_WITHOUT_POSITION`으로 차단(못 팜) / 역방향 유령(ledger 보유·KIS 0)이 `POSITION_LIMIT` 점유 → 신규 BUY 전면 차단(매매 멈춤). §0-B(손익)만으론 못 잡는다 — **보유(포지션) 크로스체크가 핵심.**
+- **자동(필수)**: `KisLedgerSelfHealWorker`(ADR 0136, ENV `MAGICJAR_RECONCILE_KIS_LEDGER_SELF_HEAL_ENABLED`) — 주기 10분 KIS↔ledger 크로스체크·drift 자동 정정(KIS 권위)·미해결 시 P0 알림. **반드시 ON 유지** + 가동 로그 확인.
+- **수동(세션/이상 시)**: `KIS inquire-balance(9443) 실보유 vs strategy_position` 종목별 대조. 불일치 = drift.
+- **증상 트리거 → 즉시 ledger↔KIS 대조**: SELL_WITHOUT_POSITION·POSITION_LIMIT 차단 급증 / 매매 멈춤(BUY·SELL 0인데 차단도 0) / "익절선 넘었는데 미체결" / 보유 수와 체결 이력 불일치.
+- 정정은 KIS 실측 일치 동기화만(임의 wipe 금지·전체 wipe는 auto-mode 차단됨 → 종목별 단일 정합). 근본은 체결 정합 fix(ADR 0136).
+
 ## 1. 8단계 자율 루프 (Phase 1)
 `관찰 → 발굴 → 생성/튜닝 → 검증(백테스트+페이퍼) → 승격(Guard 통과 REAL ACTIVE) → 강등/킬 → 저널 → 반복`
-1. **관찰**: owner=AUTOPILOT 성과(KIS net·전략별)·리스크 사용량·kill 상태. ops-monitor 감시.
+1. **관찰**: owner=AUTOPILOT 성과(KIS net·전략별)·리스크 사용량·kill 상태 + **§0-C 포지션 정합(ledger↔KIS) self-detect**. ops-monitor 감시.
 2. **발굴**: `discovery_scorecard`(매일 08:30)·`DaytradeDiscoverService` TOP N.
 3. **생성/튜닝**: 빌더 DSL·직전 저널 복습 후 부진 전략 파라미터 튜닝.
 4. **검증**: `JvmBacktestEngine` **INTRADAY_REALISTIC 모드**(ADR 0132 — 라이브 parity, TradePlanEvaluator 재사용)로 백테스트 + 페이퍼. ⚠️ LEGACY 모드는 다일 스윙이라 라이브 초단타와 무관(검증 무효).
