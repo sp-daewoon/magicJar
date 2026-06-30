@@ -7,6 +7,7 @@ import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.notification.port.NotificationRateLimiterPort
 import kr.spdaewoon.magicjar.domain.order.execution.OrderRequest
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
+import kr.spdaewoon.magicjar.domain.strategy.StrategyDisabledReason
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
@@ -90,7 +91,12 @@ class SellRejectAutoPauseTracker(
         order: OrderRequest,
         count: Int,
     ) {
-        val reason = "AUTO_PAUSE_SELL_REJECT_x$count(code=${order.code})"
+        // disabled_reason 컬럼은 StrategyDisabledReason enum name 저장용(varchar(32)). 자유문자열을 넣으면
+        // ① 길이초과("AUTO_PAUSE_SELL_REJECT_x10(code=043650)" > 32) → `value too long` UPDATE 실패(2026-06-30 국순당 D5)
+        // ② 설사 맞아도 safeDisabledReason 가 enum 파싱 실패→NULL 로 의미 소실.
+        // 따라서 의미상 맞는 enum(RISK_VIOLATION: 위험 누적→자동정지)을 저장하고, 상세(횟수·종목)는 로그/알림으로만 운반.
+        val reason = StrategyDisabledReason.RISK_VIOLATION.name
+        val detail = "AUTO_PAUSE_SELL_REJECT_x$count(code=${order.code})"
         val writer = strategyPauseWriterProvider.getIfAvailable()
         if (writer == null) {
             log.error(
@@ -117,7 +123,7 @@ class SellRejectAutoPauseTracker(
             order.strategyId,
             order.code,
             updated,
-            reason,
+            detail,
         )
         emitPauseAlertOnce(order, count)
     }
