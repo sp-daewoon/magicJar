@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.14.3** | 2026-06-29 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.3) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
 | **v3.14.2** | 2026-06-26 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.2) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
 | **v3.14.1** | 2026-06-22 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.1) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
 | **v3.14.0** | 2026-06-21 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.0) | [📊](_workspace/baseline/v3.14.0/html/index.html) |

@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.14.2</div>
-      <div class="sub">2026-06-27</div>
+      <div class="value">v3.14.3</div>
+      <div class="sub">2026-06-30</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>perf(strategy): RealtimeSignalGenerator 헛 신호 생성 2종 → feat(backend): ADR 0135 — trailing stop 영속 인프라 (st → chore(autopilot): oversold-crash-bounce seed 스크립트  → chore(ops): ops-monitor 오탐사전 보강 + 06-25 학습저널 보존</div>
+    <div>chore(release): v3.14.3 — auction-fix CHANGELOG + </div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">634 lines · 갱신 2026-06-26</div>
+        <div class="card-meta">635 lines · 갱신 2026-06-30</div>
       </div>
     
       <div class="card">
@@ -143,6 +143,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0136</div>
+          <div class="adr-title">KIS 실잔고 ↔ strategy_position self-heal (체결→ledger 정합 누락 근본fix + 자동 정합 워커)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0135</div>
           <div class="adr-title">Trailing Stop 영속 (strategy.trailing_stop_pct)</div>
           <div class="adr-meta">Accepted · -</div>
@@ -166,20 +172,21 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0131</div>
-          <div class="adr-title">autopilot 일일 universe 자동 재생성 (Daily Universe Regeneration)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 131건 (검색·정렬 가능)</h3>
+    <h3>전체 132건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="136 kis 실잔고 ↔ strategy_position self-heal (체결→ledger 정합 누락 근본fix + 자동 정합 워커) accepted">
+            <td>0136</td>
+            <td><a href="_workspace/arch/adr/0136-kis-ledger-self-heal.md">KIS 실잔고 ↔ strategy_position self-heal (체결→ledger 정합 누락 근본fix + 자동 정합 워커)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="135 trailing stop 영속 (strategy.trailing_stop_pct) accepted">
             <td>0135</td>
@@ -2308,6 +2315,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.14.3</div>
+          <div class="adr-title">v3.14.3 — v3.14.3 릴리즈</div>
+          <div class="adr-meta">2026-06-30</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.14.2</div>
           <div class="adr-title">v3.14.2 — v3.14.2 릴리즈</div>
           <div class="adr-meta">2026-06-26</div>
@@ -2331,17 +2344,13 @@
           <div class="adr-meta">2026-06-18</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.13.6</div>
-          <div class="adr-title">v3.13.6 — v3.13.6 릴리즈</div>
-          <div class="adr-meta">2026-06-18</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.3">v3.14.3</a></td><td>2026-06-30</td><td>v3.14.3 — v3.14.3 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.2">v3.14.2</a></td><td>2026-06-26</td><td>v3.14.2 — v3.14.2 릴리즈</td></tr>
         
@@ -2400,8 +2409,6 @@
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.18">v3.6.18</a></td><td>2026-05-19</td><td>v3.6.18 — v3.6.18 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.17">v3.6.17</a></td><td>2026-05-18</td><td>v3.6.17 — v3.6.17 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.16">v3.6.16</a></td><td>2026-05-18</td><td>v3.6.16 — v3.6.16 릴리즈</td></tr>
         
       </tbody>
     </table>
