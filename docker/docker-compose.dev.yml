@@ -1,39 +1,30 @@
-# magicJar 개발 모드 override (volume mount + 핫 리로드)
+# magicJar 개발 모드 override (dev 프로파일·로그 레벨·브리지 좌표)
 # 사용:
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d
 #
-# - JVM 앱: build/libs를 mount 해 ./gradlew bootJar 후 컨테이너 재시작 없이 갱신
-#   (완전한 핫 리로드는 IDE bootRun + infra 모드를 권장)
-# - frontend: src/ mount는 vite dev server를 별도 컨테이너로 띄우는 형태가 권장이나,
-#   compose 일관성을 위해 volume mount만 표기 (실제 핫 리로드는 host의 `pnpm dev`로 권장)
+# - JVM 앱: jar volume mount는 2026-07-03 감사 §6-8로 제거 — ENTRYPOINT가 이미지 빌드 시
+#   COPY된 /app/app.jar만 읽으므로 build/libs mount는 실효 0(핫 리로드 착시)이었다.
+#   핫 리로드는 IDE bootRun + infra compose(docker-compose.infra.yml) 사용.
+#   컨테이너 갱신은 scripts/build-and-deploy.sh (bootJar → build → up) 정석 경로.
+# - frontend: 실제 핫 리로드는 호스트의 `pnpm -C frontend dev`(포트 5173) 사용 권장.
 
 name: magicjar
 
 services:
   api-app:
-    volumes:
-      - ../api/build/libs:/app/libs:ro
     environment:
       SPRING_PROFILES_ACTIVE: dev,real-kis
-      LOGGING_LEVEL_COM_MJ: INFO
+      # 감사 §6-8 — 舊 LOGGING_LEVEL_COM_MJ 는 com.mj 패키지 부재로 no-op. 실패키지로 정정.
+      LOGGING_LEVEL_KR_SPDAEWOON_MAGICJAR: INFO
       MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_BRIDGE_URL:-http://host.docker.internal:8787}
       MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS: ${MAGICJAR_STRATEGY_RESEARCH_AI_DISCOVERY_TIMEOUT_SECONDS:-300}
 
   batch-app:
-    volumes:
-      - ../batch/build/libs:/app/libs:ro
     environment:
       SPRING_PROFILES_ACTIVE: dev,real-kis
-      LOGGING_LEVEL_COM_MJ: INFO
+      LOGGING_LEVEL_KR_SPDAEWOON_MAGICJAR: INFO
 
   consumer-app:
-    volumes:
-      - ../consumer/build/libs:/app/libs:ro
     environment:
       SPRING_PROFILES_ACTIVE: dev,real-kis
-      LOGGING_LEVEL_COM_MJ: INFO
-
-  frontend:
-    volumes:
-      - ../frontend/src:/usr/share/nginx/html-src:ro
-    # 실제 핫 리로드는 호스트의 `pnpm -C frontend dev`(포트 5173) 사용 권장
+      LOGGING_LEVEL_KR_SPDAEWOON_MAGICJAR: INFO

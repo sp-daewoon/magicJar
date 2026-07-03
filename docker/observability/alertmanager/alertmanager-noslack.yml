@@ -1,0 +1,16 @@
+# magicJar Alertmanager fallback 설정 — ALERTMANAGER_SLACK_WEBHOOK 미설정 시 사용
+#
+# Slack webhook 없이도 Alertmanager UI(:9093)에서 active alert 확인은 가능하도록
+# blackhole receiver(알림 미발송)로만 라우팅한다. webhook 설정 시 alertmanager.yml 템플릿이 사용됨.
+# (docker-compose.observability.yml alertmanager entrypoint 분기 참조)
+
+route:
+  receiver: blackhole
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # notifier 0개 receiver = 유효한 blackhole — UI 관측만
+  - name: blackhole

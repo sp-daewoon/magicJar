@@ -1,18 +1,21 @@
-# magicJar 관측 스택 (Prometheus + Grafana) — ADR 0094 P0-OPS-2
+# magicJar 관측 스택 (Prometheus + Grafana + Alertmanager) — ADR 0094 P0-OPS-2 + 감사 §3-⑧
 #
 # 운영 단계 baseline 진입의 가장 기본 인프라.
-#   prometheus → 3 모듈 actuator/prometheus 15s scrape + 7일 retention
-#   grafana    → datasource auto-provision + 기본 JVM/HTTP/KIS/Kafka dashboard
+#   prometheus   → 3 모듈 actuator/prometheus 15s scrape + 7일 retention + alert rule 평가
+#   grafana      → datasource auto-provision + 기본 JVM/HTTP/KIS/Kafka dashboard
+#   alertmanager → Prometheus alert → Slack 라우팅 (CRITICAL/WARN 차등 — 앱 생존과 독립된 알림 채널)
 #
 # 사용:
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml up -d
 #   docker compose -f docker/docker-compose.observability.yml up -d   # 관측만
 #
 # 포트 매트릭스 (사용자 frontend :3000 충돌 회피):
-#   prometheus  → :9090
-#   grafana     → :3001 (frontend :3000 분리)
+#   prometheus   → :9090
+#   grafana      → :3001 (frontend :3000 분리)
+#   alertmanager → :9093
 #
 # Grafana 초기 로그인: admin / ${GRAFANA_ADMIN_PASSWORD:-admin}
+# Slack alert: .env `ALERTMANAGER_SLACK_WEBHOOK` 설정 시 활성 (미설정이면 UI 관측만 — blackhole)
 
 name: magicjar
 
@@ -33,6 +36,8 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # alert rule 파일 (감사 §3-⑧) — prometheus.yml rule_files 와 짝
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     ports: ["${PROMETHEUS_HOST_PORT:-9090}:9090"]
     extra_hosts:
@@ -78,6 +83,43 @@ services:
       retries: 10
       start_period: 20s
 
+  # ─────────── Alertmanager (감사 §3-⑧ — Prometheus alert → Slack) ───────────
+  # Alertmanager는 config 내 env 치환을 지원하지 않아 entrypoint sh에서 sed 렌더링:
+  #   ALERTMANAGER_SLACK_WEBHOOK 설정 → alertmanager.yml 템플릿의 __SLACK_WEBHOOK_URL__ 치환
+  #   미설정                         → alertmanager-noslack.yml (blackhole — UI 관측만)
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: magicjar-alertmanager
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      ALERTMANAGER_SLACK_WEBHOOK: ${ALERTMANAGER_SLACK_WEBHOOK:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        CFG=/etc/alertmanager/alertmanager-noslack.yml
+        if [ -n "$$ALERTMANAGER_SLACK_WEBHOOK" ]; then
+          sed "s|__SLACK_WEBHOOK_URL__|$$ALERTMANAGER_SLACK_WEBHOOK|g" \
+            /etc/alertmanager/alertmanager.yml > /tmp/alertmanager-rendered.yml
+          CFG=/tmp/alertmanager-rendered.yml
+        else
+          echo "[alertmanager] ALERTMANAGER_SLACK_WEBHOOK 미설정 — blackhole 라우팅 (UI 관측만)"
+        fi
+        exec /bin/alertmanager --config.file="$$CFG" --storage.path=/alertmanager
+    volumes:
+      - ./observability/alertmanager:/etc/alertmanager:ro
+      - alertmanager_data:/alertmanager
+    ports: ["${ALERTMANAGER_HOST_PORT:-9093}:9093"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:9093/-/healthy >/dev/null 2>&1 || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 volumes:
   prometheus_data:
   grafana_data:
+  alertmanager_data:

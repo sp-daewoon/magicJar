@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import kr.spdaewoon.magicjar.consumer.notification.NotificationFormatter
 import kr.spdaewoon.magicjar.consumer.notification.SlackWebhookSender
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
@@ -53,6 +55,9 @@ class OrderDltMonitorListener(
     private val outboxRepositoryProvider: ObjectProvider<NotificationOutboxRepository>,
     private val slackSenderProvider: ObjectProvider<SlackWebhookSender>,
     private val objectMapper: ObjectMapper,
+    // 감사 §6-15 — DLT depth 관측용 Counter. ObjectProvider 패턴: test fixture(Actuator 부재) graceful skip
+    //   (WsSlotBudgetLedger·PersistenceMetrics 동일 관례).
+    private val meterRegistryProvider: ObjectProvider<MeterRegistry>,
 ) {
     private val log = LoggerFactory.getLogger(OrderDltMonitorListener::class.java)
 
@@ -62,6 +67,9 @@ class OrderDltMonitorListener(
         const val ORDER_REJECTED_DLT = KafkaTopics.Dlt.ORDER_REJECTED
         const val ORDER_FILLED_DLT = KafkaTopics.Dlt.ORDER_FILLED
         const val GROUP = "magicjar-consumer-dlt-monitor"
+
+        /** DLT 수신 누적 Counter (tag: topic) — Prometheus `magicjar_dlt_received_total{topic=...}` (감사 §6-15). */
+        const val METRIC_DLT_RECEIVED = "magicjar.dlt.received"
     }
 
     @KafkaListener(topics = [ORDER_INTENT_DLT], groupId = GROUP)
@@ -85,6 +93,8 @@ class OrderDltMonitorListener(
         record: ConsumerRecord<String, String>,
         dltTopic: String,
     ) {
+        // metric increment — 알림 경로와 독립 (metric 실패가 P0 알림을 죽이지 않도록 runCatching)
+        incrementDltCounter(dltTopic)
         try {
             val rawPayload = record.value() ?: "(empty payload)"
             val userId = extractUserId(rawPayload)
@@ -156,6 +166,18 @@ class OrderDltMonitorListener(
                 e.message,
                 e,
             )
+        }
+    }
+
+    /** DLT topic별 수신 Counter increment (감사 §6-15) — 행동 변경 0, 관측 전용. */
+    private fun incrementDltCounter(dltTopic: String) {
+        val registry = meterRegistryProvider.getIfAvailable() ?: return
+        runCatching {
+            registry
+                .counter(METRIC_DLT_RECEIVED, Tags.of("topic", dltTopic))
+                .increment()
+        }.onFailure { e ->
+            log.trace("DLT counter increment skip: topic={} err={}", dltTopic, e.message)
         }
     }
 

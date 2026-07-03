@@ -168,8 +168,47 @@ if [[ $DOCKER -eq 1 && ${#SERVICES[@]} -gt 0 ]]; then
   echo "▶ docker compose up -d: ${SERVICES[*]}"
   docker compose "${COMPOSE_ARGS[@]}" up -d "${SERVICES[@]}"
 
-  echo "▶ healthy 대기 (~60s)…"
-  sleep 30
+  # 감사 §6-9 — "sleep 30 + 무조건 exit 0" 폐기. 서비스별 health poll (최대 90s):
+  #   (healthy)          → OK
+  #   Up + healthcheck 無 → OK (dozzle 등 healthcheck 미정의 서비스)
+  #   (unhealthy)/Exited  → 즉시 실패: 마지막 로그 50줄 출력 + exit 1
+  #   타임아웃            → 동일 처리
+  echo "▶ healthy 대기 (health poll — 최대 90s)…"
+  health_fail() {
+    local svc="$1" status="$2"
+    echo "✗ ${svc} health 실패 (status: ${status:-조회 불가}) — 마지막 로그 50줄:" >&2
+    docker compose "${COMPOSE_ARGS[@]}" logs --tail=50 "$svc" >&2 || true
+    docker compose "${COMPOSE_ARGS[@]}" ps --format "{{.Service}}\t{{.Status}}" >&2 || true
+    exit 1
+  }
+  health_deadline=$((SECONDS + 90))
+  for svc in "${SERVICES[@]}"; do
+    while :; do
+      # set -e 하에서 일시 조회 실패가 스크립트를 죽이지 않도록 || true (timeout 판정에 위임)
+      status=$(docker compose "${COMPOSE_ARGS[@]}" ps --format '{{.Service}}\t{{.Status}}' "$svc" 2>/dev/null \
+        | awk -F'\t' 'NR==1{print $2}' || true)
+      case "$status" in
+        *"(healthy)"*)
+          echo "  ✓ ${svc} healthy"
+          break
+          ;;
+        *"(unhealthy)"*|Exited*|Restarting*)
+          health_fail "$svc" "$status"
+          ;;
+        Up*)
+          # healthcheck 미정의(Up 단독)는 즉시 OK, "(health: starting)"은 계속 대기
+          if [[ "$status" != *"(health"* ]]; then
+            echo "  ✓ ${svc} up (healthcheck 미정의)"
+            break
+          fi
+          ;;
+      esac
+      if (( SECONDS >= health_deadline )); then
+        health_fail "$svc" "${status:-timeout 90s}"
+      fi
+      sleep 3
+    done
+  done
   docker compose "${COMPOSE_ARGS[@]}" ps --format "{{.Service}}\t{{.Status}}"
 elif [[ $DOCKER -eq 1 ]]; then
   echo "▶ docker compose: (Docker 서비스 없음 — skip)"
