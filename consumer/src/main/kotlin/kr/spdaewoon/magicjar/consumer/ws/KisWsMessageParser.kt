@@ -5,7 +5,6 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import org.slf4j.LoggerFactory
-import java.math.BigDecimal
 
 /**
  * KIS WebSocket 수신 메시지 파서 — PIPE(|)·캐럿(^) 구분자.
@@ -73,6 +72,19 @@ object KisWsMessageParser {
     private const val IDX_CTTR = 18 // 체결강도 (KIS 계산 완료값)
 
     private const val IDX_BSOP_DATE = 33
+
+    /**
+     * NEW_MKOP_CLS_CODE (신 장운영 구분 코드) — H0UNCNT0 통합 스트림 세션 구분 (ADR 0124 수용 기준 #2).
+     *
+     * KIS-first raw 출처 (헌법 §3 — 자체 추론 0):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+     *   ccnl_total() columns 배열 — [33]=BSOP_DATE 직후 [34]=NEW_MKOP_CLS_CODE (2026-07-03 raw 재검증).
+     *
+     * TODO(ADR 0124 수용기준 #2): NEW_MKOP_CLS_CODE 값 테이블(예상체결 판별 코드) KIS-first 원문 미확보 —
+     *   인덱스는 확정, 값 의미는 [TickEvent.session] 태그 + Kafka payload 전파로 라이브 관측 후 확정한다.
+     *   확정 시 `magicjar.candle.expected-conclusion-session-codes` 설정에 코드를 채우면 캔들 제외가 활성된다.
+     */
+    private const val IDX_NEW_MKOP_CLS_CODE = 34
 
     /**
      * raw 메시지 타입 판별.
@@ -173,8 +185,15 @@ object KisWsMessageParser {
                 return null
             }
 
+            // tick 가격 sanity 가드 (2026-07-03 감사 §2′-⑤) — blank/0/음수 가격 tick reject.
+            // 기존 `ifBlank { "0" }` coerce는 글리치 1건이 low=0 캔들로 영속(합산봉·지표 전파 오염)되던 결함.
+            // 다른 파싱 실패 경로와 동일하게 null 반환 — 호출자(KisWebSocketBridge)가 reject 카운터로 관측.
             val priceStr = fields[IDX_PRICE].trim()
-            val price = BigDecimal(priceStr.ifBlank { "0" })
+            val price = priceStr.toBigDecimalOrNull()
+            if (price == null || price.signum() <= 0) {
+                log.warn("H0STCNT0 tick 가격 무효 — reject (0원 캔들 영속 차단): code={} price='{}'", code, priceStr)
+                return null
+            }
 
             val volumeStr = fields[IDX_CNTG_VOL].trim()
             val volume = volumeStr.ifBlank { "0" }.toLongOrNull() ?: 0L
@@ -255,13 +274,24 @@ object KisWsMessageParser {
      *   ccnl_total() columns 배열 — ccnl_krx와 동일 핵심 필드 인덱스 구조.
      *
      * TickEvent.source = "live-unified".
+     *
+     * 세션 태그 (ADR 0124 수용 기준 #2 — 2026-07-03 감사 §2′-⑥ fix):
+     *   [34] NEW_MKOP_CLS_CODE (신 장운영 구분 코드)를 [TickEvent.session]에 태그한다.
+     *   base parser(parseH0Stcnt0)는 H0STOUP0와 공유되므로(해당 채널 [34] 계약 미검증) 여기서만 판독 —
+     *   graceful: 필드 결손/blank 시 session=null (전체 tick reject 금지 — 기존 옵션 필드 패턴 정합).
      */
     fun parseH0Uncnt0(
         rawData: String,
         expectedCode: String? = null,
     ): TickEvent? {
         val base = parseH0Stcnt0(rawData, expectedCode) ?: return null
-        return base.copy(source = "live-unified")
+        val session =
+            rawData
+                .split("^")
+                .getOrNull(IDX_NEW_MKOP_CLS_CODE)
+                ?.trim()
+                ?.ifBlank { null }
+        return base.copy(source = "live-unified", session = session)
     }
 
     /**

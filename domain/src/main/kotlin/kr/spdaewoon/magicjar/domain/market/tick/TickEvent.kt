@@ -40,4 +40,12 @@ data class TickEvent(
     val tradeIntensity: BigDecimal? = null,
     /** 장중 누적거래대금 원 (ACML_TR_PBMN) — KIS H0STCNT0 [14] · polling source 미제공 시 null (ADR 0117 §3-R1) */
     val turnoverAccum: BigDecimal? = null,
+    /**
+     * 신 장운영 구분 코드 (NEW_MKOP_CLS_CODE) — KIS H0UNCNT0 [34] · ADR 0124 수용 기준 #2 세션 구분 태그.
+     *
+     * KIS-first raw 출처 (columns 배열 [33]=BSOP_DATE 직후 [34]=NEW_MKOP_CLS_CODE):
+     *   https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+     * H0UNCNT0(통합 체결가) 파싱 경로만 채운다 — polling source·H0STOUP0 등 미제공 시 null (하위호환 default).
+     */
+    val session: String? = null,
 )

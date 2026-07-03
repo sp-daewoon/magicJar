@@ -6,7 +6,8 @@ package kr.spdaewoon.magicjar.domain.market.port
  *
  * 슬롯 구성 (한도 단위 = "코드 × tr_id" 채널 — ADR 0123 §1-3, ADR 0124 단일 체결가):
  *   1  = H0STCNI0 (체결통보 — ADR 0042 STAGE 0-4 reserve, T-O 구현)
- *   30 = H0UNCNT0 (KRX+NXT 통합 체결가 — 종목당 1 slot, 관심종목 WS 구독)
+ *   30 = H0UNCNT0 (KRX+NXT 통합 체결가 — 종목당 1 slot, owner 4종 HOLDING·PENDING_BUY·STRATEGY·DETAIL —
+ *        ADR 0124. watchlist는 polling 전용이라 WS 수요 아님)
  *   10 = H0UNASP0 (통합 호가 — DETAIL/STRATEGY 수요)
  *   WsSlotBudgetLedger/owner priority가 실제 점유를 40 이하로 관리한다.
  *

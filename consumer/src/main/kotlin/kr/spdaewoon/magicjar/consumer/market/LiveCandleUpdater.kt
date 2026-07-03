@@ -4,6 +4,7 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleSession
 import kr.spdaewoon.magicjar.domain.market.tick.TickEvent
 import kr.spdaewoon.magicjar.domain.redis.RedisKeyRegistry
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.time.Duration
@@ -21,12 +22,61 @@ import java.time.temporal.ChronoUnit
 @Component
 class LiveCandleUpdater(
     private val redisTemplate: StringRedisTemplate,
+    /**
+     * 예상체결 세션 tick 캔들 반영 제외 게이트 (ADR 0124 수용 기준 #2 — 2026-07-03 감사 §2′-⑥).
+     * true(default)여도 [expectedConclusionSessionCodesRaw]가 비어 있으면 제외 0 (아래 참조).
+     */
+    @Value("\${magicjar.candle.exclude-expected-conclusion:true}")
+    private val excludeExpectedConclusion: Boolean = true,
+    /**
+     * 예상체결로 판정할 NEW_MKOP_CLS_CODE 값 목록 (comma 구분, default 빈 값 = 제외 0).
+     *
+     * TODO(ADR 0124 수용기준 #2): NEW_MKOP_CLS_CODE 값 테이블(예상체결 코드) KIS-first 원문 미확보 —
+     *   인덱스([34])는 확정돼 TickEvent.session 태그·Kafka payload 전파가 이미 동작한다. 라이브 세션 코드
+     *   분포 관측으로 예상체결 코드가 확정되면 본 설정에 코드를 채워 제외를 활성한다(코드 무변경).
+     *   임의 값 default는 실체결(NXT pre-hour 08:00~09:00 정책상 의도된 적재)을 오제외할 risk라 금지.
+     */
+    @Value("\${magicjar.candle.expected-conclusion-session-codes:}")
+    private val expectedConclusionSessionCodesRaw: String = "",
 ) {
     private val log = LoggerFactory.getLogger(LiveCandleUpdater::class.java)
     private val kstZone = ZoneId.of("Asia/Seoul")
 
+    /** 예상체결 판정 코드 set — 설정 문자열 1회 파싱 (blank 항목 제거). */
+    private val expectedConclusionSessionCodes: Set<String> =
+        expectedConclusionSessionCodesRaw
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
     fun update(tick: TickEvent) {
         try {
+            // tick 가격 sanity 가드 (2026-07-03 감사 §2′-⑤ 2차 방어선) — 파서 reject를 우회한 polling/합성
+            // source의 0원·음수 tick이 진행봉 OHLC를 오염(low=0 영속)하지 않도록 캔들 반영만 차단.
+            if (tick.price.signum() <= 0) {
+                log.warn(
+                    "live candle 갱신 skip — 무효 가격 tick(≤0): code={} price={} source={}",
+                    tick.code,
+                    tick.price.toPlainString(),
+                    tick.source,
+                )
+                return
+            }
+            // 예상체결 세션 제외 게이트 (ADR 0124 수용 기준 #2) — 캔들 반영만 skip.
+            // quote:last·Kafka tick 발행은 KisWebSocketBridge 책임이라 본 게이트와 무관하게 계속 흐른다.
+            if (excludeExpectedConclusion &&
+                expectedConclusionSessionCodes.isNotEmpty() &&
+                tick.session in expectedConclusionSessionCodes
+            ) {
+                log.debug(
+                    "live candle 갱신 skip — 예상체결 세션 tick 제외: code={} session={} price={}",
+                    tick.code,
+                    tick.session,
+                    tick.price.toPlainString(),
+                )
+                return
+            }
             LIVE_CANDLE_INTERVALS.forEach { interval ->
                 val start = liveCandleStart(tick, interval)
                 updateLiveCandleHash(

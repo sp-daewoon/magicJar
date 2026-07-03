@@ -2,7 +2,11 @@ package kr.spdaewoon.magicjar.api.scheduler
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import kr.spdaewoon.magicjar.api.infrastructure.dart.DisclosureKafkaProducer
+import kr.spdaewoon.magicjar.api.infrastructure.naver.NaverNewsAdapter
 import kr.spdaewoon.magicjar.api.persistence.DisclosureJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.DisclosureJpaRepository
 import org.slf4j.LoggerFactory
@@ -17,6 +21,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * DART 공시 1분 폴링 스케줄러 (T-NEWS Phase 1 — ADR 0075 §1-3 의제 2-1 채택).
@@ -60,9 +65,35 @@ class DartDisclosurePollingScheduler(
     private val objectMapper: ObjectMapper,
     @Value("\${OPENDART_API_KEY:}")
     private val dartApiKey: String,
+    /**
+     * 수집 사망 감지 gauge 노출용 (2026-07-03 감사 P2-13 — NaverNewsAdapter 동일 패턴).
+     * nullable + default null — 기존 단위 테스트 무수정 보존 + Actuator 미존재 fixture 안전.
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) {
     private val log = LoggerFactory.getLogger(DartDisclosurePollingScheduler::class.java)
     private val dtf = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+    /**
+     * 마지막 성공 fetch 시각(epoch seconds) — source=DART gauge source (감사 P2-13).
+     * 0 = 이 JVM 세션에서 성공 0회. list.json status 000(정상)/013(당일 공시 0건 — 정상 응답) 시 갱신.
+     */
+    private val lastSuccessfulFetchEpochSeconds = AtomicLong(0L)
+
+    init {
+        meterRegistry?.let { registry ->
+            runCatching {
+                Gauge
+                    .builder(
+                        NaverNewsAdapter.METRIC_LAST_SUCCESSFUL_FETCH,
+                        lastSuccessfulFetchEpochSeconds,
+                    ) { it.get().toDouble() }
+                    .description("뉴스/공시 source별 마지막 성공 fetch epoch seconds (감사 P2-13)")
+                    .tags(Tags.of("source", "DART"))
+                    .register(registry)
+            }.onFailure { e -> log.warn("[DartDisclosurePolling] gauge 등록 실패(관측만 결손): err={}", e.message) }
+        }
+    }
 
     /**
      * java.net.http.HttpClient — JDK 21 TLS 스택 직접 사용.
@@ -104,6 +135,20 @@ class DartDisclosurePollingScheduler(
         for (item in items) {
             val rceptNo = item.path("rcept_no").asText("").trim()
             if (rceptNo.isBlank()) continue
+
+            // P2-13/P3 (2026-07-03 감사) — rcept_dt 결손/형식 위반 item 은 WARN + skip.
+            // 빈 문자열이 rcept_dt(길이 8, not null) 컬럼에 silent 영속돼 공시 일자 조회를 오염시키던 path 차단
+            // (Naver pubDate 의 Instant.now() 대체 금지와 동일 원칙 — 시각 fabricate 금지).
+            val rceptDtRaw = item.path("rcept_dt").asText("").trim()
+            if (rceptDtRaw.length != 8 || rceptDtRaw.any { !it.isDigit() }) {
+                log.warn(
+                    "[DartDisclosurePolling] rcept_dt 형식 위반 item skip (YYYYMMDD 아님): rceptNo={} rceptDt='{}'",
+                    rceptNo,
+                    rceptDtRaw,
+                )
+                skipCount++
+                continue
+            }
 
             if (disclosureJpaRepository.existsByRceptNo(rceptNo)) {
                 skipCount++
@@ -168,7 +213,8 @@ class DartDisclosurePollingScheduler(
             val root = objectMapper.readTree(response.body())
             val status = root.path("status").asText("")
             if (status == "013") {
-                // 조회 결과 없음 (오늘 공시 0건)
+                // 조회 결과 없음 (오늘 공시 0건) — DART 응답 자체는 정상이므로 성공 fetch 로 계수 (감사 P2-13).
+                lastSuccessfulFetchEpochSeconds.set(Instant.now().epochSecond)
                 log.debug("[DartDisclosurePolling] 공시 없음 status=013")
                 return emptyList()
             }
@@ -176,6 +222,9 @@ class DartDisclosurePollingScheduler(
                 log.warn("[DartDisclosurePolling] list.json 에러 status={} message={}", status, root.path("message").asText())
                 return null
             }
+
+            // 성공 fetch 시각 갱신 (감사 P2-13) — status 000 정상 응답 시점.
+            lastSuccessfulFetchEpochSeconds.set(Instant.now().epochSecond)
 
             val list = root.path("list")
             if (!list.isArray) return emptyList()

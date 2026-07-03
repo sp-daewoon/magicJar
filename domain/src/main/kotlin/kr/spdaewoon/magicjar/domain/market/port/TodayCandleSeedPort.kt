@@ -4,7 +4,8 @@ package kr.spdaewoon.magicjar.domain.market.port
  * 당일 1d live candle Hash 시드 포트 — 구독 수립(ingestion lifecycle) 시점에 호출.
  *
  * ### 왜 구독 수립 시점인가 (root cause)
- * Redis `candle:today:{code}:1d` Hash는 owner(DETAIL·HOLDING·WATCHLIST·STRATEGY·PENDING_BUY) 무관하게
+ * Redis `candle:today:{code}:1d` Hash는 owner(HOLDING·PENDING_BUY·STRATEGY·DETAIL — ADR 0124 4-owner
+ * 체계, watchlist는 polling 전용이라 WS owner 아님) 무관하게
  * **모든 구독 종목의 모든 KIS WS 틱**으로 채워진다([KisWsPort] 구독 → 체결 틱 누적). 그런데 WS 틱만으로는
  * open = "본 첫 틱", high/low = "관측 max/min", volume = "본 CNTG_VOL 누적"이라
  * 장중 **늦은/간헐 구독** 시 9시 진짜 시가·자리 비운 사이 고저·놓친 거래량이 전부 틀어진다.
