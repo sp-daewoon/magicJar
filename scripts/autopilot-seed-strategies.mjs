@@ -29,6 +29,10 @@ const ORIGIN = 'USER_DSL'; // chk_strategy_origin 허용값(USER_DSL|PAPER_DISCO
 const UNIVERSE_MARKET = 'KOSPI';
 const VI_ACTION_POLICY = 'ALERT_ONLY';
 const UNIVERSE_CAP = 24; // universe 총 코드 상한(실돈 안전 — 과도 구독 방지).
+// 휩쏘 완화 minHold (사용자 결재 2026-07-03 · V97__strategy_wipsaw_mitigation 정합) — 진입 후 N봉 동안
+//   DSL 매도 무시(손절·익절 라인은 MinHoldGuard 우회 — 안전망 우선). INSERT 시 명시 주입 +
+//   UPDATE 시 COALESCE(NULL 만 채움 — 사용자가 튜닝한 기존 값은 덮지 않음).
+const MIN_HOLD_BARS = 8;
 
 const PSQL_BASE = 'docker exec magicjar-postgres psql -U magicjar -d magicjar';
 
@@ -45,13 +49,15 @@ const LIQUIDITY_ANCHORS = [
 ];
 
 // ── 6 전략 정의 (가설 레지스트리 hypotheses-2026-06-22.md 와 1:1, DSL 은 AutopilotSeedStrategyDslTest 와 1:1) ──
+// dslExit 0.3% 버퍼 (사용자 결재 2026-07-03 · V97 정합 — 휩쏘 완화): 하향 이탈 청산은 `* 0.997`,
+//   vwap-reversion 이익 실현 방향은 `* 1.003`. 재실행 upsert 가 V97 적용분을 되돌리지 않도록 시드 원문도 버퍼판 유지.
 const STRATEGIES = [
   {
     name: 'autopilot-momentum-breakout',
     nameKo: '오토파일럿 모멘텀 돌파',
     tf: '3m',
     dslEntry: '((close breaks donchian_upper(20)) AND (volume > volume_ma(20) * 1.5)) AND (close > vwap())',
-    dslExit: 'close < vwap()',
+    dslExit: 'close < vwap() * 0.997',
     takeProfitPct: '2.5',
     fixedStopLossPct: '1.5',
   },
@@ -60,7 +66,7 @@ const STRATEGIES = [
     nameKo: '오토파일럿 눌림목 반등',
     tf: '5m',
     dslEntry: '(((close > ma(50)) AND (ma(20) > ma(50))) AND (rsi(14) > 40)) AND (close > ma(20))',
-    dslExit: 'close < ma(20)',
+    dslExit: 'close < ma(20) * 0.997',
     takeProfitPct: '2.0',
     fixedStopLossPct: '1.5',
   },
@@ -69,7 +75,7 @@ const STRATEGIES = [
     nameKo: '오토파일럿 FVG 매수 재진입',
     tf: '5m',
     dslEntry: '(fvg_bullish_active(50) == 1) AND (close > fvg_bullish_mid(50))',
-    dslExit: 'close < fvg_bullish_bottom(50)',
+    dslExit: 'close < fvg_bullish_bottom(50) * 0.997',
     takeProfitPct: '2.5',
     fixedStopLossPct: '2.0',
   },
@@ -78,7 +84,7 @@ const STRATEGIES = [
     nameKo: '오토파일럿 오더블록 리테스트',
     tf: '5m',
     dslEntry: '(ob_bullish_active(20, 20, 50) == 1) AND (close > ob_bullish_mid(20, 20, 50))',
-    dslExit: 'close < ob_bullish_bottom(20, 20, 50)',
+    dslExit: 'close < ob_bullish_bottom(20, 20, 50) * 0.997',
     takeProfitPct: '2.5',
     fixedStopLossPct: '2.0',
   },
@@ -87,7 +93,7 @@ const STRATEGIES = [
     nameKo: '오토파일럿 거래량 급증',
     tf: '3m',
     dslEntry: '((volume > volume_ma(20) * 2) AND (mfi(14) > 55)) AND (close > vwap())',
-    dslExit: 'close < vwap()',
+    dslExit: 'close < vwap() * 0.997',
     takeProfitPct: '3.0',
     fixedStopLossPct: '2.0',
   },
@@ -96,7 +102,7 @@ const STRATEGIES = [
     nameKo: '오토파일럿 VWAP 회귀',
     tf: '5m',
     dslEntry: '((close < bb_lower(20)) AND (rsi(14) < 30)) AND (close < vwap())',
-    dslExit: 'close > vwap()',
+    dslExit: 'close > vwap() * 1.003',
     takeProfitPct: '2.0',
     fixedStopLossPct: '2.0',
   },
@@ -207,6 +213,7 @@ function upsertStrategy(s, codes) {
       `intervals = ${intervalsLit}, ` +
       `take_profit_pct = ${s.takeProfitPct}, ` +
       `fixed_stop_loss_pct = ${s.fixedStopLossPct}, ` +
+      `min_hold_bars = COALESCE(min_hold_bars, ${MIN_HOLD_BARS}), ` +
       `scale_in_config = NULL, ` +
       `partial_exits = NULL, ` +
       `entry_policy = NULL, ` +
@@ -226,13 +233,13 @@ function upsertStrategy(s, codes) {
     const sql =
       `INSERT INTO strategy (` +
       `user_id, owner, name, name_ko, dsl_entry, dsl_exit, universe_market, tf, codes, intervals, ` +
-      `take_profit_pct, fixed_stop_loss_pct, scale_in_config, partial_exits, entry_policy, ` +
+      `take_profit_pct, fixed_stop_loss_pct, min_hold_bars, scale_in_config, partial_exits, entry_policy, ` +
       `ast_depth, node_count, indicator_call_count, estimated_eval_time_ms, complexity_class, ` +
       `origin, status, vi_action_policy, created_at, updated_at` +
       `) VALUES (` +
       `${CANARY_USER_ID}, ${lit(OWNER)}, ${lit(s.name)}, ${lit(s.nameKo)}, ${lit(s.dslEntry)}, ${lit(s.dslExit)}, ` +
       `${lit(UNIVERSE_MARKET)}, ${lit(s.tf)}, ${codesLit}, ${intervalsLit}, ` +
-      `${s.takeProfitPct}, ${s.fixedStopLossPct}, NULL, NULL, NULL, ` +
+      `${s.takeProfitPct}, ${s.fixedStopLossPct}, ${MIN_HOLD_BARS}, NULL, NULL, NULL, ` +
       `${c.astDepth}, ${c.nodeCount}, ${c.indicatorCallCount}, ${c.estimatedEvalTimeMs}, ${lit(c.complexityClass)}, ` +
       `${lit(ORIGIN)}, 'PAUSED', ${lit(VI_ACTION_POLICY)}, now(), now()` +
       `)`;

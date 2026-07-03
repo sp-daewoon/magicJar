@@ -5,6 +5,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.AutopilotPlannedLotProjection
 import kr.spdaewoon.magicjar.consumer.persistence.StrategyPositionJpaRepository
 import kr.spdaewoon.magicjar.consumer.risk.OrderIntentKafkaProducer
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.session.MarketSessionResolver
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.OrderPriceType
 import kr.spdaewoon.magicjar.domain.order.execution.OrderSide
@@ -25,6 +26,8 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -71,6 +74,13 @@ class PlanExecutor(
     private val enabled: Boolean = false,
     @Value("\${magicjar.autopilot.planned-entry.tick-cooldown-seconds:30}")
     private val tickCooldownSeconds: Long = 30,
+    // 감사 §6 P2-3 · 부록 A-6 — MAX_HOLD elapsedBars 를 거래시간(정규장 09:00~15:30 KST) 기준으로 산출.
+    //   영업일 판정 권위 = MarketSessionResolver(RealtimeSignalGenerator 와 동일 출처 — 캘린더 이중 구현 0).
+    //   bean 부재(일부 테스트 컨텍스트) 시 null → 벽시계 fallback(기존 동작).
+    private val marketSessionResolver: MarketSessionResolver? = null,
+    // 감사 §6 P2-4 — 트레일링 고점(highWatermark) trade_plan JSONB 영속 write 스로틀(초).
+    @Value("\${magicjar.autopilot.planned-entry.high-watermark-persist-interval-seconds:60}")
+    private val highWatermarkPersistIntervalSeconds: Long = 60,
 ) {
     private val log = LoggerFactory.getLogger(PlanExecutor::class.java)
 
@@ -82,6 +92,12 @@ class PlanExecutor(
 
     /** lot 키 → 발행 cooldown(같은 lot 상태로 임계 내 재발행 차단). */
     private val intentCooldown = ConcurrentHashMap<String, FiredIntent>()
+
+    /** lot 키 → 마지막 영속 고점(값 + 시각) — 감사 §6 P2-4 highWatermark write 스로틀 상태. */
+    private val highWatermarkPersists = ConcurrentHashMap<String, PersistedHigh>()
+
+    /** stale tick WARN 1회 가드(code 단위 — 감사 §6 P2-4). fresh tick 복귀 시 해제(다음 stale 에피소드에 재경고). */
+    private val staleWarnedCodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /**
      * 평가 대상 lot 스냅샷 — owner=AUTOPILOT + 보유 + trade_plan 박제 lot.
@@ -127,12 +143,18 @@ class PlanExecutor(
             val lot = toPlannedLot(row) ?: continue
             next.getOrPut(lot.code) { mutableListOf() }.add(lot)
             liveKeys.add(lotKey(lot))
+            // 감사 §6 P2-4 — 재기동/refresh 시 trade_plan 에 영속된 트레일링 고점을 rehydrate(인메모리 고점과 max 병합).
+            //   종전에는 재기동마다 고점이 리셋돼 트레일링이 재무장 대기 상태로 되돌아갔다.
+            lot.plan.trailing?.highWatermark?.let { hw ->
+                highWatermarks.merge(lotKey(lot), hw) { prev, now -> if (now > prev) now else prev }
+            }
         }
         planIndex.keys.retainAll(next.keys)
         next.forEach { (code, lots) -> planIndex[code] = lots }
         // 사라진 lot(전량 청산·게이트 변경)의 고점·cooldown 정리(메모리 누수 방지).
         highWatermarks.keys.retainAll(liveKeys)
         intentCooldown.keys.retainAll(liveKeys)
+        highWatermarkPersists.keys.retainAll(liveKeys)
         log.debug("PlanExecutor refresh: codes={} lots={}", next.size, next.values.sumOf { it.size })
     }
 
@@ -140,7 +162,17 @@ class PlanExecutor(
     fun onTick(record: ConsumerRecord<String, String>) {
         if (!enabled) return
         val tick = parse(record) ?: return
-        if (tick.stale || tick.price <= BigDecimal.ZERO) return
+        if (tick.price <= BigDecimal.ZERO) return
+        if (tick.stale) {
+            // 감사 §6 P2-4 — stale tick 전면 무시로 degraded feed 에서 TP/TRAIL/MAX_HOLD 평가가 조용히 정지하던 것을
+            //   최소 가시화한다(code 당 stale 에피소드 1회 WARN). SL 은 PositionStopLossTickWatcher 의 fallback 가격
+            //   경로가 별도 커버한다. plan 평가의 fallback 가격 직결(전면 개편)은 변경 폭이 커 후속 트랙으로 보류.
+            if (planIndex.containsKey(tick.code) && staleWarnedCodes.add(tick.code)) {
+                log.warn("PlanExecutor plan 평가 tick stale — TP/TRAIL/MAX_HOLD 평가 지연: code={}", tick.code)
+            }
+            return
+        }
+        staleWarnedCodes.remove(tick.code)
         evaluateLots(tick.code, tick.price)
     }
 
@@ -174,6 +206,8 @@ class PlanExecutor(
         // 트레일링 고점 갱신(상승만) — 평가 전에 먼저 반영해 같은 tick 에서 고점 대비 하락도 즉시 판정.
         val key = lotKey(lot)
         val high = highWatermarks.merge(key, tickPrice) { prev, now -> if (now > prev) now else prev } ?: tickPrice
+        // 감사 §6 P2-4 — 고점 영속(스로틀 write · 재기동 rehydrate 용). 실패는 인메모리 고점 무손상 흡수.
+        persistHighWatermarkIfDue(lot, high)
 
         val state =
             TradePlanEvaluator.PlanEvalState(
@@ -288,16 +322,101 @@ class PlanExecutor(
         }
     }
 
-    /** 진입 후 경과 봉 수 — (now − openedAt) / interval 초. MAX_HOLD 판정 입력. */
+    /**
+     * 진입 후 경과 봉 수 — 거래시간(정규장 09:00~15:30 KST) 누적 초 / interval 초. MAX_HOLD 판정 입력.
+     *
+     * 감사 §6 P2-3 · 부록 A-6 — 종전 벽시계(now − openedAt) 산식은 오버나잇 보유 시 개장 직후 MAX_HOLD 를 즉시
+     * 초과시키는 시한폭탄이었다(백테스트 [JvmBacktestEngine]는 거래봉 index 기준 — 정합 어긋남). 현재 라이브 plan 은
+     * maxHold 를 박제하지 않아([TradePlanFactory] hold=minHold 만) 실효 발화는 없지만, 미래 maxHold 도입 대비
+     * 거래시간 기준으로 교정한다. 영업일 판정은 [MarketSessionResolver] 권위(bean 부재 시 벽시계 fallback — 기존 동작).
+     */
     private fun elapsedBars(
         lot: PlannedLot,
         @Suppress("UNUSED_PARAMETER") tickPrice: BigDecimal,
     ): Int {
         val intervalSeconds = MinHoldGuard.intervalSeconds(lot.interval)
         if (intervalSeconds <= 0) return 0
-        val elapsed = Instant.now().epochSecond - lot.openedAtEpoch
+        val elapsed = tradingSessionElapsedSeconds(lot.openedAtEpoch, Instant.now().epochSecond)
         if (elapsed <= 0) return 0
         return (elapsed / intervalSeconds).toInt()
+    }
+
+    /**
+     * [fromEpoch, toEpoch] 구간에서 정규장(09:00~15:30 KST · MarketSession.Regular 창 — ADR 0013) overlap 누적 초.
+     * 영업일 판정은 [MarketSessionResolver.isBusinessDay](조회 실패 시 영업일 취급 — 보수). resolver 부재면 벽시계 fallback.
+     */
+    private fun tradingSessionElapsedSeconds(
+        fromEpoch: Long,
+        toEpoch: Long,
+    ): Long {
+        if (toEpoch <= fromEpoch) return 0L
+        val resolver = marketSessionResolver ?: return toEpoch - fromEpoch // 벽시계 fallback(기존 동작).
+        var total = 0L
+        var date = Instant.ofEpochSecond(fromEpoch).atZone(SEOUL_ZONE).toLocalDate()
+        val endDate = Instant.ofEpochSecond(toEpoch).atZone(SEOUL_ZONE).toLocalDate()
+        var scannedDays = 0
+        while (!date.isAfter(endDate) && scannedDays < MAX_SESSION_SCAN_DAYS) {
+            scannedDays++
+            if (runCatching { resolver.isBusinessDay(date) }.getOrDefault(true)) {
+                val open = date.atTime(REGULAR_SESSION_OPEN_KST).atZone(SEOUL_ZONE).toEpochSecond()
+                val close = date.atTime(REGULAR_SESSION_CLOSE_KST).atZone(SEOUL_ZONE).toEpochSecond()
+                val overlapFrom = maxOf(fromEpoch, open)
+                val overlapTo = minOf(toEpoch, close)
+                if (overlapTo > overlapFrom) total += overlapTo - overlapFrom
+            }
+            date = date.plusDays(1)
+        }
+        return total
+    }
+
+    /**
+     * 트레일링 고점 영속 (감사 §6 P2-4) — 인메모리 전용이던 highWatermark 를 trade_plan JSONB(trailing.highWatermark)에
+     * 스로틀 write 해 재기동 시 [refresh]가 rehydrate 한다. trailing 미설정/비활성 lot 은 대상 아님(고점은 트레일링
+     * 평가에만 쓰임 — write 0). write 실패는 권위 흐름 무손상 흡수([markPlanClosing] 패턴).
+     */
+    private fun persistHighWatermarkIfDue(
+        lot: PlannedLot,
+        high: BigDecimal,
+    ) {
+        val trailing = lot.plan.trailing ?: return
+        if (!trailing.enabled) return
+        val key = lotKey(lot)
+        val nowEpoch = Instant.now().epochSecond
+        val last = highWatermarkPersists[key]
+        if (last != null && last.value >= high) return // 고점 미갱신 — write 0.
+        if (last != null && nowEpoch - last.persistedAtEpoch < highWatermarkPersistIntervalSeconds) return // 스로틀.
+        val persistedBase = trailing.highWatermark
+        if (last == null && persistedBase != null && persistedBase >= high) {
+            // 영속 고점이 이미 최신(재기동 직후) — write 0, 스로틀 상태만 초기화.
+            highWatermarkPersists[key] = PersistedHigh(persistedBase, nowEpoch)
+            return
+        }
+        val port = strategyPositionPortProvider.ifAvailable ?: return
+        runCatching {
+            val current = port.findByUserStrategyCode(lot.userId, lot.strategyId, lot.code) ?: return
+            val plan = current.tradePlan ?: return
+            val currentTrailing = plan.trailing ?: return
+            val storedHigh = currentTrailing.highWatermark
+            if (storedHigh != null && storedHigh >= high) {
+                highWatermarkPersists[key] = PersistedHigh(storedHigh, nowEpoch)
+                return
+            }
+            port.upsert(
+                current.copy(
+                    tradePlan = plan.copy(trailing = currentTrailing.copy(highWatermark = high)),
+                    updatedAt = current.updatedAt,
+                ),
+            )
+            highWatermarkPersists[key] = PersistedHigh(high, nowEpoch)
+        }.onFailure { e ->
+            log.warn(
+                "PlanExecutor highWatermark 영속 실패(인메모리 고점 유지 — 다음 주기 재시도): userId={} strategyId={} code={} err={}",
+                lot.userId,
+                lot.strategyId,
+                lot.code,
+                e.message,
+            )
+        }
     }
 
     private fun isCoolingDown(lot: PlannedLot): Boolean {
@@ -385,7 +504,23 @@ class PlanExecutor(
         val stateSignature: String,
     )
 
+    /** 마지막 영속 고점 상태 (감사 §6 P2-4 — write 스로틀). */
+    private data class PersistedHigh(
+        val value: BigDecimal,
+        val persistedAtEpoch: Long,
+    )
+
     companion object {
         const val GROUP = "magicjar-consumer-plan-executor"
+
+        /** KST 타임존 — 거래시간 경과 산출(감사 §6 P2-3). */
+        private val SEOUL_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
+
+        /** 정규장 시작/종료 KST — MarketSession.Regular 창(ADR 0013) echo. */
+        private val REGULAR_SESSION_OPEN_KST: LocalTime = LocalTime.of(9, 0)
+        private val REGULAR_SESSION_CLOSE_KST: LocalTime = LocalTime.of(15, 30)
+
+        /** 거래시간 경과 스캔 상한(일) — 병리적 장기 보유에서 무한 루프 방지(초과분은 미가산 — MAX_HOLD 미발화 방향 보수). */
+        private const val MAX_SESSION_SCAN_DAYS = 60
     }
 }

@@ -57,7 +57,12 @@ class TradePlanFactoryTest {
                     slPrice = entryPrice.subtract(entryPrice.multiply(it).divide(hundred, 0, RoundingMode.UP)),
                 )
             }
-        val trailing = trailPct?.let { TradePlanTrailing(enabled = true, trailPct = it) }
+        // 감사 부록 A-3 (2026-07-03) — 트레일링 즉시 무장 금지: activatePct default = max(trailPct, 1.0%).
+        //   golden reference 도 동일 amend(라이브·백테스트가 공유하는 TradePlanFactory 가 단일 권위).
+        val trailing =
+            trailPct?.let {
+                TradePlanTrailing(enabled = true, trailPct = it, activatePct = it.max(BigDecimal("1.0")))
+            }
         val hold = minHold?.let { TradePlanHold(minHoldBars = it) }
         val contingency =
             TradePlanContingency(
@@ -154,6 +159,20 @@ class TradePlanFactoryTest {
         // 12340 - ceil(12340 * 2.0 / 100) = 12340 - 247 = 12093 (ADR 0130 §2 예시).
         val plan = TradePlanFactory.build(1L, def(sl = "2.0"), BigDecimal("12340"))
         assertThat(plan.stop?.slPrice).isEqualByComparingTo(BigDecimal("12093"))
+    }
+
+    @Test
+    fun `트레일링 activatePct default — trailPct 1 미만이면 1 퍼센트로 하한 (감사 부록 A-3)`() {
+        val plan = TradePlanFactory.build(1L, def(trail = "0.5"), BigDecimal("10000"))
+        assertThat(plan.trailing?.enabled).isTrue()
+        assertThat(plan.trailing?.trailPct).isEqualByComparingTo(BigDecimal("0.5"))
+        assertThat(plan.trailing?.activatePct).isEqualByComparingTo(BigDecimal("1.0"))
+    }
+
+    @Test
+    fun `트레일링 activatePct default — trailPct 1 이상이면 trailPct 그대로 (감사 부록 A-3)`() {
+        val plan = TradePlanFactory.build(1L, def(trail = "2.0"), BigDecimal("10000"))
+        assertThat(plan.trailing?.activatePct).isEqualByComparingTo(BigDecimal("2.0"))
     }
 
     @Test

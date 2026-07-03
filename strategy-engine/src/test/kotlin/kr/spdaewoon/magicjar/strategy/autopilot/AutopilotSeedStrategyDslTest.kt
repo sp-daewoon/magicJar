@@ -68,18 +68,20 @@ class AutopilotSeedStrategyDslTest {
     @CsvSource(
         delimiter = '|',
         value = [
-            // 1. 돌파 실패 — VWAP 하향 이탈
-            "close < vwap()",
-            // 2. 눌림목 무효 — ma20 하향 이탈
-            "close < ma(20)",
-            // 3. FVG 무효 — gap 하단 이탈
-            "close < fvg_bullish_bottom(50)",
-            // 4. OB 무효 — block 하단 이탈
-            "close < ob_bullish_bottom(20, 20, 50)",
-            // 5. spike 소진 — VWAP 하향 이탈
-            "close < vwap()",
-            // 6. 회귀 달성 — VWAP 복귀(목표 도달)
-            "close > vwap()",
+            // 0.3% 버퍼 (사용자 결재 2026-07-03 · V97__strategy_wipsaw_mitigation + seed 스크립트와 1:1) —
+            //   하향 이탈 청산은 `* 0.997`, vwap-reversion 이익 실현 방향은 `* 1.003` (휩쏘 완화).
+            // 1. 돌파 실패 — VWAP 0.3% 하향 이탈
+            "close < vwap() * 0.997",
+            // 2. 눌림목 무효 — ma20 0.3% 하향 이탈
+            "close < ma(20) * 0.997",
+            // 3. FVG 무효 — gap 하단 0.3% 이탈
+            "close < fvg_bullish_bottom(50) * 0.997",
+            // 4. OB 무효 — block 하단 0.3% 이탈
+            "close < ob_bullish_bottom(20, 20, 50) * 0.997",
+            // 5. spike 소진 — VWAP 0.3% 하향 이탈
+            "close < vwap() * 0.997",
+            // 6. 회귀 달성 — VWAP +0.3% 복귀(목표 도달)
+            "close > vwap() * 1.003",
         ],
     )
     @DisplayName("autopilot 시드 exit DSL 6건 — 파싱 + 정적검증 + 엔진 매핑 통과")

@@ -138,7 +138,11 @@ class DaytradePaperService(
                 // RiskPlan 필수(ensureRiskPlanIfBuy) — setup target/stop 을 손절·익절로 복제. 부재 시 안전 default.
                 fixedStopLoss = candidate.stopLossPct ?: DEFAULT_STOP_LOSS_PCT,
                 takeProfitPct = candidate.targetProfitPct ?: DEFAULT_TAKE_PROFIT_PCT,
-                minHoldBars = candidate.maxHoldBars,
+                // 감사 부록 A-6 (2026-07-03) — maxHoldBars↔minHoldBars 뒤집힘 매핑 제거.
+                //   preset 의 maxHoldBars 는 리서치/시뮬 전용 "최대 보유 상한"이지 "N봉 동안 DSL 매도 무시"(minHold)가
+                //   아니다. 종전 매핑은 페이퍼 전략의 DSL 청산을 maxHoldBars 봉 동안 오억제했다(의미 반전).
+                //   라이브 maxHold 실행 경로는 현재 없음(TradePlanFactory hold=minHold 만 박제) — maxHold 는
+                //   research candidate 객체에만 남긴다. minHoldBars 미설정(null) = 즉시 DSL 청산 허용(라이브 정합).
                 viActionPolicy = ViActionPolicy.EXIT_MARKET,
             )
         val strategy =

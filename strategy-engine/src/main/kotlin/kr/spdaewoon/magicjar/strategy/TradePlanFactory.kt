@@ -26,7 +26,9 @@ import java.math.RoundingMode
  * 본 함수는 기존 `SignalGeneratedKafkaListener.buildTradePlan` 의 산식을 **byte-동일**하게 옮긴 것이다:
  * - TP 절대가 = entryPrice + (entryPrice × tpPct / 100), `RoundingMode.DOWN`(scale 0).
  * - SL 절대가 = entryPrice − (entryPrice × slPct / 100), `RoundingMode.UP`(scale 0 — 손절은 보수적으로 올림).
- * - trailing 은 `trailPct` 존재 시 `enabled=true`(activatePct 미박제 — 라이브와 동일).
+ * - trailing 은 `trailPct` 존재 시 `enabled=true` + **activatePct default = max(trailPct, 1.0%)** (감사 부록 A-3 ·
+ *   2026-07-03 — 즉시 무장이 진입 직후 잡음 고점 기준 -trailPct% 청산을 만들던 결함 교정. 라이브·백테스트가
+ *   본 함수를 공유하므로 parity 유지).
  * - hold 는 `minHoldBars` 존재 시 minHold 만(maxHold 미박제 — 라이브와 동일).
  * - contingency: viAction=정책명, eod=allowOvernight ? "ALLOW_OVERNIGHT" : "LIQUIDATE".
  * - status=OPEN·exitReason=null.
@@ -35,6 +37,9 @@ import java.math.RoundingMode
  */
 object TradePlanFactory {
     private val HUNDRED = BigDecimal("100")
+
+    /** 트레일링 활성(무장) 임계 하한 %(감사 부록 A-3) — activatePct = max(trailPct, 이 값). */
+    private val DEFAULT_TRAIL_ACTIVATE_MIN_PCT = BigDecimal("1.0")
 
     /**
      * 전략 설정 + 진입가로 [TradePlan] 을 1회 구성한다 (ADR 0130 §2 스키마 v1 · §6-2 · 라이브와 동일 규칙).
@@ -77,9 +82,17 @@ object TradePlanFactory {
                     slPrice = entryPrice.subtract(entryPrice.multiply(it).divide(HUNDRED, 0, RoundingMode.UP)),
                 )
             }
+        // 감사 부록 A-3 (2026-07-03) — activatePct 없는 트레일링 즉시 무장 금지. 전략에 활성 임계 개념이 없으므로
+        //   default = max(trailPct, 1.0%) 수익 도달 후에만 무장한다(진입 직후 스프레드·잡음 고점(+0.8%)에서
+        //   고점×(1−trailPct%) 청산이 발화하던 2위 경로 차단). 게이트 본체는 [TradePlanEvaluator.trailTriggerPriceOf]
+        //   — 고점이 평단×(1+activatePct%) 미달이면 null(미발화)로 이미 배선돼 있다(plan 모델 activatePct 기존재 · 병렬 필드 0).
         val trailing =
             trailPct?.let {
-                TradePlanTrailing(enabled = true, trailPct = it)
+                TradePlanTrailing(
+                    enabled = true,
+                    trailPct = it,
+                    activatePct = it.max(DEFAULT_TRAIL_ACTIVATE_MIN_PCT),
+                )
             }
         val hold = minHold?.let { TradePlanHold(minHoldBars = it) }
         // contingency — 현행 정책(ViActionPolicy·allowOvernight)을 plan 에 동봉해 L3(VI·EOD)가 R3 에서 참조.

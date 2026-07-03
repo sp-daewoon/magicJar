@@ -54,6 +54,7 @@ object TradePlanSerde {
     const val KEY_TRAIL_ENABLED = "enabled"
     const val KEY_TRAIL_ACTIVATE_PCT = "activatePct"
     const val KEY_TRAIL_PCT = "trailPct"
+    const val KEY_TRAIL_HIGH_WATERMARK = "highWatermark"
 
     // ── hold keys ──
     const val KEY_MIN_HOLD_BARS = "minHoldBars"
@@ -169,6 +170,7 @@ object TradePlanSerde {
             put(KEY_TRAIL_ENABLED, trailing.enabled)
             trailing.activatePct?.let { put(KEY_TRAIL_ACTIVATE_PCT, it.toPlainString()) }
             trailing.trailPct?.let { put(KEY_TRAIL_PCT, it.toPlainString()) }
+            trailing.highWatermark?.let { put(KEY_TRAIL_HIGH_WATERMARK, it.toPlainString()) }
         }
 
     private fun trailingFromMap(map: Map<String, Any?>): TradePlanTrailing =
@@ -176,6 +178,7 @@ object TradePlanSerde {
             enabled = boolOrDefault(map[KEY_TRAIL_ENABLED], false),
             activatePct = bigDecimalOrNull(map[KEY_TRAIL_ACTIVATE_PCT]),
             trailPct = bigDecimalOrNull(map[KEY_TRAIL_PCT]),
+            highWatermark = bigDecimalOrNull(map[KEY_TRAIL_HIGH_WATERMARK])?.takeIf { it > BigDecimal.ZERO },
         )
 
     // ── hold ──

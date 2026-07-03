@@ -80,7 +80,10 @@ class StrategyResearchCandidateService(
                 entryDsl = entryDsl,
                 targetProfitPct = strategy.takeProfitPct,
                 stopLossPct = strategy.fixedStopLossPct,
-                maxHoldBars = strategy.minHoldBars,
+                // 감사 부록 A-6 (2026-07-03) — minHoldBars(잔익절 방어 · DSL 매도 억제 하한)를 후보의
+                //   maxHoldBars(리서치 시뮬 최대 보유 상한)로 뒤집어 매핑하던 결함 제거. 전략에는 maxHold 개념이
+                //   없으므로(라이브 미실행) null — 리서치 시뮬은 자체 default 를 쓴다.
+                maxHoldBars = null,
                 sortOrder = sortOrder,
                 active = true,
                 builtIn = false,
