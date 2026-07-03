@@ -558,6 +558,16 @@ class JvmStrategyEvaluator(
 
     /**
      * 캔들 직접 접근 (6종) — open · close · prev_close · high · low · volume.
+     *
+     * ## 가격 소스 = 원주가(raw) 고정 (감사 P1-④ · 2026-07-03 가격 소스 단일화)
+     * 지표(ma·rsi 등 — IndicatorMath adjusted=false default · Native 5종·KIS 80종 전부 원주가)와 달리 종전 본 함수는
+     * 수정주가(adj) 우선이라 `close > ma(20)` 이 **수정주가 vs 원주가 혼합 비교**가 됐다(액면분할·배당락 종목 조건
+     * 체계적 왜곡 + 백테스트 PriceAdjustmentMode.RAW 요청 무력화). raw 고정으로 통일해 DSL 캔들 접근과 지표가
+     * 같은 가격 소스를 본다(일관성 우선).
+     *
+     * ※ **라이브 평가 semantics 변경 주의** — adj≠raw 캔들(수정주가 반영 종목)에서 DSL close/open/high/low 값이
+     *   adj→raw 로 바뀐다(의도된 교정 — 지표와 정합). ADJUSTED 모드의 양측(지표+DSL) 동시 adj threading 은
+     *   IndicatorEngine 계약 변경이 필요해 후속 트랙(감사 P1-④ 개선안 — "동일 모드 플래그 공유").
      */
     private fun directCandleAccess(
         ref: IndicatorRef,
@@ -566,19 +576,19 @@ class JvmStrategyEvaluator(
         val last = candles.lastOrNull() ?: return null
         return when (ref.name) {
             "open" -> {
-                if (ref.params.isEmpty()) NumEval(last.openAdj ?: last.openRaw, label = "open") else null
+                if (ref.params.isEmpty()) NumEval(last.openRaw, label = "open") else null
             }
-            "close" -> NumEval(last.closeAdj ?: last.closeRaw, label = "close")
+            "close" -> NumEval(last.closeRaw, label = "close")
             "prev_close" -> {
                 val prev = candles.getOrNull(candles.size - 2) ?: return NumEval(BigDecimal.ZERO, label = "prev_close")
-                NumEval(prev.closeAdj ?: prev.closeRaw, label = "prev_close")
+                NumEval(prev.closeRaw, label = "prev_close")
             }
             "high" -> {
                 // bare `high` (no params) → 마지막 캔들 high
-                if (ref.params.isEmpty()) NumEval(last.highAdj ?: last.highRaw, label = "high") else null
+                if (ref.params.isEmpty()) NumEval(last.highRaw, label = "high") else null
             }
             "low" -> {
-                if (ref.params.isEmpty()) NumEval(last.lowAdj ?: last.lowRaw, label = "low") else null
+                if (ref.params.isEmpty()) NumEval(last.lowRaw, label = "low") else null
             }
             "volume" -> {
                 if (ref.params.isEmpty()) NumEval(BigDecimal(last.volume), label = "volume") else null

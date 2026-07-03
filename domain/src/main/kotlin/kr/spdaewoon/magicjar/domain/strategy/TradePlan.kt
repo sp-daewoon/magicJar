@@ -136,15 +136,19 @@ enum class TradePlanStopType { FIXED, ATR }
  * @param enabled 트레일링 활성 여부 (default false = 미적용).
  * @param activatePct 트레일링 활성 발동 수익률%(양수, 선택). 이 수익률 도달 후부터 trailing 추적 시작.
  * @param trailPct 고점 대비 청산 트리거 하락폭%(양수, 선택).
+ * @param highWatermark 진입 후 관측 최고가 영속(원, 양수, 선택 — add-only · 감사 §6 P2-4). PlanExecutor 가
+ *   인메모리 고점을 주기 write 하고 재기동 시 rehydrate 한다(고점 리셋 → 트레일링 무장 해제 재발 방지). null = 미기록.
  */
 data class TradePlanTrailing(
     val enabled: Boolean = false,
     val activatePct: BigDecimal? = null,
     val trailPct: BigDecimal? = null,
+    val highWatermark: BigDecimal? = null,
 ) {
     init {
         activatePct?.let { require(it > BigDecimal.ZERO) { "activatePct must be positive: $it" } }
         trailPct?.let { require(it > BigDecimal.ZERO) { "trailPct must be positive: $it" } }
+        highWatermark?.let { require(it > BigDecimal.ZERO) { "highWatermark must be positive: $it" } }
     }
 }
 

@@ -9,6 +9,7 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
 import kr.spdaewoon.magicjar.api.config.IntradayRealisticBacktestProperties
+import kr.spdaewoon.magicjar.api.config.LegacyBacktestProperties
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.CandleJpaRepository
 import kr.spdaewoon.magicjar.domain.backtest.BacktestEntrySkip
@@ -41,9 +42,12 @@ import kr.spdaewoon.magicjar.domain.strategy.StrategyException
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslNode
 import kr.spdaewoon.magicjar.domain.strategy.dsl.DslStrategyDefinition
 import kr.spdaewoon.magicjar.domain.strategy.port.StrategyRepositoryPort
+import kr.spdaewoon.magicjar.strategy.IntradayExitDecision
 import kr.spdaewoon.magicjar.strategy.IntradayExitReason
 import kr.spdaewoon.magicjar.strategy.IntradayExitSimulation
 import kr.spdaewoon.magicjar.strategy.IntradayTradingClock
+import kr.spdaewoon.magicjar.strategy.MinHoldGuard
+import kr.spdaewoon.magicjar.strategy.TradePlanEvaluator
 import kr.spdaewoon.magicjar.strategy.TradePlanFactory
 import kr.spdaewoon.magicjar.strategy.entry.EntryPriceDecision
 import kr.spdaewoon.magicjar.strategy.entry.EntryPriceInput
@@ -99,6 +103,8 @@ class JvmBacktestEngine(
     private val performanceCalculator: BacktestPerformanceCalculator,
     /** 초단타 정합 백테스트 게이트(ADR 0132 §2-B · R2b) — default off 시 INTRADAY_REALISTIC 요청은 LEGACY 강등. */
     private val intradayProperties: IntradayRealisticBacktestProperties = IntradayRealisticBacktestProperties(),
+    /** LEGACY 정합 옵션(2026-07-03 감사 §6 P2-1·P2-2) — 다음 봉 open 체결(opt-in) + 정규장 필터(default on). */
+    private val legacyProperties: LegacyBacktestProperties = LegacyBacktestProperties(),
     /**
      * 분봉 선수집 + 정합성 보고 포트(ADR 0132 §1-E · R2a market-data 구현).
      *
@@ -121,7 +127,17 @@ class JvmBacktestEngine(
 
         /** 봉 ts(KST) 산출 타임존 — EOD/blackout 시간 판정(ADR 0132 §D1-3). */
         private val SEOUL_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
+
+        /** 정규장 시작/종료 KST — MarketSession.Regular 창(ADR 0013) echo. LEGACY 정규장 필터(감사 §6 P2-2). */
+        private val REGULAR_SESSION_OPEN_KST: LocalTime = LocalTime.of(9, 0)
+        private val REGULAR_SESSION_CLOSE_KST: LocalTime = LocalTime.of(15, 30)
     }
+
+    /** LEGACY 다음 봉 open 체결 대기 신호 (감사 §6 P2-1 · opt-in fill-at-next-open). */
+    private data class PendingLegacyFill(
+        val side: TradeSide,
+        val signalReason: Map<String, Any>,
+    )
 
     override fun run(request: BacktestRequest): BacktestResult {
         // ── 모드 분기 (ADR 0132 §4-A R2b) ──────────────────────────────────────
@@ -240,6 +256,10 @@ class JvmBacktestEngine(
 
             val allCandles: List<Candle> = entities.map { toDomain(it, request.priceAdjustmentMode) }
 
+            // LEGACY 정합 보강 상태(감사 §2-② · §6 P2-1) — 진입 봉 index(minHold 봉 수 산정) + 다음 봉 open 체결 pending.
+            var entryBarIndex: Int? = null
+            var pendingNextOpenFill: PendingLegacyFill? = null
+
             // 6. 시간 슬라이스 진행 (t = 0 .. allCandles.size-1)
             for (t in allCandles.indices) {
                 // 룩어헤드 가드 — t 시점까지 슬라이스만 전달
@@ -252,6 +272,81 @@ class JvmBacktestEngine(
                     } else {
                         rawPrice
                     }
+
+                // ── 정규장 필터 (감사 §6 P2-2) — 분·시 봉(≤60m)의 정규장(09:00~15:30 KST) 밖 봉은 신호 평가/체결 skip.
+                //    라이브 market-hours gate default(BUY·SELL 모두 정규장만)와 정합. 일봉 이상은 ts 가 장중 시각
+                //    의미가 없어 필터 미적용(오적용 방지). off = magicjar.backtest.legacy.regular-session-only=false.
+                if (legacyProperties.regularSessionOnly && isIntradayInterval(interval)) {
+                    val barTimeKst =
+                        currentCandle.ts
+                            .toJavaInstant()
+                            .atZone(SEOUL_ZONE)
+                            .toLocalTime()
+                    if (!isRegularSessionKst(barTimeKst)) {
+                        // 장외 봉으로 이월 체결 금지 — pending 은 폐기(다음 정규장 봉에서 재신호에 위임 · 보수).
+                        pendingNextOpenFill = null
+                        equityCurve.add(markToMarketEquity(cash, openPositions, evalPrice))
+                        continue
+                    }
+                }
+
+                // ── 다음 봉 open 체결 (감사 §6 P2-1 · opt-in fill-at-next-open) — 직전 봉 신호를 이 봉 open 으로 체결.
+                pendingNextOpenFill?.let { pending ->
+                    pendingNextOpenFill = null
+                    val openRaw = currentCandle.openRaw
+                    val openEval =
+                        if (request.priceAdjustmentMode == PriceAdjustmentMode.ADJUSTED) {
+                            currentCandle.openAdj ?: openRaw
+                        } else {
+                            openRaw
+                        }
+                    when (pending.side) {
+                        TradeSide.BUY ->
+                            if (!openPositions.containsKey(code) && cash > ZERO && openRaw > ZERO) {
+                                val skipReason = entryPolicySkip(resolvedEntryPolicy, openEval, currentCandle.ts, slippageModel)
+                                if (skipReason != null) {
+                                    entrySkip = entrySkip.accumulate(skipReason)
+                                } else {
+                                    executeBuy(
+                                        code = code,
+                                        buyBudget = buyBudget(request.sizingPolicy, request.initialCapital, cash),
+                                        rawPrice = openRaw,
+                                        evalPrice = openEval,
+                                        candleTs = currentCandle.ts,
+                                        signalReason = pending.signalReason,
+                                        commissionModel = commissionModel,
+                                        slippageModel = slippageModel,
+                                    )?.let { result ->
+                                        trades.add(result.trade)
+                                        cash = cash.subtract(result.cost)
+                                        openPositions[code] = result.position
+                                        entryBarIndex = t
+                                    }
+                                }
+                            }
+                        TradeSide.SELL ->
+                            if (openPositions.containsKey(code)) {
+                                val pendingPos = openPositions.getValue(code)
+                                val result =
+                                    executeSell(
+                                        code = code,
+                                        pos = pendingPos,
+                                        rawPrice = openRaw,
+                                        evalPrice = openEval,
+                                        candleTs = currentCandle.ts,
+                                        signalReason = pending.signalReason,
+                                        taxModel = taxModel,
+                                        commissionModel = commissionModel,
+                                        slippageModel = slippageModel,
+                                    )
+                                trades.add(result.trade)
+                                cash = cash.add(result.proceeds)
+                                positions.add(pendingPos.copy(closedAt = currentCandle.ts, realizedPnl = result.realizedPnl))
+                                openPositions.remove(code)
+                                entryBarIndex = null
+                            }
+                    }
+                }
 
                 // BUY 신호 평가
                 val buyResult =
@@ -300,6 +395,20 @@ class JvmBacktestEngine(
 
                 val candleTs = currentCandle.ts
 
+                // LEGACY SL/TP 평가 (감사 §2-② — 비-scale-in 전략도 라이브 evaluatePlainPositionExit 와 동일 라인 평가).
+                //   우선순위·가격 규약은 INTRADAY_REALISTIC(IntradayExitSimulation 1·2단계)과 동일 — SL(봉 low) 우선, TP(봉 high) 후행.
+                val plainExit =
+                    if (!scaleInExitActive && openPositions.containsKey(code)) {
+                        evaluateLegacyPlainExit(
+                            request = request,
+                            definition = definition,
+                            pos = openPositions.getValue(code),
+                            bar = currentCandle,
+                        )
+                    } else {
+                        null
+                    }
+
                 if (scaleInExitActive) {
                     // ── scale-in/exit 경로 (spec §6-3) — ScaleInExitCalculator 단일 함수로 진입/청산 평가 ──
                     val step =
@@ -326,31 +435,65 @@ class JvmBacktestEngine(
                         cash = it.cash
                         it.closedPosition?.let { closed -> positions.add(closed) }
                     }
-                } else if (sellResult?.signal == Signal.SELL && openPositions.containsKey(code)) {
-                    // SELL 처리 (sellCondition 있을 때)
+                } else if (plainExit != null) {
+                    // ── SL/TP 라인 체결 (감사 §2-② — 라인 가격 그대로 · 슬리피지 미적용은 INTRADAY_REALISTIC 규약 정합) ──
                     val pos = openPositions.getValue(code)
                     val result =
-                        executeSell(
+                        executeIntradayExit(
                             code = code,
                             pos = pos,
                             rawPrice = rawPrice,
-                            evalPrice = evalPrice,
+                            exitPrice = plainExit.triggerPrice,
                             candleTs = candleTs,
-                            signalReason = sellResult.reason,
+                            reason = plainExit.reason,
+                            signalTrigger = if (plainExit.reason == IntradayExitReason.SL) "STOP_LOSS" else "TAKE_PROFIT",
                             taxModel = taxModel,
                             commissionModel = commissionModel,
-                            slippageModel = slippageModel,
                         )
                     trades.add(result.trade)
                     cash = cash.add(result.proceeds)
-                    val closedPos = pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl)
-                    positions.add(closedPos)
+                    positions.add(pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl))
                     openPositions.remove(code)
+                    entryBarIndex = null
+                } else if (sellResult?.signal == Signal.SELL && openPositions.containsKey(code)) {
+                    // minHold 봉 미충족 DSL 매도 skip (감사 §2-② — 라이브 RealtimeSignalGenerator minHold 게이트 미러.
+                    //   SL/TP 는 위 plainExit 에서 항상 먼저 평가됨 — 안전망 우선 규약 동일).
+                    val minHoldBars = definition.minHoldBars ?: 0
+                    val heldBars = entryBarIndex?.let { t - it } ?: Int.MAX_VALUE
+                    if (minHoldBars > 0 && heldBars < minHoldBars) {
+                        // skip — 라이브 SIGNAL_SKIPPED_MIN_HOLD 동등(HOLD 취급).
+                    } else if (legacyProperties.fillAtNextOpen) {
+                        pendingNextOpenFill = PendingLegacyFill(TradeSide.SELL, sellResult.reason)
+                    } else {
+                        // SELL 처리 (sellCondition 있을 때)
+                        val pos = openPositions.getValue(code)
+                        val result =
+                            executeSell(
+                                code = code,
+                                pos = pos,
+                                rawPrice = rawPrice,
+                                evalPrice = evalPrice,
+                                candleTs = candleTs,
+                                signalReason = sellResult.reason,
+                                taxModel = taxModel,
+                                commissionModel = commissionModel,
+                                slippageModel = slippageModel,
+                            )
+                        trades.add(result.trade)
+                        cash = cash.add(result.proceeds)
+                        val closedPos = pos.copy(closedAt = candleTs, realizedPnl = result.realizedPnl)
+                        positions.add(closedPos)
+                        openPositions.remove(code)
+                        entryBarIndex = null
+                    }
                 } else if (buyResult?.signal == Signal.BUY && !openPositions.containsKey(code) && cash > ZERO) {
                     // 진입 정책 게이트(ADR 0114 R3) — 스킵이면 이 봉의 진입 기회 소멸로 기록, 매수 0.
                     val skipReason = entryPolicySkip(resolvedEntryPolicy, evalPrice, candleTs, slippageModel)
                     if (skipReason != null) {
                         entrySkip = entrySkip.accumulate(skipReason)
+                    } else if (legacyProperties.fillAtNextOpen) {
+                        // 감사 §6 P2-1 (opt-in) — 신호봉 close 체결 대신 다음 봉 open 체결로 이월(낙관 편향 완화).
+                        pendingNextOpenFill = PendingLegacyFill(TradeSide.BUY, buyResult.reason)
                     } else {
                         // BUY 처리 — 사이징 정책에 따라 매수 예산 산정(AllCapital=전액 / FixedFractional=고정 슬롯).
                         val result =
@@ -368,6 +511,7 @@ class JvmBacktestEngine(
                             trades.add(result.trade)
                             cash = cash.subtract(result.cost)
                             openPositions[code] = result.position
+                            entryBarIndex = t
                         }
                     }
                 }
@@ -843,6 +987,56 @@ class JvmBacktestEngine(
             )
         return SellResult(trade = trade, proceeds = proceeds, realizedPnl = realizedPnl)
     }
+
+    /**
+     * LEGACY 비-scale-in 전략의 SL/TP 봉 평가 (감사 §2-② — LEGACY 백테스트가 fixedStopLoss/takeProfitPct 를
+     * 평가하지 않아 라이브([RealtimeSignalGenerator] evaluatePlainPositionExit + tick 손절 watcher)와 청산 분포가
+     * 딴판이던 결함 교정).
+     *
+     * 우선순위·가격 규약은 INTRADAY_REALISTIC([IntradayExitSimulation.evaluateBar] 1·2단계)과 동일하다:
+     *  1. intrabar SL 우선 — 봉 low ≤ SL 라인이면 SL 체결(가격=라인 · 같은 봉 TP 도달 무관 — 보수).
+     *  2. intrabar TP — 봉 high ≥ TP 라인 ∧ SL 미도달이면 TP 체결(가격=라인).
+     * 라인 산식은 라이브·INTRADAY_REALISTIC 과 단일 출처([TradePlanFactory.build] +
+     * [TradePlanEvaluator.stopPriceOf]/[TradePlanEvaluator.targetPriceOf] — 평단 연동 + KRX tick 라운딩).
+     * 민감도 sweep 의 FIXED_STOP_LOSS/TAKE_PROFIT override 는 definition copy 로 이미 반영된다(silent no-op 해소).
+     * 트레일링·MAX_HOLD 는 본 보강 범위 밖(INTRADAY_REALISTIC 전용 — 감사 §2-② 중기 트랙 · TRAILING_STOP sweep 은
+     * LEGACY 에서 여전히 no-op).
+     */
+    private fun evaluateLegacyPlainExit(
+        request: BacktestRequest,
+        definition: StrategyDefinition,
+        pos: BacktestPosition,
+        bar: Candle,
+    ): IntradayExitDecision? {
+        if (definition.fixedStopLoss == null && definition.takeProfitPct == null) return null
+        if (pos.avgEntryPrice <= ZERO) return null
+        val adjusted = request.priceAdjustmentMode == PriceAdjustmentMode.ADJUSTED
+        val high = if (adjusted) bar.highAdj ?: bar.highRaw else bar.highRaw
+        val low = if (adjusted) bar.lowAdj ?: bar.lowRaw else bar.lowRaw
+        if (high <= ZERO || low <= ZERO) return null
+        val plan =
+            TradePlanFactory.build(
+                strategyId = request.strategyId,
+                definition = definition,
+                entryPrice = pos.avgEntryPrice,
+                bar = request.interval,
+                openedAt = pos.openedAt.toString(),
+            )
+        TradePlanEvaluator.stopPriceOf(plan, pos.avgEntryPrice)?.let { sl ->
+            if (sl > ZERO && low <= sl) return IntradayExitDecision(IntradayExitReason.SL, sl)
+        }
+        TradePlanEvaluator.targetPriceOf(plan, pos.avgEntryPrice)?.let { tp ->
+            if (high >= tp) return IntradayExitDecision(IntradayExitReason.TP, tp)
+        }
+        return null
+    }
+
+    /** 정규장(09:00~15:30 KST) 안 봉 시각인지 — MarketSession.Regular 창(ADR 0013) echo (감사 §6 P2-2). */
+    private fun isRegularSessionKst(barTimeKst: LocalTime): Boolean =
+        !barTimeKst.isBefore(REGULAR_SESSION_OPEN_KST) && barTimeKst.isBefore(REGULAR_SESSION_CLOSE_KST)
+
+    /** 정규장 필터 적용 대상 interval — 60분 이하 분·시 봉만(일봉·주봉 등 장중 시각 의미 없는 봉 오적용 방지). */
+    private fun isIntradayInterval(interval: CandleInterval): Boolean = MinHoldGuard.intervalSeconds(interval) in 1L..3600L
 
     // =====================================================================
     // 진입 정책 게이트 (ADR 0114 R3 — live EntryPricePolicy 단일 함수 공유)

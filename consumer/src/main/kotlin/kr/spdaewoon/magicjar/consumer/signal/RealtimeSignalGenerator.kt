@@ -413,6 +413,11 @@ class RealtimeSignalGenerator(
             )
             return
         }
+        // 감사 §6 P2-16 (2026-07-03) — fallback source 캔들 BUY 가 정책상 허용돼 실제 발행될 때 전략당 세션 1회
+        //   WARN 가시화(행동 변화 0 — 사용자가 발생 빈도를 보고 default 변경을 결재할 수 있게).
+        if (side == SignalSide.BUY) {
+            realtimeFallbackBuyPolicy.noteFallbackBuyAllowed(strategyId, candle)
+        }
 
         // 5. Signal 생성
         val strength = (evalResult.strength.multiply(BigDecimal(100))).toInt().coerceIn(0, 100)
