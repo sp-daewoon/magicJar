@@ -136,6 +136,58 @@ class RealtimeSubscriptionRouterTest {
         assertFalse(kisWsPort.priceUnsubscribed.contains(holdingCode))
     }
 
+    // ===== priority eviction (감사 §2-③ · 2026-07-03 — ADR 0114/0124 완성) =====
+
+    @Test
+    fun `slot 포화 + 잔여 0 이면 STRATEGY 는 DETAIL demand 구독을 evict 한다 (priority eviction)`() {
+        // slot 전부를 DETAIL demand 구독으로 채운다(잔여 구독 0).
+        val detailCodes = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "2%05d".format(it) }
+        detailCodes.forEach { router.request(RealtimeDemandOwner.DETAIL, "detail:user001", it) }
+        assertTrue(kisWsPort.priceSubscribed.containsAll(detailCodes))
+
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
+
+        // 매매 경로(STRATEGY=10)가 관찰 경로(DETAIL=20)를 선점 — 신규 구독 발사 + DETAIL 1건 evict.
+        assertTrue(kisWsPort.priceSubscribed.contains("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.any { it in detailCodes })
+    }
+
+    @Test
+    fun `slot 포화 + 잔여 0 이면 DETAIL 은 STRATEGY demand 구독을 evict 하지 못하고 queued 된다`() {
+        val strategyCodes = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "3%05d".format(it) }
+        strategyCodes.forEach { router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", it, priority = 10) }
+
+        router.request(RealtimeDemandOwner.DETAIL, "detail:user001", "005930")
+
+        // 역방향(DETAIL→STRATEGY) evict 불가 — 신규 구독 미발사 + 기존 구독 무손상.
+        assertFalse(kisWsPort.priceSubscribed.contains("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.none { it in strategyCodes })
+    }
+
+    @Test
+    fun `slot 포화 시 PENDING_BUY demand 구독은 priority eviction 에서도 절대 victim 이 아니다 (ADR 0114 LOCK)`() {
+        val pendingCodes = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "4%05d".format(it) }
+        pendingCodes.forEach { router.request(RealtimeDemandOwner.PENDING_BUY, "order:$it", it) }
+
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", "005930", priority = 10)
+
+        // PENDING_BUY(5) 는 STRATEGY(10) 보다 강한 데다 절대 보호 — queued 처리(신규 미발사·evict 0).
+        assertFalse(kisWsPort.priceSubscribed.contains("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.none { it in pendingCodes })
+    }
+
+    @Test
+    fun `slot 포화 시 동급(STRATEGY vs STRATEGY) 간에는 evict 하지 않는다 (swap 진동 차단)`() {
+        val strategyCodes = (1..SubscriptionPolicy.PRICE_TICK_MAX).map { "5%05d".format(it) }
+        strategyCodes.forEach { router.request(RealtimeDemandOwner.STRATEGY, "strategy:42", it, priority = 10) }
+
+        router.request(RealtimeDemandOwner.STRATEGY, "strategy:99", "005930", priority = 10)
+
+        // strict 비교(요청 priority 보다 숫자 큰 demand 만 victim) — 동급은 queued.
+        assertFalse(kisWsPort.priceSubscribed.contains("005930"))
+        assertTrue(kisWsPort.priceUnsubscribed.none { it in strategyCodes })
+    }
+
     @Test
     fun `HOLDING release는 즉시 demand를 제거한다 (전량 청산)`() {
         router.request(RealtimeDemandOwner.HOLDING, "holding:005930", "005930")

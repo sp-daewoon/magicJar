@@ -386,6 +386,25 @@ magicjar:
       default-lookback-trading-days: ${MAGICJAR_CANDLE_1M_DEFAULT_LOOKBACK_TRADING_DAYS:126}
       max-lookback-trading-days: ${MAGICJAR_CANDLE_1M_MAX_LOOKBACK_TRADING_DAYS:252}
       max-pages-per-day: ${MAGICJAR_CANDLE_1M_MAX_PAGES_PER_DAY:8}
+    # 1m/3m 캔들 시간 기반 retention (2026-07-03 감사 §2-① — CandleRetentionWorker, 매일 03:40 KST)
+    #   enabled: default false — 사용자 데이터 삭제라 명시 opt-in. true일 때만 retention.days 이전 1m/3m 행을
+    #     ctid 청크(5000행) 단위로 삭제한다. 대상 interval 은 1m·3m 화이트리스트 LOCK(그 외 절대 삭제 0).
+    #   days: 보존 일수(default 90). one-minute.default-lookback-trading-days(126 거래일)보다 짧게 잡으면
+    #     1m backfill/reconciliation(ADR 0105)이 삭제 구간을 재수집 시도할 수 있음 — 활성 시 정렬 권장.
+    retention:
+      enabled: ${MAGICJAR_CANDLE_RETENTION_ENABLED:false}
+      days: ${MAGICJAR_CANDLE_RETENTION_DAYS:90}
+    # 예상체결 세션 tick 캔들 반영 제외 (ADR 0124 수용 기준 #2 — 2026-07-03 감사 §2′-⑥, LiveCandleUpdater)
+    #   H0UNCNT0 통합 스트림의 NEW_MKOP_CLS_CODE([34] — KIS-first ccnl_total.py columns 재검증)를
+    #   TickEvent.session 으로 태그하고, 아래 코드 목록에 해당하는 세션 tick 은 진행봉(candle:current) 반영에서
+    #   제외한다(quote:last·Kafka tick 발행은 무영향).
+    #   exclude-expected-conclusion: 게이트 toggle (default true — 단, 코드 목록이 비어 있으면 제외 0).
+    #   expected-conclusion-session-codes: 예상체결 판정 코드 comma 목록 (default 빈 값).
+    #     TODO(ADR 0124 수용기준 #2): 값 테이블 KIS-first 원문 미확보 — Kafka tick payload `session` 필드로
+    #     라이브 코드 분포 관측 후 확정값을 채운다. 임의 default 는 NXT pre-hour(08:00~09:00 정책상 의도된
+    #     적재) 실체결 오제외 risk 라 금지.
+    exclude-expected-conclusion: ${MAGICJAR_CANDLE_EXCLUDE_EXPECTED_CONCLUSION:true}
+    expected-conclusion-session-codes: ${MAGICJAR_CANDLE_EXPECTED_CONCLUSION_SESSION_CODES:}
     # 캔들 백필 rate-limit safety 가드 (2026-06-04 dogfooding fix — KIS 폭주·전건실패 무한재시도 차단)
     #   evidence: 부팅 시 8종목 1m 2일 stale → 백필 전건 실패(failed=5008/5008) → 매 부팅 재시도 → TPS_EXCEEDED 폭주
     #   - consecutive-total-miss-threshold: KIS 전건 미반환(0건) run 연속 N회 → 회복 불가 영구 마킹 + 재시도 중단

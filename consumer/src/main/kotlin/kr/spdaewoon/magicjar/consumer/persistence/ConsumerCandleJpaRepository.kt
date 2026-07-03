@@ -100,6 +100,25 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     ): List<java.time.Instant>
 
     /**
+     * 종목·interval·범위 내 candle 전체 row ASC 조회 (양끝 inclusive) — 2026-07-03 감사 §2-① fix.
+     * BoundaryAggregator boundary 합산용 — 기존 전량 fetch([findByCodeAndIntervalOrderByTsAsc]) 후
+     * 메모리 필터의 단조 악화(1m 무한 누적 풀스캔)를 범위 쿼리로 절단.
+     * [findTsByCodeAndIntervalAndTsBetween]과 동일 조건 — ts 대신 entity 반환 변형.
+     */
+    @Query(
+        "SELECT c FROM ConsumerCandleJpaEntity c " +
+            "WHERE c.code = :code AND c.interval = :interval " +
+            "AND c.ts >= :fromTs AND c.ts <= :toTs " +
+            "ORDER BY c.ts ASC",
+    )
+    fun findByCodeAndIntervalAndTsBetweenOrderByTsAsc(
+        @Param("code") code: String,
+        @Param("interval") interval: String,
+        @Param("fromTs") fromTs: java.time.Instant,
+        @Param("toTs") toTs: java.time.Instant,
+    ): List<ConsumerCandleJpaEntity>
+
+    /**
      * 일봉 패밀리 wipe — ADR 0118 amend MIGRATE 모드 전용 (전 source 대상).
      *
      * ## ★ 안전 제약 (가장 중요)
@@ -146,6 +165,35 @@ interface ConsumerCandleJpaRepository : JpaRepository<ConsumerCandleJpaEntity, L
     )
     fun deleteByIntervalInBatch(
         @Param("intervals") intervals: Collection<String>,
+        @Param("batchSize") batchSize: Int,
+    ): Int
+
+    /**
+     * 시간 기반 retention **배치 삭제** — CandleRetentionWorker 전용 (2026-07-03 감사 §2-① retention 잡).
+     *
+     * ## ★ 안전 제약 ([deleteByIntervalInBatch] 동일 + cutoff 이중 조건)
+     *   삭제 대상은 `interval IN (:intervals)` ∩ `ts < :cutoff` 뿐 — 호출자(CandleRetentionWorker)가
+     *   화이트리스트(1m·3m)와 cutoff(retention.days 이전)를 LOCK 한다. cutoff 이후(최근) row·화이트리스트 밖
+     *   interval 은 어떤 경로로도 삭제되지 않는다. `ctid` 기반 [batchSize] 청크 — long-transaction 회피.
+     *
+     * @return 이 청크에서 삭제된 row 수. [batchSize] 미만이면 더 이상 대상 없음(루프 종료 신호).
+     */
+    @Modifying
+    @Query(
+        nativeQuery = true,
+        value = """
+            DELETE FROM candle
+            WHERE ctid IN (
+                SELECT ctid FROM candle
+                WHERE interval IN (:intervals)
+                  AND ts < :cutoff
+                LIMIT :batchSize
+            )
+        """,
+    )
+    fun deleteByIntervalInAndTsBeforeBatch(
+        @Param("intervals") intervals: Collection<String>,
+        @Param("cutoff") cutoff: java.time.Instant,
         @Param("batchSize") batchSize: Int,
     ): Int
 

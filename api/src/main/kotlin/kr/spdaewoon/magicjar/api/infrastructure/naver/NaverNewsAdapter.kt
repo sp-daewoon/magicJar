@@ -2,6 +2,9 @@ package kr.spdaewoon.magicjar.api.infrastructure.naver
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import kr.spdaewoon.magicjar.api.persistence.NewsArticleJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.NewsArticleJpaRepository
 import org.slf4j.LoggerFactory
@@ -17,6 +20,7 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Naver Open API search/news.json 어댑터 (T-NEWS Phase 2 — ADR 0075 §7-5 KIS-first raw 인용).
@@ -71,8 +75,33 @@ class NaverNewsAdapter(
     private val objectMapper: ObjectMapper,
     @Value("\${naver.open-api.client-id:}") private val clientId: String,
     @Value("\${naver.open-api.client-secret:}") private val clientSecret: String,
+    /**
+     * 수집 사망 감지 gauge 노출용 (2026-07-03 감사 P2-13 — 실패가 "빈 결과"로 위장되던 결함 관측).
+     * nullable + default null — 기존 단위 테스트 무수정 보존 + Actuator 미존재 fixture 안전
+     * (RedisKisRateLimiterAdapter 동일 패턴). null 시 gauge 미등록 no-op.
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) {
     private val log = LoggerFactory.getLogger(NaverNewsAdapter::class.java)
+
+    /**
+     * 마지막 성공 fetch 시각(epoch seconds) — [METRIC_LAST_SUCCESSFUL_FETCH] gauge source.
+     * 0 = 이 JVM 세션에서 성공 0회. 200 응답 + JSON 파싱 성공 시 갱신 — "빈 결과 위장" 사망을
+     * staleness alert 로 감지 가능하게 한다(감사 P2-13).
+     */
+    private val lastSuccessfulFetchEpochSeconds = AtomicLong(0L)
+
+    init {
+        meterRegistry?.let { registry ->
+            runCatching {
+                Gauge
+                    .builder(METRIC_LAST_SUCCESSFUL_FETCH, lastSuccessfulFetchEpochSeconds) { it.get().toDouble() }
+                    .description("뉴스/공시 source별 마지막 성공 fetch epoch seconds (감사 P2-13)")
+                    .tags(Tags.of("source", SOURCE))
+                    .register(registry)
+            }.onFailure { e -> log.warn("[NaverNewsAdapter] gauge 등록 실패(관측만 결손): err={}", e.message) }
+        }
+    }
 
     companion object {
         /** Naver Open API search/news.json endpoint (ADR 0075 §7-5 raw 인용) */
@@ -104,6 +133,12 @@ class NaverNewsAdapter(
 
         /** SHA-256 MessageDigest algorithm */
         private const val SHA_256 = "SHA-256"
+
+        /**
+         * source별 마지막 성공 fetch gauge (감사 P2-13) — DART(DartDisclosurePollingScheduler)와 이름 공유,
+         * `source` tag 로 구분. Prometheus: magicjar_news_source_last_success_epoch.
+         */
+        const val METRIC_LAST_SUCCESSFUL_FETCH = "magicjar.news.source.last.success.epoch"
     }
 
     private val httpClient: HttpClient =
@@ -220,6 +255,9 @@ class NaverNewsAdapter(
             return emptyList()
         }
 
+        // 성공 fetch 시각 갱신 (감사 P2-13) — 200 + JSON 파싱 + items 배열 확인 시점.
+        lastSuccessfulFetchEpochSeconds.set(Instant.now().epochSecond)
+
         val saved = mutableListOf<NewsArticleJpaEntity>()
 
         for (item in items) {
@@ -237,7 +275,18 @@ class NaverNewsAdapter(
             val title = stripBTag(item.path("title").asText("").trim())
             val bodySummary = stripBTag(item.path("description").asText("").trim()).ifBlank { null }
             val pubDateStr = item.path("pubDate").asText("").trim()
-            val publishedAt = parsePubDate(pubDateStr) ?: Instant.now()
+            // P2-13/P3 (2026-07-03 감사) — pubDate 파싱 실패 시 Instant.now() 대체 금지.
+            // 수집 시각으로 위장된 published_at 은 뉴스 최신성 판단·정렬을 오염시키므로 해당 item 만 WARN + skip
+            // (parsePubDate 가 실패 상세 WARN 을 이미 남김 — 여기선 skip 사실만 기록).
+            val publishedAt = parsePubDate(pubDateStr)
+            if (publishedAt == null) {
+                log.warn(
+                    "[NaverNewsAdapter] pubDate 파싱 불가 item skip (Instant.now() 대체 금지): stockCode={} urlHash={}",
+                    stockCode,
+                    urlHash,
+                )
+                continue
+            }
 
             val entity =
                 NewsArticleJpaEntity(

@@ -233,16 +233,13 @@ class BoundaryAggregator(
         boundaryStartInstant: Instant,
         boundaryCloseInstant: Instant,
     ): List<Candle> {
-        // ConsumerCandleJpaRepository.findByCodeAndIntervalOrderByTsAsc 전량 조회 후 boundary 필터
+        // 2026-07-03 감사 §2-① fix — 기존 findByCodeAndIntervalOrderByTsAsc 전량 조회 + 메모리 필터는
+        // 1m 무한 누적(종목당 ~720행/일)으로 boundary마다 풀스캔 → 운영일수 비례 단조 악화의 유일 기제였다.
+        // 범위 쿼리(양끝 inclusive — 기존 !isBefore ∧ !isAfter 필터와 동일 semantics)로 교체, 동작 동일.
         // ADR 0064 §4-3 + ADR 0105: 해당 boundary 내 1m candles만 사용.
-        val allOneMin =
-            candleJpaRepository.findByCodeAndIntervalOrderByTsAsc(code, "1m")
-
-        return allOneMin
-            .filter { entity ->
-                !entity.ts.isBefore(boundaryStartInstant) &&
-                    !entity.ts.isAfter(boundaryCloseInstant)
-            }.mapNotNull { entity -> entity.toDomain() }
+        return candleJpaRepository
+            .findByCodeAndIntervalAndTsBetweenOrderByTsAsc(code, "1m", boundaryStartInstant, boundaryCloseInstant)
+            .mapNotNull { entity -> entity.toDomain() }
     }
 
     private fun insertBarToDb(

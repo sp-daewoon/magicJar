@@ -1,6 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.ws
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import jakarta.annotation.PreDestroy
 import kotlinx.datetime.Clock
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
@@ -182,12 +185,20 @@ class KisWebSocketBridge(
      * `MAGICJAR_KIS_WS_SLOT_LEDGER_ENABLED=false` 시 ledger 자체가 no-op (롤백 toggle).
      */
     private val slotLedgerProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger>,
+    /**
+     * Micrometer 관측 registry (2026-07-03 감사 P2-11·P1-⑤ fix — sendSink emit 실패·tick parse reject 카운터).
+     *
+     * nullable + default null 사유: 기존 단위 테스트(직접 생성자 호출) 무수정 보존 + Actuator 미존재 fixture 안전
+     * (RedisKisRateLimiterAdapter 동일 패턴). null 시 카운터 no-op — WARN 로그는 항상 남는다.
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) : KisWsPort,
     TodayCandleSeedPort {
     companion object {
         // backlog §29 #4 — Sinks unicast bounded buffer 사이즈 (reconnect 폭주 hardcap).
         // 정상 시 send queue ~6 KB(50 종목 × ~120 byte) 대비 충분한 여유.
-        // overflow 시 tryEmitNext가 FAIL_OVERFLOW 반환 → silent drop (backpressure 정책).
+        // overflow 시 tryEmitNext가 FAIL_OVERFLOW 반환 → drop (backpressure 정책 유지).
+        // 2026-07-03 감사 P2-11 — drop 은 더 이상 silent 아님: [emitChecked]가 WARN + 카운터로 관측.
         private const val BACKPRESSURE_BUFFER_SIZE = 1024
 
         /** SystemEvent actor — P1 catalog (spec §6.1 emit point #4·#5). */
@@ -227,6 +238,18 @@ class KisWebSocketBridge(
          * OPSP8997 invalid tr_type 응답 직전 발사된 해제 메시지를 cover할 만큼만(소규모 ring).
          */
         private const val UNSUB_HISTORY_MAX = 40
+
+        /**
+         * sendSink tryEmitNext 실패 카운터 (2026-07-03 감사 P2-11 — silent drop 관측).
+         * Micrometer dot-notation → Prometheus: magicjar_kis_ws_send_emit_failed_total.
+         */
+        const val METRIC_SEND_EMIT_FAILED = "magicjar.kis.ws.send.emit.failed"
+
+        /**
+         * WS tick 파싱 reject 카운터 (2026-07-03 감사 P1-⑤ — blank/≤0 가격 등 무효 tick 관측).
+         * 파서(KisWsMessageParser)는 순수 object라 registry 미보유 — reject(null 반환) 지점을 본 브릿지가 계수.
+         */
+        const val METRIC_TICK_PARSE_REJECTED = "magicjar.market.tick.parse.rejected"
     }
 
     private val log = LoggerFactory.getLogger(KisWebSocketBridge::class.java)
@@ -493,13 +516,58 @@ class KisWebSocketBridge(
 
     private fun slotLedger(): kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger? = slotLedgerProvider.ifAvailable
 
+    /**
+     * sendSink tryEmitNext 결과 확인 emit helper (2026-07-03 감사 P2-11 — sink 구조 무변경).
+     *
+     * 기존엔 tryEmitNext 반환값을 전부 버려 FAIL_OVERFLOW/FAIL_TERMINATED 시 구독 메시지가 silent drop됐다
+     * (HOLDING 구독 메시지 drop = 청산 재료 공백 risk). 실패 시 WARN + [METRIC_SEND_EMIT_FAILED] 카운터로
+     * 관측만 추가한다 — 재시도/재구성은 하지 않는다(backpressure 정책·sink 구조 보존).
+     */
+    private fun emitChecked(
+        sink: Sinks.Many<String>?,
+        msg: String,
+        trId: String,
+        context: String,
+    ) {
+        val result = sink?.tryEmitNext(msg)
+        if (result == null || result.isFailure) {
+            log.warn(
+                "KIS WS send emit 실패 — 메시지 silent drop 관측(§11-2): context={} trId={} result={}",
+                context,
+                trId,
+                result ?: "SINK_NULL",
+            )
+            incrementCounter(METRIC_SEND_EMIT_FAILED, Tags.of("tr_id", trId, "context", context))
+        }
+    }
+
+    /** WS tick 파싱 reject 계수 (감사 P1-⑤) — 파서 null 반환(무효 가격/필드 결손) 관측. */
+    private fun recordTickParseRejected(trId: String) {
+        incrementCounter(METRIC_TICK_PARSE_REJECTED, Tags.of("tr_id", trId))
+    }
+
+    /** Micrometer counter 증가 graceful helper — registry 부재(fixture)·등록 실패 시 no-op (rate limiter 동일 패턴). */
+    private fun incrementCounter(
+        name: String,
+        tags: Tags,
+    ) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(name)
+                .tags(tags)
+                .register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("counter increment skip: name={} err={}", name, e.message) }
+    }
+
     private fun sendTickSubscribe(
         approvalKey: String,
         code: String,
         trType: String,
     ) {
         val msg = buildSubscribeMessage(approvalKey, code, trType = trType, trId = TR_ID_UNIFIED_TICK)
-        sendSink?.tryEmitNext(msg)
+        emitChecked(sendSink, msg, trId = TR_ID_UNIFIED_TICK, context = "tick-subscribe")
     }
 
     /**
@@ -640,7 +708,7 @@ class KisWebSocketBridge(
         codes.forEach { code ->
             if (!orderbookSubscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_ORDERBOOK)
-                sendSink?.tryEmitNext(msg)
+                emitChecked(sendSink, msg, trId = TR_ID_UNIFIED_ORDERBOOK, context = "orderbook-subscribe")
                 orderbookSubscribedCodes.add(code)
                 slotLedger()?.register(trId = TR_ID_UNIFIED_ORDERBOOK, code = code) // ADR 0123 R1 — 호가 채널 점유
                 log.info("KIS WS orderbook subscribe: code={} trId={}", code, TR_ID_UNIFIED_ORDERBOOK)
@@ -689,7 +757,7 @@ class KisWebSocketBridge(
         codes.forEach { code ->
             if (!marketStatusSubscribedCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_MARKET_STATUS)
-                sendSink?.tryEmitNext(msg)
+                emitChecked(sendSink, msg, trId = TR_ID_UNIFIED_MARKET_STATUS, context = "market-status-subscribe")
                 marketStatusSubscribedCodes.add(code)
                 slotLedger()?.register(trId = TR_ID_UNIFIED_MARKET_STATUS, code = code)
                 log.info("KIS WS market-status subscribe: code={} trId={}", code, TR_ID_UNIFIED_MARKET_STATUS)
@@ -745,7 +813,7 @@ class KisWebSocketBridge(
         codes.forEach { code ->
             if (!overtimeSinglePriceCodes.contains(code)) {
                 val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = "H0STOUP0")
-                sendSink?.tryEmitNext(msg)
+                emitChecked(sendSink, msg, trId = "H0STOUP0", context = "overtime-subscribe")
                 overtimeSinglePriceCodes.add(code)
                 log.info("KIS WS subscribe: code={} trId=H0STOUP0", code)
             }
@@ -965,7 +1033,7 @@ class KisWebSocketBridge(
                         val reconnectMs = System.currentTimeMillis()
                         existingCodes.forEach { code ->
                             val msg = buildSubscribeMessage(approvalKey, code, trType = "1", trId = TR_ID_UNIFIED_TICK)
-                            sink.tryEmitNext(msg)
+                            emitChecked(sink, msg, trId = TR_ID_UNIFIED_TICK, context = "reconnect-resubscribe")
                             // 무tick watchdog 윈도우 재seed — 재구독 시점부터 stale 카운트 시작(이전 stale 흔적 reset).
                             lastTickAtMsByCode[code] = reconnectMs
                             noTickWarned.remove(code)
@@ -982,6 +1050,38 @@ class KisWebSocketBridge(
                     //   tr_key = HTS 사용자 ID (defaultUserId 정합 — magicjar.kis.ws.user-id)
                     // reconnect 시 본 블록 재진입으로 자동 재구독 정합 (별도 상태 set 불필요 — KIS WS 세션 단위 구독).
                     subscribeExecutionNoticeIfPossible(approvalKey, sink)
+
+                    // ★ P0-1 (2026-07-03 감사) — 재연결 시 호가·VI·시간외 3채널 재구독 재발사.
+                    // 기존엔 체결가(H0UNCNT0)+체결통보만 재발사했고, 로컬 Set(orderbook/marketStatus/overtime)은
+                    // 유지되므로 이후 구독 시도가 "이미 구독됨" no-op로 영구화 — 매시 정각 KIS 재연결 후
+                    // H0UNASP0(STRATEGY marketable-limit 진입 호가)·H0UNMKO0(VI 정책 EXIT_MARKET 보호)·H0STOUP0
+                    // 스트림이 KIS측에서만 silent 소멸했다(VI 자동 청산 보호 상실 — 자본 리스크 직결).
+                    // 기존 순서(체결가+체결통보 먼저)는 보존하고 그 다음 3채널을 로컬 Set 스냅샷 그대로 재발사한다.
+                    // H0STOUP0 Set은 OvertimeSinglePriceSubscriber가 16:00~18:00에만 채우므로 활성 시간대에만 자연 발사.
+                    val orderbookResub = orderbookSubscribedCodes.toList()
+                    orderbookResub.forEach { code ->
+                        val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_ORDERBOOK)
+                        emitChecked(sink, msg, trId = TR_ID_UNIFIED_ORDERBOOK, context = "reconnect-resubscribe")
+                    }
+                    val marketStatusResub = marketStatusSubscribedCodes.toList()
+                    marketStatusResub.forEach { code ->
+                        val msg =
+                            buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = TR_ID_UNIFIED_MARKET_STATUS)
+                        emitChecked(sink, msg, trId = TR_ID_UNIFIED_MARKET_STATUS, context = "reconnect-resubscribe")
+                    }
+                    val overtimeResub = overtimeSinglePriceCodes.toList()
+                    overtimeResub.forEach { code ->
+                        val msg = buildSubscribeMessage(approvalKey, code, trType = TR_TYPE_SUBSCRIBE, trId = "H0STOUP0")
+                        emitChecked(sink, msg, trId = "H0STOUP0", context = "reconnect-resubscribe")
+                    }
+                    if (orderbookResub.isNotEmpty() || marketStatusResub.isNotEmpty() || overtimeResub.isNotEmpty()) {
+                        log.info(
+                            "KIS WS 재구독 재발사(P0-1): orderbook(H0UNASP0)={}건 marketStatus(H0UNMKO0)={}건 overtime(H0STOUP0)={}건",
+                            orderbookResub.size,
+                            marketStatusResub.size,
+                            overtimeResub.size,
+                        )
+                    }
 
                     val sendFlux =
                         sink
@@ -1162,9 +1262,18 @@ class KisWebSocketBridge(
                     log.info("KIS WS 구독 응답: success=true json={}", parsed.rawJson.take(200))
                 } else if (!success && KisWsMessageParser.isOpsp8997InvalidTrType(parsed.rawJson)) {
                     // 결함③ 진단(2026-06-15): OPSP8997 invalid tr_type — unsubscribe 거부.
-                    // 후속 hotfix: 실제 해제 발사는 TR_TYPE_UNSUBSCRIBE("2")로 정정.
-                    // 응답 header tr_id=null로 추적 불가 → 최근 unsubscribe 발사 이력을 상관관계 덤프(관측 전용).
-                    // ⚠ trType 값은 KIS 공식 정합(해제="0") 확인됨 — 절대 "2"로 변경 금지(회귀). 이번엔 진단만.
+                    //
+                    // ★ trType 계약 확정 (2026-07-03 감사 P2-10 — 모순 주석 단일화):
+                    //   현행 해제 발사값은 [TR_TYPE_UNSUBSCRIBE]("2")가 검증된 진실이다 — KIS-first kis_auth.py
+                    //   tr_type "1"=등록/"2"=해제 + 본 파일 헤더 계약 + KisWsMessageParser OPSP8997 KDoc 정합.
+                    //   과거 해제="0" 발사가 OPSP8997의 유력 원인으로 지목되어 "2"로 정정됐다(이전 이 자리의
+                    //   '해제="0" 확인 — "2" 변경 금지' 주석은 정정 전 흔적으로 폐기). "2"에서 "0"으로 되돌리지 말 것.
+                    //
+                    // ⚠ ledger 회계 잔여 risk (safe subset 보류): 응답 header tr_id=null이라 어떤 채널 해제가
+                    //   거부됐는지 식별 불가 — 로컬 Set/ledger는 unsubscribe 발사 시점에 이미 release돼 있어
+                    //   KIS측 구독만 잔존(slot 회계 침식 가능). 채널 식별 근거 없이 자동 보정은 오보정 risk가
+                    //   더 커서 하지 않고, 아래 상관관계 덤프로 재감사 evidence만 남긴다(OPSP0008 도달 시
+                    //   handleOpsp0008 회계 보정이 최종 안전망).
                     dumpRecentUnsubscribesForDiagnosis(parsed.rawJson)
                 } else if (KisWsMessageParser.isUnsubscribeAck(parsed.rawJson)) {
                     // E-1: unsubscribe ACK 수신 — destroy() 대기 latch 해제
@@ -1269,7 +1378,12 @@ class KisWebSocketBridge(
      * 3. Kafka market.tick.v1 publish
      */
     private fun handleUnifiedTickData(rawData: String) {
-        val tick = KisWsMessageParser.parseH0Uncnt0(rawData) ?: return
+        val tick =
+            KisWsMessageParser.parseH0Uncnt0(rawData) ?: run {
+                // 감사 P1-⑤ — 파싱 reject(무효 가격/필드 결손) 관측 카운터 (WARN은 파서가 남김).
+                recordTickParseRejected(TR_ID_UNIFIED_TICK)
+                return
+            }
         log.debug("KIS WS unified tick: code={} price={} vol={} source={}", tick.code, tick.price, tick.volume, tick.source)
 
         recordTickReceived(tick.code)
@@ -1308,7 +1422,12 @@ class KisWebSocketBridge(
      *   필드 인덱스: H0STCNT0(ccnl_krx)와 동일 위치 매핑 — [0]=종목코드 [2]=현재가 [12]=체결거래량 [33]=영업일자
      */
     private fun handleOvertimeSinglePriceTickData(rawData: String) {
-        val tick = KisWsMessageParser.parseH0Stoup0(rawData) ?: return
+        val tick =
+            KisWsMessageParser.parseH0Stoup0(rawData) ?: run {
+                // 감사 P1-⑤ — 파싱 reject(무효 가격/필드 결손) 관측 카운터 (WARN은 파서가 남김).
+                recordTickParseRejected("H0STOUP0")
+                return
+            }
         log.debug(
             "KIS WS overtime tick: code={} price={} vol={} source={}",
             tick.code,
@@ -1464,6 +1583,8 @@ class KisWebSocketBridge(
             tick.priceChange?.let { data["priceChange"] = it.toPlainString() }
             tick.changeRate?.let { data["changeRate"] = it.toPlainString() }
             tick.changeSign?.let { data["changeSign"] = it }
+            // NEW_MKOP_CLS_CODE 세션 태그 (ADR 0124 수용 기준 #2) — null이면 키 생략(하위호환).
+            tick.session?.let { data["session"] = it }
 
             val json = objectMapper.writeValueAsString(data)
             redisTemplate
@@ -1524,8 +1645,9 @@ class KisWebSocketBridge(
     /**
      * 구독 수립 시점 호출 — `candle:today:{code}:1d`(+`candle:current:{code}:1d`) Hash를 공식 KIS 당일값으로 시드/재보정.
      *
-     * [TodayCandleSeedPort] 계약 구현. RealtimeSubscriptionRouter가 owner(DETAIL·HOLDING·WATCHLIST·STRATEGY·PENDING_BUY)
-     * 무관하게 WS 구독이 새로 수립되는 지점에서 호출 → 늦은/간헐 구독에도 open=공식 9시 시가, 고/저·거래량=공식 당일값.
+     * [TodayCandleSeedPort] 계약 구현. RealtimeSubscriptionRouter가 owner(HOLDING·PENDING_BUY·STRATEGY·DETAIL —
+     * ADR 0124 4-owner 체계, watchlist는 polling 전용이라 WS owner 아님) 무관하게 WS 구독이 새로 수립되는
+     * 지점에서 호출 → 늦은/간헐 구독에도 open=공식 9시 시가, 고/저·거래량=공식 당일값.
      *
      * 시드 후 WS 틱은 [updateLiveCandleHash]에서 seeded=true 분기로 합류:
      *  - open LOCK(공식 시가 보존), 고/저는 공식 baseline 위 확장만, volume = acmlBase + WS CNTG_VOL 델타.
@@ -1755,6 +1877,9 @@ class KisWebSocketBridge(
             // 소비처(MarketTickStompForwarder·PositionStopLossTickWatcher)는 Map::class로 역직렬화 → 모르는 key 무시(하위호환).
             tick.tradeIntensity?.let { data["tradeIntensity"] = it.toPlainString() }
             tick.turnoverAccum?.let { data["turnoverAccum"] = it.toPlainString() }
+            // NEW_MKOP_CLS_CODE 세션 태그 전파 (ADR 0124 수용 기준 #2) — null이면 key 생략 (동일 하위호환 패턴).
+            // 라이브 payload로 실제 세션 코드 분포를 관측해 예상체결 값 테이블 확정의 evidence로 쓴다.
+            tick.session?.let { data["session"] = it }
 
             val payload = objectMapper.writeValueAsString(data)
             kafkaTemplate.send(KafkaTopics.Market.TICK, tick.code, payload)
@@ -2352,7 +2477,7 @@ class KisWebSocketBridge(
         // 전송 원문 로깅 — emit 직전(헌법 §11-2 silent 금지). OPSP8997 진단 시 wire 정상 여부 확정 근거.
         log.info("KIS WS unsubscribe 전송 원문: code={} trId={} trType={} raw={}", code, trId, TR_TYPE_UNSUBSCRIBE, msg)
         recordUnsubscribeTrace(code = code, trId = trId, rawJson = msg)
-        sendSink?.tryEmitNext(msg)
+        emitChecked(sendSink, msg, trId = trId, context = "unsubscribe")
     }
 
     /** 최근 unsubscribe 이력 push + 상한 trim (결함③ 진단 — [recentUnsubscribes]). */

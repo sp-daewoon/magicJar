@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * BusinessDayCalendar 도메인 포트 구현체 — consumer 모듈 (ADR 0013 §2-2 + Flyway V6 정합).
@@ -33,11 +34,27 @@ class ConsumerBusinessDayCalendar(
 ) : BusinessDayCalendar {
     private val log = LoggerFactory.getLogger(ConsumerBusinessDayCalendar::class.java)
 
+    /**
+     * market_calendar 미시드 첫 감지 WARN 1회 가드 (2026-07-03 감사 P2-12 safe subset).
+     * 미시드 상태의 fallback 은 조회마다 발생 — 매 호출 WARN 스팸 없이 JVM 세션당 1회만 노출한다.
+     * AtomicBoolean: 다중 caller thread(gap detector·scheduler) 동시 진입 대비.
+     */
+    private val fallbackWarnedOnce = AtomicBoolean(false)
+
     @Transactional(readOnly = true)
     override fun isBusinessDay(date: LocalDate): Boolean {
         val entry = marketCalendarJpaRepository.findById(date).orElse(null)
         if (entry != null) {
             return entry.isBusinessDay
+        }
+        // P2-12 (2026-07-03 감사) — market_calendar 미시드 silent 강등 관측: 연휴 뒤 false stale 판정·
+        // 불필요 KIS 호출의 원인이 되므로 첫 fallback 사용 시 1회 WARN 으로 노출한다(§11-2 silent 금지).
+        if (fallbackWarnedOnce.compareAndSet(false, true)) {
+            log.warn(
+                "market_calendar 미시드 — 주말 fallback만 동작 (date={} row 0). 공휴일 미반영으로 연휴 뒤 " +
+                    "false stale·불필요 KIS 호출 가능. api MarketCalendarSeedRunner/batch sync job 시드 확인 필요.",
+                date,
+            )
         }
         // fallback — row 미등록 시 주말 가드만 (햇징 룰 #6 false positive 방지 의무 — chart-curator skill §함정 가드)
         val dow = date.dayOfWeek

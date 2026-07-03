@@ -21,9 +21,16 @@ import kotlin.concurrent.withLock
  *
  * ## watchlist 분리 (ADR 0124 결정 2 · 2026-06-13)
  * watchlist는 더 이상 KIS WS를 점유하지 않는다(5초 REST polling 전용 — [SubscriptionRouter]).
- * 따라서 본 라우터의 KIS WS slot 예산은 owner demand만 소비하고, eviction victim 후보는
- * "어느 owner demand에도 없는 잔여 구독"만 남는다(과거 watchlist priority 기반 eviction 폐지).
  * 같은 종목이 owner demand로 WS 구독되면 watchlist 화면은 그 WS tick으로 갱신된 더 신선한 quote를 읽는다.
+ *
+ * ## eviction 정책 (2026-07-03 감사 §2-③ — ADR 0114/0124 priority eviction 완성)
+ * slot 경합 시 victim 선정 2단:
+ *  1. **ownerless 잔여 구독** — 어느 owner demand에도 없는 구독(release 누락·재연결 잔여) 우선 정리.
+ *  2. **priority eviction** — 잔여가 없으면 "최고(=숫자 최소) demand priority가 요청보다 strictly 약한(숫자 큰)"
+ *     구독 중 가장 약한 것을 evict(DETAIL=20 최우선 evict 대상). 매매 경로(STRATEGY=10)가 관찰 경로(DETAIL=20)를
+ *     선점하고 그 역은 불가하며, 동급 간 evict 도 불가(swap 진동 방지).
+ *  - **HOLDING·PENDING_BUY demand 종목은 어떤 경우에도 evict 절대 금지** (ADR 0114 LOCK — 청산 재료 공백 = 자본 risk).
+ *  - evict 불가로 신규 요청이 queued 되면 WARN(REST degraded feed 강등 가시화).
  */
 @Component
 class RealtimeSubscriptionRouter(
@@ -276,10 +283,14 @@ class RealtimeSubscriptionRouter(
         if (code in subscribed) return false
 
         if (subscribed.size >= SubscriptionPolicy.PRICE_TICK_MAX) {
-            val victim = findEvictionCandidateLocked(subscribed)
+            val victim = findEvictionCandidateLocked(subscribed, priority)
             if (victim == null) {
+                // 감사 §2-③ — evict 불가(잔여 0 + 요청보다 약한 demand 0 / HOLDING·PENDING_BUY 보호) queued.
+                //   신규 종목은 REST degraded feed(ActiveStrategyCandleFeedPoller) 로 강등된다. Slack/SystemEvent
+                //   연동 헬퍼는 본 클래스에 미주입 — WARN 가시화까지(후속: SystemEventLogger 배선 검토).
                 log.warn(
-                    "realtime demand queued: code={} priority={} subscribed={} max={}",
+                    "realtime demand queued (evict 불가 — 잔여 구독 0 · 요청보다 약한 demand 0 · HOLDING/PENDING_BUY 보호): " +
+                        "code={} priority={} subscribed={} max={}",
                     code,
                     priority,
                     subscribed.size,
@@ -287,12 +298,31 @@ class RealtimeSubscriptionRouter(
                 )
                 return false
             }
+            val victimOwners =
+                demandsByCode[victim]
+                    ?.keys
+                    ?.map { ownerLabel(it.owner, it.ownerId) }
+                    ?.sorted()
+                    .orEmpty()
             kisWsPort.unsubscribe(listOf(victim))
             pendingUnsubscribeAtMs.remove(victim)
             // evict한 victim의 ledger 점유 즉시 해제 — 같은 lock 구간 직후 tryRegister admission 산식이
             // 회수된 1 slot을 반영하게 한다(멱등 — bridge.unsubscribe도 release하나 순서/타이밍 무관 보장).
             wsSlotBudgetLedger.release(trIdUnifiedTick, victim)
-            log.info("realtime demand evict unowned: victim={} new={} priority={}", victim, code, priority)
+            if (victimOwners.isEmpty()) {
+                log.info("realtime demand evict unowned: victim={} new={} priority={}", victim, code, priority)
+            } else {
+                // 감사 §2-③ — demand 있는 구독을 priority 로 선점 evict(ADR 0114/0124 완성). victim demand 는
+                //   유지되므로(구독만 해제) victim owner 는 degraded REST feed 로 강등된다(가시화 WARN).
+                log.warn(
+                    "realtime demand evict by priority (STRATEGY>DETAIL 선점 · HOLDING/PENDING_BUY 절대 보호): " +
+                        "victim={} victimOwners={} new={} priority={}",
+                    victim,
+                    victimOwners,
+                    code,
+                    priority,
+                )
+            }
         }
 
         // ★ 2026-06-22 장중 신규구독 silent 누락 fix — 발사 직전 통합 admission 게이트.
@@ -315,17 +345,34 @@ class RealtimeSubscriptionRouter(
     }
 
     /**
-     * eviction victim 후보 — 어느 owner demand에도 없는 잔여 구독 (ADR 0124 결정 2).
+     * eviction victim 후보 — 2단 선정 (감사 §2-③ · 2026-07-03 priority eviction 완성).
      *
-     * watchlist는 더 이상 WS를 점유하지 않으므로(polling 전용) eviction victim 후보는
-     * "demand 맵에 없는 + HOLDING demand도 아닌" 구독뿐이다(release 누락·재연결 잔여 등 정리 대상).
-     * 데이터를 요구하는 모든 owner는 demandsByCode에 등록되므로, 후보가 없으면(=전부 demand) queued 처리한다.
+     * 1. **ownerless 잔여 구독** — 어느 owner demand에도 없는 구독(release 누락·재연결 잔여) 우선.
+     * 2. **priority eviction** — 잔여가 없으면 demand 구독 중 "최고(=숫자 최소) priority가 [requesterPriority]보다
+     *    strictly 큰(약한)" 것 중 가장 약한(숫자 최대) 구독. STRATEGY(10)는 DETAIL(20)을 evict 할 수 있으나
+     *    그 역·동급 간은 불가(strict 비교 — swap 진동 구조적 차단).
+     *
+     * **HOLDING·PENDING_BUY demand code 는 두 단계 모두에서 절대 제외** (ADR 0114 LOCK — 절대 금지 유지).
+     * 후보가 없으면 null → caller 가 queued WARN 처리.
      */
-    private fun findEvictionCandidateLocked(subscribed: Set<String>): String? {
+    private fun findEvictionCandidateLocked(
+        subscribed: Set<String>,
+        requesterPriority: Int,
+    ): String? {
         val demandedCodes = demandsByCode.keys
-        // ADR 0114 §4-3 P3 — HOLDING owner code는 evict 절대 금지(보유 종목 구독 끊김 = 청산 재료 공백 = 자본 risk).
-        val holdingCodes = codesWithHoldingDemandLocked()
-        return subscribed.firstOrNull { it !in demandedCodes && it !in holdingCodes }
+        // ADR 0114 §4-3 P3 — HOLDING(+PENDING_BUY) owner code는 evict 절대 금지(청산·체결 재료 공백 = 자본 risk).
+        val protectedCodes = codesWithProtectedDemandLocked()
+        // 1단 — ownerless 잔여 구독.
+        subscribed.firstOrNull { it !in demandedCodes && it !in protectedCodes }?.let { return it }
+        // 2단 — priority eviction: 최고 demand priority(숫자 최소)가 요청보다 strictly 약한(숫자 큰) 것 중 최약체.
+        return subscribed
+            .asSequence()
+            .filter { it !in protectedCodes }
+            .mapNotNull { code ->
+                demandsByCode[code]?.values?.minOfOrNull { it.priority }?.let { best -> code to best }
+            }.filter { (_, bestPriority) -> bestPriority > requesterPriority }
+            .maxByOrNull { (_, bestPriority) -> bestPriority }
+            ?.first
     }
 
     private fun releaseIfUnownedLocked(code: String) {
@@ -388,11 +435,15 @@ class RealtimeSubscriptionRouter(
         return changedCodes
     }
 
-    /** HOLDING owner demand가 있는 code 집합 (ADR 0114 §4-3 — evict 후보에서 무조건 제외). 호출자가 lock 보유. */
-    private fun codesWithHoldingDemandLocked(): Set<String> =
+    /**
+     * HOLDING 또는 PENDING_BUY owner demand가 있는 code 집합 (ADR 0114 §4-3 LOCK — evict 후보에서 무조건 제외).
+     * 호출자가 lock 보유. 감사 §2-③ priority eviction 도입에 맞춰 PENDING_BUY(체결 통보 수신 보장)도 명시 보호.
+     */
+    private fun codesWithProtectedDemandLocked(): Set<String> =
         demandsByCode
-            .filterValues { owners -> owners.keys.any { it.owner == RealtimeDemandOwner.HOLDING } }
-            .keys
+            .filterValues { owners ->
+                owners.keys.any { it.owner == RealtimeDemandOwner.HOLDING || it.owner == RealtimeDemandOwner.PENDING_BUY }
+            }.keys
 
     private fun RealtimeDemandOwner.defaultTtlMs(): Long =
         when (this) {

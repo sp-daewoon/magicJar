@@ -1,6 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.market
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
 import kr.spdaewoon.magicjar.consumer.aggregation.BoundaryAggregator
 import kr.spdaewoon.magicjar.consumer.ingestion.ActiveStrategyCodeProvider
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
@@ -58,8 +61,21 @@ class TickToMinuteAggregator(
     private val boundaryAggregator: BoundaryAggregator,
     private val transactionTemplate: TransactionTemplate,
     private val clock: Clock = Clock.systemUTC(),
+    /**
+     * Micrometer 관측 registry (2026-07-03 감사 §2′-⑤ — OHLC sanity reject 카운터).
+     * nullable + default null — 기존 단위 테스트(직접 생성자 호출) 무수정 보존 + fixture 안전 (rate limiter 동일 패턴).
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) {
     private val log = LoggerFactory.getLogger(TickToMinuteAggregator::class.java)
+
+    companion object {
+        /**
+         * 1m closing OHLC sanity reject 카운터 (2026-07-03 감사 §2′-⑤).
+         * Prometheus: magicjar_market_candle_ohlc_rejected_total.
+         */
+        const val METRIC_OHLC_REJECTED = "magicjar.market.candle.ohlc.rejected"
+    }
 
     /**
      * 매 분 0초 실행 — 1분봉 closing → DB UPSERT + Kafka publish.
@@ -144,6 +160,30 @@ class TickToMinuteAggregator(
             val volume = hash["volume"]?.toLongOrNull() ?: 0L
             val source = hash["source"]?.ifBlank { null } ?: "KIS"
 
+            // OHLC sanity 가드 (2026-07-03 감사 §2′-⑤) — 오염 bar DB 영속 차단.
+            // low>0 ∧ high≥low ∧ open,close∈[low,high] 위반 bar(0원 글리치 등)는 upsert 하지 않는다
+            // (합산봉 3m~12h·지표 FVG/오더블록/저가 스탑 전파 오염 차단). 해당 분은 갭으로 남고
+            // 1m gap-fill/backfill 경로(KIS REST)가 사후 복구한다. WARN + 카운터 — silent 금지(§11-2).
+            val ohlcValid =
+                lowRaw.signum() > 0 &&
+                    highRaw >= lowRaw &&
+                    openRaw in lowRaw..highRaw &&
+                    closeRaw in lowRaw..highRaw
+            if (!ohlcValid) {
+                log.warn(
+                    "1m closing OHLC sanity 위반 — DB upsert reject: code={} ts={} o={} h={} l={} c={} source={}",
+                    code,
+                    barTs,
+                    openRaw.toPlainString(),
+                    highRaw.toPlainString(),
+                    lowRaw.toPlainString(),
+                    closeRaw.toPlainString(),
+                    source,
+                )
+                recordOhlcRejected()
+                return
+            }
+
             // 과거 분이면 그 bar 의 실제 ts 로 발행(보통 closingTs 와 동일).
             val ts = barTs
 
@@ -201,6 +241,19 @@ class TickToMinuteAggregator(
         } catch (e: Exception) {
             log.warn("1m closing 스냅샷 복원 실패(무시): liveKey={} err={}", liveKey, e.message)
         }
+    }
+
+    /** OHLC sanity reject 계수 — registry 부재(fixture)·등록 실패 시 no-op graceful (rate limiter 동일 패턴). */
+    private fun recordOhlcRejected() {
+        val registry = meterRegistry ?: return
+        runCatching {
+            Counter
+                .builder(METRIC_OHLC_REJECTED)
+                .description("1m closing OHLC sanity 위반 reject (2026-07-03 감사 §2′-⑤)")
+                .tags(Tags.of("interval", "1m"))
+                .register(registry)
+                .increment()
+        }.onFailure { e -> log.trace("recordOhlcRejected skip: err={}", e.message) }
     }
 
     /** 스냅샷 해시의 bar 시작 ts 파싱 — startTs 우선, 없으면 ts. */
