@@ -17,7 +17,7 @@
  *   - isFetchingNextPage 시 로딩 표시
  *   - onlyCorrection 필터 토글 시 query 재시작 (queryKey 변경)
  */
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useInViewport } from '../../../hooks/useInViewport'
 import { useSymbolDisclosures } from '../hooks/useSymbolDisclosures'
 import { DisclosureItemRow } from './DisclosureItem'
@@ -26,7 +26,8 @@ interface Props {
   code: string
 }
 
-export function DisclosurePanel({ code }: Props) {
+// React.memo — code(string) 만 prop 이므로 SymbolDetailPage 실시간 tick 재렌더 완전 차단 (audit P2-16).
+export const DisclosurePanel = memo(function DisclosurePanel({ code }: Props) {
   const [onlyCorrection, setOnlyCorrection] = useState(false)
   const { ref, isVisible, hasEntered } = useInViewport<HTMLElement>()
 
@@ -151,4 +152,4 @@ export function DisclosurePanel({ code }: Props) {
       )}
     </section>
   )
-}
+})

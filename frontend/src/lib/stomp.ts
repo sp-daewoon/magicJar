@@ -6,6 +6,7 @@
  * - brokerURL: ws://localhost:8080/ws (dev 환경 — Vite proxy /ws)
  * - reconnectDelay: 5000ms
  * - onConnect 시 subscribe, cleanup 시 unsubscribe
+ * - 재연결 시 connection generation 증가 → useStompTopic 자동 재구독 (audit P1-⑨)
  * - 연결 상태 인디케이터 (onConnect / onStompError / onDisconnect)
  *
  * STOMP topic 매트릭스 (Phase 2 새 명명규칙 — 권위: api/stompDestinations.ts 빌더):
@@ -14,7 +15,50 @@
  *   /topic/stomp.api.market.orderbook.{code}
  */
 import { Client } from '@stomp/stompjs'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
+
+// ──────────────────────────────────────────────
+// 연결 세대(generation) 추적 — 재연결 시 useStompTopic 재구독 (P1-⑨)
+// ──────────────────────────────────────────────
+
+/**
+ * 브로커 CONNECT 성공 누적 카운터.
+ *
+ * Client 생성 시점의 base onConnect(콜백 체인 최하단)에서 증가한다.
+ * useStompReconnect / useStompConnectionState / ensureConnected 는 모두
+ * `previous = client.onConnect` 를 보존 호출하는 chain-wrap 패턴이므로,
+ * 어떤 조합으로 후킹돼도 매 연결(초기 + 재연결)마다 정확히 1회 증가한다.
+ *
+ * useStompTopic 은 이 세대를 useSyncExternalStore 로 구독해 재연결 시
+ * subscribe effect 를 재실행한다 (기존 구독은 끊긴 연결의 것이므로 재구독 필수).
+ */
+let connectionGeneration = 0
+const generationListeners = new Set<() => void>()
+
+function subscribeConnectionGeneration(listener: () => void): () => void {
+  generationListeners.add(listener)
+  return () => {
+    generationListeners.delete(listener)
+  }
+}
+
+function getConnectionGeneration(): number {
+  return connectionGeneration
+}
+
+function bumpConnectionGeneration(): void {
+  connectionGeneration += 1
+  for (const listener of [...generationListeners]) {
+    try {
+      listener()
+    } catch {
+      // listener 실패는 다른 listener·연결 흐름에 영향 없음
+    }
+  }
+}
+
+/** JSON 파싱 실패 누적 카운터 (진단용 — silent drop 방지, P3) */
+let jsonParseFailureCount = 0
 
 // ──────────────────────────────────────────────
 // STOMP 클라이언트 싱글톤
@@ -35,12 +79,20 @@ export function getStompClient(): Client {
     sharedClient = new Client({
       brokerURL: WS_BROKER_URL,
       reconnectDelay: 5000,
-      // 연결 로그 (개발 단계)
-      debug: (msg: string) => {
-        // DEV 환경에서만 STOMP 로그 출력 (Vite import.meta.env 타입 주석 우회)
-        // eslint-disable-next-line no-console
-        console.debug('[STOMP]', msg)
+      // base onConnect — 콜백 체인의 최하단 (모든 후킹 hook 이 previous 로 보존 호출).
+      // 연결 세대를 올려 useStompTopic 재구독을 트리거한다 (P1-⑨).
+      onConnect: () => {
+        bumpConnectionGeneration()
       },
+      // 연결 로그 — DEV 환경에서만 출력 (P3: prod 프레임 로그 무음)
+      debug: import.meta.env.DEV
+        ? (msg: string) => {
+            // eslint-disable-next-line no-console
+            console.debug('[STOMP]', msg)
+          }
+        : () => {
+            // production: STOMP 프레임 로그 무음
+          },
     })
   }
   return sharedClient
@@ -104,7 +156,17 @@ export function useStompTopic<T>(
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
 
+  // 연결 세대 구독 — 재연결(세대 증가) 시 effect 재실행으로 새 연결 위에 재구독 (P1-⑨).
+  // 끊긴 연결의 subscription 은 브로커 측에서 소멸하므로 세대 dep 없이는 재연결 후 수신 0 이 된다.
+  const generation = useSyncExternalStore(
+    subscribeConnectionGeneration,
+    getConnectionGeneration,
+    () => 0,
+  )
+
   useEffect(() => {
+    // generation 값 자체는 사용하지 않는다 — 재연결 시 effect 재실행(재구독) 트리거 dep 명시용 참조.
+    void generation
     if (!enabled || !topic) return
 
     let unsubscribeFn: (() => void) | null = null
@@ -121,7 +183,12 @@ export function useStompTopic<T>(
             const payload = JSON.parse(stompMsg.body) as T
             onMessageRef.current(payload)
           } catch {
-            // JSON 파싱 실패 — 무시 (graceful)
+            // JSON 파싱 실패 — drop 하되 진단 로그 + 누적 카운터 (P3: silent drop 방지)
+            jsonParseFailureCount += 1
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[STOMP] JSON 파싱 실패 (누적 ${jsonParseFailureCount}건) — topic: ${topic}`,
+            )
           }
         })
         unsubscribeFn = () => sub.unsubscribe()
@@ -134,7 +201,7 @@ export function useStompTopic<T>(
       cancelled = true
       unsubscribeFn?.()
     }
-  }, [topic, enabled])
+  }, [topic, enabled, generation])
 }
 
 /**

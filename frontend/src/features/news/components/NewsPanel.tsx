@@ -15,6 +15,7 @@
  *   - hasNextPage=false 시 "더 보기" 버튼 숨김
  *   - isFetchingNextPage 시 로딩 표시
  */
+import { memo } from 'react'
 import { useInViewport } from '../../../hooks/useInViewport'
 import { useSymbolNews } from '../hooks/useSymbolNews'
 import { NewsItemRow } from './NewsItem'
@@ -23,7 +24,8 @@ interface Props {
   code: string
 }
 
-export function NewsPanel({ code }: Props) {
+// React.memo — code(string) 만 prop 이므로 SymbolDetailPage 실시간 tick 재렌더 완전 차단 (audit P2-16).
+export const NewsPanel = memo(function NewsPanel({ code }: Props) {
   const { ref, isVisible, hasEntered } = useInViewport<HTMLElement>()
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useSymbolNews(code, { size: 20 }, { enabled: isVisible })
@@ -122,4 +124,4 @@ export function NewsPanel({ code }: Props) {
       )}
     </section>
   )
-}
+})

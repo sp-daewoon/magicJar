@@ -30,7 +30,7 @@
  * - 가드 3 trigger 시 onMaxCapReached 콜백 → toast 1회 표시 ("표시 봉수 최대 도달 ({max}봉) — 추가 과거 데이터 없음")
  * - interval 변경 시 maxCapReachedLockRef 초기화 (재무장)
  */
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { IChartApi, ISeriesApi, SeriesMarker, UTCTimestamp } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
@@ -162,7 +162,10 @@ interface SymbolChartProps {
   onIntervalChange?: (interval: CandleInterval) => void
 }
 
-export function SymbolChart({
+// React.memo — 부모(SymbolDetailPage) 무관 재렌더(clock·orderbook·주문 입력 등) 차단 (audit P2-16).
+// 실시간 반영은 liveTick·realtimeCandle prop 변경 → LightweightChart 내부 series.update() (ref 기반)로 유지.
+// 호출 측 정합: liveTick 은 useMemo, riskPlanPreview 는 useMemo, onIntervalChange 는 setState 등 stable 참조 필수.
+export const SymbolChart = memo(function SymbolChart({
   code,
   symbolName,
   userId,
@@ -1215,4 +1218,4 @@ export function SymbolChart({
       )}
     </div>
   )
-}
+})
