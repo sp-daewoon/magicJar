@@ -14,6 +14,8 @@
 # 환경:
 #   - docker compose postgres 컨테이너 `magicjar-postgres` running 의무
 #   - 호스트 디스크 여유 공간 ≥ 100MB (baseline ~3MB × 7일 = 21MB)
+#   - (선택) MAGICJAR_BACKUP_SLACK_WEBHOOK 또는 SLACK_WEBHOOK_URL — 실패 시 Slack 알림
+#     (감사 §7 백업 — silent 실패 방지. 미설정이면 조용히 skip, 백업 동작 자체는 불변)
 
 set -Eeuo pipefail
 
@@ -38,8 +40,21 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S KST')] [pg-dump-daily] $*"
 }
 
+# 실패 Slack 알림 (감사 §7 백업) — webhook env 미설정 시 조용히 skip (백업 로직 영향 0).
+# curl 실패도 swallow — 알림 실패가 exit code 를 오염시키지 않음.
+notify_slack_failure() {
+  local reason="$1"
+  local webhook="${MAGICJAR_BACKUP_SLACK_WEBHOOK:-${SLACK_WEBHOOK_URL:-}}"
+  [[ -z "$webhook" ]] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -fsS -m 10 -X POST -H 'Content-Type: application/json' \
+    -d "{\"text\":\":rotating_light: [pg-dump-daily] PostgreSQL 백업 실패 — ${reason} (host: $(hostname), $(date '+%Y-%m-%d %H:%M KST'))\"}" \
+    "$webhook" >/dev/null 2>&1 || true
+}
+
 err() {
   log "ERROR: $*" >&2
+  notify_slack_failure "$*"
 }
 
 if ! command -v docker >/dev/null 2>&1; then

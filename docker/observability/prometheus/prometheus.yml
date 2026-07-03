@@ -6,6 +6,11 @@
 #
 # 두 매트릭스 동시 등록 — docker / bootRun 어느 쪽이든 데이터 수집.
 # 비활성 타깃은 자연스럽게 DOWN 표시 (에러 0).
+#
+# 2026-07-03 시스템 감사 §3-⑧ — alert rule + Alertmanager 배선 추가.
+#   rule 본문: rules/magicjar-alerts.yml (instance down·시그널 부재·WS 단절·outbox lag·S-1 P95)
+#   Alertmanager: docker-compose.observability.yml alertmanager 서비스 (:9093)
+#   Alertmanager 미기동이어도 Prometheus 자체는 정상 동작 (전송 실패 로그만).
 
 global:
   scrape_interval: 15s
@@ -14,6 +19,16 @@ global:
   external_labels:
     cluster: magicjar
     environment: dev
+
+# alert rule 파일 — compose가 ./observability/prometheus/rules → /etc/prometheus/rules mount
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# alert 전송 대상 — Alertmanager (docker-compose.observability.yml alertmanager 서비스)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   # ─────────── magicJar 3 모듈 (docker compose 통합 기동) ───────────

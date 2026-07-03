@@ -11,7 +11,7 @@
 - 사이클 단위 = **"incident + 주간 운영"**
 - 발사 가능한 lever = KillSwitch 토글 / KIS 토큰 비우기 / 컨테이너 재기동 / DB 복구 / 재배포
 
-## 2. 5 시나리오 인덱스
+## 2. 6 시나리오 인덱스
 
 | ID | 제목 | 트리거 | 1차 actor | 상세 |
 |----|------|--------|-----------|------|
@@ -20,6 +20,7 @@
 | **R-3** | [KillSwitch 토글 (수동·자동)](R3-killswitch-toggle.md) | 자본 사고 의심 · POSITION_DRIFT · 사용자 수동 OFF 결정 | 사용자 단독 (수동 OFF) | UI/REST 토글 + 자동 ON A·B·C 가드 evidence |
 | **R-4** | [DB 복구·Backup](R4-db-recovery.md) | postgres 결함 · table drop · Flyway 실패 | backend-core | pg_isready → pg_restore → Flyway info → 자본 path 무결성 검증 |
 | **R-5** | [재배포](R5-redeploy.md) | PR 머지 · hotfix · KIS 키 회전 · observability 갱신 | backend-core + qa | gradle build → build-and-deploy.sh → docker logs → Visual 회귀 |
+| **R-6** | [Kafka DLT 조회·재처리](R6-dlt-replay.md) | DLT P0 Slack 알림 · `magicjar_dlt_received_total` 증가 | backend-core | DLT dump → 원인 분류 → 멱등 검증(auto-\*·SETNX) → 단건 replay → 원장 정합 |
 
 ## 3. when-to-use 매트릭스
 
@@ -36,6 +37,7 @@
 | PR 머지 직후·hotfix 적용·KIS 키 회전·observability stack 갱신 | R-5 |
 | `qa:visual` Playwright snapshot diff > 0 | R-1 (회귀 격리) → 영역별 runbook |
 | Slack alert 채널에 P1/P2 발사 (NotificationDispatcher) | R-1 (분류 → 영역 runbook fan-out) |
+| Slack `:boom: Kafka DLT 수신` P0 · `magicjar_dlt_received_total` 증가 | R-6 |
 
 ## 4. 사용 룰
 
@@ -65,3 +67,4 @@
 | 날짜 | 변경 |
 |------|------|
 | 2026-05-21 | **신규 — P0-OPS-5 backend-core 1차 dispatch** — 5 runbook(R-1~R-5) + 본 인덱스 발행. ADR 0094 §3-7 P0-OPS-5 정합. v3.8.0 운영 baseline 진입 전 의무 산출물. |
+| 2026-07-03 | R-6 (Kafka DLT 조회·재처리) 추가 — 시스템 감사 §6-15 대응. 인덱스·when-to-use 매트릭스 갱신. |

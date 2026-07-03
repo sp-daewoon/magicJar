@@ -60,6 +60,19 @@ ls -lh _workspace/backups/redis/snapshots/
 
 ## 2. cron 등록 — macOS crontab (권장 — 단독 운영자 단순화)
 
+### 2-0. 한 줄 등록 (비대화식 — vi 없이 즉시)
+
+기존 crontab 을 보존하면서 2 라인을 append 하는 한 줄 명령 (2026-07-03 감사 §7 — 등록 마찰 제거):
+
+```bash
+( crontab -l 2>/dev/null; echo '0 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/pg-dump-daily.sh >> _workspace/backups/postgres/cron.log 2>&1'; echo '30 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/redis-snapshot.sh >> _workspace/backups/redis/cron.log 2>&1' ) | crontab - && crontab -l | grep magic_ch1
+```
+
+- 마지막 `crontab -l | grep magic_ch1` 출력으로 2 라인 등록 즉시 확인.
+- **중복 실행 주의** — 이미 등록돼 있으면 라인이 2벌 생긴다. 재실행 전 `crontab -l` 확인 (또는 §2-1 수동 편집).
+- 경로가 다르면 `/Users/ak-song/magic_ch1` 조정 의무 (§2-2 ★ 동일).
+- (선택) 백업 실패 Slack 알림: cron 라인 앞에 `MAGICJAR_BACKUP_SLACK_WEBHOOK=<url>` env prefix 부여 시 pg-dump-daily.sh 가 실패에만 Slack 발송 (미설정이면 조용히 skip).
+
 ### 2-1. crontab -e 진입
 
 ```bash
@@ -246,3 +259,4 @@ rm -rf _workspace/backups/redis/snapshots/*.rdb
 |------|------|
 | 2026-05-21 | 신규 발행 — ADR 0096 §2·§3 정합 + macOS crontab 등록 + 진단 매트릭스 + DR drill 분기 의무 cross-link (architect) |
 | 2026-06-06 | 실태 이력(cron 미등록·백업 0회 → 첫 백업 + 강화) + §3-4 외부 매체 동기화 권고 + new-pc-migration-runbook·pg-restore.sh cross-link 추가 (backend-core) |
+| 2026-07-03 | §2-0 한 줄 crontab 등록 명령 추가 + pg-dump-daily.sh 실패 Slack 알림(env 게이트) 반영 — 시스템 감사 §7 대응 |

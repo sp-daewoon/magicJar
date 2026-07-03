@@ -1,0 +1,45 @@
+# magicJar Alertmanager 설정 (템플릿) — 2026-07-03 시스템 감사 §3-⑧
+#
+# ★ 본 파일은 템플릿이다 — __SLACK_WEBHOOK_URL__ 자리를 컨테이너 기동 시
+#   docker-compose.observability.yml alertmanager 서비스의 entrypoint sh가
+#   env `ALERTMANAGER_SLACK_WEBHOOK` 값으로 치환해 /tmp/alertmanager-rendered.yml 로 사용한다.
+#   (Alertmanager는 config env 치환을 지원하지 않음 — sed 렌더링 방식)
+#   env 미설정 시에는 alertmanager-noslack.yml (blackhole 라우팅)으로 fallback.
+#
+# 라우팅: severity=critical → slack-critical (1h 재알림), 그 외(warning) → slack-warn (4h 재알림).
+# rule 의 severity 라벨 정의: docker/observability/prometheus/rules/magicjar-alerts.yml
+
+route:
+  receiver: slack-warn
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: slack-critical
+      repeat_interval: 1h
+
+receivers:
+  - name: slack-critical
+    slack_configs:
+      - api_url: "__SLACK_WEBHOOK_URL__"
+        send_resolved: true
+        color: "danger"
+        title: ":rotating_light: [CRITICAL] {{ .CommonLabels.alertname }}"
+        text: >-
+          {{ range .Alerts }}*{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+
+  - name: slack-warn
+    slack_configs:
+      - api_url: "__SLACK_WEBHOOK_URL__"
+        send_resolved: true
+        color: "warning"
+        title: ":warning: [WARN] {{ .CommonLabels.alertname }}"
+        text: >-
+          {{ range .Alerts }}*{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}

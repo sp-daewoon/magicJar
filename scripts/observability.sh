@@ -30,6 +30,7 @@ COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.observability.yml"
 
 PROMETHEUS_PORT="${PROMETHEUS_HOST_PORT:-9090}"
 GRAFANA_PORT="${GRAFANA_HOST_PORT:-3001}"
+ALERTMANAGER_PORT="${ALERTMANAGER_HOST_PORT:-9093}"
 
 # ── 로그 함수 (build-and-deploy.sh 스타일) ──────────────────────────
 c_reset=$'\033[0m'; c_blue=$'\033[34m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_red=$'\033[31m'
@@ -60,6 +61,7 @@ print_access() {
       └ 대시보드: magicJar / "magicJar — KIS Rate Limit" (uid magicjar-kis-ratelimit)
                   magicJar / "magicJar — SLO (ADR 0095)"
                   magicJar / "magicJar — JVM Baseline"
+    Alertmanager http://localhost:${ALERTMANAGER_PORT}      (active alert · Slack은 ALERTMANAGER_SLACK_WEBHOOK 설정 시)
 
   ${c_yellow}scrape 전제${c_reset}: api·batch·consumer 가 떠 있어야 metric 이 채워집니다.
     docker 기동:   scripts/build-and-deploy.sh

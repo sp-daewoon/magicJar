@@ -214,6 +214,16 @@ services:
       # KIS 인증 불필요 (`https://new.real.download.dws.co.kr/...` zip 다운로드).
       MAGICJAR_INSTRUMENT_SYNC_AT_BOOT: "true"
     ports: ["${BATCH_HOST_PORT:-8081}:8081"]
+    # 감사 §7 — compose-level healthcheck (api-app 패턴 1:1, 포트만 8081).
+    # build-and-deploy.sh health poll + 향후 depends_on service_healthy 조건에 사용.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:8081/actuator/health 2>/dev/null | grep -q UP || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
   consumer-app:
     build:
@@ -224,6 +234,9 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      # 감사 §7 — consumer는 주문 멱등 가드(Redis SETNX fail-closed)·캔들 캐시가 Redis 의존.
+      # 기동 순서 미보장 시 초기 tick/주문 경로가 fail-closed로 조용히 막힘 → healthy 조건 명시.
+      redis: { condition: service_healthy }
       api-app: { condition: service_healthy }   # api-app의 Flyway 완료 후 시작
     env_file:
       - ../.env
@@ -249,6 +262,15 @@ services:
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports: ["${CONSUMER_HOST_PORT:-8082}:8082"]
+    # 감사 §7 — compose-level healthcheck (api-app 패턴 1:1, 포트만 8082).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:8082/actuator/health 2>/dev/null | grep -q UP || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
   frontend:
     build:
@@ -260,7 +282,8 @@ services:
       api-app: { condition: service_started }
     environment:
       TZ: Asia/Seoul
-    ports: ["3000:80"]
+    # 호스트 포트 충돌 시 .env FRONTEND_HOST_PORT 로 override (기본 3000 — 감사 §7)
+    ports: ["${FRONTEND_HOST_PORT:-3000}:80"]
 
 volumes:
   pg_data:
