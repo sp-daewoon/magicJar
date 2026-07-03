@@ -1,6 +1,6 @@
 # ADR 0073 — T-NEWS 뉴스·공시 실시간 인입 트랙 feasibility 분석
 
-- 상태: **Proposed (analysis only — 사용자 결정 대기)**
+- 상태: **Superseded by 0075** (2026-05-15 — feasibility 분석이 T-NEWS 트랙 진입 spec/plan ADR 0075로 승격, 0075가 현행 권위. 파일 헤더↔README 인덱스 정합: 2026-07-03 감사 정정 — README §15는 이미 Superseded로 등재되어 있었으나 본 헤더만 Proposed로 잔존했음)
 - 작성일: 2026-05-14
 - 결정자: architect (사용자 의제 응답 — "뉴스 스크래핑, 공시 정보 실시간 속보 등 주요 뉴스는 시작해?" 2026-05-14)
 - 관계: ADR 0001 정합(룰 본체 + AI 옵션 비전) · ADR 0010 §5(`news`·`news_sentiment` 테이블 이미 명시) · ADR 0018(Corp Action raw — DART 폴링 baseline) · ADR 0026(AI 옵션 — 뉴스 컨텍스트 prompt 조립) · ADR 0046·0069(SettingsModal NaverApiSection §F 후보) · ADR 0057(KIS-only — 시세 단일 출처. 뉴스는 외부 보조 OK 별도 의제)

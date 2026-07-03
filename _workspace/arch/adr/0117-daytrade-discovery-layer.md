@@ -1,6 +1,6 @@
 # ADR 0117 — 단타 발굴(Discovery) 레이어 + 체결강도 KIS raw 흡수
 
-- 상태: Proposed (사용자 "발굴 레이어 구축" 결재 — architect spec/plan 발행. 코드 반영 시 Accepted 전환)
+- 상태: **Accepted (2026-07-03 감사 후 일괄 승격)** — 구현 머지 완료 evidence: 발굴 REST(`/api/screener/daytrade-discover`)·`discovery_scorecard` 08:30 snapshot·빌트인 프리셋이 라이브 운용 중이며 후속 Accepted ADR 0122(발굴→MOCK 페이퍼)·0131(universe 재생성)·0134(발굴→전략 universe)가 본 ADR 위에 발행됨. (구 상태: Proposed 2026-06-09 — "코드 반영 시 Accepted 전환" 조건 충족)
 - 작성일: 2026-06-09 (2026-06-09 최고 관리자 결정 2건 정정 — ① 구현 순서 R2 우선 ② 빌트인 프리셋 권위 V75 Flyway 시드)
 - 결정자: architect (orchestrator dispatch · 사용자 "돈 버는 것으로 피벗" 후속)
 - 관계: ADR 0048 정합(KIS WS owner 분리 — STRATEGY owner 재사용, watchlist 비삽입) · ADR 0056 정합(Backtest 엔진 — IS/OOS·민감도 add-only, 코어 산식 무변경) · ADR 0071 정합·책임분리(사용자 DSL 스크리너 vs 본 ADR 시스템 빌트인 룰 발굴) · ADR 0112 무관(AI 종목발굴 LLM — 본 ADR은 룰 기반·LLM 0) · ADR 0047 정합(DSL sandbox — `trade_intensity` add-only 화이트리스트)

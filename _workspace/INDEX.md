@@ -28,7 +28,7 @@
 
 → **`_workspace/arch/adr/`** ([인덱스](arch/adr/README.md))
 
-120건 (파일 0001~0124, 0058·0059·0060·0065 의도적 갭), append-only. 각 결정 이유·대안·트레이드오프. Accepted ~95 / Proposed ~17 / Superseded·폐기 4(역사 보존 §15). README §0 빠른 lookup(최근 10건 + 주제별 jump)이 첫 진입점.
+총 건수·상태 집계는 [adr/README.md](arch/adr/README.md) 도입부가 단일 권위(본 문서에 수치 복제 금지 — stale drift 방지, 2026-07-03 감사 정정). 파일 0001~0139(0058·0059·0060·0065 의도적 갭), append-only. 각 결정 이유·대안·트레이드오프. README §0 빠른 lookup(최근 건 + 주제별 jump)이 첫 진입점.
 
 ### "지금 진행 중인 의제" (TODO)
 
@@ -38,7 +38,7 @@
 
 ### "그때 시스템이 어떻게 생겼었나?" (시점별 snapshot)
 
-→ **`_workspace/baseline/<version>/`** ([최신 v3.11.0](baseline/v3.11.0/README.md))
+→ **`_workspace/baseline/<version>/`** ([최신 v3.14.0](baseline/v3.14.0/README.md) — 최신 버전은 `_workspace/baseline/` 폴더 실측이 권위)
 
 immutable. 변경 X. 새 버전 = 새 폴더. `/baseline init <version>` slash command.
 
@@ -84,6 +84,7 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 기타 운영 문서:
 
 - **초기 셋업**: [docs/operations/initial-setup.md](../docs/operations/initial-setup.md)
+- **시스템 감사 보고서**: [_workspace/audit/](audit/) — 2026-07-03 전 영역 감사(P0 1·P1 12·P2 16·P3 12) + 조치 추적 [policies/audit-remediation-tracker.md](../docs/architecture/policies/audit-remediation-tracker.md)
 
 ### 카탈로그 (전략·AI)
 - **전략·지표·패턴**: [_workspace/strategy/](strategy/)

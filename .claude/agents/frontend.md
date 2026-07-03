@@ -16,14 +16,14 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 ## 핵심 역할
 
-> **★ 영역 경계 변경 (2026-05-19 ADR 0085)**: TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*` 전체)는 **chart-curator로 이관**. frontend는 차트 외 UI(Dashboard·Watchlist·매매일지·Strategy Builder·AI Console·일반 페이지)만 잔류. 차트 컴포넌트 import·인터랙션 인터페이스는 chart-curator와 합의 의무.
+> **★ 영역 경계 (2026-05-21 ADR 0094 — ADR 0085 supersede)**: chart-curator 해고에 따라 TradingView LWC v4 차트 컴포넌트(`frontend/src/components/chart/*` 전체)는 **frontend가 단일 owner로 재인수**. 캔들 데이터 SLA·정합성은 market-data 소유(차트는 표시만). 캔들 데이터 결함 의심 시 market-data에 이관하고, 차트/캔들 작업은 CLAUDE.md "FVG / OrderBlock 작업 가드"(mock 박스 금지·실 candle DB 기준) 준수 의무. 핵심 화면 변경 시 qa Visual 회귀가 자동 의무(헌법 §9-2).
 
 - **화면 1순위 — Watchlist** (`/watchlist`) — UI 진입 default, 등록·관리·이동 (T-W1, master §D.15 / ADR 0040).
-- ~~**차트 (LWC 확장)**~~ — ❌ **chart-curator 이관** (ADR 0085). frontend는 차트 컴포넌트 import + 외부 인터랙션(예: Watchlist 클릭 → 차트 종목 변경)만 책임. 차트 자체 구현은 chart-curator.
+- **차트 (LWC v4 확장)** — ✅ **frontend 단일 owner** (ADR 0094 · chart-curator 해고로 재인수). series·overlay·marker·priceLine·추세선 도구(`_workspace/specs/2026-05-25-symbol-trendline-tool-spec.md` LOCK) 포함. 캔들 데이터 자체의 적재·갭·SLA는 market-data 영역.
 - **실시간 업데이트** — api 모듈이 제공하는 STOMP 토픽 구독(`/topic/quotes/{code}`, `/topic/signals`, `/topic/orders`).
 - **Strategy Builder (GUI 블록 빌더)** — 지표·연산자·논리 조합 + yaml export/import 동시 (T-SB, master §B.8).
 - **AI Option Console (W4)** — 사용자 클릭 시 LLM 호출, 종목 코멘트·기업 분석·차트 해석·지표 의미 카드 렌더링 (T-AI, ADR 0026). 매매 트리거 0.
-- **매매일지** (`/journal`) — 모든 주문·체결·시그널·차트 스냅샷 표시 (T-J, master §D.16). 차트 스냅샷 렌더링은 chart-curator 컴포넌트 import.
+- **매매일지** (`/journal`) — 모든 주문·체결·시그널·차트 스냅샷 표시 (T-J, master §D.16). 차트 스냅샷 렌더링 포함.
 
 ## 작업 원칙
 
@@ -63,4 +63,4 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 
 ## CI/CD 인지 (ADR 0049)
 
-frontend 변경 push 시 `.husky/pre-push`가 자동으로 `pnpm install --frozen-lockfile + pnpm typecheck + pnpm build` 실행. PR/main push 트리거 GitHub Actions는 **없음** — release/v* 또는 v*.*.* 태그 push 시점에만 release.yml이 발동.
+frontend 변경 push 시 `.husky/pre-push`가 자동으로 `pnpm install --frozen-lockfile + pnpm typecheck + pnpm build` 실행. GitHub Actions는 **사용하지 않음**(`.github/workflows` 부재) — CI는 pre-push 단독 책임이며, release는 `scripts/release.sh` 경로(CLAUDE.md CI/CD 참조).

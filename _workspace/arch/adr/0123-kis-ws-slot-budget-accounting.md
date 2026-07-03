@@ -1,6 +1,6 @@
 # ADR 0123 — KIS WS 구독 슬롯 회계 + owner 우선순위 eviction + 채널 다이어트
 
-- 상태: **Proposed (2026-06-11, 최고 관리자 결재 — 구현 후속 디스패치)**
+- 상태: **Accepted (2026-07-03 감사 후 일괄 승격)** — 구현 머지 완료 evidence: `WsSlotBudgetLedger` 단일 회계기·OPSP0008 graceful path·H0UNCNT0 채널 다이어트(R3)가 라이브 운용 중이며 Accepted ADR 0124가 본 ADR amend로 발행·운용됨. (구 상태: Proposed 2026-06-11. 잔여분: owner priority 기반 eviction 선점 조항은 미구현 상태였음 — ADR 0138로 완성)
 - 작성자: architect (opus 4.8, 1M)
 - 관계: **ADR 0048 amend** (41건 → 40건 정정 + slot 산식 owner 모델 재정의 + OPSP0008 graceful path 신설), ADR 0063(NXT 통합 cover — WS H0UNCNT0 확장), ADR 0091(market-level UN 빈 응답 risk 인용), ADR 0114(HOLDING evict 금지 LOCK 계승), ADR 0095(alert routing), 헌법 §9-1(SLO)·§11-2(silent fallback 금지)
 - spec: `_workspace/specs/2026-06-11-kis-ws-slot-budget.md` (본 ADR의 구현 분해 — R1/R2/R3/R4)

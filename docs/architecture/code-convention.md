@@ -12,9 +12,10 @@ magicJar는 룰 기반 quant trading 시스템 + AI 옵션 분석 보조 + 미�
 ```text
 .
 ├─ domain/     Kotlin java-library, pure domain and ports only, no Spring
-├─ api/        Spring Boot, REST, @Scheduled, STOMP, 외부 어댑터 (KIS·Yahoo·DART·Naver)
+├─ api/        Spring Boot, REST, @Scheduled, STOMP, 외부 어댑터 (KIS·DART·Naver — Yahoo 폐기 ADR 0057)
 ├─ batch/      Spring Boot, Spring Batch (KIS REST·종목 마스터·백테스트·corp action)
 ├─ consumer/   Spring Boot, Spring Kafka, KIS WS bridge, signal engine, order, journal, AI 분석 보조
+├─ (라이브러리 5) pattern-engine/ · indicator-impl/ · strategy-engine/ · persistence-shared/ · market-trend-engine/ — Boot main 0, api·consumer 공유 (목록 권위: settings.gradle.kts)
 ├─ frontend/   React 19, TypeScript, Vite, shadcn/ui, TanStack Query, Zustand, Lightweight Charts v4
 ├─ docker/     multi-stage, non-root images, compose modes: full, infra, dev override
 └─ scripts/    smoke.sh, task.mjs, render-status.mjs, build-and-deploy.sh
@@ -316,14 +317,13 @@ class StubKisRestAdapter(
 Package-by-feature 선호.
 
 ```text
-consumer/src/main/kotlin/com/mj/consumer/
+consumer/src/main/kotlin/kr/spdaewoon/magicjar/consumer/
 ├─ application/        # use case service
-├─ infrastructure/
-│  ├─ kis/             # KIS adapter
-│  ├─ persistence/     # JPA adapter
-│  └─ messaging/       # Kafka adapter
+├─ ingestion/ · aggregation/ · order/ · market/ …  # feature 패키지
+├─ persistence/        # JPA adapter
+├─ kafka/              # Kafka adapter
 ├─ config/
-└─ MagicJarConsumerApplication.kt
+└─ (Boot main)
 ```
 
 `service`·`manager`·`util` generic 패키지 회피. `util`은 framework-free helper만.

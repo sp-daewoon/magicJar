@@ -34,6 +34,7 @@ magicJar는 **메타 룰**을 두 층위로 분리한다:
 | **자동매매** | BUY 전 손절/익절 RiskPlan 필수화 | [autotrading-risk-plan.md](autotrading-risk-plan.md) | 중간 |
 | **자동매매** | autopilot 거래 생애주기 + 3층 책임(L1 lot 소유권/L2 TradePlan/L3 안전망)·교차 청산 금지 | [autopilot-trade-lifecycle.md](autopilot-trade-lifecycle.md) | 중간 |
 | **자동매매 QA** | Scenario Replay Sandbox 분리 규약 | [scenario-replay-sandbox.md](scenario-replay-sandbox.md) | 높음 |
+| **운영** | 2026-07-03 시스템 감사 조치 추적 (40여 항목별 상태) | [audit-remediation-tracker.md](audit-remediation-tracker.md) | 높음 (조치 머지마다 갱신) |
 
 이후 추가 영역:
 
