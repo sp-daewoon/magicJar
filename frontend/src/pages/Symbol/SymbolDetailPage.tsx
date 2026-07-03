@@ -252,17 +252,95 @@ export function SymbolDetailPage() {
       // Content-Type: application/json blob 전달 — 일부 서버가 text/plain을 reject하는 경우 대비
       const unsubUrl = `/api/symbols/${encodeURIComponent(code)}/realtime/unsubscribe`
       const beaconData = new Blob([JSON.stringify({ code })], { type: 'application/json' })
+      let beaconQueued = false
       try {
-        navigator.sendBeacon(unsubUrl, beaconData)
+        beaconQueued = navigator.sendBeacon(unsubUrl, beaconData)
       } catch {
-        // sendBeacon 미지원 환경 — REST fallback
+        // sendBeacon 미지원 환경 — 아래 REST fallback으로 진행
+        beaconQueued = false
+      }
+      if (!beaconQueued) {
+        // sendBeacon 미지원 또는 큐 거부(false 반환 — 큐 용량 초과 등)도 REST fallback (audit P3)
         symbolApi.unsubscribeRealtime(code).catch(() => {
-          // cleanup 실패 — backend 5분 idle timeout으로 자동 회수
+          // cleanup 실패 — backend idle 안전망이 자동 회수.
+          // 코드 기준 실제값: 체결가 DETAIL TTL 5분 (consumer RealtimeSubscriptionRouter.detailTtlMs),
+          // 호가 DETAIL idle 15분 (consumer OrderbookSubscriptionRouter.DETAIL_IDLE_TIMEOUT_MS).
+          // TODO(audit §7): 정책 문서는 15분 idle 안전망 단일 기술 — 체결가 5분 TTL 과 정합(ADR/policy) 필요.
         })
       }
       subscribeCalledRef.current = false
     }
   }, [code, isDelisted])
+
+  // ──────────────────────────────────────────────
+  // React.memo 자식 정합 — 전달 객체/콜백 참조 안정화 (audit P2-16)
+  // inline 재생성 객체는 memo 를 무효화하므로 여기서 useMemo/useCallback 으로 고정한다.
+  // ──────────────────────────────────────────────
+
+  // SymbolChart liveTick — realtimeTick 변경 시에만 재생성 (tick 반영은 유지, 무관 재렌더만 차단)
+  const liveTick = useMemo(
+    () =>
+      realtimeTick
+        ? {
+            price: realtimeTick.price,
+            priceChange: realtimeTick.priceChange,
+            changeRate: realtimeTick.changeRate,
+            changeSign: realtimeTick.changeSign,
+            ts: realtimeTick.ts,
+          }
+        : null,
+    [realtimeTick],
+  )
+
+  // AiExplainEntry(SYMBOL) context — symbol 준비 전(로딩·에러 early return 구간)에는 null
+  const symbolAiContext = useMemo(() => {
+    if (!symbol) return null
+    return {
+      code,
+      name: instrument?.name ?? symbol.code,
+      currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
+      market: instrument?.market ?? 'UNKNOWN',
+      sector: instrument?.sector ?? null,
+      industryMedium: instrument?.industryMedium ?? null,
+      indicators: {
+        previousClose: symbol.previousClose ?? null,
+        change: realtimeTick?.priceChange ?? symbol.change ?? null,
+        changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
+        volume: symbol.volume ?? null,
+        marketCap: symbol.marketCap ?? null,
+        per: symbol.per ?? null,
+        pbr: symbol.pbr ?? null,
+      },
+      patterns: daytradeSignal
+        ? [daytradeSignal.summary, ...daytradeSignal.reasonComments.slice(0, 2)]
+        : [],
+      news: [],
+    }
+  }, [code, instrument, symbol, realtimeTick, daytradeSignal])
+
+  // AiExplainEntry(SIGNAL — 단타 발굴 신호) context
+  const daytradeSignalAiContext = useMemo(
+    () => (daytradeSignal ? buildDaytradeSignalAiContext(daytradeSignal) : null),
+    [daytradeSignal],
+  )
+
+  // AiExplainEntry(CHART) context
+  const chartAiContext = useMemo(() => {
+    if (!symbol) return null
+    return {
+      code,
+      name: instrument?.name ?? symbol.code,
+      timeframe: chartInterval,
+      currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
+      changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
+      source: symbol.source,
+    }
+  }, [code, instrument, symbol, chartInterval, realtimeTick])
+
+  // SymbolOrderbook onSelectPrice — inline arrow 재생성 방지
+  const handleSelectOrderPrice = useCallback((price: string) => {
+    setSelectedOrderPrice(price)
+  }, [])
 
   // ──────────────────────────────────────────────
   // HTTP 에러 분류
@@ -335,38 +413,13 @@ export function SymbolDetailPage() {
         <SymbolHeader symbol={symbol} />
 
         {/* ── W4 R2 AI 진입점: SYMBOL (AI 종목 분석) ── */}
-        <div>
-          <AiExplainEntry
-            type="SYMBOL"
-            userId={userId}
-            context={{
-              code,
-              name: instrument?.name ?? symbol.code,
-              currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
-              market: instrument?.market ?? 'UNKNOWN',
-              sector: instrument?.sector ?? null,
-              industryMedium: instrument?.industryMedium ?? null,
-              indicators: {
-                previousClose: symbol.previousClose ?? null,
-                change: realtimeTick?.priceChange ?? symbol.change ?? null,
-                changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
-                volume: symbol.volume ?? null,
-                marketCap: symbol.marketCap ?? null,
-                per: symbol.per ?? null,
-                pbr: symbol.pbr ?? null,
-              },
-              patterns: daytradeSignal
-                ? [
-                    daytradeSignal.summary,
-                    ...daytradeSignal.reasonComments.slice(0, 2),
-                  ]
-                : [],
-              news: [],
-            }}
-          />
-        </div>
+        {symbolAiContext && (
+          <div>
+            <AiExplainEntry type="SYMBOL" userId={userId} context={symbolAiContext} />
+          </div>
+        )}
 
-        {daytradeSignal && (
+        {daytradeSignal && daytradeSignalAiContext && (
           <div className="rounded-lg border border-purple-900/50 bg-gray-900/50 p-3">
             <div className="mb-2">
               <p className="text-xs font-semibold text-purple-200">단타 발굴 신호</p>
@@ -377,7 +430,7 @@ export function SymbolDetailPage() {
             <AiExplainEntry
               type="SIGNAL"
               userId={userId}
-              context={buildDaytradeSignalAiContext(daytradeSignal)}
+              context={daytradeSignalAiContext}
               disabledMessage="KIS 계좌 설정 후 단타 신호 AI 해석을 사용할 수 있습니다."
             />
           </div>
@@ -406,20 +459,11 @@ export function SymbolDetailPage() {
         {/* ── 차트: 종목상세의 주 작업면이므로 전폭 사용 ── */}
         <div className="space-y-3">
           {/* W4 R2 AI 진입점: CHART (차트 해석) */}
-          <div>
-            <AiExplainEntry
-              type="CHART"
-              userId={userId}
-              context={{
-                code,
-                name: instrument?.name ?? symbol.code,
-                timeframe: chartInterval,
-                currentPrice: realtimeTick?.price ?? symbol.currentPrice ?? null,
-                changeRate: realtimeTick?.changeRate ?? symbol.changeRate ?? null,
-                source: symbol.source,
-              }}
-            />
-          </div>
+          {chartAiContext && (
+            <div>
+              <AiExplainEntry type="CHART" userId={userId} context={chartAiContext} />
+            </div>
+          )}
           {/* 캔들 수집 건강도 1줄 (readiness P1) — stale 시 사유, 정상 시 작은 점 */}
           <CandleHealthBadge
             data={candleHealth}
@@ -433,17 +477,7 @@ export function SymbolDetailPage() {
             realtimeCandle={realtimeCandle}
             riskPlanPreview={riskPlanPreview}
             onIntervalChange={setChartInterval}
-            liveTick={
-              realtimeTick
-                ? {
-                    price: realtimeTick.price,
-                    priceChange: realtimeTick.priceChange,
-                    changeRate: realtimeTick.changeRate,
-                    changeSign: realtimeTick.changeSign,
-                    ts: realtimeTick.ts,
-                  }
-                : null
-            }
+            liveTick={liveTick}
           />
         </div>
 
@@ -455,7 +489,7 @@ export function SymbolDetailPage() {
             orderbookSlot={orderbookSlot}
             isStompConnected={stompConnected}
             selectedPrice={selectedOrderPrice}
-            onSelectPrice={(price) => setSelectedOrderPrice(price)}
+            onSelectPrice={handleSelectOrderPrice}
           />
           <SymbolOrderTicket
             code={code}

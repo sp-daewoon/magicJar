@@ -11,7 +11,7 @@
  *   - SignalCard: <AiExplainEntry type="SIGNAL" context={{signalId, code, side, ...}} />
  *   - MarketTrendPage: <AiExplainEntry type="MARKET" context={{kospiTrend, sectorTopList, maPeriods, rsPeriod}} />
  */
-import { useCallback } from 'react'
+import { memo, useCallback } from 'react'
 import type { AiCommentType } from '../../../api/ai'
 import { useAiExplain } from '../../../api/hooks/useAiExplain'
 import { AiCard } from './AiCard'
@@ -19,14 +19,16 @@ import { AiCard } from './AiCard'
 interface Props {
   type: AiCommentType
   userId: number | null | undefined
-  /** prompt 변수 치환 context — type 별 backend variables_schema 정합. */
+  /** prompt 변수 치환 context — type 별 backend variables_schema 정합. 호출 측에서 referential stable(useMemo) 전달 권장. */
   context: Record<string, unknown>
   /** 비활성 조건 (예: 데이터 부족 시). */
   disabled?: boolean
   disabledMessage?: string
 }
 
-export function AiExplainEntry({ type, userId, context, disabled, disabledMessage }: Props) {
+// React.memo — SymbolDetailPage 등 실시간 tick 부모의 무관 재렌더 차단 (audit P2-16).
+// context 가 매 렌더 재생성되면 memo 무효 — 호출 측 useMemo 정합 필수.
+export const AiExplainEntry = memo(function AiExplainEntry({ type, userId, context, disabled, disabledMessage }: Props) {
   const { state, trigger, reset } = useAiExplain({ type, userId })
 
   const handleTrigger = useCallback(() => {
@@ -45,4 +47,4 @@ export function AiExplainEntry({ type, userId, context, disabled, disabledMessag
       }
     />
   )
-}
+})

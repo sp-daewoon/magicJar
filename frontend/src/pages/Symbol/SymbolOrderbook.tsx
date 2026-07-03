@@ -12,6 +12,7 @@
  *   - 장외 시간: "장 마감 (호가는 거래시간에만 제공)"
  *   - 장 중 null: "호가 데이터 대기 중..." (기존 유지)
  */
+import { memo } from 'react'
 import type { OrderbookPayload, OrderbookLevel } from '../../api/symbol'
 import { isKoreanMarketOpen } from '../../lib/marketHours'
 
@@ -97,7 +98,10 @@ function OrderbookRow({ level, side, maxQty, selectedPrice, onSelectPrice }: Ord
   )
 }
 
-export function SymbolOrderbook({
+// React.memo — 부모(SymbolDetailPage)의 tick·clock 재렌더 차단, orderbook payload 변경 시에만 재렌더 (audit P2-16).
+// 주의: orderbook=null 분기의 isKoreanMarketOpen() 은 시간 의존이나, 장 경계에서 orderbook/연결 상태
+// prop 변화가 곧 도착하므로 메시지 staleness 는 일시적·표시 전용 (동작 영향 0).
+export const SymbolOrderbook = memo(function SymbolOrderbook({
   code,
   orderbook,
   orderbookSlot,
@@ -205,4 +209,4 @@ export function SymbolOrderbook({
       </div>
     </div>
   )
-}
+})
