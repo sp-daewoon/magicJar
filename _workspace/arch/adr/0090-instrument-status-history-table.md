@@ -1,6 +1,6 @@
 # ADR 0090: `instrument_status_history` 테이블 신설 — chart-curator §12 4축 active gap detection 정밀도 향상
 
-- 상태: **Proposed (2026-05-19, Phase 1 market-data + Phase 2 chart-curator 합작 PR 후 Accepted 격상 예정)**
+- 상태: **Proposed (2026-05-19)** — **Amend 2026-07-03 (감사 P1-⑫)**: 격상 조건의 Phase 2 owner가 chart-curator(2026-05-21 ADR 0094로 해고)여서 **실행 불가 조건**이었음 → owner를 **frontend(차트 lens) + qa(Visual 검증)**로 재지정. Phase 1 market-data + Phase 2 frontend·qa 합작 PR 후 Accepted 격상 예정.
 - 작성일: 2026-05-19
 - 결정자: architect (사용자 위임 — chart-curator PR #554 P2-1·P2-2 evidence 정합)
 - 영역: 시장 데이터·외부 API + 캔들 정합성 (§5 + §B)

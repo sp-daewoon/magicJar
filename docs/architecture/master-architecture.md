@@ -276,7 +276,7 @@ magicJar는 **server**. AI 클라이언트가 magicJar의 사용자.
 ### 5-1. domain 모듈 (순수 — Spring·JPA·Kafka 의존 0)
 
 ```
-domain/src/main/kotlin/com/mj/domain/
+domain/src/main/kotlin/kr/spdaewoon/magicjar/
 ├── common/             ← RejectReason · zoneKst · Result sealed class
 ├── instrument/         ← Instrument · InstrumentMarket · CorpAction (T-IM1·T-CA1)
 │   └── port/InstrumentRepository · CorpActionRepository · InstrumentSearchIndex
@@ -377,9 +377,16 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 
 빌드: `kotlin("jvm") + kotlin("plugin.spring") + spring-context + jackson-dataformat-yaml`. **Spring Boot main·bootJar 0** (라이브러리 jar). 컨테이너 0.
 
+### 5-1D. persistence-shared · market-trend-engine 라이브러리 모듈 (2026-07-03 감사 정정 — §5 목록 실측 보강)
+
+- **persistence-shared** — ADR 0088 정합, 2026-05-19 신설. Outbox Repository + JPA 어댑터를 api·consumer가 공유하는 라이브러리 jar (api·consumer 모듈 상호 의존 회피). Boot main·bootJar 0.
+- **market-trend-engine** — ADR 0100 정합 (T-MARKET 트랙, ADR 0004 amend). pure math 시장 추세 라이브러리 jar — indicator-impl 패턴 1:1 (Boot main 0, domain port + Spring Context 의존만).
+
+이로써 JVM 모듈은 **총 9개** = 앱 3(api·batch·consumer) + 순수 domain 1 + 라이브러리 5(pattern-engine·indicator-impl·strategy-engine·persistence-shared·market-trend-engine). **모듈 수·목록의 단일 권위는 `settings.gradle.kts`** (2026-07-03 감사 — 문서 4곳 4개 숫자 불일치 정정).
+
 ### 5-2. 응용 레이어 분배 (api·batch·consumer·frontend)
 
-(아래 표는 응용 모듈 4개 분배 — pattern-engine·indicator-impl·strategy-engine 라이브러리는 §5-1A·§5-1B·§5-1C 별도)
+(아래 표는 응용 모듈 분배 — 라이브러리 모듈 5종은 §5-1A~§5-1D 별도)
 
 | 영역 | api | batch | consumer | frontend |
 |---|---|---|---|---|
@@ -410,13 +417,13 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 
 ### 6-1. 컨테이너 7 + sidecar 1 = 8 (W4 시점)
 
-(JVM 모듈은 8개 — `domain`·`pattern-engine`·`indicator-impl`·`strategy-engine`·`persistence-shared`는 라이브러리 jar로 컨테이너 0. ADR 0054·0083·0088·0092 정합)
+(JVM 모듈은 9개 — `domain`·`pattern-engine`·`indicator-impl`·`strategy-engine`·`persistence-shared`·`market-trend-engine`은 라이브러리 jar로 컨테이너 0. ADR 0054·0083·0088·0092·0100 정합 · 목록 권위 = settings.gradle.kts)
 
 | 컨테이너 | 언어 | 책임 |
 |---|---|---|
 | `api` | Kotlin/JVM | REST·STOMP·Swagger·웹 진입점 + 외부 어댑터 (KIS·DART) — ADR 0057 (2026-05-11): Yahoo Finance 폐기 + 네이버 캔들 fetch 0건 |
 | `batch` | Kotlin/JVM | 스케줄 잡·일/주 작업 |
-| `consumer` | Kotlin/JVM | Kafka consumer·KIS WS·실시간 처리 |
+| `consumer` | Kotlin/JVM | Kafka consumer·KIS WS·실시간 처리 + admin REST(운영성·내부망 한정 — 8082 backfill/rollup 등, 외부 노출 금지) |
 | `frontend` | TS/React | UI·LWC 차트 |
 | `postgres` | (인프라) | 영속 |
 | `redis` | (인프라) | 캐시 |

@@ -1,6 +1,6 @@
 # ADR 0114 — 주문 집행 정책(marketable limit) + 포지션 청산 "항상" 보장
 
-- 상태: **Proposed (2026-06-07)** — 별도 브랜치 전용. Codex 병렬 개발 후 우열 비교 머지 예정이라 머지 전 Accepted 금지(브랜치 머지 시점에 architect가 Accepted 승격).
+- 상태: **Accepted (2026-07-03 감사 후 일괄 승격)** — 구현 머지 완료 evidence: marketable limit 진입(`EntryPricePolicy`)·청산 게이트·HOLDING/PENDING_BUY evict 금지 LOCK이 라이브 운용 중이며 Accepted ADR 0115·0123·0124·0127이 본 ADR을 기반(LOCK 계승·amend)으로 발행됨. (구 상태: Proposed 2026-06-07 — "별도 브랜치·Codex 병렬 비교 머지 후 승격" 조건은 머지 완료로 해소. priority eviction 잔여 구현은 ADR 0138.)
 - 작성자: architect
 - 결정자: 사용자(최고 관리자) — "시장가로만 사고 있지 않나? + 포지션 보유 중 시스템이 긴장 상태인가?" 2질문 + §3 룰·§5 P1~P4 결재 완료
 - 영역: 주문 집행(진입 가격 정책·미체결 취소·손절/익절 가격 유형) + 자동매매 청산 "항상" 보장(readiness·전략 상태·구독·시간대 게이트 분화) — **자본 path (사용자 결재)**

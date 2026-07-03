@@ -1,12 +1,13 @@
 #!/usr/bin/env sh
-# magicJar pre-push — ADR 0009·0010·0015·0049
+# magicJar pre-push — ADR 0031 (브랜칭·push 정책) · ADR 0036 (task 파일 시스템)
+# (구 번호 체계 0009·0010·0015·0049 참조는 2026-07-03 감사 P2-⑨로 현행 체계 치환 — 로직 무변경)
 
 set -e
 
 # 0) 현재 브랜치
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-# 0-1) 변경 파일 진단 (ADR 0049 — frontend 변경 시 pnpm 검증 조건부 실행)
+# 0-1) 변경 파일 진단 (frontend 변경 시 pnpm 검증 조건부 실행 — CI는 pre-push 단독, CLAUDE.md CI/CD)
 #      upstream이 있으면 그 diff, 없으면 origin/main 기준, 그래도 없으면 HEAD~1
 if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
   CHANGED_FILES="$(git diff --name-only '@{u}'..HEAD 2>/dev/null || true)"
@@ -20,7 +21,7 @@ fi
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main)
-      echo "✗ pre-push: main 브랜치 직접 푸시는 금지입니다 (ADR 0009)."
+      echo "✗ pre-push: main 브랜치 직접 푸시는 금지입니다 (ADR 0031)."
       echo "  ↳ agent/*/* 또는 chore|docs|hotfix/* 브랜치에서 PR을 만들어 주세요."
       exit 1
       ;;
@@ -29,9 +30,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       # 이미 존재하는 release/* ref에 대한 update/delete만 차단 = immutable 보존.
       ZERO="0000000000000000000000000000000000000000"
       if [ "$remote_sha" = "$ZERO" ]; then
-        echo "ℹ pre-push: release/* 신규 베이스라인 push 허용 (ADR 0027)."
+        echo "ℹ pre-push: release/* 신규 베이스라인 push 허용 (ADR 0031)."
       else
-        echo "✗ pre-push: release/* 브랜치는 immutable(체크아웃 전용)입니다 (ADR 0027)."
+        echo "✗ pre-push: release/* 브랜치는 immutable(체크아웃 전용)입니다 (ADR 0031)."
         echo "  ↳ 기존 release/* (v0·v1 …) 영구 베이스라인 백업 — update·delete 금지."
         echo "  ↳ 살 붙이기·버그 수정은 main 트렁크에서 진행하세요."
         exit 1
@@ -60,8 +61,8 @@ else
   echo "ℹ pre-push: Gradle wrapper 부재(script 또는 wrapper jar) — JVM 모듈 부트스트랩 후 활성화."
 fi
 
-# 3-1) frontend 변경 시 pnpm typecheck + build (ADR 0049)
-#      GitHub Actions release 트리거 한정 정책에 따라 frontend 검증도 pre-push 단독 책임.
+# 3-1) frontend 변경 시 pnpm typecheck + build
+#      GitHub Actions 미사용(.github/workflows 없음) — frontend 검증도 pre-push 단독 책임 (CLAUDE.md CI/CD).
 FRONTEND_CHANGED="$(printf '%s\n' "$CHANGED_FILES" | grep -E '^frontend/' || true)"
 if [ -n "$FRONTEND_CHANGED" ] && [ -d frontend ] && [ -f frontend/package.json ]; then
   if command -v pnpm >/dev/null 2>&1; then
@@ -72,19 +73,19 @@ if [ -n "$FRONTEND_CHANGED" ] && [ -d frontend ] && [ -f frontend/package.json ]
       pnpm typecheck && \
       pnpm build
     ) || {
-      echo "✗ pre-push: frontend typecheck/build 실패 (ADR 0049)."
+      echo "✗ pre-push: frontend typecheck/build 실패."
       exit 1
     }
   else
-    echo "ℹ pre-push: pnpm 미설치 — frontend 검증 skip (release 컷 시점에 release.yml이 검증)."
+    echo "ℹ pre-push: pnpm 미설치 — frontend 검증 skip (다른 CI 없음 — 수동 pnpm typecheck/build 권장)."
   fi
 fi
 
-# 4) agent/* 브랜치는 task 파일 존재 권고 (ADR 0018)
+# 4) agent/* 브랜치는 task 파일 존재 권고 (ADR 0036)
 case "$BRANCH" in
   agent/*/*)
     if ! ls _workspace/tasks/*.md > /dev/null 2>&1; then
-      echo "⚠ pre-push: 활성 task 파일이 없습니다 (ADR 0018)."
+      echo "⚠ pre-push: 활성 task 파일이 없습니다 (ADR 0036)."
       echo "  ↳ node scripts/task.mjs start --agent <a> --goal \"...\" 으로 등록하세요."
     fi
     ;;

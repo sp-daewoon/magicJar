@@ -217,10 +217,10 @@ flowchart LR
 
 이 결정의 핵심은 실제 KIS WS 구독은 종목당 하나로 공유하되, 수요 이유(owner)를 분리해 해제·eviction·polling demotion 판단을 섞지 않는 것이다. 전략 후보는 watchlist에 자동 삽입하지 않고, `market.realtime.demand.v1`의 `STRATEGY` owner TTL 수요로만 관리한다.
 
-**WS 끊김 시 polling 자동 전환 (ADR 0048 §2-4)**:
+**WS 끊김 시 동작 (2026-07-03 감사 정정 — ADR 0124 amend 이후 현실)**:
 - 10초 heartbeat 무신호 또는 onClose → 지수 백오프 1·2·5·10·30s 재연결 시도
-- 30초 안에 재연결 못하면 모든 종목 5초 polling 활성 (KIS REST `FHKST01010100`)
-- WS 복구 시 polling 즉시 stop + 모든 stream 재구독
+- ~~30초 안에 재연결 못하면 모든 종목 5초 polling 활성~~ — **폐지됨(구 ADR 0048 §2-4)**. `WatchlistPollingWorker`는 2026-06-15 amend로 KIS 호출이 제거된 stub이며 `onPollingFallbackStart/Stop` 훅 등록처 0(감사 §2′-⑦ 실측). WS 장기 단절 시 실재하는 degraded 경로는 **ACTIVE 전략 명시 종목 한정 degraded polling**뿐이고, 전략에 안 걸린 보유 종목·watchlist는 시세 공백이 발생한다 — HOLDING 한정 REST 폴백 편입 여부는 후속 ADR 결정 의제.
+- WS 복구 시 stream 재구독 (재연결 시 호가·VI·시간외 채널 재구독 보장은 감사 P0-1 후속 조치 항목)
 
 ### 6-B. Reconciliation 실전 운용 acceptance matrix (ADR 0105 amend 2026-06-01)
 

@@ -127,13 +127,14 @@ sub-agent가 0 tool uses 종료, 환경 결함, 명세 위반 산출물 발행 �
 
 PR-23·PR-25 통합 빌드 fail → orchestrator 자율 정정. 사용자 명시 없이 hotfix 발행 후 사후 인지. 향후 fail 발생 시 본 룰로 분기 결정 명시화.
 
-## CI/CD 인지 (ADR 0049)
+## CI/CD 인지 (2026-07-03 감사 정정)
 
-GitHub Actions는 **release 트리거 한정**:
-- `v*.*.*` 태그 push → 5 서비스 ghcr.io semver 이미지 + GitHub Release draft
-- `release/v*` 브랜치 push → 신규 베이스라인 컷 자동화 (ADR 0031)
+**GitHub Actions는 사용하지 않는다** (`.github/workflows` 부재 — 구 "release 트리거 한정 GitHub Actions" 서술은 stale이었음). release 절차는 스크립트 경로다 (ADR 0052 순서 LOCK, CLAUDE.md CI/CD 정합):
+1. `/baseline init vX.Y.0` → baseline PR 머지 완료
+2. `git tag vX.Y.Z` + `release/vX.Y.Z` 브랜치 push (ADR 0031 immutable)
+3. `scripts/release.sh vX.Y.Z` — release notes 합성(baseline html 인용) + `gh release create` + `sync-readme-releases.mjs` 자동 갱신
 
-**일상 PR/main push 트리거 GitHub Actions 0건** — `.husky/pre-push`가 `./gradlew check` + (frontend 변경 시) `pnpm typecheck/build` 단독 책임. PR 머지 가드는 사용자(최고 관리자)의 `gh pr merge --rebase` 승인만.
+**일상 PR/main push CI 0건** — `.husky/pre-push`가 `./gradlew check` + (frontend 변경 시) `pnpm typecheck/build` 단독 책임. PR 머지 가드는 사용자(최고 관리자)의 `gh pr merge --rebase` 승인만.
 
 ## CHANGELOG 슬롯 채번룰 (헌법 §4 정합)
 

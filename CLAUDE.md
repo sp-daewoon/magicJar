@@ -22,7 +22,7 @@ Spring Boot 3.3 + Spring AI + 한국투자증권 KIS OpenAPI 기반 **개인 맞
 - 변경 전/후 방향 차이, 데이터 흐름, 자본 흐름, API 계약, 사이트/화면 UX, 운영 스케줄, 검증 범위를 함께 비교한다.
 - 기존 방향을 바꾸는 변경은 작은 버그 수정처럼 처리하지 않는다. 대안·위험·마이그레이션·롤백 가능성을 정리하고 사용자 확인 또는 ADR/spec 갱신을 거친다.
 - 불필요한 대규모 재작성보다 현 구조 위에 보수적으로 보강하는 경로를 우선한다.
-- 실시간 시세 수요를 watchlist 단순 합집합으로 다루지 않는다. **watchlist는 polling 전용이다** — 2026-06-13 ADR 0124 결재로 watchlist의 KIS WS 구독은 폐지되고 시세 공급이 **5초 REST polling 전용**으로 강등됐다. watchlist 기능(등록/삭제/priority/화면)은 유지하되 시세 채널만 WS→polling이며, WS 40 slot은 매매 수요 전용으로 비운다. **KIS WS 체결가 수요는 owner 4종**: `HOLDING`(보유) > `PENDING_BUY`(미체결 매수) > `STRATEGY`(자동매매 평가·진입) > `DETAIL`(종목 상세 화면) — priority HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20)이며 **매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선**한다(slot 경합 시 DETAIL evict·STRATEGY 보호). HOLDING·PENDING_BUY는 evict 절대 금지(ADR 0114 LOCK). **체결가는 H0UNCNT0 단일 채널**(KRX+NXT 통합·종목당 1채널·`NEW_MKOP_CLS_CODE` 세션 구분 — ADR 0124, 기존 H0STCNT0+H0NXCNT0 이중 발사 폐기). 전략 후보를 watchlist에 자동 삽입하지 않는다.
+- 실시간 시세 수요를 watchlist 단순 합집합으로 다루지 않는다. **watchlist는 polling 전용이다** — 2026-06-13 ADR 0124 결재로 watchlist의 KIS WS 구독은 폐지되고 시세 공급이 **5초 REST polling 전용**으로 강등됐다. watchlist 기능(등록/삭제/priority/화면)은 유지하되 시세 채널만 WS→polling이며, WS 40 slot은 매매 수요 전용으로 비운다. **폴백 현실(2026-07-03 감사 정정)**: "WS 30초 단절 → 전 종목 5초 polling" 폴백은 존재하지 않는다 — `WatchlistPollingWorker`는 2026-06-15 amend로 KIS 호출이 제거된 stub(no-op)이고, WS 단절 시 실재하는 degraded 경로는 **ACTIVE 전략 명시 종목 한정 degraded polling**뿐이다. **KIS WS 체결가 수요는 owner 4종**: `HOLDING`(보유) > `PENDING_BUY`(미체결 매수) > `STRATEGY`(자동매매 평가·진입) > `DETAIL`(종목 상세 화면) — priority HOLDING(0)>PENDING_BUY(5)>STRATEGY(10)>DETAIL(20)이며 **매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선**한다(slot 경합 시 DETAIL evict·STRATEGY 보호). HOLDING·PENDING_BUY는 evict 절대 금지(ADR 0114 LOCK). **체결가는 H0UNCNT0 단일 채널**(KRX+NXT 통합·종목당 1채널·`NEW_MKOP_CLS_CODE` 세션 구분 — ADR 0124, 기존 H0STCNT0+H0NXCNT0 이중 발사 폐기). 전략 후보를 watchlist에 자동 삽입하지 않는다.
 - 종목 상세 화면은 watchlist 등록 여부와 무관하게 KIS WS 현재가·진행 중 캔들 close를 요청해야 한다. REST는 bootstrap/backfill/fallback이며 장중 실시간 권위는 KIS WS tick이다. **호가(H0UNASP0 통합 호가)는 ① 전략 ACTIVE 매매 경로(STRATEGY owner, marketable limit 진입가 산정) ② 종목 상세 화면 표시 중(DETAIL owner — 진입 시 구독, 이탈 즉시 해제) 두 경로에서만 구독한다**(2026-06-12 재결정, 2026-06-13 H0UNASP0 전환, anchor `detail-orderbook-live-only`). DETAIL 호가는 보기용 합집합/LRU 잔류로 슬롯을 누적 잠식하지 않고 현재 보는 종목만 점유하며, EXIT 누락(브라우저 강제 종료) 대비 15분 idle 안전망을 둔다. 같은 종목을 두 owner가 요구하면 단일 H0UNASP0 구독을 공유한다.
 
 ### FVG / OrderBlock 작업 가드
@@ -103,18 +103,20 @@ node scripts/task.mjs done --pr <N>         # PR 생성 후
 ## 아키텍처
 
 ```
-JVM 7 모듈 (Kotlin 2.0 K2 / Spring Boot 3.3 / JDK 21 / Gradle KTS) — 2026-05-21 baseline
+JVM 9 모듈 (Kotlin 2.0 K2 / Spring Boot 3.3 / JDK 21 / Gradle KTS) — settings.gradle.kts가 모듈 수 단일 권위
 ├─ domain/              순수 도메인 + port (Spring·JPA 의존 0)
-├─ api/                 REST/STOMP + 외부 어댑터(KIS·Yahoo·DART·Naver) + Kafka producer
+├─ api/                 REST/STOMP + 외부 어댑터(KIS·DART·Naver) + Kafka producer
 ├─ batch/               Spring Batch — 일봉 backfill·전략 백테스트 잡
 ├─ consumer/            Kafka 소비 + KIS WS + 시그널·주문 dispatch + AI 분석
 ├─ persistence-shared/  Outbox Repository + JPA 어댑터 공유 (ADR 0088 · api·consumer 모듈 의존 회피 — 2026-05-19 모듈 분리)
+├─ pattern-engine/      57 캔들 패턴 인식 lib (ADR 0054 · api·consumer 공유)
 ├─ indicator-impl/      Indicator 계산 lib (ADR 0083 · api·consumer 공유)
-└─ strategy-engine/     DSL parser + StrategyEvaluator 공유 (ADR 0092 · api·consumer 공유)
+├─ strategy-engine/     DSL parser + StrategyEvaluator 공유 (ADR 0092 · api·consumer 공유)
+└─ market-trend-engine/ 시장 추세 pure math lib (ADR 0100 · T-MARKET 트랙)
 
 frontend/    React 19 + TS + Vite + Tailwind + LWC v4 (TradingView Lightweight Charts) — pnpm
 docker/      docker compose 통합(인프라 3 + 앱 4 = 7 컨테이너)
-observability/  Prometheus + Grafana SLO dashboard (P0-OPS-1·2·6 — ADR 0095 alert routing)
+docker/observability/  Prometheus + Grafana SLO dashboard (P0-OPS-1·2·6 — ADR 0095 alert routing)
 ```
 
 데이터(A) → 분석·전략(B) → 의사결정·실행(C) → 운영(D) 4영역 19컴포넌트 맵은 `docs/architecture/master-architecture.md` §2.
@@ -142,13 +144,14 @@ observability/  Prometheus + Grafana SLO dashboard (P0-OPS-1·2·6 — ADR 0095 
 | 코드 컨벤션 | `docs/architecture/code-convention.md` |
 | 외부 API 정책(KIS 호출 빈도·토큰) | `docs/architecture/external-api-policy.md` |
 | 캔들 데이터 정책 | `docs/architecture/candle-data-policy-v2.md` |
-| ADR 인덱스 (결정 이력) | `_workspace/arch/adr/README.md` (총 120 ADR · Accepted ~95 + Proposed ~17 + Superseded·폐기 4 · 파일명 = 본문 헤더 번호 · §0 빠른 lookup 첫 진입) |
+| ADR 인덱스 (결정 이력) | `_workspace/arch/adr/README.md` (총 건수·상태 집계는 해당 README 도입부가 단일 권위 — 본 문서에 수치 복제 금지 · 파일명 = 본문 헤더 번호 · §0 빠른 lookup 첫 진입) |
 | 진행 중 의제 (backlog) | `_workspace/backlog.md` (처리 완료 §은 minor release마다 `done/v3.X.x.md`로 archive) |
 | baseline 시점 snapshot | `_workspace/baseline/<version>/` (immutable, `/baseline init <ver>` 명령) |
 | 브랜칭·머지·author 정책 | `_workspace/arch/branching-rules.md` |
 | KIS API 레퍼런스 | `docs/operations/kis-api-reference.md` |
 | 초기 셋업 | `docs/operations/initial-setup.md` |
 | 카탈로그 (KIS 80지표·57패턴·AI 프롬프트) | `_workspace/strategy/`, `_workspace/ai/` |
+| 시스템 감사 보고서 (2026-07-03 전 영역) | `_workspace/audit/2026-07-03-system-audit.md` + 조치 추적 `docs/architecture/policies/audit-remediation-tracker.md` |
 
 **모듈 경계**는 별도 SoT 문서 없음 — `master-architecture.md` §5 + `settings.gradle.kts` + ADR 0004가 권위.
 
@@ -172,7 +175,7 @@ observability/  Prometheus + Grafana SLO dashboard (P0-OPS-1·2·6 — ADR 0095 
 
 ## CI/CD
 
-- PR 검증: `.husky/pre-push`가 `./gradlew check` + frontend `pnpm typecheck/build` 단독 책임. GitHub Actions 폐기(`feedback_no_github_actions.md`).
+- CI는 `.husky/pre-push` 단독 — `./gradlew check` + frontend `pnpm typecheck/build`. GitHub Actions는 사용하지 않음(`.github/workflows` 없음).
 - release 절차 (ADR 0052 §X 정합, 순서 LOCK):
   1. `/baseline init vX.Y.0` — 4 sub-agent 병렬 → 7 md + 8 html 풀세트
   2. baseline 8 PR 머지 완료 후 → `git tag vX.Y.Z` + `release/vX.Y.Z` brunch push (ADR 0031 immutable)
