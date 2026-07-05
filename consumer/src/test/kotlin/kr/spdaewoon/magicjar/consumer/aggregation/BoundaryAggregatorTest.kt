@@ -47,7 +47,15 @@ class BoundaryAggregatorTest {
                 )
             }
 
-        every { candleJpaRepository.findByCodeAndIntervalOrderByTsAsc("005930", "1m") } returns candles
+        // 감사 §2-① 전환 반영 — 풀스캔 findByCodeAndIntervalOrderByTsAsc → boundary 범위쿼리.
+        // DB range 쿼리가 window 내 candle만 반환하는 것을 mock 으로 재현(요청 [start,close] 필터).
+        every {
+            candleJpaRepository.findByCodeAndIntervalAndTsBetweenOrderByTsAsc("005930", "1m", any(), any())
+        } answers {
+            val start = arg<Instant>(2)
+            val end = arg<Instant>(3)
+            candles.filter { !it.ts.isBefore(start) && !it.ts.isAfter(end) }
+        }
         every {
             candleJpaRepository.insertOrUpdateIfGapfill(
                 code = any(),

@@ -52,7 +52,9 @@ class RealtimeSignalGeneratorTest {
     private val evaluator = mockk<JvmStrategyEvaluator>()
     private val dedupeGuard = mockk<SignalDedupeGuard>()
     private val signalKafkaProducer = mockk<SignalKafkaProducer>()
-    private val realtimeFallbackBuyPolicy = mockk<RealtimeFallbackBuyPolicy>()
+
+    // relaxUnitFun: 감사 §6 P2-16 신규 noteFallbackBuyAllowed(Unit 부수효과) graceful stub. allowsBuy(Boolean)는 명시 stub 유지.
+    private val realtimeFallbackBuyPolicy = mockk<RealtimeFallbackBuyPolicy>(relaxUnitFun = true)
     private val marketSessionResolver = SimpleMarketSessionResolver()
     private val businessDayCalendar =
         mockk<BusinessDayCalendar>().also {
