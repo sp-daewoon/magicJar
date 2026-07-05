@@ -253,6 +253,7 @@ export function AppHeader() {
           ))}
 
           <TopNavLink to="/journal" label="매매일지" />
+          <TopNavLink to="/guide" label="가이드" />
 
           {/* WS 접속 상태 indicator — 사용자 결재 2026-05-20 (헤더 영구 표시) */}
           {/* 사용자 dogfooding 2026-05-20: STOMP + KIS WS 2 indicator 분리 — 각각 상태 + 각각 toast */}
