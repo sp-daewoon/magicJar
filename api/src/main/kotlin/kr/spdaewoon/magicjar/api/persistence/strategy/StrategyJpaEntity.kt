@@ -108,6 +108,9 @@ class StrategyJpaEntity(
     val disabledAt: Instant? = null,
     @Column(name = "deleted_at")
     val deletedAt: Instant? = null,
+    // V98 추가 컬럼 — 전략 아카이브(보관함) 전환 시각. null=미보관. status=ARCHIVED 일 때만 의미.
+    @Column(name = "archived_at")
+    val archivedAt: Instant? = null,
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

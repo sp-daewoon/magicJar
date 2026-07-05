@@ -87,6 +87,37 @@ interface StrategyJpaRepository : JpaRepository<StrategyJpaEntity, Long> {
     ): Int
 
     /**
+     * 전략 보관(ARCHIVED) 전환 — V98 전략 아카이브. status='ARCHIVED' + archived_at·updated_at 동기.
+     *
+     * 보유 포지션·미체결 주문 0 가드는 [kr.spdaewoon.magicjar.api.service.strategy.StrategyService.archive] 책임 —
+     * 본 쿼리는 순수 상태 전환만 담당한다. 헌법 §6 (ADR 0051): @Modifying @Query abstract fun(body 0).
+     */
+    @Modifying
+    @Query(
+        "UPDATE StrategyJpaEntity s " +
+            "SET s.status = 'ARCHIVED', s.archivedAt = CURRENT_TIMESTAMP, s.updatedAt = CURRENT_TIMESTAMP " +
+            "WHERE s.id = :id",
+    )
+    fun archive(
+        @Param("id") id: Long,
+    ): Int
+
+    /**
+     * 전략 보관 해제(unarchive) — V98 전략 아카이브. ARCHIVED → PAUSED(보수적 — 즉시 자동매매 재개 금지) + paused_at 동기.
+     *
+     * archived_at 은 지우지 않고 audit 로 유지한다("마지막 보관 시각"). 헌법 §6 (ADR 0051): @Modifying @Query abstract fun(body 0).
+     */
+    @Modifying
+    @Query(
+        "UPDATE StrategyJpaEntity s " +
+            "SET s.status = 'PAUSED', s.pausedAt = CURRENT_TIMESTAMP, s.updatedAt = CURRENT_TIMESTAMP " +
+            "WHERE s.id = :id",
+    )
+    fun unarchive(
+        @Param("id") id: Long,
+    ): Int
+
+    /**
      * 평가 가능한 전략(ACTIVE·BUY_BLOCKED) 중 codes JSONB에 특정 code를 포함하고 intervals JSONB에 특정 interval을 포함하는 목록 조회.
      * 운영 전략은 명시 종목/인터벌 매핑이 있어야 실시간 평가 대상이 된다.
      * native query — PostgreSQL jsonb @> 연산자 사용.
