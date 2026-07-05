@@ -181,8 +181,12 @@ export const strategyApi = {
 // T-SIG Phase 3 — ADR 0066 신규 타입 & API
 // ──────────────────────────────────────────────
 
-/** 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태) */
-export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'DELETED'
+/**
+ * 전략 상태 (ADR 0066 §3-A + BUY_BLOCKED risk 보호 상태 + ARCHIVED 보관함)
+ * ARCHIVED: 사용자가 일상 목록에서 치워둔 보관 상태. 자동매매 평가 대상에서 제외되며
+ * 목록 API는 ARCHIVED를 포함해 반환한다(DELETED만 제외). '보관함' 탭에서만 노출된다.
+ */
+export type StrategyStatus = 'ACTIVE' | 'BUY_BLOCKED' | 'PAUSED' | 'DISABLED' | 'ARCHIVED' | 'DELETED'
 export type StrategyOrigin = 'USER_DSL' | 'PAPER_DISCOVERY'
 export type ViActionPolicy = 'EXIT_MARKET' | 'ALERT_ONLY' | 'HOLD'
 
@@ -272,6 +276,8 @@ export interface SigStrategyDto {
   enabled?: boolean
   disabledReason?: string
   lastDisabledAt?: string | null
+  /** 보관(ARCHIVED) 시각 — 백엔드가 내려줄 때만. 없으면 표시 생략(mock 합성 금지) */
+  archivedAt?: string | null
 }
 
 type SigStrategyBackendDto = Omit<Partial<SigStrategyDto>, 'id' | 'userId'> & {
@@ -427,6 +433,23 @@ export const sigStrategyApi = {
   toggleStatus: async (id: string, status: StrategyStatus): Promise<SigStrategyDto> => {
     const res = await apiClient.put<SigStrategyBackendDto>(`/strategies/${id}/status`, { status })
     return normalizeSigStrategy(res.data)
+  },
+
+  /**
+   * PUT /api/strategy/{id}/archive (병렬 백엔드 LOCK 계약)
+   * 전략 보관 → status=ARCHIVED. 자동매매 평가에서 제외되고 보관함으로 이동한다.
+   * 보유 포지션·미체결 주문이 있으면 409 + 본문에 한국어 사유(토스트로 그대로 노출).
+   */
+  archive: async (id: string): Promise<void> => {
+    await apiClient.put(`/strategy/${id}/archive`)
+  },
+
+  /**
+   * PUT /api/strategy/{id}/unarchive (병렬 백엔드 LOCK 계약)
+   * 보관 해제 → status=PAUSED(중지)로 복귀. 자동매매 시작은 사용자가 다시 눌러야 한다.
+   */
+  unarchive: async (id: string): Promise<void> => {
+    await apiClient.put(`/strategy/${id}/unarchive`)
   },
 
   /**
@@ -588,6 +611,7 @@ function normalizeStatus(raw: SigStrategyBackendDto): StrategyStatus {
     raw.status === 'BUY_BLOCKED' ||
     raw.status === 'PAUSED' ||
     raw.status === 'DISABLED' ||
+    raw.status === 'ARCHIVED' ||
     raw.status === 'DELETED'
   ) {
     return raw.status
@@ -642,6 +666,7 @@ function normalizeSigStrategy(raw: SigStrategyBackendDto): SigStrategyDto {
     enabled: raw.enabled,
     disabledReason: raw.disabledReason,
     lastDisabledAt: raw.lastDisabledAt ?? null,
+    archivedAt: raw.archivedAt ?? null,
   }
 }
 

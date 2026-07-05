@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- frontend-strategy-archive-ui -->
+| 2026-07-05 | **feat(frontend): 전략 보관함 — ARCHIVED 필터 탭 + 보관/꺼내기 액션** — 전략 목록에 보관함(ARCHIVED) 개념 도입. 필터바에 '보관함' 탭 추가(전체 포함 일상 목록은 ARCHIVED를 완전히 제외, 보관함 탭에서만 노출), 카드 빠른 액션에 '보관' 버튼(확인 모달 "자동매매 평가에서 제외되고 보관함으로 이동합니다" → `PUT /api/strategy/{id}/archive`, 409면 백엔드 한국어 사유 토스트) + 보관함 카드 '꺼내기' 버튼(`PUT .../unarchive` → PAUSED 복귀 안내), 회색 계열 ARCHIVED 배지·`archivedAt` 표시(내려올 때만·mock 금지), 상태 요약에 보관함 카운트 칩(클릭 시 탭 점프). API 클라이언트(`sigStrategyApi.archive/unarchive`)+hook(`useArchive/UnarchiveSigStrategy`) 추가. 백엔드 병렬 구현 중 — 계약 기준 화면 코드만 완성. `pnpm typecheck`+`pnpm build` GREEN. (작성: frontend) | frontend/api/strategy.ts·hooks/useSigStrategy.ts·components/strategy/{StrategyFilterBar,StrategyList,StrategyCard,StrategyRunStatusSummary}.tsx | 일상 목록 정리 — 안 쓰는 전략을 삭제하지 않고 치워두는 보관함 |
 <!-- trading-setup-guide -->
 | 2026-07-05 | **feat(frontend): 매매 세팅 가이드 화면 — 셀프 세팅 단계별 허브 (/guide)** — 최고 관리자가 매일 Claude 없이 스스로 자동매매를 세팅할 수 있도록 실제 화면 흐름을 STEP 0~6(시스템 준비·후보 발굴·전략 만들기·검증·리스크 세팅·활성화 운영·모니터링)으로 안내하는 허브 페이지 신설. 각 단계 실제 라우트 딥링크 버튼(/setup·/strategy/daytrade-discover·/strategy/scorecard·/instruments·/strategy/builder·/strategy/backtest·/strategy/paper·/risk-config·/strategy/list·/·/positions·/orders·/journal·/system·/admin/realtime) + 전략 상태 의미표(ACTIVE/BUY_BLOCKED/PAUSED/DISABLED/보관함) + 상단 라이브 체크리스트(기존 useSigStrategies·useWatchlist 재사용 — ACTIVE·BUY_BLOCKED·전체 전략·관심종목 수, 0건이면 "없음"·실패면 "확인 불가", mock 합성 0). AppHeader 톱레벨 단일 메뉴 '가이드' 추가(대시보드·매매일지 층위). 세로 스텝퍼 아코디언·모바일 대응·다크 테마 정합. `pnpm typecheck`+`pnpm build` GREEN. (작성: frontend) | frontend/src/pages/Guide/TradingSetupGuidePage.tsx · App.tsx · components/layout/AppHeader.tsx | 최고 관리자 셀프 세팅 온보딩 허브 — 매일 반복 세팅 흐름 안내 |
 <!-- release-v3.15.0 -->

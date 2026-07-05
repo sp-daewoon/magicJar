@@ -30,6 +30,8 @@ const OPTIONS: { value: StrategyFilterOption; label: string }[] = [
   { value: 'BUY_BLOCKED', label: '매수차단' },
   { value: 'PAUSED',   label: '중지' },
   { value: 'DISABLED', label: '보호중지' },
+  // 보관함: 일상 목록(전체 포함 다른 탭)에서 완전히 제외된 ARCHIVED 전용 탭
+  { value: 'ARCHIVED', label: '보관함' },
 ]
 
 const SORT_OPTIONS: { value: StrategyListSort; label: string }[] = [

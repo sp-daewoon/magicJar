@@ -12,9 +12,11 @@ import {
   type StrategyStatus,
 } from '../../api/strategy'
 import {
+  useArchiveSigStrategy,
   useDeleteSigStrategy,
   useToggleListFavorite,
   useToggleSigStrategyStatus,
+  useUnarchiveSigStrategy,
 } from '../../api/hooks/useSigStrategy'
 import { AiExplainEntry } from '../../features/ai/components/AiExplainEntry'
 import { PaperBadge } from '../../features/daytradePaper/components/PaperBadge'
@@ -43,6 +45,7 @@ const STATUS_BADGE: Record<StrategyStatus, { label: string; cls: string }> = {
   BUY_BLOCKED: { label: '매수차단', cls: 'bg-sky-950/80 text-sky-300 border border-sky-700' },
   PAUSED:   { label: '중지됨',     cls: 'bg-amber-900/80 text-amber-300 border border-amber-700' },
   DISABLED: { label: '보호중지',   cls: 'bg-gray-700/80 text-gray-400 border border-gray-600' },
+  ARCHIVED: { label: '보관됨',     cls: 'bg-gray-800/80 text-gray-400 border border-gray-700' },
   DELETED:  { label: '삭제됨',     cls: 'bg-red-900/80 text-red-400 border border-red-800' },
 }
 
@@ -79,6 +82,7 @@ export function StrategyCard({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [showAllCodes, setShowAllCodes] = useState(false)
   const [showPerformance, setShowPerformance] = useState(false)
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
   const badge = STATUS_BADGE[strategy.status] ?? STATUS_BADGE.DISABLED
   const codes = Array.isArray(strategy.codes) ? strategy.codes : []
   const intervals = Array.isArray(strategy.intervals) ? strategy.intervals : []
@@ -91,6 +95,9 @@ export function StrategyCard({
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
   const favoriteMutation = useToggleListFavorite(userId)
+  const archiveMutation = useArchiveSigStrategy()
+  const unarchiveMutation = useUnarchiveSigStrategy()
+  const isArchived = strategy.status === 'ARCHIVED'
   const floorBadgeInfo = floorBadge(strategy.scaleIn)
   const scaleInBadge = scaleInBadgeLabel(strategy.scaleIn)
 
@@ -171,13 +178,43 @@ export function StrategyCard({
     setConfirmDelete(false)
   }
 
+  function handleArchiveConfirm() {
+    archiveMutation.mutate(strategy.id, {
+      onSuccess: () => {
+        setShowArchiveConfirm(false)
+        showToast('보관함으로 이동했습니다.', 'success')
+      },
+      onError: (error) => {
+        // 409면 백엔드가 보유 포지션/미체결 주문 등 한국어 사유를 본문에 담아 준다 — 그대로 노출
+        setShowArchiveConfirm(false)
+        showToast(resolveStrategyMutationErrorMessage(error), 'error')
+      },
+    })
+  }
+
+  function handleUnarchive() {
+    unarchiveMutation.mutate(strategy.id, {
+      onSuccess: () => {
+        // 꺼내기 = PAUSED(중지) 복귀. 자동매매 재시작은 사용자가 별도로 눌러야 함을 명시
+        showToast('보관을 해제했습니다. 중지 상태로 이동했습니다.', 'success')
+      },
+      onError: (error) => {
+        showToast(resolveStrategyMutationErrorMessage(error), 'error')
+      },
+    })
+  }
+
   const isToggleable =
     strategy.status === 'ACTIVE' ||
     strategy.status === 'BUY_BLOCKED' ||
     strategy.status === 'PAUSED' ||
     strategy.status === 'DISABLED'
   const isDeletable = strategy.status !== 'DELETED'
-  const isBusy = toggleMutation.isPending || deleteMutation.isPending
+  const isBusy =
+    toggleMutation.isPending ||
+    deleteMutation.isPending ||
+    archiveMutation.isPending ||
+    unarchiveMutation.isPending
   const disabledReasonLabel = strategy.disabledReason && strategy.disabledReason !== 'NULL'
     ? DISABLED_REASON_LABEL[strategy.disabledReason] ?? strategy.disabledReason
     : null
@@ -349,6 +386,13 @@ export function StrategyCard({
           {strategyStatusDescription(strategy.status, isPaper)}
         </span>
       </div>
+
+      {/* 보관 시각 — 백엔드가 archivedAt을 내려줄 때만 표시(mock 금지) */}
+      {isArchived && strategy.archivedAt && formatKst(strategy.archivedAt) && (
+        <p className="text-xs text-gray-500">
+          보관 시각: {formatKst(strategy.archivedAt)}
+        </p>
+      )}
 
       {strategy.status === 'DISABLED' && (
         <div className="border-l-2 border-amber-500 pl-3 text-xs leading-5 text-amber-100">
@@ -523,6 +567,32 @@ export function StrategyCard({
           📊 성과·메모
         </button>
 
+        {/* 보관 — 일상 목록에서 치워 보관함으로 이동 (확인 모달 경유) */}
+        {!isArchived && strategy.status !== 'DELETED' && (
+          <button
+            type="button"
+            onClick={() => setShowArchiveConfirm(true)}
+            disabled={isBusy}
+            title="자동매매 평가에서 제외하고 보관함으로 이동"
+            className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+          >
+            🗄 보관
+          </button>
+        )}
+
+        {/* 꺼내기 — 보관 해제 → 중지(PAUSED) 상태로 복귀 */}
+        {isArchived && (
+          <button
+            type="button"
+            onClick={handleUnarchive}
+            disabled={unarchiveMutation.isPending}
+            title="보관을 해제하고 중지 상태로 되돌립니다"
+            className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:ring-offset-gray-900"
+          >
+            {unarchiveMutation.isPending ? '꺼내는 중...' : '꺼내기'}
+          </button>
+        )}
+
         {/* 상태 토글 */}
         {isToggleable && (
           <button
@@ -630,6 +700,55 @@ export function StrategyCard({
           onClose={() => setShowPerformance(false)}
         />
       )}
+
+      {/* 보관 확인 모달 */}
+      {showArchiveConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`archive-confirm-title-${strategy.id}`}
+          onClick={() => {
+            if (!archiveMutation.isPending) setShowArchiveConfirm(false)
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4
+              id={`archive-confirm-title-${strategy.id}`}
+              className="text-base font-semibold text-white"
+            >
+              전략 보관
+            </h4>
+            <p className="mt-2 text-sm text-gray-300">
+              <span className="font-medium text-white">{strategy.name}</span> 전략을 보관합니다.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-400">
+              자동매매 평가에서 제외되고 보관함으로 이동합니다. 보관함 탭에서 언제든 다시 꺼낼 수 있습니다.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowArchiveConfirm(false)}
+                disabled={archiveMutation.isPending}
+                className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveConfirm}
+                disabled={archiveMutation.isPending}
+                className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-amber-300"
+              >
+                {archiveMutation.isPending ? '보관 중...' : '보관하기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   )
 }
@@ -644,6 +763,8 @@ function strategyStatusDescription(status: StrategyStatus, isPaper: boolean): st
       return isPaper ? '모의 감시 중지됨' : '자동매매 중지됨'
     case 'DISABLED':
       return '보호 장치로 중지'
+    case 'ARCHIVED':
+      return '보관함으로 이동됨'
     case 'DELETED':
       return '삭제됨'
   }
@@ -661,6 +782,8 @@ function statusSuccessMessage(status: StrategyStatus, isPaper = false): string {
       return '전략이 삭제되었습니다.'
     case 'DISABLED':
       return '자동매매가 보호 중지되었습니다.'
+    case 'ARCHIVED':
+      return '전략이 보관되었습니다.'
   }
 }
 

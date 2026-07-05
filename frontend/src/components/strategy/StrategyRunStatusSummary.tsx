@@ -69,6 +69,7 @@ export function StrategyRunStatusSummary({ userId, onJumpToFilter }: StrategyRun
   const activeStrategies = strategies.filter((strategy) => strategy.status === 'ACTIVE')
   const buyBlockedStrategies = strategies.filter((strategy) => strategy.status === 'BUY_BLOCKED')
   const pausedStrategies = strategies.filter((strategy) => strategy.status === 'PAUSED')
+  const archivedStrategies = strategies.filter((strategy) => strategy.status === 'ARCHIVED')
   // floor 알람 떠있는 전략(자동청산 제외) · 분할매수 진행(설정상 2회 이상) 전략 집계
   const floorAlarmStrategies = strategies.filter(isFloorAlarmStrategy)
   const scaleInStrategies = strategies.filter(isScaleInStrategy)
@@ -77,7 +78,9 @@ export function StrategyRunStatusSummary({ userId, onJumpToFilter }: StrategyRun
   const buyBlockedPaperStrategies = buyBlockedStrategies.filter(isPaperStrategy)
   const buyBlockedLiveStrategies = buyBlockedStrategies.filter((strategy) => !isPaperStrategy(strategy))
   const monitoringStrategies = [...activeStrategies, ...buyBlockedStrategies]
-  const primaryStrategy = monitoringStrategies[0] ?? strategies[0]
+  // 대표 전략은 보관된 전략을 제외한 첫 항목(보관 전략이 대표로 잡히지 않게)
+  const primaryStrategy =
+    monitoringStrategies[0] ?? strategies.find((strategy) => strategy.status !== 'ARCHIVED')
   const latestSignal = signalPages?.pages[0]?.content[0]
   const latestRiskEvent = riskEventPages?.pages[0]?.content[0]
   const latestAutoOrder = autoOrders?.content[0]
@@ -214,6 +217,15 @@ export function StrategyRunStatusSummary({ userId, onJumpToFilter }: StrategyRun
         >
           중지 {pausedStrategies.length.toLocaleString('ko-KR')}
         </button>
+        {archivedStrategies.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onJumpToFilter?.('ARCHIVED')}
+            className="rounded-full border border-gray-700 bg-gray-800/60 px-2.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-700/60 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          >
+            보관함 {archivedStrategies.length.toLocaleString('ko-KR')}
+          </button>
+        )}
         {floorAlarmStrategies.length > 0 && (
           <span
             className="rounded-full border border-amber-700 bg-amber-950/50 px-2.5 py-1 text-xs font-medium text-amber-200"
