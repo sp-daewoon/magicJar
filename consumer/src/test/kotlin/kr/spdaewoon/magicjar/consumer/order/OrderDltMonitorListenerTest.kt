@@ -1,6 +1,7 @@
 package kr.spdaewoon.magicjar.consumer.order
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.MeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -44,11 +45,18 @@ class OrderDltMonitorListenerTest {
             every { it.getIfAvailable() } returns slackSender
         }
 
+    // 감사 §6-15 DLT counter — test fixture(Actuator 부재)는 getIfAvailable()=null 로 graceful skip
+    private val meterProvider =
+        mockk<ObjectProvider<MeterRegistry>>().also {
+            every { it.getIfAvailable() } returns null
+        }
+
     private val listener =
         OrderDltMonitorListener(
             outboxRepositoryProvider = outboxProvider,
             slackSenderProvider = slackProvider,
             objectMapper = objectMapper,
+            meterRegistryProvider = meterProvider,
         )
 
     @Test
