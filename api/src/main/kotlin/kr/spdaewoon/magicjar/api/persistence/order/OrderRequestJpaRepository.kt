@@ -42,6 +42,21 @@ interface OrderRequestJpaRepository :
         @Param("userId") userId: String,
     ): List<OrderRequestJpaEntity>
 
+    /**
+     * 전략 아카이브 가드(V98) — 특정 전략이 발행한 **미체결(open) 주문** 건수.
+     *
+     * 보관(archive)은 관리 주체가 사라지는 행위이므로, 체결 대기 중인 주문(REQUESTED·ACK·PARTIALLY_FILLED·
+     * PENDING_RECONCILE)이 남아 있으면 고아 주문이 될 수 있어 거부(409)한다. [findOpenByUserId] 와 동일한 open 상태 집합.
+     * 헌법 §6 (ADR 0051): interface body 0건, @Query 만 사용.
+     */
+    @Query(
+        "SELECT COUNT(e) FROM OrderRequestJpaEntity e WHERE e.strategyId = :strategyId " +
+            "AND e.status IN ('REQUESTED', 'ACK', 'PARTIALLY_FILLED', 'PENDING_RECONCILE')",
+    )
+    fun countOpenByStrategyId(
+        @Param("strategyId") strategyId: Long,
+    ): Long
+
     fun findByUserIdAndStatusInAndRequestedAtBetween(
         userId: String,
         statuses: List<OrderStatus>,

@@ -2,7 +2,9 @@ package kr.spdaewoon.magicjar.api.service.strategy
 
 import kr.spdaewoon.magicjar.api.cache.RedisStrategyCache
 import kr.spdaewoon.magicjar.api.persistence.backtest.BacktestRunJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.order.OrderRequestJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyJpaRepository
+import kr.spdaewoon.magicjar.api.persistence.strategy.StrategyPositionReadJpaRepository
 import kr.spdaewoon.magicjar.domain.strategy.ComplexityClass
 import kr.spdaewoon.magicjar.domain.strategy.MinHoldLimits
 import kr.spdaewoon.magicjar.domain.strategy.PartialExit
@@ -65,6 +67,10 @@ class StrategyService(
     // 채워 항상 명시 floor 로 persist. yml(magicjar.strategy.scale-in.floor-default-pct) → 운영 중 튜닝, 컴파일 상수 회피.
     @Value("\${magicjar.strategy.scale-in.floor-default-pct:15}") private val floorDefaultPct: BigDecimal = BigDecimal("15"),
     private val realtimeDemandPublisher: StrategyRealtimeDemandPublisher? = null,
+    // V98 전략 아카이브 가드 — 보유 포지션·미체결 주문 존재 시 archive 거부(자본 고아화 방지).
+    //   realtimeDemandPublisher 선례처럼 nullable default(기존 단위 테스트 생성자 무손실). 운영에선 Spring 이 항상 주입.
+    private val strategyPositionReadJpaRepository: StrategyPositionReadJpaRepository? = null,
+    private val orderRequestJpaRepository: OrderRequestJpaRepository? = null,
 ) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
 
@@ -366,6 +372,106 @@ class StrategyService(
     }
 
     /**
+     * 전략 보관(archive) — V98 전략 아카이브.
+     *
+     * ## 자본 안전 가드 (409 거부)
+     * 보관은 전략을 자동매매 평가·관리 대상에서 완전히 빼는 행위이므로, 그 전략이 관리하던 **보유 포지션·미체결 주문이
+     * 남아 있으면 고아화**된다(손절·익절·청산을 아무도 안 봄). 그래서 다음 중 하나라도 있으면 409 로 거부한다:
+     * - `strategy_position.quantity > 0` (보유 물량) → "청산 후 보관 가능"
+     * - open order(REQUESTED·ACK·PARTIALLY_FILLED·PENDING_RECONCILE) 존재 → "미체결 주문 정리 후 보관 가능"
+     *
+     * ## 허용 원본 상태
+     * DELETED 를 제외한 모든 상태(ACTIVE·BUY_BLOCKED·PAUSED·DISABLED)에서 호출 가능. 이미 ARCHIVED 면 멱등(재보관 no-op 통과).
+     * 가드 통과 시 status=ARCHIVED + archived_at=now + 실시간 수요 해제 + Redis 캐시 무효화.
+     *
+     * @throws ResponseStatusException 404(전략 없음/소유자 불일치) · 409(보유 포지션 또는 미체결 주문 존재)
+     */
+    @Transactional
+    fun archive(
+        id: Long,
+        userId: Long,
+    ): Strategy {
+        val strategy = requireOwnedStrategy(id, userId)
+
+        // 가드 ① 보유 포지션(quantity>0) — 전략별 포지션 귀속(ADR 0110). 종목 여러 개면 하나라도 보유면 거부.
+        val positionRepo =
+            strategyPositionReadJpaRepository
+                ?: error("StrategyPositionReadJpaRepository 미주입 — archive 가드 불가")
+        val heldQty = positionRepo.findByStrategyId(id).filter { it.quantity > 0 }.sumOf { it.quantity }
+        if (heldQty > 0) {
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "보유 포지션 ${heldQty}주 존재 — 청산 후 보관 가능합니다: id=$id",
+            )
+        }
+
+        // 가드 ② 미체결 주문 — 체결 대기 중 주문이 남아 있으면 고아 주문이 되므로 거부.
+        val orderRepo =
+            orderRequestJpaRepository
+                ?: error("OrderRequestJpaRepository 미주입 — archive 가드 불가")
+        val openOrders = orderRepo.countOpenByStrategyId(id)
+        if (openOrders > 0) {
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "미체결 주문 ${openOrders}건 존재 — 주문 정리 후 보관 가능합니다: id=$id",
+            )
+        }
+
+        strategyJpaRepository.archive(id)
+        realtimeDemandPublisher?.exit(strategy)
+        redisStrategyCache.invalidateAll()
+        log.info("전략 보관(ARCHIVED): id={} userId={} from={}", id, userId, strategy.status)
+
+        return strategyRepositoryPort.findById(id)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+    }
+
+    /**
+     * 전략 보관 해제(unarchive) — V98 전략 아카이브. ARCHIVED → PAUSED(보수적 — 즉시 자동매매 재개 금지).
+     *
+     * 보관 해제는 곧바로 ACTIVE 로 켜지 않고 PAUSED 로 복귀시켜, 사용자가 검토 후 명시적으로 재활성(toggleStatus ACTIVE)하도록 한다.
+     * ARCHIVED 상태가 아니면 409(전환할 대상 아님).
+     *
+     * @throws ResponseStatusException 404(전략 없음/소유자 불일치) · 409(보관 상태가 아님)
+     */
+    @Transactional
+    fun unarchive(
+        id: Long,
+        userId: Long,
+    ): Strategy {
+        val strategy = requireOwnedStrategy(id, userId)
+        if (strategy.status != StrategyStatus.ARCHIVED) {
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "보관 상태(ARCHIVED)가 아닌 전략은 보관 해제할 수 없습니다: id=$id status=${strategy.status}",
+            )
+        }
+
+        strategyJpaRepository.unarchive(id)
+        redisStrategyCache.invalidateAll()
+        log.info("전략 보관 해제(ARCHIVED→PAUSED): id={} userId={}", id, userId)
+
+        return strategyRepositoryPort.findById(id)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+    }
+
+    /**
+     * 소유자 일치 + 미삭제 전략 조회 — 없거나 타인 소유면 404(존재 은닉, ADR 0010 사용자 격리 정합).
+     */
+    private fun requireOwnedStrategy(
+        id: Long,
+        userId: Long,
+    ): Strategy {
+        val strategy =
+            strategyRepositoryPort.findById(id)
+                ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        if (strategy.userId != userId) {
+            throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
+        }
+        return strategy
+    }
+
+    /**
      * 전략 상태 전환 (ADR 0066 §2-6 F-1 transition 매트릭스).
      *
      * 허용 전환:
@@ -462,6 +568,12 @@ class StrategyService(
                         current == StrategyStatus.BUY_BLOCKED
                 StrategyStatus.PAUSED -> current == StrategyStatus.ACTIVE || current == StrategyStatus.BUY_BLOCKED
                 StrategyStatus.DELETED -> true
+                // ARCHIVED 전환은 toggleStatus 경로가 아니라 전용 archive()/unarchive() 로만 수행한다(보유·미체결 가드 필수).
+                StrategyStatus.ARCHIVED ->
+                    throw ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "ARCHIVED 전환은 보관 전용 API(/archive)로만 가능 — 보유 포지션·미체결 주문 가드가 필요합니다",
+                    )
                 StrategyStatus.DISABLED,
                 StrategyStatus.BUY_BLOCKED,
                 ->

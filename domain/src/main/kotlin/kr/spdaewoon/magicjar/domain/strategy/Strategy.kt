@@ -15,6 +15,7 @@ import java.time.Instant
  * @param disabledReason auto-disable 사유 (NULL = 정상)
  * @param origin 전략 출처 — 사용자 DSL vs 발굴 페이퍼 승격 (ADR 0122, add-only · default USER_DSL = 하위호환)
  * @param lastDisabledAt 마지막 auto-disable 시각
+ * @param archivedAt 보관함(ARCHIVED) 전환 시각 (V98 · 전략 아카이브). null=미보관. status=ARCHIVED 일 때만 의미.
  * @param evalMetricSummary 마지막 N 평가 통계 요약 (jsonb)
  * @param createdAt 생성 시각
  * @param updatedAt 갱신 시각
@@ -31,6 +32,7 @@ data class Strategy(
     val codes: List<String> = emptyList(),
     val intervals: List<String> = emptyList(),
     val lastDisabledAt: Instant? = null,
+    val archivedAt: Instant? = null,
     val evalMetricSummary: Map<String, Any>? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now(),

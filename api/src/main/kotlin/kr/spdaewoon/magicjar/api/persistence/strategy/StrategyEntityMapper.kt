@@ -112,6 +112,8 @@ object StrategyEntityMapper {
             codes = safeStringList(entity.codes, objectMapper),
             intervals = safeStringList(entity.intervals, objectMapper),
             lastDisabledAt = entity.lastDisabledAt,
+            // V98 전략 아카이브 — 보관 전환 시각 도메인 전달. null=미보관.
+            archivedAt = entity.archivedAt,
             evalMetricSummary = evalMetricSummary,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,

@@ -898,9 +898,9 @@ data class StrategyDetailResponse(
     @field:Schema(description = "전략 활성 여부", example = "true")
     val enabled: Boolean,
     @field:Schema(
-        description = "전략 상태 (ACTIVE·BUY_BLOCKED·PAUSED·DISABLED·DELETED)",
+        description = "전략 상태 (ACTIVE·BUY_BLOCKED·PAUSED·DISABLED·ARCHIVED·DELETED). ARCHIVED=보관함(V98)",
         example = "ACTIVE",
-        allowableValues = ["ACTIVE", "BUY_BLOCKED", "PAUSED", "DISABLED", "DELETED"],
+        allowableValues = ["ACTIVE", "BUY_BLOCKED", "PAUSED", "DISABLED", "ARCHIVED", "DELETED"],
     )
     val status: String,
     @field:Schema(description = "자동매매 시작 가능 여부", example = "false")

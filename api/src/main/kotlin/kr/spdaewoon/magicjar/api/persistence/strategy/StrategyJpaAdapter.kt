@@ -130,6 +130,8 @@ class StrategyJpaAdapter(
             origin = strategy.origin.takeIf { it != StrategyOrigin.USER_DSL }?.name,
             codes = strategy.codes.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
             intervals = strategy.intervals.takeIf { it.isNotEmpty() }?.let { objectMapper.writeValueAsString(it) },
+            // V98 전략 아카이브 — 보관 전환 시각 영속. status 전환은 archive/unarchive @Modifying 이 담당하므로 통상 save 경로에선 유지값.
+            archivedAt = strategy.archivedAt,
             createdAt = strategy.createdAt,
             updatedAt = strategy.updatedAt,
         )

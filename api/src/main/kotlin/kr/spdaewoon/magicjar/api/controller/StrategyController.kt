@@ -206,6 +206,74 @@ class StrategyController(
     }
 
     @Operation(
+        summary = "전략 보관 (아카이브)",
+        description =
+            "전략을 보관함(status=ARCHIVED)으로 이동합니다 (V98 전략 아카이브). " +
+                "보관된 전략은 자동매매 평가·신규 매수에서 완전히 제외되지만, DELETED(삭제)와 달리 목록에는 남아 " +
+                "프론트가 '보관함' 탭으로 분리 노출합니다.\n\n" +
+                "자본 안전 가드 — 다음 중 하나라도 있으면 409로 거부합니다(관리 주체 없는 포지션·주문 고아화 방지):\n" +
+                "- 보유 포지션(strategy_position.quantity > 0) → 청산 후 보관 가능\n" +
+                "- 미체결 주문(REQUESTED·ACK·PARTIALLY_FILLED·PENDING_RECONCILE) → 주문 정리 후 보관 가능",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "전략 보관 성공 (status=ARCHIVED)"),
+        ApiResponse(
+            responseCode = "409",
+            description = "보유 포지션 또는 미체결 주문이 있어 보관 불가 (사유 메시지 포함)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "404",
+            description = "전략 없음 (또는 타인 소유)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PutMapping("/{id}/archive")
+    fun archive(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+        @Parameter(description = "소유자 사용자 ID (소유권 검증)", example = "1", required = true)
+        @org.springframework.web.bind.annotation.RequestParam userId: Long,
+    ): StrategyResponse {
+        val updated = strategyService.archive(id, userId)
+        log.info("전략 보관: id={} userId={}", id, userId)
+        return toStrategyResponse(updated)
+    }
+
+    @Operation(
+        summary = "전략 보관 해제 (언아카이브)",
+        description =
+            "보관함의 전략을 다시 꺼냅니다 (V98 전략 아카이브). ARCHIVED → PAUSED(일시 중지)로 복귀합니다. " +
+                "즉시 자동매매를 재개하지 않고 PAUSED로 두는 보수적 정책이며, 사용자가 검토 후 명시적으로 " +
+                "[다시 활성화](PUT /api/strategies/{id}/status ACTIVE)해야 매매가 시작됩니다. " +
+                "보관 상태(ARCHIVED)가 아닌 전략은 409를 반환합니다.",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "전략 보관 해제 성공 (status=PAUSED)"),
+        ApiResponse(
+            responseCode = "409",
+            description = "보관 상태(ARCHIVED)가 아니어서 해제 불가",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "404",
+            description = "전략 없음 (또는 타인 소유)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PutMapping("/{id}/unarchive")
+    fun unarchive(
+        @Parameter(description = "전략 ID", example = "1", required = true)
+        @PathVariable id: Long,
+        @Parameter(description = "소유자 사용자 ID (소유권 검증)", example = "1", required = true)
+        @org.springframework.web.bind.annotation.RequestParam userId: Long,
+    ): StrategyResponse {
+        val updated = strategyService.unarchive(id, userId)
+        log.info("전략 보관 해제: id={} userId={}", id, userId)
+        return toStrategyResponse(updated)
+    }
+
+    @Operation(
         summary = "전략 평가",
         description =
             "전략 DSL을 최신 캔들 데이터로 평가하여 BUY/SELL/HOLD 시그널을 반환합니다. " +
@@ -295,6 +363,8 @@ class StrategyController(
             disabledReason = strategy.disabledReason.name,
             lastDisabledAt = strategy.lastDisabledAt?.toString(),
             enabled = strategy.isEnabled(),
+            status = strategy.status.name,
+            archivedAt = strategy.archivedAt?.toString(),
         )
 
     private fun toComplexityDto(complexity: StrategyComplexity): StrategyComplexityDto =
@@ -373,6 +443,14 @@ data class StrategyResponse(
     val lastDisabledAt: String?,
     @field:Schema(description = "전략 활성 여부", example = "true")
     val enabled: Boolean,
+    @field:Schema(
+        description = "전략 상태 (ACTIVE·BUY_BLOCKED·PAUSED·DISABLED·ARCHIVED·DELETED). V98 전략 아카이브",
+        example = "ACTIVE",
+        allowableValues = ["ACTIVE", "BUY_BLOCKED", "PAUSED", "DISABLED", "ARCHIVED", "DELETED"],
+    )
+    val status: String = "ACTIVE",
+    @field:Schema(description = "보관(ARCHIVED) 전환 시각 — 미보관이면 null (V98)", example = "null", nullable = true)
+    val archivedAt: String? = null,
 )
 
 @Schema(description = "DSL 복잡도")
