@@ -59,6 +59,7 @@ import { OrdersPage } from './pages/orders/OrdersPage'
 import { OrderDetailPage } from './pages/orders/OrderDetailPage'
 import { NewOrderPage } from './pages/orders/NewOrderPage'
 import { TradingJournalPage } from './pages/TradingJournalPage'
+import { TradingSetupGuidePage } from './pages/Guide/TradingSetupGuidePage'
 import { PerformanceDashboardPage } from './pages/PerformanceDashboardPage'
 import { SystemEventPage } from './pages/SystemEvent/SystemEventPage'
 import { RealtimeStatusPage } from './pages/Admin/RealtimeStatusPage'
@@ -166,6 +167,8 @@ export function App() {
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           {/* T-J Phase 3: 매매일지 — ADR 0072 */}
           <Route path="/journal" element={<TradingJournalPage />} />
+          {/* 매매 세팅 가이드 — 셀프 세팅 단계별 허브 (STEP 0~6 + 라이브 체크리스트) */}
+          <Route path="/guide" element={<TradingSetupGuidePage />} />
           {/* T-PERF Phase 3: 성과는 대시보드 탭으로 통합 — 기존 URL 호환 */}
           <Route path="/performance" element={<PerformanceDashboardPage />} />
           {/* P2 Task 7: 시스템 이벤트 운영 대시보드 — ADR 0084 P0 system_event_log */}
