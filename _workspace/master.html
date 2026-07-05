@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.14.3</div>
-      <div class="sub">2026-06-30</div>
+      <div class="value">v3.15.0</div>
+      <div class="sub">2026-07-05</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>chore(release): v3.14.3 — auction-fix CHANGELOG + </div>
+    <div>chore(release): v3.15.0 — 감사 일괄조치 minor cut CHANGE</div>
   </div>
 </div>
 
@@ -112,25 +112,25 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">635 lines · 갱신 2026-06-30</div>
+        <div class="card-meta">636 lines · 갱신 2026-07-05</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 CLAUDE.md</div>
         <div class="card-sub">프로젝트: magicJar (마법의항아리)</div>
-        <div class="card-meta">184 lines · 갱신 2026-06-12</div>
+        <div class="card-meta">187 lines · 갱신 2026-07-05</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 _workspace/INDEX.md</div>
         <div class="card-sub">🧭 의도별 진입 경로</div>
-        <div class="card-meta">133 lines · 갱신 2026-06-12</div>
+        <div class="card-meta">134 lines · 갱신 2026-07-05</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">821 lines · 갱신 2026-06-13</div>
+        <div class="card-meta">828 lines · 갱신 2026-07-05</div>
       </div>
     
   </div>
@@ -141,6 +141,24 @@
     
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0139</div>
+          <div class="adr-title">KIS rate limiter 공유 모듈 승격 (3중 복붙 단일화 계획)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0138</div>
+          <div class="adr-title">KIS WS slot owner priority 기반 eviction 구현 (DETAIL evict · ADR 0114/0123/0124 완성)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0137</div>
+          <div class="adr-title">DSL 청산 휩쏘 완화 (dsl_exit 버퍼 0.3% + min_hold_bars 8)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0136</div>
@@ -154,32 +172,35 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0134</div>
-          <div class="adr-title">발굴 추천 후보 → 전략 universe 담기 (Discovery → Strategy Universe)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0133</div>
-          <div class="adr-title">백테스트 분봉 backfill cross-process 통합(api 자급) + 전략 ACTIVE 검증 게이트</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0132</div>
-          <div class="adr-title">초단타 정합 백테스트(Intraday-Realistic Backtest) + 분봉 on-demand backfill + 캔들 정합성 가드</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 132건 (검색·정렬 가능)</h3>
+    <h3>전체 135건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="139 kis rate limiter 공유 모듈 승격 (3중 복붙 단일화 계획) accepted">
+            <td>0139</td>
+            <td><a href="_workspace/arch/adr/0139-kis-shared-module-proposal.md">KIS rate limiter 공유 모듈 승격 (3중 복붙 단일화 계획)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="138 kis ws slot owner priority 기반 eviction 구현 (detail evict · adr 0114/0123/0124 완성) accepted">
+            <td>0138</td>
+            <td><a href="_workspace/arch/adr/0138-ws-slot-priority-eviction.md">KIS WS slot owner priority 기반 eviction 구현 (DETAIL evict · ADR 0114/0123/0124 완성)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
+        
+          <tr data-search="137 dsl 청산 휩쏘 완화 (dsl_exit 버퍼 0.3% + min_hold_bars 8) accepted">
+            <td>0137</td>
+            <td><a href="_workspace/arch/adr/0137-dsl-exit-whipsaw-mitigation.md">DSL 청산 휩쏘 완화 (dsl_exit 버퍼 0.3% + min_hold_bars 8)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="136 kis 실잔고 ↔ strategy_position self-heal (체결→ledger 정합 누락 근본fix + 자동 정합 워커) accepted">
             <td>0136</td>
@@ -1115,6 +1136,12 @@
     <div class="cat-cards">
       
         <div class="card">
+          <div class="card-title">📍 audit-remediation-tracker</div>
+          <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: 감사 보고서 [`_workspace/audit/2026-07-03-system-audit.md`](../../../_workspace/audi…</div>
+          <div class="card-meta">📄 docs/architecture/policies/audit-remediation-tracker.md · 갱신 2026-07-05</div>
+        </div>
+      
+        <div class="card">
           <div class="card-title">📍 autopilot-trade-lifecycle</div>
           <div class="card-sub">> **현행 권위 정책** — autopilot(자율 매매) 거래 하나(lot)가 어떻게 진입·관리·청산되는가의 단일 출처. > ref: ADR 0130(계획 기반 진입) · ADR 0110(lot ledger) ·…</div>
           <div class="card-meta">📄 docs/architecture/policies/autopilot-trade-lifecycle.md · 갱신 2026-06-24</div>
@@ -1177,13 +1204,13 @@
         <div class="card">
           <div class="card-title">📍 code-convention</div>
           <div class="card-sub">> **Status**: ACTIVE — 마스터 아키텍처 정합 > **참조**: `docs/architecture/master-architecture.md` · `docs/architecture/development…</div>
-          <div class="card-meta">📄 docs/architecture/code-convention.md · 갱신 2026-05-22</div>
+          <div class="card-meta">📄 docs/architecture/code-convention.md · 갱신 2026-07-05</div>
         </div>
       
         <div class="card">
           <div class="card-title">📍 candle-data-policy-v2</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
-          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-06-13</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-07-05</div>
         </div>
       
         <div class="card">
@@ -1205,19 +1232,14 @@
   <div class="cat-content" data-cat="H" data-group-content-cat="시계열" data-active="false">
     
     <div class="backlog-filters">
-      <button data-filter="all">전체 78</button>
+      <button data-filter="all">전체 59</button>
       <button data-filter="proposed">Proposed 57</button>
       <button data-filter="recent">최근 3건</button>
-      <button data-filter="done">완료 21 (toggle)</button>
+      <button data-filter="done">완료 2 (toggle)</button>
     </div>
     <input class="cat-search" data-cat="H" placeholder="backlog 검색…" />
     <div class="backlog-list">
       
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="0 p0-a persistence-shared 모듈 구현 (2026-05-19 신설 → 2026-05-22 마감 · adr 0088 accepted 격상)" style="border-left:4px solid #666">
-            <div class="backlog-title">§0. P0-A persistence-shared 모듈 구현 (2026-05-19 신설 → 2026-05-22 마감 · ADR 0088 Accepted 격상)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="1 adr 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§1. ADR 0050 슬롯 채번룰 보강 (hunk 분리 + 영역 분배 강화)</div>
             <div class="backlog-meta">Proposed</div>
@@ -1278,34 +1300,9 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="12 env_file vs environment block 우선순위 함정 (pr-12)" style="border-left:4px solid #666">
-            <div class="backlog-title">§12. env_file vs environment block 우선순위 함정 (PR-12)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="13 머지 후 정리 룰 흐려짐 (pr-14)" style="border-left:4px solid #666">
-            <div class="backlog-title">§13. 머지 후 정리 룰 흐려짐 (PR-14)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="14 task 파일 데이터 무결성 흐려짐 (pr-18)" style="border-left:4px solid #666">
-            <div class="backlog-title">§14. task 파일 데이터 무결성 흐려짐 (PR-18)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="15 sub-agent skill에 task.mjs 호출 의무 명시화 (pr-26)" style="border-left:4px solid #666">
-            <div class="backlog-title">§15. sub-agent SKILL에 task.mjs 호출 의무 명시화 (PR-26)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="16 instrument 테이블 14 컬럼 fitness gap (pr-21 처리 진행 중)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§16. instrument 테이블 14 컬럼 fitness gap (PR-21 처리 진행 중)</div>
             <div class="backlog-meta">Proposed</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="17 architect skill — kis-first raw fetch 의무 강화 (pr-21 → pr-26 헌법 통합)" style="border-left:4px solid #666">
-            <div class="backlog-title">§17. architect SKILL — KIS-first raw fetch 의무 강화 (PR-21 → PR-26 헌법 통합)</div>
-            <div class="backlog-meta">Done</div>
           </div>
         
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="18 symbolcontrollertest 미정 + batch test @disabled 2건 (pr-23 잔재) (pr-29d 처리 예정)" style="border-left:4px solid #ff9800">
@@ -1313,24 +1310,9 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="19 task.mjs --force flag parsing fix (pr-26)" style="border-left:4px solid #666">
-            <div class="backlog-title">§19. task.mjs --force flag parsing fix (PR-26)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="21 w1 마감 + v3.1.0 진입 (pr-29 사이클)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§21. W1 마감 + v3.1.0 진입 (PR-29 사이클)</div>
             <div class="backlog-meta">Proposed</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="20 spring data repository default fun 함정 (pr-26 adr 0051)" style="border-left:4px solid #666">
-            <div class="backlog-title">§20. Spring Data Repository default fun 함정 (PR-26 ADR 0051)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="22 dart opendart ssl handshake_failure (pr #260)" style="border-left:4px solid #666">
-            <div class="backlog-title">§22. DART OpenDART SSL handshake_failure (PR #260)</div>
-            <div class="backlog-meta">Done</div>
           </div>
         
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="23 kis 자격증명 user_id 식별 규약 불일치 — real vs mock (w3 t-o 진입 시 본격 정리)" style="border-left:4px solid #ff9800">
@@ -1351,16 +1333,6 @@
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="26 pattern-engine 모듈 신설 사이클 진행 중 (b-1 결정, v3.1.2 직후)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§26. pattern-engine 모듈 신설 사이클 진행 중 (B-1 결정, v3.1.2 직후)</div>
             <div class="backlog-meta">Proposed</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="27 kis ws connect() 누락 결함 (사용자 dogfooding 2026-05-11)" style="border-left:4px solid #666">
-            <div class="backlog-title">§27. KIS WS connect() 누락 결함 (사용자 dogfooding 2026-05-11)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="28 kis ws ssl handshake timeout (사용자 dogfooding 2026-05-11, pr #278 dart 패턴 적용)" style="border-left:4px solid #666">
-            <div class="backlog-title">§28. KIS WS SSL handshake timeout (사용자 dogfooding 2026-05-11, PR #278 DART 패턴 적용)</div>
-            <div class="backlog-meta">Done</div>
           </div>
         
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="29 소켓 데이터 처리 메모리 점검 — bounded growth 5건 (확신 낮음 / 증상 미확정)" style="border-left:4px solid #ff9800">
@@ -1403,16 +1375,6 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="37 t-bt r2 결과 영속 + get/delete endpoint 트랙 ✅ done — pr agent/backend-core/t-bt-r2-persistence (2026-05-12)" style="border-left:4px solid #666">
-            <div class="backlog-title">§37. T-BT R2 결과 영속 + GET/DELETE endpoint 트랙 ✅ DONE — PR agent/backend-core/t-bt-r2-persistence (2026-05-12)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="38 t-bt r3 frontend `/strategy/backtest` 페이지 트랙 ✅ done — pr agent/frontend/t-bt-r3-page (2026-05-12)" style="border-left:4px solid #666">
-            <div class="backlog-title">§38. T-BT R3 frontend `/strategy/backtest` 페이지 트랙 ✅ DONE — PR agent/frontend/t-bt-r3-page (2026-05-12)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="39 t-bt 모델 확장 매트릭스 우선순위 등록 (pr-50 plan — 본 사이클 진행 0, 추후 사이클 발동 의제)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§39. T-BT 모델 확장 매트릭스 우선순위 등록 (PR-50 plan — 본 사이클 진행 0, 추후 사이클 발동 의제)</div>
             <div class="backlog-meta">Proposed</div>
@@ -1431,11 +1393,6 @@
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="42 readme 굴직 비전 트랙 (프로젝트의 꽃 — pr-52 plan 발행, 사용자 결정 대기)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§42. README 굴직 비전 트랙 (프로젝트의 꽃 — PR-52 plan 발행, 사용자 결정 대기)</div>
             <div class="backlog-meta">Proposed</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="43 t-o 주문 실행 (w3 네 번째 트랙, phase 1·2·3 합류 마감 2026-05-18 — adr 0068 accepted 격상)" style="border-left:4px solid #666">
-            <div class="backlog-title">§43. T-O 주문 실행 (W3 네 번째 트랙, Phase 1·2·3 합류 마감 2026-05-18 — ADR 0068 Accepted 격상)</div>
-            <div class="backlog-meta">Done</div>
           </div>
         
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="44 settingsmodal 후속 — kis 키 변경 활성화 + 마스킹된 현재 키 표시 + active session 처리" style="border-left:4px solid #ff9800">
@@ -1498,11 +1455,6 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="56 kis ws opsp8996 error 재발 (v3.6.11 hotfix 마감 2026-05-17)" style="border-left:4px solid #666">
-            <div class="backlog-title">§56. KIS WS OPSP8996 ERROR 재발 (v3.6.11 hotfix 마감 2026-05-17)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="57 naver open api 429 rate limit 17건 동시 — fitness gap (proposed 2026-05-17)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§57. Naver Open API 429 Rate limit 17건 동시 — fitness gap (Proposed 2026-05-17)</div>
             <div class="backlog-meta">Proposed</div>
@@ -1513,29 +1465,9 @@
             <div class="backlog-meta">Proposed</div>
           </div>
         
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="59 worktree git author + task 파일 commit 의무 강화 (안정성 cycle 2 마감 2026-05-18)" style="border-left:4px solid #666">
-            <div class="backlog-title">§59. worktree git author + task 파일 commit 의무 강화 (안정성 Cycle 2 마감 2026-05-18)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="60 consumer candle unique constraint violation race condition (v3.6.12 cut docker logs 1건 발견)" style="border-left:4px solid #ff9800">
             <div class="backlog-title">§60. consumer candle UNIQUE constraint violation race condition (v3.6.12 cut docker logs 1건 발견)</div>
             <div class="backlog-meta">Proposed</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="61 t-o phase 2 미완 — orderrouterkafkalistener repository 미합류 (dogfooding 발견 2026-05-18) ✅ 처리 완료 (2026-05-18 architect)" style="border-left:4px solid #666">
-            <div class="backlog-title">§61. T-O Phase 2 미완 — OrderRouterKafkaListener Repository 미합류 (dogfooding 발견 2026-05-18) ✅ 처리 완료 (2026-05-18 architect)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="62 orderrouterkafkalistener — persistrequested catch 블럭 log 메시지 misleading (dogfooding 발견 2026-05-18 · 처리 완료 2026-05-18)" style="border-left:4px solid #666">
-            <div class="backlog-title">§62. OrderRouterKafkaListener — persistRequested catch 블럭 log 메시지 misleading (dogfooding 발견 2026-05-18 · 처리 완료 2026-05-18)</div>
-            <div class="backlog-meta">Done</div>
-          </div>
-        
-          <div class="backlog-item" data-status="Done" data-recent="false" data-search="63 dogfooding signal seed data 부재 (spec §4.2 gap) — ✅ 본 spec `2026-05-18-to-main-track-entry-plan.md` §4.1 step 4 흡수" style="border-left:4px solid #666">
-            <div class="backlog-title">§63. dogfooding signal seed data 부재 (spec §4.2 gap) — ✅ 본 spec `2026-05-18-to-main-track-entry-plan.md` §4.1 Step 4 흡수</div>
-            <div class="backlog-meta">Done</div>
           </div>
         
           <div class="backlog-item" data-status="Proposed" data-recent="false" data-search="64 t-acct 신규 트랙 — 잔액·예수금·계좌 잔고 사용자 노출 endpoint + ui (사용자 결함 진단 2026-05-18)" style="border-left:4px solid #ff9800">
@@ -2297,9 +2229,9 @@
   <div class="cat-cards">
     <div class="card"><div class="card-title">🤖 ai-engineer</div><div class="card-meta">📄 .claude/agents/ai-engineer.md</div></div><div class="card"><div class="card-title">🤖 architect</div><div class="card-meta">📄 .claude/agents/architect.md</div></div><div class="card"><div class="card-title">🤖 backend-core</div><div class="card-meta">📄 .claude/agents/backend-core.md</div></div><div class="card"><div class="card-title">🤖 frontend</div><div class="card-meta">📄 .claude/agents/frontend.md</div></div><div class="card"><div class="card-title">🤖 market-data</div><div class="card-meta">📄 .claude/agents/market-data.md</div></div><div class="card"><div class="card-title">🤖 qa</div><div class="card-meta">📄 .claude/agents/qa.md</div></div><div class="card"><div class="card-title">🤖 strategy-engine</div><div class="card-meta">📄 .claude/agents/strategy-engine.md</div></div>
   </div>
-  <h3>SKILL 9개</h3>
+  <h3>SKILL 10개</h3>
   <div class="cat-cards">
-    <div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-autopilot</div><div class="card-meta">📄 .claude/skills/magicjar-autopilot/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-ops-monitor</div><div class="card-meta">📄 .claude/skills/magicjar-ops-monitor/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
+    <div class="card"><div class="card-title">🛠 _archive</div><div class="card-meta">📄 .claude/skills/_archive/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-adr</div><div class="card-meta">📄 .claude/skills/magicjar-adr/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-autopilot</div><div class="card-meta">📄 .claude/skills/magicjar-autopilot/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-backtest-engine</div><div class="card-meta">📄 .claude/skills/magicjar-backtest-engine/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-baseline</div><div class="card-meta">📄 .claude/skills/magicjar-baseline/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-chart-curator</div><div class="card-meta">📄 .claude/skills/magicjar-chart-curator/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-direction-guard</div><div class="card-meta">📄 .claude/skills/magicjar-direction-guard/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-kis-openapi</div><div class="card-meta">📄 .claude/skills/magicjar-kis-openapi/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-ops-monitor</div><div class="card-meta">📄 .claude/skills/magicjar-ops-monitor/SKILL.md</div></div><div class="card"><div class="card-title">🛠 magicjar-orchestrator</div><div class="card-meta">📄 .claude/skills/magicjar-orchestrator/SKILL.md</div></div>
   </div>
   <h3>Slash Commands 3개</h3>
   <div class="cat-cards">
@@ -2313,6 +2245,12 @@
     
     <h3>최근 5건 highlight</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.15.0</div>
+          <div class="adr-title">v3.15.0 — 2026-07-03 전 영역 시스템 감사 일괄조치 minor cut</div>
+          <div class="adr-meta">2026-07-05</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.14.3</div>
@@ -2338,17 +2276,13 @@
           <div class="adr-meta">2026-06-21</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.13.7</div>
-          <div class="adr-title">v3.13.7 — v3.13.7 릴리즈</div>
-          <div class="adr-meta">2026-06-18</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.15.0">v3.15.0</a></td><td>2026-07-05</td><td>v3.15.0 — 2026-07-03 전 영역 시스템 감사 일괄조치 minor cut</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.3">v3.14.3</a></td><td>2026-06-30</td><td>v3.14.3 — v3.14.3 릴리즈</td></tr>
         
@@ -2407,8 +2341,6 @@
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.19">v3.6.19</a></td><td>2026-05-19</td><td>v3.6.19 — v3.6.19 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.18">v3.6.18</a></td><td>2026-05-19</td><td>v3.6.18 — v3.6.18 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.17">v3.6.17</a></td><td>2026-05-18</td><td>v3.6.17 — v3.6.17 릴리즈</td></tr>
         
       </tbody>
     </table>
