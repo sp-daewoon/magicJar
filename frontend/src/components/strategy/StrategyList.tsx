@@ -19,6 +19,7 @@ const FILTER_EMPTY_LABEL: Record<StrategyStatus, string> = {
   BUY_BLOCKED: '매수차단',
   PAUSED: '중지',
   DISABLED: '보호중지',
+  ARCHIVED: '보관',
   DELETED: '삭제됨',
 }
 
@@ -74,7 +75,9 @@ export function StrategyList({ userId, filter, query, favoriteIds }: StrategyLis
   const filtered = useMemo(
     () =>
       filter === 'ALL'
-        ? allStrategies.filter((s) => s.status !== 'DELETED')
+        // '전체'를 포함한 일상 목록은 ARCHIVED·DELETED를 모두 제외한다.
+        // 보관함은 '보관함'(ARCHIVED) 탭에서만 노출된다(일상 목록에서 완전히 치움).
+        ? allStrategies.filter((s) => s.status !== 'DELETED' && s.status !== 'ARCHIVED')
         : allStrategies.filter((s) => s.status === (filter as StrategyStatus)),
     [allStrategies, filter],
   )
@@ -157,6 +160,17 @@ export function StrategyList({ userId, filter, query, favoriteIds }: StrategyLis
   // ── 빈 목록 ──
   if (filtered.length === 0) {
     const isSearching = !!query?.q?.trim()
+    // 보관함 탭의 빈 상태는 '빌더 열기' CTA 없이 안내만 (일상 목록과 성격이 다름)
+    if (filter === 'ARCHIVED' && !isSearching) {
+      return (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-gray-700 bg-gray-900/40 py-16 text-center">
+          <p className="text-sm text-gray-400">보관된 전략이 없습니다.</p>
+          <p className="text-xs text-gray-500">
+            전략 카드의 &lsquo;보관&rsquo; 버튼을 누르면 일상 목록에서 치워 여기로 옮길 수 있습니다.
+          </p>
+        </div>
+      )
+    }
     return (
       <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-gray-700 bg-gray-900/40 py-16 text-center">
         <p className="text-sm text-gray-400">

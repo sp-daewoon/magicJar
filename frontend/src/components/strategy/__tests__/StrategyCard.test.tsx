@@ -16,6 +16,8 @@ const navigateMock = vi.fn()
 const showToastMock = vi.fn()
 const toggleMutateMock = vi.fn()
 const favoriteMutateMock = vi.fn()
+const archiveMutateMock = vi.fn()
+const unarchiveMutateMock = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -30,6 +32,8 @@ vi.mock('../../../api/hooks/useSigStrategy', () => ({
   useToggleSigStrategyStatus: () => ({ mutate: toggleMutateMock, isPending: false, isError: false }),
   useDeleteSigStrategy: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
   useToggleListFavorite: () => ({ mutate: favoriteMutateMock, isPending: false, isError: false }),
+  useArchiveSigStrategy: () => ({ mutate: archiveMutateMock, isPending: false, isError: false }),
+  useUnarchiveSigStrategy: () => ({ mutate: unarchiveMutateMock, isPending: false, isError: false }),
 }))
 
 vi.mock('../../../stores/onboarding', () => ({

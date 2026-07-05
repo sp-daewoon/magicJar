@@ -121,6 +121,35 @@ export function useToggleSigStrategyStatus() {
   })
 }
 
+/**
+ * 전략 보관(archive) mutation — status → ARCHIVED, 일상 목록에서 제외.
+ * 보유 포지션·미체결 주문 존재 시 백엔드가 409 + 한국어 사유를 반환한다(호출부에서 토스트).
+ * 성공 시 목록 캐시 무효화로 보관함/일상 목록 양쪽이 즉시 재정렬된다.
+ */
+export function useArchiveSigStrategy() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => sigStrategyApi.archive(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SIG_STRATEGY_LIST_KEY })
+    },
+  })
+}
+
+/**
+ * 전략 보관 해제(unarchive) mutation — status → PAUSED(중지)로 복귀.
+ * 자동매매 재시작은 사용자가 별도로 눌러야 한다(꺼내기 = 중지 상태 복귀만).
+ */
+export function useUnarchiveSigStrategy() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => sigStrategyApi.unarchive(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SIG_STRATEGY_LIST_KEY })
+    },
+  })
+}
+
 /** 일괄 상태 변경 1건 결과 (부분 실패 graceful 보고용) */
 export interface BulkStatusResult {
   id: string
