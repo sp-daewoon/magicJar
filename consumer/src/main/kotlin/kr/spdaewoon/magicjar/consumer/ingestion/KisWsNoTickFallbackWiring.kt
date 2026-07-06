@@ -29,6 +29,10 @@ class KisWsNoTickFallbackWiring(
                 fallbackServiceProvider.ifAvailable?.submit(code = code, ageSeconds = ageSeconds)
             }
         }
-        log.info("KIS WS 무tick fallback hook register 완료 (H0UNCNT0 silent → 1m REST 보완)")
+        // silent→active 전이 시 만성 silent 백오프를 리셋(정상 cadence 복귀).
+        webSocketBridge.onTickResumed = { code ->
+            fallbackServiceProvider.ifAvailable?.onTickResumed(code)
+        }
+        log.info("KIS WS 무tick fallback hook register 완료 (H0UNCNT0 silent → 1m REST 보완 · tick 재개 시 백오프 리셋)")
     }
 }

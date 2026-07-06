@@ -268,6 +268,11 @@ magicjar:
       # NOTE: 무tick self-heal 재구독(no-tick-resubscribe-* / no-tick-reset-resubscribe-*)은 2026-06-18 제거됨.
       #   라이브 실증에서 효과 0(후성 093370 self-heal 111회 전부 ageSeconds=208 고정·tick 0회 회복) + churn 잔소음.
       #   무tick 감지·WARN·1m REST 보완은 watchdog가 유지하며, WS stale 보강은 ActiveStrategyCandleFeedPoller가 담당.
+      # 만성 silent 종목 fallback 지수 백오프 (071970·013580 등 분당 tick 거의 없는 저유동성 종목이 매분 fallback REST를
+      #   유발해 KIS 공유 TPS(EGW00201)를 반복 소모하는 것을 완화). 진전 없는 연속 실패마다 다음 fallback 자격 시각을
+      #   base→2×→…cap 으로 늘리고, 신선한 봉 유입 또는 실시간 tick 재개 시 즉시 base 로 리셋(데이터 신선도 보호).
+      no-tick-fallback-backoff-base-seconds: ${MAGICJAR_KIS_WS_NO_TICK_FALLBACK_BACKOFF_BASE_SECONDS:60}
+      no-tick-fallback-backoff-cap-seconds: ${MAGICJAR_KIS_WS_NO_TICK_FALLBACK_BACKOFF_CAP_SECONDS:600}
       # unsubscribe grace(ms) — demand 0이 돼도 이 시간 sticky 유지 후 실제 KIS UNSUBSCRIBE (churn 억제).
       #   단타 전략 포지션 flip(sub→unsub→sub 분 단위 반복)이 KIS 스트리밍 상태를 stuck시키는 근본 churn을 없앤다.
       #   grace 안에 demand 재진입 시 unsubscribe 취소(wire 왕복 0). slot 예산 침해 0(잔류 구독은 evict 후보).
