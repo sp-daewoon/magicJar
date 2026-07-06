@@ -200,6 +200,50 @@ describe('useStompReconnect', () => {
     expect(String(orderToastCalls[0][0])).toContain('13,550')
   })
 
+  it('qty drift 정합: 백엔드 계약 필드(qty·rejectReason)로 온 REQUESTED 는 실수량 표시 (0주 회귀 방지)', async () => {
+    mocks.getUnreadCount.mockImplementation((_userId: number, _since: string, channel: string) => {
+      if (channel === 'order') {
+        return Promise.resolve({
+          count: 1,
+          firstTs: '2026-07-06T00:55:00Z',
+          lastTs: '2026-07-06T00:55:00Z',
+          since,
+          channel,
+        })
+      }
+      return Promise.resolve({ count: 0, firstTs: null, lastTs: null, since, channel })
+    })
+    mocks.list.mockImplementation((_userId: number, _since: string, _limit: number, channel: string) => {
+      if (channel !== 'order') return Promise.resolve([])
+      return Promise.resolve([
+        {
+          id: 101,
+          userId,
+          channel: 'order',
+          eventType: 'REQUESTED',
+          // StompOrderNotifier(OrderStompPayload) 실계약 — qty(quantity 아님)·limitPrice 문자열
+          payloadJson:
+            '{"event":"REQUESTED","code":"014910","side":"BUY","qty":9,"priceType":"LIMIT","limitPrice":"2775"}',
+          createdAt: '2026-07-06T00:55:00Z',
+        },
+      ])
+    })
+
+    renderHook(() => useStompReconnect({ userId }))
+
+    await waitFor(() => {
+      expect(mocks.showToast).toHaveBeenCalled()
+    })
+
+    const orderToastCalls = mocks.showToast.mock.calls.filter((call) =>
+      String(call[0]).includes('주문 접수'),
+    )
+    expect(orderToastCalls).toHaveLength(1)
+    expect(String(orderToastCalls[0][0])).toContain('014910')
+    expect(String(orderToastCalls[0][0])).toContain('매수 9주')
+    expect(String(orderToastCalls[0][0])).not.toContain('0주')
+  })
+
   it('결함 3-B: missedCount=0 이어도 lastSeenAt 을 now 로 갱신 (anchor 누적 보장)', async () => {
     mocks.getUnreadCount.mockImplementation((_userId: number, _since: string, channel: string) =>
       Promise.resolve({ count: 0, firstTs: null, lastTs: null, since, channel }),

@@ -32,7 +32,7 @@ import {
   type StompBackfillChannel,
   type StompEventDto,
 } from '../stompBackfill'
-import type { OrderStompPayload } from './useStompOrder'
+import { orderQty, orderRejectReason, type OrderStompPayload } from './useStompOrder'
 import type { SignalDto } from '../signal'
 import type { RiskEventDto } from '../risk'
 import { buildRiskToastMessage } from '../riskAlertMessage'
@@ -129,27 +129,27 @@ function buildBackfillOrderToast(
   switch (p.event) {
     case 'REQUESTED':
       return {
-        message: `${prefix}주문 접수 — ${code} ${sideLabel(p.side)} ${p.quantity ?? 0}주`,
+        message: `${prefix}주문 접수 — ${code} ${sideLabel(p.side)} ${orderQty(p) ?? 0}주`,
         type: 'info',
       }
     case 'FILLED': {
       // 결함 3-A: 옛 데이터(qty=null) graceful skip
-      if (p.quantity == null && p.executedQty == null) return null
+      if (orderQty(p) == null && p.executedQty == null) return null
       return {
         message: p.partial
-          ? `${prefix}부분 체결 — ${code} ${p.executedQty ?? 0}/${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`
-          : `${prefix}체결 완료 — ${code} ${p.quantity ?? 0}주 @ ${formatPrice(p.executedPrice)}원`,
+          ? `${prefix}부분 체결 — ${code} ${p.executedQty ?? 0}/${orderQty(p) ?? 0}주 @ ${formatPrice(p.executedPrice)}원`
+          : `${prefix}체결 완료 — ${code} ${orderQty(p) ?? 0}주 @ ${formatPrice(p.executedPrice)}원`,
         type: p.partial ? 'warning' : 'success',
       }
     }
     case 'REJECTED':
       return {
-        message: `${prefix}주문 거절 — ${code}: ${p.reason ?? ''}`,
+        message: `${prefix}주문 거절 — ${code}: ${orderRejectReason(p) ?? ''}`,
         type: 'error',
       }
     case 'CANCELLED':
       return {
-        message: `${prefix}주문 취소 — ${code} ${p.quantity ?? 0}주`,
+        message: `${prefix}주문 취소 — ${code} ${orderQty(p) ?? 0}주`,
         type: 'info',
       }
     default:

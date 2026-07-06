@@ -35,12 +35,29 @@ export interface OrderStompPayload {
   orderId?: number
   code?: string
   side?: 'BUY' | 'SELL'
+  /** 주문 수량 — 백엔드 OrderStompPayload.qty (StompOrderNotifier 계약) */
+  qty?: number
+  /** legacy 필드 — PR #636 이전 stomp_event 영속 row replay 호환 전용 */
   quantity?: number
   executedQty?: number
-  executedPrice?: number
+  /** 백엔드는 String으로 직렬화 — number legacy 호환 */
+  executedPrice?: number | string
   partial?: boolean
+  /** 거절 사유 — 백엔드 필드명 rejectReason */
+  rejectReason?: string
+  /** legacy 필드 — 옛 payload replay 호환 전용 */
   reason?: string
   ts?: string
+}
+
+/** 백엔드 qty 우선, 옛 영속 row의 quantity 폴백 */
+export function orderQty(msg: OrderStompPayload): number | undefined {
+  return msg.qty ?? msg.quantity
+}
+
+/** 백엔드 rejectReason 우선, 옛 payload의 reason 폴백 */
+export function orderRejectReason(msg: OrderStompPayload): string | undefined {
+  return msg.rejectReason ?? msg.reason
 }
 
 export interface UseStompOrderOptions {
@@ -63,9 +80,11 @@ export interface UseStompOrderResult {
 // 유틸
 // ──────────────────────────────────────────────
 
-function formatPrice(price: number | undefined): string {
+function formatPrice(price: number | string | undefined): string {
   if (price === undefined || price === null) return ''
-  return price.toLocaleString('ko-KR')
+  const n = typeof price === 'string' ? Number(price) : price
+  if (Number.isNaN(n)) return String(price)
+  return n.toLocaleString('ko-KR')
 }
 
 function sideLabel(side: 'BUY' | 'SELL' | undefined): string {
@@ -82,28 +101,28 @@ function buildOrderToast(
   switch (msg.event) {
     case 'REQUESTED':
       return {
-        message: `주문 접수 — ${code} ${sideLabel(msg.side)} ${msg.quantity ?? 0}주`,
+        message: `주문 접수 — ${code} ${sideLabel(msg.side)} ${orderQty(msg) ?? 0}주`,
         type: 'info',
       }
     case 'FILLED':
       if (msg.partial) {
         return {
-          message: `부분 체결 — ${code} ${msg.executedQty ?? 0}/${msg.quantity ?? 0}주 @ ${formatPrice(msg.executedPrice)}원`,
+          message: `부분 체결 — ${code} ${msg.executedQty ?? 0}/${orderQty(msg) ?? 0}주 @ ${formatPrice(msg.executedPrice)}원`,
           type: 'warning',
         }
       }
       return {
-        message: `체결 완료 — ${code} ${msg.quantity ?? 0}주 @ ${formatPrice(msg.executedPrice)}원`,
+        message: `체결 완료 — ${code} ${orderQty(msg) ?? 0}주 @ ${formatPrice(msg.executedPrice)}원`,
         type: 'success',
       }
     case 'REJECTED':
       return {
-        message: `주문 거절 — ${code}: ${msg.reason ?? ''}`,
+        message: `주문 거절 — ${code}: ${orderRejectReason(msg) ?? ''}`,
         type: 'error',
       }
     case 'CANCELLED':
       return {
-        message: `주문 취소 — ${code} ${msg.quantity ?? 0}주`,
+        message: `주문 취소 — ${code} ${orderQty(msg) ?? 0}주`,
         type: 'info',
       }
     default:
