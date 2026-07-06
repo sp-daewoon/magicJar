@@ -742,6 +742,8 @@ class StrategyService(
         when (node) {
             is IndicatorRef -> AstStats(depth, 1, 1)
             is kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue -> AstStats(depth, 1, 0)
+            // TrendlineRef — anchor 참조 leaf, indicator 예산 0 (ADR 0140 §3-1)
+            is kr.spdaewoon.magicjar.domain.strategy.dsl.TrendlineRef -> AstStats(depth, 1, 0)
             is kr.spdaewoon.magicjar.domain.strategy.dsl.ArithmeticExpr -> {
                 val left = collectStats(node.left, depth + 1)
                 val right = collectStats(node.right, depth + 1)

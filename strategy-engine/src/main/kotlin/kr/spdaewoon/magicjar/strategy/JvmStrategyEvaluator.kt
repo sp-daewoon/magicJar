@@ -18,6 +18,9 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LogicalOperator
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Operator
+import kr.spdaewoon.magicjar.domain.strategy.dsl.TrendlineGeometry
+import kr.spdaewoon.magicjar.domain.strategy.dsl.TrendlineRef
+import kr.spdaewoon.magicjar.domain.strategy.port.TrendlinePricePort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
@@ -63,6 +66,14 @@ class JvmStrategyEvaluator(
     @Value("\${magicjar.dsl.cpu-budget-ms:50}") private val cpuBudgetMs: Long,
     @Value("\${magicjar.dsl.backtest-timeout-ms:1000}") private val backtestTimeoutMs: Long,
     @Value("\${magicjar.dsl.cpu-budget-violation-threshold:5}") private val cpuBudgetViolationThreshold: Int,
+    /**
+     * 추세선 anchor 조회 port (ADR 0140 §3-2). **선택적 주입(nullable)** — 구현 빈(R2 backend-core JPA
+     * 어댑터)이 아직 합류하지 않은 사이(R1 단독 배포)에도 consumer/api ApplicationContext 부팅이 실패하지
+     * 않도록 한다(Spring은 nullable 파라미터를 optional 주입으로 취급). bean 부재 시 TrendlineRef 평가는
+     * ERROR 로그 + 조건 false로 처리(§11-2 silent fallback 금지). 생성자 끝에 default null로 두어 기존
+     * positional 호출부(테스트)와 호환.
+     */
+    private val trendlinePricePort: TrendlinePricePort? = null,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -270,6 +281,16 @@ class JvmStrategyEvaluator(
                         evalTimeMs = 0,
                     )
                 }
+                is NullEval -> {
+                    // top-level TrendlineRef 비활성(선 범위 밖·부재) — 조건 미충족 = HOLD (자본 안전).
+                    StrategyEvalResult(
+                        signal = Signal.HOLD,
+                        strength = BigDecimal.ZERO,
+                        reason = walked.reason,
+                        evaluatedAt = now,
+                        evalTimeMs = 0,
+                    )
+                }
             }
         } catch (e: StrategyException.InsufficientCandlesException) {
             StrategyEvalResult(
@@ -298,6 +319,14 @@ class JvmStrategyEvaluator(
         val label: String = "",
     ) : EvalValue()
 
+    /**
+     * 값이 없음(선 범위 밖·선 부재·port 부재) — 이 operand를 포함하는 Condition은 operator 무관 false.
+     * ADR 0140 §3-6: TrendlineRef가 비활성일 때 조건을 강제 false로 유도한다.
+     */
+    private data class NullEval(
+        val reason: Map<String, Any>,
+    ) : EvalValue()
+
     private fun walk(
         node: DslNode,
         candles: List<Candle>,
@@ -307,6 +336,7 @@ class JvmStrategyEvaluator(
             is Condition -> evalCondition(node, candles)
             is ArithmeticExpr -> evalArithmetic(node, candles)
             is IndicatorRef -> evalIndicator(node, candles)
+            is TrendlineRef -> evalTrendline(node, candles)
             is LiteralValue -> NumEval(node.normalized(), label = node.value.toPlainString())
         }
 
@@ -355,6 +385,8 @@ class JvmStrategyEvaluator(
         // THRESHOLD — 일반 비교
         val lhs = walk(node.left, candles)
         val rhs = walk(node.right, candles)
+        // 선 비활성(범위 밖·부재) operand → operator 무관 조건 false (ADR 0140 §3-6)
+        nullOperandFalse(lhs, rhs)?.let { return it }
         if (lhs !is NumEval || rhs !is NumEval) {
             throw StrategyException.DslSyntaxException(
                 "Threshold operands must be numeric: ${node.operator} got ${lhs::class.simpleName}, ${rhs::class.simpleName}",
@@ -454,6 +486,8 @@ class JvmStrategyEvaluator(
         val rhsLast = walk(node.right, lastCandles)
         val lhsPrev = walk(node.left, prevCandles)
         val rhsPrev = walk(node.right, prevCandles)
+        // 선 비활성(범위 밖·부재) — 어느 시점이든 값 부재면 교차 판정 불가 → false (ADR 0140 §3-6)
+        nullOperandFalse(lhsLast, rhsLast, lhsPrev, rhsPrev)?.let { return it }
         if (lhsLast !is NumEval || rhsLast !is NumEval || lhsPrev !is NumEval || rhsPrev !is NumEval) {
             throw StrategyException.DslSyntaxException("Crossover operands must be numeric")
         }
@@ -488,6 +522,8 @@ class JvmStrategyEvaluator(
     ): EvalValue {
         val lhs = walk(node.left, candles)
         val rhs = walk(node.right, candles)
+        // 선 비활성(범위 밖·부재) operand → 조건 false (ADR 0140 §3-6)
+        nullOperandFalse(lhs, rhs)?.let { return it }
         if (lhs !is NumEval || rhs !is NumEval) {
             throw StrategyException.DslSyntaxException("Breakout operands must be numeric")
         }
@@ -510,6 +546,9 @@ class JvmStrategyEvaluator(
     ): EvalValue {
         val l = walk(node.left, candles)
         val r = walk(node.right, candles)
+        // 선 비활성 operand → NullEval 상위 전파(감싼 Condition에서 false로 접힘, ADR 0140 §3-6)
+        (l as? NullEval)?.let { return it }
+        (r as? NullEval)?.let { return it }
         if (l !is NumEval || r !is NumEval) {
             throw StrategyException.DslSyntaxException("Arithmetic operands must be numeric")
         }
@@ -526,6 +565,61 @@ class JvmStrategyEvaluator(
                     }
             }
         return NumEval(result, label = "(${l.label} ${node.operator.symbol} ${r.label})")
+    }
+
+    /**
+     * 첫 [NullEval] operand를 조건 false로 접는다(ADR 0140 §3-6). null operand 없으면 null 반환(정상 비교 진행).
+     * TrendlineRef 비활성 시 operator 무관하게 조건을 false로 만든다 = 자본 안전(BUY 안 함).
+     */
+    private fun nullOperandFalse(vararg operands: EvalValue): BoolEval? {
+        val nullOperand = operands.firstOrNull { it is NullEval } as? NullEval ?: return null
+        return BoolEval(false, nullOperand.reason)
+    }
+
+    /**
+     * 추세선 참조 평가 (ADR 0140 §3-1·§3-6).
+     *
+     * 평가 시점 = 마지막 캔들 ts. port로 anchor 조회 → [TrendlineGeometry.priceAt] 선형보간 → NumEval.
+     * - port bean 부재 → ERROR 로그 + [NullEval](§11-2 silent fallback 금지, 조건 false 유도).
+     * - 선 부재(anchorsOf null) → ERROR 로그 + [NullEval].
+     * - 선 범위 밖(priceAt null) → [NullEval](TRENDLINE_OUT_OF_RANGE, ERROR 아님 = 정상 비활성).
+     */
+    private fun evalTrendline(
+        ref: TrendlineRef,
+        candles: List<Candle>,
+    ): EvalValue {
+        val port = trendlinePricePort
+        if (port == null) {
+            log.error(
+                "TrendlineRef({}) 평가 요청됐으나 TrendlinePricePort bean 미주입 — 조건 강제 false (silent fallback 금지 §11-2)",
+                ref.trendlineId,
+            )
+            return NullEval(mapOf("trigger" to "TRENDLINE_PORT_MISSING", "trendlineId" to ref.trendlineId))
+        }
+        val anchors = port.anchorsOf(ref.trendlineId)
+        if (anchors == null) {
+            log.error(
+                "TrendlineRef({}) 선 조회 실패(부재/삭제) — 조건 강제 false (silent fallback 금지 §11-2)",
+                ref.trendlineId,
+            )
+            return NullEval(mapOf("trigger" to "TRENDLINE_NOT_FOUND", "trendlineId" to ref.trendlineId))
+        }
+        val ts = candles.lastOrNull()?.ts
+        if (ts == null) {
+            return NullEval(mapOf("trigger" to "TRENDLINE_NO_CANDLE", "trendlineId" to ref.trendlineId))
+        }
+        val price = TrendlineGeometry.priceAt(anchors, ts)
+        if (price == null) {
+            // 선 범위 밖 = 정상 비활성(에러 아님). 조건 false 유도.
+            return NullEval(
+                mapOf(
+                    "trigger" to "TRENDLINE_OUT_OF_RANGE",
+                    "trendlineId" to ref.trendlineId,
+                    "ts" to ts.toString(),
+                ),
+            )
+        }
+        return NumEval(price, label = "trendline(${ref.trendlineId})")
     }
 
     private fun evalIndicator(

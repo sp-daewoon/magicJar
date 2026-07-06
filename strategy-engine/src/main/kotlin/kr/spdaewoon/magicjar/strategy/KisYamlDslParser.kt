@@ -18,6 +18,7 @@ import kr.spdaewoon.magicjar.domain.strategy.dsl.IndicatorRef
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LiteralValue
 import kr.spdaewoon.magicjar.domain.strategy.dsl.LogicalOperator
 import kr.spdaewoon.magicjar.domain.strategy.dsl.Operator
+import kr.spdaewoon.magicjar.domain.strategy.dsl.TrendlineRef
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -411,6 +412,16 @@ class KisYamlDslParser(
                         }
                     }
                     expect("RPAREN")
+                    // 추세선 참조 분기 (ADR 0140 §3-1) — `trendline(123)` 만 TrendlineRef로 전환.
+                    // 다른 식별자는 기존 IndicatorRef 파싱 무영향.
+                    if (name == "trendline") {
+                        val id =
+                            (args.singleOrNull() as? Number)?.toLong()
+                                ?: throw StrategyException.DslSyntaxException(
+                                    "trendline() requires exactly one numeric id argument, got: $args",
+                                )
+                        return TrendlineRef(id)
+                    }
                     return IndicatorRef(name, args)
                 }
                 // bare identifier — 캔들 직접 접근 (close · prev_close · ...)
@@ -483,6 +494,9 @@ class KisYamlDslParser(
                 }
                 is LiteralValue -> {
                     // leaf
+                }
+                is TrendlineRef -> {
+                    // leaf — anchor 참조 노드. indicator 예산·화이트리스트 무관 (ADR 0140 §3-1).
                 }
                 is ArithmeticExpr -> {
                     walk(node.left, depth + 1)

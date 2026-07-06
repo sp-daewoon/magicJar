@@ -34,6 +34,8 @@ data class Condition(
         when (node) {
             is IndicatorRef -> node.requiredDays()
             is ArithmeticExpr -> maxOf(extract(node.left), extract(node.right))
+            // TrendlineRef는 anchor 기반(캔들 lookback 무관) → 0 (ADR 0140 §3-1, spec R1-7).
+            is TrendlineRef -> 0
             else -> 0
         }
 }
