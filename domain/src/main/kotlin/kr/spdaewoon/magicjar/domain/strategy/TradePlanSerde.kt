@@ -50,6 +50,9 @@ object TradePlanSerde {
     const val KEY_SL_PCT = "slPct"
     const val KEY_SL_PRICE = "slPrice"
 
+    /** 추세선 손절 참조 선 id (ADR 0140 §3-4 R2b · trade_plan JSONB "trendline_sl_ref"). */
+    const val KEY_SL_TRENDLINE_ID = "trendlineId"
+
     // ── trailing keys ──
     const val KEY_TRAIL_ENABLED = "enabled"
     const val KEY_TRAIL_ACTIVATE_PCT = "activatePct"
@@ -154,6 +157,7 @@ object TradePlanSerde {
             put(KEY_STOP_TYPE, stop.type.name)
             stop.slPct?.let { put(KEY_SL_PCT, it.toPlainString()) }
             stop.slPrice?.let { put(KEY_SL_PRICE, it.toPlainString()) }
+            stop.trendlineId?.let { put(KEY_SL_TRENDLINE_ID, it) }
         }
 
     private fun stopFromMap(map: Map<String, Any?>): TradePlanStop =
@@ -161,6 +165,7 @@ object TradePlanSerde {
             type = stopTypeOrDefault(map[KEY_STOP_TYPE]),
             slPct = bigDecimalOrNull(map[KEY_SL_PCT]),
             slPrice = bigDecimalOrNull(map[KEY_SL_PRICE]),
+            trendlineId = longOrNull(map[KEY_SL_TRENDLINE_ID])?.takeIf { it > 0 },
         )
 
     // ── trailing ──

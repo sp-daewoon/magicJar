@@ -54,6 +54,24 @@ class TradePlanEvaluatorTest {
     }
 
     @Test
+    fun `TRENDLINE 손절 — 재박제된 slPrice 가 SL 라인 권위(slPct 없이 slPrice 사용)`() {
+        // ADR 0140 §3-4 R2b — 봉 경계 재박제로 갱신되는 TRENDLINE 손절은 slPct 없이 slPrice(선 가격)를 그대로 쓴다.
+        val p =
+            plan(
+                stop =
+                    TradePlanStop(
+                        type = kr.spdaewoon.magicjar.domain.strategy.TradePlanStopType.TRENDLINE,
+                        slPrice = BigDecimal("9700"),
+                        trendlineId = 77L,
+                    ),
+            )
+        val sl = TradePlanEvaluator.stopPriceOf(p, avg)!!
+        assertThat(sl.compareTo(BigDecimal("9700"))).isEqualTo(0) // slPrice 그대로(호가단위 위).
+        val d = TradePlanEvaluator.evaluate(p, state(price = BigDecimal("9700")))
+        assertThat(d?.reason).isEqualTo(TradePlanEvaluator.ExitReason.SL) // SL 최우선 유지(회귀 0).
+    }
+
+    @Test
     fun `SL 미발화 — 손절가 초과면 청산 없음`() {
         val p = plan(stop = TradePlanStop(slPct = BigDecimal("2.0")))
         val d = TradePlanEvaluator.evaluate(p, state(price = avg)) // 평단=현재가 → 손절선 위.

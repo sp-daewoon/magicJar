@@ -15,8 +15,12 @@ import kr.spdaewoon.magicjar.domain.position.port.StrategyPositionPort
 import kr.spdaewoon.magicjar.domain.strategy.TradePlan
 import kr.spdaewoon.magicjar.domain.strategy.TradePlanSerde
 import kr.spdaewoon.magicjar.domain.strategy.TradePlanStatus
+import kr.spdaewoon.magicjar.domain.strategy.TradePlanStopType
+import kr.spdaewoon.magicjar.domain.strategy.dsl.TrendlineGeometry
+import kr.spdaewoon.magicjar.domain.strategy.port.TrendlinePricePort
 import kr.spdaewoon.magicjar.strategy.MinHoldGuard
 import kr.spdaewoon.magicjar.strategy.TradePlanEvaluator
+import kr.spdaewoon.magicjar.strategy.TrendlineStopRestamp
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -81,6 +85,9 @@ class PlanExecutor(
     // 감사 §6 P2-4 — 트레일링 고점(highWatermark) trade_plan JSONB 영속 write 스로틀(초).
     @Value("\${magicjar.autopilot.planned-entry.high-watermark-persist-interval-seconds:60}")
     private val highWatermarkPersistIntervalSeconds: Long = 60,
+    // ADR 0140 §3-4 R2b — 추세선 손절 봉 경계 재박제용 선 anchor 조회 port(persistence-shared 합류·optional).
+    //   bean 부재(일부 테스트 컨텍스트) 시 재박제 skip + ERROR 로그(§11-2 silent 금지). 재박제 미수행은 마지막 박제값 보호 유지.
+    private val trendlinePricePortProvider: ObjectProvider<TrendlinePricePort>? = null,
 ) {
     private val log = LoggerFactory.getLogger(PlanExecutor::class.java)
 
@@ -319,6 +326,182 @@ class PlanExecutor(
                 lot.code,
                 e.message,
             )
+        }
+    }
+
+    /**
+     * 추세선 손절 봉 경계 재박제 — ADR 0140 §3-4 R2b (선-기반 동적 SL · [TrendlineStopBoundaryListener] 진입점).
+     *
+     * ## 왜 봉 경계인가 (ADR 0140 §3-4 보수안 LOCK)
+     * 기울어진 추세선은 시간에 따라 기준 가격이 변한다. tick 수준 선형보간(매 tick 선 가격 재계산 즉시 손절)은 후속
+     * 과제로 명시 보류하고(§4·§5), **봉 경계(BoundaryClosed)마다** 선형보간 가격을 [TradePlan.stop] 의 slPrice 로 재박제한다.
+     * tick 평가([evaluate] → [TradePlanEvaluator.stopPriceOf])는 변경 없이 **박제된 slPrice 상수**만 보므로, 기존 손절 구조·
+     * 우선순위(SL>MAX_HOLD>exitConditions>TP>TRAIL)는 그대로 재사용된다. 재박제 산식·안전 가드는 strategy-engine
+     * 순수 함수 [TrendlineStopRestamp] 가 격리(단위 테스트로 상향/하향/가드/부재 증명).
+     *
+     * ## 대상 격리 (zero-regression)
+     * planIndex(owner=AUTOPILOT + trade_plan 박제 lot)에서 **`interval` 이 이 봉 경계와 일치**하고 손절이
+     * `type=TRENDLINE`+trendlineId 를 참조하는 lot 만 대상. FIXED/ATR 손절·타 interval lot 은 무영향(선-기반 아님).
+     * 게이트 off([enabled]==false) 면 planIndex 가 비어 자연 no-op.
+     *
+     * ## 갱신 반영 (in-memory + DB 이중)
+     * 재박제 값은 (1) DB trade_plan JSONB 에 upsert 해 재기동/refresh rehydrate 하고, (2) 인메모리 planIndex lot 도
+     * 즉시 교체해 다음 tick 평가가 새 slPrice 를 곧바로 본다(refresh(≤30s) 지연 회피). status≠OPEN(청산 중/완료) lot 은 skip.
+     *
+     * @param code 봉 경계가 마감된 종목.
+     * @param interval 마감된 봉 interval — 이 interval 로 진입 박제된 lot 만 재박제(봉 단위 정합).
+     * @param boundaryTs 마감 봉 ts(kotlinx Instant) — [TrendlineGeometry.priceAt] 평가 시점.
+     */
+    fun restampTrendlineStops(
+        code: String,
+        interval: CandleInterval,
+        boundaryTs: kotlinx.datetime.Instant,
+    ) {
+        if (!enabled) return
+        val lots = planIndex[code] ?: return
+        val targets =
+            lots.filter {
+                it.interval == interval &&
+                    it.plan.stop?.let { s -> s.type == TradePlanStopType.TRENDLINE && s.trendlineId != null } == true
+            }
+        if (targets.isEmpty()) return
+
+        val port = trendlinePricePortProvider?.ifAvailable
+        if (port == null) {
+            // §11-2 silent fallback 금지 — port 미합류 가시화. 재박제 미수행이나 마지막 박제 slPrice 로 보호는 유지된다.
+            log.error(
+                "PlanExecutor 추세선 손절 재박제 skip: TrendlinePricePort 미합류 — code={} interval={} lots={}",
+                code,
+                interval.code,
+                targets.size,
+            )
+            return
+        }
+
+        targets.forEach { lot ->
+            runCatching { restampOne(lot, port, boundaryTs) }
+                .onFailure { e ->
+                    log.warn(
+                        "PlanExecutor 추세선 손절 재박제 실패(다음 봉 경계 재시도): userId={} strategyId={} code={} err={}",
+                        lot.userId,
+                        lot.strategyId,
+                        lot.code,
+                        e.message,
+                    )
+                }
+        }
+    }
+
+    /** 단일 lot 재박제 — 선 조회 → [TrendlineStopRestamp.decide] → 채택 시 DB+인메모리 갱신. */
+    private fun restampOne(
+        lot: PlannedLot,
+        port: TrendlinePricePort,
+        boundaryTs: kotlinx.datetime.Instant,
+    ) {
+        val stop = lot.plan.stop ?: return
+        val trendlineId = stop.trendlineId ?: return
+        // 선 anchor 조회(캐시) → 선형보간. anchor 부재/범위 밖(priceAt null) → linePrice=null(유지 경로).
+        val anchors = port.anchorsOf(trendlineId)
+        val linePrice = anchors?.let { TrendlineGeometry.priceAt(it, boundaryTs) }
+
+        val decision =
+            TrendlineStopRestamp.decide(
+                entryPrice = lot.plan.entry.entryPrice,
+                currentSlPrice = stop.slPrice,
+                linePrice = linePrice,
+            )
+
+        when (decision) {
+            is TrendlineStopRestamp.Decision.NewPrice -> {
+                if (persistRestampedSl(lot, decision.slPrice)) {
+                    replaceIndexedLotStop(lot, decision.slPrice)
+                    log.info(
+                        "추세선 손절 재박제(봉 경계): userId={} strategyId={} code={} interval={} trendlineId={} prevSl={} newSl={} lineTs={}",
+                        lot.userId,
+                        lot.strategyId,
+                        lot.code,
+                        lot.interval.code,
+                        trendlineId,
+                        stop.slPrice?.toPlainString(),
+                        decision.slPrice.toPlainString(),
+                        boundaryTs,
+                    )
+                }
+            }
+            is TrendlineStopRestamp.Decision.Keep ->
+                when (decision.reason) {
+                    // ② 선 부재/범위 밖/무효 — §11-2 가시화(마지막 박제값 유지·보호 지속).
+                    TrendlineStopRestamp.KeepReason.LINE_UNAVAILABLE,
+                    TrendlineStopRestamp.KeepReason.INVALID_LINE_PRICE,
+                    ->
+                        log.warn(
+                            "추세선 손절 재박제 유지(선 부재/무효 — 마지막 손절가 보호 지속): userId={} strategyId={} code={} trendlineId={} reason={} keptSl={}",
+                            lot.userId,
+                            lot.strategyId,
+                            lot.code,
+                            trendlineId,
+                            decision.reason,
+                            stop.slPrice?.toPlainString(),
+                        )
+                    // 래칫 가드(이익 잠금)·무변 — 정상 유지(debug).
+                    TrendlineStopRestamp.KeepReason.LOCKED_ABOVE_ENTRY,
+                    TrendlineStopRestamp.KeepReason.NO_CHANGE,
+                    ->
+                        log.debug(
+                            "추세선 손절 재박제 유지: userId={} strategyId={} code={} reason={} keptSl={}",
+                            lot.userId,
+                            lot.strategyId,
+                            lot.code,
+                            decision.reason,
+                            stop.slPrice?.toPlainString(),
+                        )
+                }
+        }
+    }
+
+    /**
+     * 재박제 slPrice 를 DB trade_plan JSONB 에 반영(권위 영속). status≠OPEN(청산 중/완료) lot 은 skip(재발화 방지).
+     * @return true = write 성공(인메모리 교체 진행), false = skip/실패(인메모리 불변 — 다음 봉 경계 재시도).
+     */
+    private fun persistRestampedSl(
+        lot: PlannedLot,
+        newSl: java.math.BigDecimal,
+    ): Boolean {
+        val port = strategyPositionPortProvider.ifAvailable ?: return false
+        return runCatching {
+            val current = port.findByUserStrategyCode(lot.userId, lot.strategyId, lot.code) ?: return false
+            val plan = current.tradePlan ?: return false
+            if (plan.status != TradePlanStatus.OPEN) return false
+            val curStop = plan.stop ?: return false
+            if (curStop.slPrice == newSl) return false // 경합 중 이미 동일 — write 절약.
+            port.upsert(
+                current.copy(
+                    tradePlan = plan.copy(stop = curStop.copy(slPrice = newSl)),
+                    updatedAt = current.updatedAt,
+                ),
+            )
+            true
+        }.getOrElse { e ->
+            log.warn(
+                "추세선 손절 재박제 write 실패(인메모리 불변·다음 봉 경계 재시도): userId={} strategyId={} code={} err={}",
+                lot.userId,
+                lot.strategyId,
+                lot.code,
+                e.message,
+            )
+            false
+        }
+    }
+
+    /** 인메모리 planIndex 의 해당 lot 손절 slPrice 를 즉시 교체(다음 tick 평가가 새 손절가를 곧바로 봄). */
+    private fun replaceIndexedLotStop(
+        lot: PlannedLot,
+        newSl: java.math.BigDecimal,
+    ) {
+        val stop = lot.plan.stop ?: return
+        val updated = lot.copy(plan = lot.plan.copy(stop = stop.copy(slPrice = newSl)))
+        planIndex.computeIfPresent(lot.code) { _, lots ->
+            lots.map { if (lotKey(it) == lotKey(lot)) updated else it }
         }
     }
 

@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.strategy.TradePlanStop
 import kr.spdaewoon.magicjar.domain.strategy.TradePlanStopType
 import kr.spdaewoon.magicjar.domain.strategy.TradePlanTarget
 import kr.spdaewoon.magicjar.domain.strategy.TradePlanTrailing
+import kr.spdaewoon.magicjar.strategy.entry.KrxTickSize
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -53,6 +54,10 @@ object TradePlanFactory {
      * @param bar 진입 봉 interval 코드(예 "1m"·"D1"). null = 미기록.
      * @param openedAt 진입(박제) 시각 ISO-8601 문자열. null = 미기록.
      * @param thesis 진입 근거 한 줄(선택, 공백이면 null 로 정규화).
+     * @param stopLossTrendlinePrice 추세선 손절(`definition.stopLossTrendlineId` 지정) 시 진입 시점 선형보간 가격(원, 선택).
+     *   caller(consumer)가 [kr.spdaewoon.magicjar.domain.strategy.port.TrendlinePricePort] 로 진입 봉 ts 선 가격을 조회해
+     *   넘긴다(factory 는 port 무의존 순수성 유지). null 이면 slPrice 미박제 → 첫 봉 경계 재박제가 slPrice 를 확정한다
+     *   (ADR 0140 §3-4 · 봉 경계 재박제 근사). 추세선 손절 미사용(id==null) 전략엔 무영향.
      */
     fun build(
         strategyId: Long,
@@ -61,11 +66,13 @@ object TradePlanFactory {
         bar: String? = null,
         openedAt: String? = null,
         thesis: String? = null,
+        stopLossTrendlinePrice: BigDecimal? = null,
     ): TradePlan {
         val tpPct = definition.takeProfitPct?.takeIf { it > BigDecimal.ZERO }
         val slPct = definition.fixedStopLoss?.takeIf { it > BigDecimal.ZERO }
         val trailPct = definition.trailingStop?.takeIf { it > BigDecimal.ZERO }
         val minHold = definition.minHoldBars?.takeIf { it >= 0 }
+        val stopTrendlineId = definition.stopLossTrendlineId?.takeIf { it > 0 }
 
         val target =
             tpPct?.let {
@@ -74,13 +81,25 @@ object TradePlanFactory {
                     tpPrice = entryPrice.add(entryPrice.multiply(it).divide(HUNDRED, 0, RoundingMode.DOWN)),
                 )
             }
+        // 손절 — 추세선 손절(ADR 0140 §3-4) 우선. 추세선 지정 시 선 가격이 유일 권위이므로 slPct 는 박제하지 않는다
+        //   (봉 경계 재박제가 slPrice 를 갱신 — TrendlineStopRestamp). 진입 시점 선 가격을 caller 가 넘기면 초기 박제,
+        //   못 넘기면 slPrice=null → 첫 봉 경계 재박제가 확정(그 사이 %손절 fallback 없음 — 추세선 손절 전략의 선택).
         val stop =
-            slPct?.let {
+            if (stopTrendlineId != null) {
                 TradePlanStop(
-                    type = TradePlanStopType.FIXED,
-                    slPct = it,
-                    slPrice = entryPrice.subtract(entryPrice.multiply(it).divide(HUNDRED, 0, RoundingMode.UP)),
+                    type = TradePlanStopType.TRENDLINE,
+                    slPct = null,
+                    slPrice = stopLossTrendlinePrice?.takeIf { it > BigDecimal.ZERO }?.let { KrxTickSize.floorToTick(it) },
+                    trendlineId = stopTrendlineId,
                 )
+            } else {
+                slPct?.let {
+                    TradePlanStop(
+                        type = TradePlanStopType.FIXED,
+                        slPct = it,
+                        slPrice = entryPrice.subtract(entryPrice.multiply(it).divide(HUNDRED, 0, RoundingMode.UP)),
+                    )
+                }
             }
         // 감사 부록 A-3 (2026-07-03) — activatePct 없는 트레일링 즉시 무장 금지. 전략에 활성 임계 개념이 없으므로
         //   default = max(trailPct, 1.0%) 수익 도달 후에만 무장한다(진입 직후 스프레드·잡음 고점(+0.8%)에서
