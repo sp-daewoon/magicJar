@@ -70,7 +70,7 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.16.0</div>
+      <div class="value">v3.17.0</div>
       <div class="sub">2026-07-06</div>
     </div>
     <div class="banner-card cycle">
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>chore(release): v3.16.0 — 보관함·가이드·추세매매 Phase 1 min</div>
+    <div>test(qa): s16 추세매매 Phase2 R3 Visual 회귀 가드 spec (6  → chore(release): v3.17.0 — 추세매매 Phase 2 + 운영 수선 min</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">637 lines · 갱신 2026-07-06</div>
+        <div class="card-meta">638 lines · 갱신 2026-07-06</div>
       </div>
     
       <div class="card">
@@ -143,6 +143,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0140</div>
+          <div class="adr-title">기울어진 추세선 라이브 매매 연동 (TrendlineRef DSL 노드)</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0139</div>
           <div class="adr-title">KIS rate limiter 공유 모듈 승격 (3중 복붙 단일화 계획)</div>
           <div class="adr-meta">Accepted · -</div>
@@ -166,20 +172,21 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0135</div>
-          <div class="adr-title">Trailing Stop 영속 (strategy.trailing_stop_pct)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 135건 (검색·정렬 가능)</h3>
+    <h3>전체 136건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="140 기울어진 추세선 라이브 매매 연동 (trendlineref dsl 노드) accepted">
+            <td>0140</td>
+            <td><a href="_workspace/arch/adr/0140-trendline-ref-dsl-live-trading.md">기울어진 추세선 라이브 매매 연동 (TrendlineRef DSL 노드)</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="139 kis rate limiter 공유 모듈 승격 (3중 복붙 단일화 계획) accepted">
             <td>0139</td>
@@ -1654,7 +1661,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 107건</h3>
+    <h3>최근 spec 10건 / 전체 108건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1953,6 +1960,11 @@
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
         </div>
       
+        <div class="card" data-search="2026-07-06-trendline-phase2-spec.md spec: 추세매매 phase 2 — 기울어진 추세선 라이브 매매 연동 (trendlineref dsl 노드)">
+          <div class="card-title">📄 spec: 추세매매 Phase 2 — 기울어진 추세선 라이브 매매 연동 (TrendlineRef DSL 노드)</div>
+          <div class="card-meta">📄 _workspace/specs/2026-07-06-trendline-phase2-spec.md · 2026-07-06</div>
+        </div>
+      
         <div class="card" data-search="2026-06-24-autopilot-daily-universe-plan.md 구현 plan — autopilot 일일 universe 자동 재생성 (adr 0131)">
           <div class="card-title">📄 구현 plan — autopilot 일일 universe 자동 재생성 (ADR 0131)</div>
           <div class="card-meta">📄 _workspace/specs/2026-06-24-autopilot-daily-universe-plan.md · 2026-06-24</div>
@@ -2247,6 +2259,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.17.0</div>
+          <div class="adr-title">v3.17.0 — 추세매매 Phase 2 (기울선 라이브 연동, ADR 0140) + 운영 수선 minor cut</div>
+          <div class="adr-meta">2026-07-06</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.16.0</div>
           <div class="adr-title">v3.16.0 — 전략 보관함 + 매매 세팅 가이드 + 추세매매 Phase 1 minor cut</div>
           <div class="adr-meta">2026-07-06</div>
@@ -2270,17 +2288,13 @@
           <div class="adr-meta">2026-06-26</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.14.1</div>
-          <div class="adr-title">v3.14.1 — v3.14.1 릴리즈</div>
-          <div class="adr-meta">2026-06-22</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.17.0">v3.17.0</a></td><td>2026-07-06</td><td>v3.17.0 — 추세매매 Phase 2 (기울선 라이브 연동, ADR 0140) + 운영 수선 minor cut</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.16.0">v3.16.0</a></td><td>2026-07-06</td><td>v3.16.0 — 전략 보관함 + 매매 세팅 가이드 + 추세매매 Phase 1 minor cut</td></tr>
         
@@ -2339,8 +2353,6 @@
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.1">v3.7.1</a></td><td>2026-05-19</td><td>v3.7.1 — v3.7.1 릴리즈</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.0">v3.7.0</a></td><td>2026-05-19</td><td>v3.7.0 — v3.7.0 릴리즈</td></tr>
-        
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.6.19">v3.6.19</a></td><td>2026-05-19</td><td>v3.6.19 — v3.6.19 릴리즈</td></tr>
         
       </tbody>
     </table>
