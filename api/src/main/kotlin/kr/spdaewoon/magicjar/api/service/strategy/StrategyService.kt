@@ -71,6 +71,9 @@ class StrategyService(
     //   realtimeDemandPublisher 선례처럼 nullable default(기존 단위 테스트 생성자 무손실). 운영에선 Spring 이 항상 주입.
     private val strategyPositionReadJpaRepository: StrategyPositionReadJpaRepository? = null,
     private val orderRequestJpaRepository: OrderRequestJpaRepository? = null,
+    // ADR 0140 §3-3 — 선-전략 참조 무결성 동기화(추세매매 Phase 2 R2). nullable default(기존 단위 테스트 생성자 무손실).
+    //   운영에선 Spring 이 항상 주입. 저장/수정 시 DSL trendline(id) 참조를 strategy_trendline_ref 에 동기화.
+    private val trendlineReferenceService: StrategyTrendlineReferenceService? = null,
 ) : EvaluatorAutoDisableCallback {
     private val log = LoggerFactory.getLogger(StrategyService::class.java)
 
@@ -173,6 +176,8 @@ class StrategyService(
                 intervals = normalizeIntervals(intervals, tf),
             )
         val saved = strategyRepositoryPort.save(strategy)
+        // ADR 0140 §3-3 — DSL trendline(id) 참조를 저장 직후 동기화(참조 무결성 테이블 유지).
+        saved.id?.let { trendlineReferenceService?.sync(it, entryAst, exitAst) }
         log.info("전략 등록 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
         return saved
     }
@@ -248,6 +253,8 @@ class StrategyService(
                 updatedAt = Instant.now(),
             )
         val saved = strategyRepositoryPort.save(updated)
+        // ADR 0140 §3-3 — 수정된 DSL 기준으로 trendline 참조 재동기화(선 제거/추가 반영).
+        saved.id?.let { trendlineReferenceService?.sync(it, entryAst, exitAst) }
         redisStrategyCache.invalidateAll()
         log.info("전략 수정 완료: id={} userId={} complexity={}", saved.id, userId, combinedComplexity.complexityClass)
         return saved
@@ -367,8 +374,29 @@ class StrategyService(
         val updated = strategyJpaRepository.updateStatus(id, StrategyStatus.DELETED.name)
         if (updated == 0) throw ResponseStatusException(HttpStatus.NOT_FOUND, "전략 없음: id=$id")
         strategy?.let { realtimeDemandPublisher?.exit(it) }
+        // ADR 0140 §3-3 — soft delete 는 영구 삭제 의도이므로 추세선 참조 행 명시 정리.
+        trendlineReferenceService?.clearByStrategyId(id)
         redisStrategyCache.invalidateAll()
         log.info("전략 soft delete: id={}", id)
+    }
+
+    /**
+     * 추세선 강제 삭제(ADR 0140 §3-3) 로 인한 전략 PAUSED — 관리자 강제 삭제 경로 전용.
+     *
+     * 참조하던 추세선이 강제 삭제되면 매매 기준이 증발하므로, **실제 매매 중인** 전략(ACTIVE·BUY_BLOCKED)을
+     * 즉시 PAUSED 로 내려 자동매매를 멈춘다(기준 증발 상태 매매 지속 금지). 이미 PAUSED/DISABLED 면 무동작(멱등).
+     * demand 해제 + Redis 캐시 무효화까지 수반. DELETED 전략은 대상 아님.
+     */
+    @Transactional
+    fun forcePauseForTrendlineRemoval(strategyId: Long) {
+        val entity =
+            strategyJpaRepository.findByIdAndStatusNot(strategyId, StrategyStatus.DELETED.name) ?: return
+        val current = runCatching { StrategyStatus.valueOf(entity.status) }.getOrDefault(StrategyStatus.PAUSED)
+        if (current != StrategyStatus.ACTIVE && current != StrategyStatus.BUY_BLOCKED) return
+        strategyJpaRepository.updateStatus(strategyId, StrategyStatus.PAUSED.name)
+        strategyRepositoryPort.findById(strategyId)?.let { realtimeDemandPublisher?.exit(it) }
+        redisStrategyCache.invalidateAll()
+        log.warn("추세선 강제 삭제로 전략 PAUSED: id={} from={}", strategyId, current)
     }
 
     /**

@@ -49,14 +49,21 @@ class TrendlineController(
             trendlines = trendlineService.createAuto(code, interval, lookback),
         )
 
-    @Operation(summary = "추세선 삭제")
+    @Operation(
+        summary = "추세선 삭제",
+        description =
+            "참조 전략이 있으면 409 로 차단합니다(사유에 전략 이름/id 포함). force=true 로 강제 삭제 시 " +
+                "참조 전략을 자동 PAUSED 하고 P2 알림 후 삭제합니다 (ADR 0140 §3-3).",
+    )
     @DeleteMapping("/{id}")
     fun delete(
         @Parameter(description = "KIS 종목코드 6자리", example = "005930")
         @PathVariable code: String,
         @PathVariable id: Long,
+        @Parameter(description = "true 시 참조 전략 자동 PAUSED 후 강제 삭제", example = "false")
+        @RequestParam(defaultValue = "false") force: Boolean,
     ) {
-        trendlineService.delete(code, id)
+        trendlineService.delete(code, id, force)
     }
 
     @Operation(summary = "추세선 좌표·스타일 수정")

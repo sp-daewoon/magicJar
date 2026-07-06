@@ -10,8 +10,16 @@ import kr.spdaewoon.magicjar.api.persistence.InstrumentJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.trendline.TrendlineJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.trendline.TrendlineJpaRepository
+import kr.spdaewoon.magicjar.api.service.strategy.StrategyService
+import kr.spdaewoon.magicjar.api.service.strategy.StrategyTrendlineReferenceService
+import kr.spdaewoon.magicjar.domain.event.SystemEvent
+import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
+import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
+import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.strategy.port.TrendlineAnchorCacheInvalidator
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.http.HttpStatus
@@ -27,6 +35,15 @@ class TrendlineService(
     private val candleJpaRepository: CandleJpaRepository,
     private val instrumentJpaRepository: InstrumentJpaRepository,
     private val userAccountJpaRepository: UserAccountJpaRepository,
+    // ADR 0140 §3-3 — 선-전략 참조 무결성(추세매매 Phase 2 R2). 삭제 가드·강제삭제·참조 정리.
+    //   nullable default(기존 단위 테스트 생성자 무손실). 운영에선 Spring 이 항상 주입.
+    private val trendlineReferenceService: StrategyTrendlineReferenceService? = null,
+    // 강제 삭제 시 참조 전략 PAUSED. StrategyService 는 TrendlineService 에 의존하지 않아 순환 없음.
+    private val strategyService: StrategyService? = null,
+    // 선 수정/삭제 시 평가 어댑터(persistence-shared) anchor 캐시 무효화(ADR 0140 §3-2).
+    private val trendlineCacheInvalidator: TrendlineAnchorCacheInvalidator? = null,
+    // 강제 삭제 P2 알림 — SystemEvent(WARN) → Kafka → Slack(consumer notification). getIfAvailable() graceful.
+    private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>? = null,
 ) {
     private val log = LoggerFactory.getLogger(TrendlineService::class.java)
 
@@ -187,19 +204,86 @@ class TrendlineService(
                 ),
             )
 
+        // ADR 0140 §3-2 — anchor 변경 → 평가 어댑터 캐시 무효화(같은 JVM 즉시, 다른 JVM 은 TTL 만료).
+        trendlineCacheInvalidator?.invalidate(id)
         log.info("trendline updated — code={} id={} type={}", code, id, lineType)
         return saved.toResponse()
     }
 
+    /**
+     * 추세선 삭제 — 참조 전략 존재 시 가드(ADR 0140 §3-3).
+     *
+     * - `force=false`(기본): 이 선을 참조하는 **살아있는** 전략(ACTIVE·BUY_BLOCKED·PAUSED·DISABLED)이 있으면
+     *   **409** 로 차단(사유에 전략 이름/id 포함). 자본 기준 고아화 방지 — 전략 정리 유도.
+     * - `force=true`: 참조 전략 중 매매 중인(ACTIVE·BUY_BLOCKED) 것을 **자동 PAUSED** + Slack P2 알림 + 참조 정리 후 삭제.
+     *
+     * @throws ResponseStatusException 404(선 없음/타인 소유) · 409(참조 전략 존재 & force 아님)
+     */
     @Transactional
     fun delete(
         code: String,
         id: Long,
+        force: Boolean = false,
     ) {
         validateCode(code)
-        val deleted = trendlineJpaRepository.deleteByIdAndUserIdAndCode(id, currentUserId(), code)
+        val userId = currentUserId()
+        // 소유권 확인(존재하지 않거나 타인 소유면 404) — 삭제 전에 참조 조회를 위해 선행.
+        trendlineJpaRepository.findByIdAndUserIdAndCode(id, userId, code)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "추세선을 찾을 수 없습니다")
+
+        val referencing = trendlineReferenceService?.findLiveReferencing(id).orEmpty()
+        if (referencing.isNotEmpty() && !force) {
+            val names = referencing.joinToString(", ") { "${it.name}(#${it.strategyId})" }
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "이 추세선을 참조하는 전략 ${referencing.size}개가 있습니다 — 전략을 먼저 보관/정리하세요: $names",
+            )
+        }
+        if (referencing.isNotEmpty()) {
+            // 강제 삭제 — 참조 전략 자동 PAUSED + P2 알림(기준 증발 상태 매매 지속 금지, ADR 0140 §3-3).
+            referencing.forEach { strategyService?.forcePauseForTrendlineRemoval(it.strategyId) }
+            emitForceDeleteAlert(id, code, referencing)
+        }
+
+        // 참조 행 정리(FK CASCADE 안전망 + 명시 정리).
+        trendlineReferenceService?.clearByTrendlineId(id)
+        val deleted = trendlineJpaRepository.deleteByIdAndUserIdAndCode(id, userId, code)
         if (deleted == 0) {
             throw ResponseStatusException(HttpStatus.NOT_FOUND, "추세선을 찾을 수 없습니다")
+        }
+        // 평가 어댑터 캐시 무효화 — 삭제된 선을 anchorsOf 가 즉시 부재로 인식(§11-2 조건 false).
+        trendlineCacheInvalidator?.invalidate(id)
+        if (referencing.isNotEmpty()) {
+            log.warn("trendline 강제 삭제 — code={} id={} PAUSED 전략 {}개", code, id, referencing.size)
+        }
+    }
+
+    /**
+     * 강제 삭제 P2 알림 — SystemEvent(WARN) emit. consumer notification dispatcher 가 Slack 으로 fanout.
+     * emit 실패는 삭제 트랜잭션을 죽이지 않는다(runCatching, graceful — SystemEventLogger 계약).
+     */
+    private fun emitForceDeleteAlert(
+        trendlineId: Long,
+        code: String,
+        referencing: List<kr.spdaewoon.magicjar.api.persistence.strategy.ReferencingStrategyView>,
+    ) {
+        val logger = systemEventLoggerProvider?.getIfAvailable() ?: return
+        val pausedIds = referencing.joinToString(",") { it.strategyId.toString() }
+        val detailJson =
+            """{"trendlineId":$trendlineId,"code":"$code","pausedStrategyIds":[$pausedIds],"count":${referencing.size}}"""
+        runCatching {
+            logger.emit(
+                SystemEvent(
+                    category = SystemEventCategory.OTHER,
+                    severity = SystemEventSeverity.WARN,
+                    actor = "TrendlineForceDelete",
+                    action = "TRENDLINE_FORCE_DELETE_STRATEGY_PAUSED",
+                    userId = null,
+                    detailJson = detailJson,
+                ),
+            )
+        }.onFailure { e ->
+            log.error("추세선 강제 삭제 P2 알림 emit 실패 — trendlineId={} err={}", trendlineId, e.message)
         }
     }
 
