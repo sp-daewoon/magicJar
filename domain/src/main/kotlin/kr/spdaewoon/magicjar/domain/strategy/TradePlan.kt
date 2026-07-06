@@ -110,25 +110,36 @@ data class TradePlanTarget(
 }
 
 /**
- * 손절 — 고정(FIXED) 또는 ATR 기반 (ADR 0130 §2 stop).
+ * 손절 — 고정(FIXED)·ATR 기반·추세선(TRENDLINE) (ADR 0130 §2 stop · ADR 0140 §3-4 R2b).
+ *
+ * ## 추세선 손절 (ADR 0140 §3-4 — 선-기반 동적 SL 재박제)
+ * `type=[TradePlanStopType.TRENDLINE]` + `trendlineId` 지정 시, 이 lot 의 손절선은 시간에 따라 기울어지는
+ * 추세선을 따른다. **봉 경계(BoundaryClosed)마다** 선형보간 가격을 [slPrice] 로 재박제하고(tick watcher/PlanExecutor 는
+ * 박제된 [slPrice] 상수만 봄), 재박제 산식·안전 가드는 strategy-engine `TrendlineStopRestamp` 순수 함수가 격리한다.
+ * 추세선 손절은 [slPct] 를 쓰지 않는다([slPrice] 단일 권위 — 선 가격이 곧 손절가). ADR 0140 §3-4 후속(tick 수준 선형보간)은
+ * 본 R2b 범위 밖(봉 경계 재박제로 근사).
  *
  * @param type 손절 유형 (default [TradePlanStopType.FIXED]).
- * @param slPct 손절 손실폭%(양수, 선택). 예 2.0.
- * @param slPrice 손절 절대 가격(원, 양수, 선택).
+ * @param slPct 손절 손실폭%(양수, 선택). FIXED/ATR 경로에서 평단 연동 손절가 산정. TRENDLINE 은 null(선 가격 권위).
+ * @param slPrice 손절 절대 가격(원, 양수, 선택). TRENDLINE 은 봉 경계마다 선형보간 가격으로 재박제되는 살아있는 손절가.
+ * @param trendlineId 추세선 손절 참조 선 id(선택, TRENDLINE 전용). null = 추세선 손절 아님(FIXED/ATR).
+ *   추세매매 Phase 2 R2b — trade_plan JSONB 내 "trendline_sl_ref"(신규 Flyway 0 · 스키마리스 add-only).
  */
 data class TradePlanStop(
     val type: TradePlanStopType = TradePlanStopType.FIXED,
     val slPct: BigDecimal? = null,
     val slPrice: BigDecimal? = null,
+    val trendlineId: Long? = null,
 ) {
     init {
         slPct?.let { require(it > BigDecimal.ZERO) { "slPct must be positive: $it" } }
         slPrice?.let { require(it > BigDecimal.ZERO) { "slPrice must be positive: $it" } }
+        trendlineId?.let { require(it > 0) { "trendlineId must be positive: $it" } }
     }
 }
 
-/** 손절 유형 — 고정 비율/가격 또는 ATR(변동성) 기반 (ADR 0130 §2). */
-enum class TradePlanStopType { FIXED, ATR }
+/** 손절 유형 — 고정 비율/가격·ATR(변동성)·추세선(TRENDLINE, ADR 0140 §3-4 봉 경계 재박제). */
+enum class TradePlanStopType { FIXED, ATR, TRENDLINE }
 
 /**
  * 트레일링 스탑 — 활성화 후 고점 대비 trailPct% 하락 시 청산 (ADR 0130 §2 trailing).

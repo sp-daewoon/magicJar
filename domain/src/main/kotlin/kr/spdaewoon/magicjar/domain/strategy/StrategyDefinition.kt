@@ -27,6 +27,10 @@ import java.math.BigDecimal
  * @param allowOvernight 오버나잇 보유 허용 토글 (ADR 0129 레버 1). default `true` = 현행 거동 보존(zero-regression).
  *   `false` + owner=AUTOPILOT 이면 EOD 청산 워커가 장마감 전(cutoff 15:15 KST) 시장가 청산 + late-entry-cutoff(14:30 KST)
  *   이후 신규 BUY 금지. **USER/SYSTEM 전략은 owner 격리로 EOD 워커·게이트 미적용**(값 무관 — 사용자 스윙 전략 보호).
+ * @param stopLossTrendlineId 추세선 손절 참조 선 id (ADR 0140 §3-4 R2b · 추세매매 Phase 2). null=미사용(현행 %손절).
+ *   지정 시 진입 박제 [TradePlan] 의 손절이 `type=TRENDLINE`+trendlineId 로 구성돼, 봉 경계마다 선형보간 가격으로
+ *   slPrice 가 재박제된다(선-기반 동적 손절 — 우상향 추세선 추종 트레일링 유사). [fixedStopLoss](%손절)과 상호 배타적:
+ *   추세선 손절은 선 가격이 유일 권위이므로 지정 시 %손절 slPct 는 plan 에 박제하지 않는다(TradePlanFactory).
  */
 data class StrategyDefinition(
     val dsl: DslStrategyDefinition,
@@ -43,6 +47,7 @@ data class StrategyDefinition(
     val minHoldBars: Int? = null,
     val viActionPolicy: ViActionPolicy = ViActionPolicy.ALERT_ONLY,
     val allowOvernight: Boolean = true,
+    val stopLossTrendlineId: Long? = null,
 ) {
     init {
         // 개별 ScaleInPlan·PartialExit 단일 검증은 각 클래스 init 책임.
