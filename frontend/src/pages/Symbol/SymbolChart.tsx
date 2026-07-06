@@ -75,6 +75,7 @@ import {
 } from '../../lib/trendlineStrategy/trendlineDraft'
 import { CandleCountSelector } from './CandleCountSelector'
 import { RecollectModal, type RecollectModalSubmit } from './RecollectModal'
+import { TrendlineDeleteGuardModal } from './TrendlineDeleteGuardModal'
 import {
   clampCandleCount,
   readStoredCandleCount,
@@ -134,6 +135,11 @@ function resolveTrendlineError(error: unknown): string {
     message?: string
   }
   return err.response?.data?.message ?? err.response?.data?.error ?? err.message ?? '처리 중 오류가 발생했습니다'
+}
+
+/** 참조 전략 삭제 가드 — 백엔드 409 응답 여부 (추세매매 Phase 2, ADR 0140 §3-3) */
+function isTrendlineReferenceConflict(error: unknown): boolean {
+  return (error as { response?: { status?: number } })?.response?.status === 409
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -302,6 +308,8 @@ export const SymbolChart = memo(function SymbolChart({
   const [trendlineType, setTrendlineType] = useState<TrendlineType>('SUPPORT')
   const [pendingTrendAnchor, setPendingTrendAnchor] = useState<ChartPriceTimePoint | null>(null)
   const [trendlineCursorPoint, setTrendlineCursorPoint] = useState<ChartPriceTimePoint | null>(null)
+  // 추세매매 Phase 2 (ADR 0140 §3-3) — 삭제 시 참조 전략 409 가드 모달 상태
+  const [deleteGuard, setDeleteGuard] = useState<{ id: number; message: string } | null>(null)
 
   // 패턴 데이터 fetch
   const {
@@ -589,17 +597,43 @@ export const SymbolChart = memo(function SymbolChart({
 
   const handleDeleteTrendline = useCallback(
     (id: number) => {
-      deleteTrendline(id, {
-        onSuccess: () => {
-          showToast('추세선 삭제됨', 'success')
+      deleteTrendline(
+        { id },
+        {
+          onSuccess: () => {
+            showToast('추세선 삭제됨', 'success')
+          },
+          onError: (error) => {
+            // 참조 전략 존재 → 409. 토스트 대신 가드 모달로 강제 삭제 여부를 묻는다(ADR 0140 §3-3).
+            if (isTrendlineReferenceConflict(error)) {
+              setDeleteGuard({ id, message: resolveTrendlineError(error) })
+              return
+            }
+            showToast(`추세선 삭제 실패: ${resolveTrendlineError(error)}`, 'error')
+          },
         },
-        onError: (error) => {
-          showToast(`추세선 삭제 실패: ${resolveTrendlineError(error)}`, 'error')
-        },
-      })
+      )
     },
     [deleteTrendline, showToast],
   )
+
+  // 강제 삭제 — 참조 전략 자동 일시정지 후 선 삭제(ADR 0140 §3-3). 사용자가 모달에서 명시 확인.
+  const handleForceDeleteTrendline = useCallback(() => {
+    if (!deleteGuard) return
+    deleteTrendline(
+      { id: deleteGuard.id, force: true },
+      {
+        onSuccess: () => {
+          setDeleteGuard(null)
+          showToast('추세선을 강제 삭제했습니다 — 참조 전략이 일시정지되었습니다', 'success')
+        },
+        onError: (error) => {
+          setDeleteGuard(null)
+          showToast(`추세선 강제 삭제 실패: ${resolveTrendlineError(error)}`, 'error')
+        },
+      },
+    )
+  }, [deleteGuard, deleteTrendline, showToast])
 
   const handleUpdateTrendline = useCallback(
     (id: number, request: TrendlineUpdateRequest) => {
@@ -632,7 +666,8 @@ export const SymbolChart = memo(function SymbolChart({
     [createTrendline, showToast],
   )
 
-  // 추세매매 Phase 1 — 수평 추세선 → 전략 프리셋 (백엔드 변경 0, 기존 DSL·저장 플로우 재사용)
+  // 추세매매 Phase 1·2 — 추세선 → 전략 프리셋.
+  //   수평선: 상수 DSL(백엔드 변경 0) · 기울선: trendline(id) 참조(ADR 0140 — 저장된 선 id 필수).
   const handleCreateStrategyFromTrendline = useCallback(
     (trendline: TrendlineDto) => {
       const { draft, reason } = buildTrendlineStrategyDraft({
@@ -642,6 +677,7 @@ export const SymbolChart = memo(function SymbolChart({
         anchor2Price: Number(trendline.anchor2Price),
         lineType: trendline.type,
         label: trendline.label,
+        trendlineId: trendline.id,
       })
       if (!draft) {
         showToast(reason ?? '추세선으로 전략을 만들 수 없습니다', 'error')
@@ -1243,6 +1279,16 @@ export const SymbolChart = memo(function SymbolChart({
           isSubmitting={isRecollecting}
           onClose={() => setIsRecollectModalOpen(false)}
           onSubmit={handleRecollectSubmit}
+        />
+      )}
+
+      {/* 추세매매 Phase 2 — 삭제 참조 가드 모달 (409 → 강제 삭제 분기, ADR 0140 §3-3) */}
+      {deleteGuard && (
+        <TrendlineDeleteGuardModal
+          message={deleteGuard.message}
+          isDeleting={isDeletingTrendline}
+          onCancel={() => setDeleteGuard(null)}
+          onForceDelete={handleForceDeleteTrendline}
         />
       )}
     </div>

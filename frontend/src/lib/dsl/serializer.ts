@@ -26,6 +26,7 @@ import type {
   LogicalBlock,
   NotBlock,
   PatternBlock,
+  TrendlineBlock,
 } from './blockTree'
 
 // ──────────────────────────────────────────────
@@ -140,6 +141,14 @@ function serializeLiteral(node: LiteralBlock): string {
   return node.value
 }
 
+/** trendline(123) — 차트 추세선 참조 (추세매매 Phase 2, ADR 0140 §3-1) */
+function serializeTrendline(node: TrendlineBlock): string {
+  if (!Number.isInteger(node.trendlineId) || node.trendlineId <= 0) {
+    throw new Error(`Invalid trendline id: ${node.trendlineId}`)
+  }
+  return `trendline(${node.trendlineId})`
+}
+
 /**
  * 노드 직렬화 — precedence(우선순위) 인자로 괄호 추가 여부 결정
  * AND/OR는 우선순위가 낮으므로 상위 연산 시 괄호 추가
@@ -154,6 +163,8 @@ function serializeNode(node: BlockNode, parentPrec: number = 0): string {
       return serializePattern(node)
     case 'literal':
       return serializeLiteral(node)
+    case 'trendline':
+      return serializeTrendline(node)
     case 'comparison':
       return serializeComparison(node, parentPrec)
     case 'logical':

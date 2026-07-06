@@ -49,10 +49,14 @@ export function useCreateAutoTrendlines(code: string) {
   })
 }
 
+/**
+ * 추세선 삭제 — 참조 전략이 있으면 409(ADR 0140 §3-3).
+ * `force` 전달 시 참조 전략 자동 PAUSED 후 강제 삭제. 기본(force 없음)은 가드 준수.
+ */
 export function useDeleteTrendline(code: string) {
   const queryClient = useQueryClient()
-  return useMutation<void, unknown, number>({
-    mutationFn: (id) => trendlineApi.delete(code, id),
+  return useMutation<void, unknown, { id: number; force?: boolean }>({
+    mutationFn: ({ id, force }) => trendlineApi.delete(code, id, force ?? false),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: trendlineQueryKey(code) })
     },

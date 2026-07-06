@@ -4,11 +4,12 @@
  * ADR 0055 B+C-lite 하이브리드: 트리 폼 빌더 + DSL 텍스트 토글
  * backend DslStrategyDefinition / KisYamlDslParser 6단 파싱 구조와 1:1 정합
  *
- * 8종 discriminated union:
+ * 9종 discriminated union:
  *   IndicatorBlock  — ma(14), rsi(14), bb(20,2) 등 지표 호출
  *   CandleBlock     — open, high, low, close, prev_close, volume 직접 참조
  *   PatternBlock    — pattern_detected("hammer") 등 패턴 조건
  *   LiteralBlock    — 숫자·문자열·boolean 리터럴
+ *   TrendlineBlock  — trendline(123) 차트 추세선 참조 (추세매매 Phase 2, ADR 0140)
  *   ComparisonBlock — left op right (>, <, >=, <=, ==, !=, crosses_above, crosses_below)
  *   LogicalBlock    — AND | OR 이항 논리 결합
  *   NotBlock        — NOT 단항 부정
@@ -67,6 +68,20 @@ export interface LiteralBlock {
   value: string
 }
 
+/**
+ * TrendlineBlock — 차트에 그은 추세선 참조 (추세매매 Phase 2, ADR 0140 §3-1)
+ *
+ * backend DSL `trendline(123)` = TrendlineRef(trendlineId) 노드와 1:1 정합.
+ * 평가 시점 ts에서 anchor 2점 선형보간으로 기준 가격을 산출하므로,
+ * 기울어진 지지/저항선을 진입·청산 비교 대상(`close crosses_above trendline(123)`)으로 쓴다.
+ * 리터럴/지표와 달리 파라미터·자식 없는 잎 노드 — 저장된 trendline 테이블 id 하나만 참조한다.
+ */
+export interface TrendlineBlock {
+  kind: 'trendline'
+  /** 저장된 trendline 테이블 id (양의 정수) */
+  trendlineId: number
+}
+
 /** 비교 연산자 */
 export type ComparisonOperator =
   | '>'
@@ -114,12 +129,13 @@ export interface ArithmeticBlock {
   right?: BlockNode
 }
 
-/** BlockNode — 8종 discriminated union */
+/** BlockNode — 9종 discriminated union */
 export type BlockNode =
   | IndicatorBlock
   | CandleBlock
   | PatternBlock
   | LiteralBlock
+  | TrendlineBlock
   | ComparisonBlock
   | LogicalBlock
   | NotBlock

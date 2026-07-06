@@ -49,6 +49,11 @@ import {
   consumeTrendlineStrategyDraft,
   type TrendlineStrategyDraft,
 } from '../../lib/trendlineStrategy/trendlineDraft'
+import { useTrendlines } from '../../api/hooks/useTrendlines'
+import {
+  TrendlineLabelContext,
+  type TrendlineLabelInfo,
+} from '../../components/strategy/trendlineLabelContext'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
 import { StrategyStartScreen } from '../../components/strategy/StrategyStartScreen'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -595,6 +600,20 @@ export function StrategyBuilderPage() {
 
   const { entry: entryDsl, exit: exitDsl } = serializeBlockTree(tree)
 
+  // 추세매매 Phase 2 (ADR 0140) — 현재 평가 종목의 저장된 추세선 → trendline(id) 노드 라벨 맵.
+  //   유효 6자리 코드일 때만 조회(빈 코드면 useTrendlines 비활성). 빌더 트리의 TrendlineNodeView 가
+  //   컨텍스트에서 "추세선 #id (종목 · 라벨)" 을 붙인다. 맵에 없으면 id 만 표시(graceful).
+  const trendlineLookupCode = /^\d{6}$/.test(evalForm.code) ? evalForm.code : ''
+  const { data: symbolTrendlines = [] } = useTrendlines(trendlineLookupCode)
+  const trendlineLabels = useMemo<Map<number, TrendlineLabelInfo>>(() => {
+    const map = new Map<number, TrendlineLabelInfo>()
+    for (const line of symbolTrendlines) {
+      const label = line.label?.trim() || (line.type === 'SUPPORT' ? '지지' : '저항')
+      map.set(line.id, { label, code: line.code })
+    }
+    return map
+  }, [symbolTrendlines])
+
   // 시작 화면 분기 (spec 2026-06-18 §4.1) — 빈 트리 + 미로드 + URL deeplink 없음 + 미시작일 때만.
   const hasDeepLink =
     !!routeStrategyId || !!searchParams.get('researchDraftId') || !!searchParams.get('trendlineDraftId')
@@ -661,9 +680,17 @@ export function StrategyBuilderPage() {
           <div className="mt-2 text-xs text-gray-300">{trendlineDraftMeta.nameKo}</div>
           <div className="mt-1 text-[11px] text-gray-500">
             {trendlineDraftMeta.code} · {trendlineDraftMeta.interval} ·{' '}
-            {trendlineDraftMeta.lineType === 'RESISTANCE' ? '저항(돌파)' : '지지(반등)'} @{' '}
-            {trendlineDraftMeta.linePrice.toLocaleString('ko-KR')}
+            {trendlineDraftMeta.lineType === 'RESISTANCE' ? '저항(돌파)' : '지지(반등)'} ·{' '}
+            {trendlineDraftMeta.sloped
+              ? `기울선 참조 trendline(${trendlineDraftMeta.trendlineId})`
+              : `수평선 @${trendlineDraftMeta.linePrice.toLocaleString('ko-KR')}`}
           </div>
+          {trendlineDraftMeta.sloped && (
+            <p className="mt-2 rounded bg-sky-950/50 px-2 py-1 text-[11px] text-sky-200/90">
+              기울선은 시점마다 기준 가격이 바뀝니다 — 저장한 선을 참조(trendline({trendlineDraftMeta.trendlineId}))하므로,
+              선을 다시 그으면 다음 평가부터 자동 반영됩니다. 선을 삭제하면 이 전략은 매매 기준이 사라져 삭제가 차단됩니다.
+            </p>
+          )}
           <p className="mt-2 rounded bg-amber-950/40 px-2 py-1 text-[11px] text-amber-300">
             휩쏘 주의 — 선 바로 아래 이탈 청산은 반복 매매 위험이 있습니다. 손절 {trendlineDraftMeta.stopLossPct}%는
             선 가격 기준 제안값이니 저장 전 조정하고, minHold·버퍼는 저장 후 전략 설정에서 보강하세요.
@@ -817,6 +844,7 @@ export function StrategyBuilderPage() {
   )
 
   return (
+    <TrendlineLabelContext.Provider value={trendlineLabels}>
     <div className="flex flex-col overflow-hidden bg-gray-950" style={{ height: 'calc(100vh - 60px)' }}>
       {/* 모바일 레이아웃 (lg 미만) — 팔레트·캔버스·결과 탭 전환 세로 스택 (빌더 고도화 D) */}
       {!isDesktop && (
@@ -1034,5 +1062,6 @@ export function StrategyBuilderPage() {
         </div>
       )}
     </div>
+    </TrendlineLabelContext.Provider>
   )
 }

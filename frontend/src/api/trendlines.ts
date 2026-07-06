@@ -94,7 +94,13 @@ export const trendlineApi = {
     return res.data
   },
 
-  delete: async (code: string, id: number): Promise<void> => {
-    await apiClient.delete(`/symbols/${encodeURIComponent(code)}/trendlines/${id}`)
+  /**
+   * 추세선 삭제 (ADR 0140 §3-3).
+   * 참조 전략이 있으면 백엔드가 409 로 차단(사유에 전략 이름·id 포함).
+   * `force=true` 면 참조 전략을 자동 PAUSED 후 강제 삭제한다.
+   */
+  delete: async (code: string, id: number, force = false): Promise<void> => {
+    const query = force ? '?force=true' : ''
+    await apiClient.delete(`/symbols/${encodeURIComponent(code)}/trendlines/${id}${query}`)
   },
 }
