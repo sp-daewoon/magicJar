@@ -5,6 +5,13 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- trendline-phase2-r1-slot-strategy -->
+| 2026-07-06 | **feat(strategy): 추세매매 Phase 2 R1 — TrendlineRef DSL 노드 + 선형보간 평가 (strategy-engine)** — TBD (작성: strategy-engine) | domain/strategy/dsl/{TrendlineRef,TrendlineAnchors,TrendlineGeometry}·port/TrendlinePricePort·strategy-engine/{KisYamlDslParser,JvmStrategyEvaluator} + tests | ADR 0140 R1 — 기울선 anchor 선형보간 비교 대상 (spec `2026-07-06-trendline-phase2-spec.md` §3-R1) |
+<!-- trendline-phase2-r2-slot-backend-core -->
+| 2026-07-06 | **feat(backend): 추세매매 Phase 2 R2 — V99 참조 테이블 + TrendlinePricePort 어댑터 + 선 삭제 409 가드 (backend-core)** — TBD (작성: backend-core) | api·consumer/persistence/trendline + V99 strategy_trendline_ref + TrendlineService 삭제 가드 + 모듈 합류 검증 | ADR 0140 R2 — 선-전략 참조 무결성·강제삭제 PAUSED·consumer 평가 배선 (spec §3-R2) |
+<!-- trendline-phase2-r3-slot-frontend -->
+| 2026-07-06 | **feat(frontend): 추세매매 Phase 2 R3 — 기울선 전략 생성 활성화 + 빌더 TrendlineRef 표현 + 백테스트 lookahead 경고 (frontend+qa)** — TBD (작성: frontend) | frontend/lib/trendlineStrategy·pages/Symbol/TrendlineOverlay·pages/Strategy/StrategyBuilderPage + qa Visual/E2E | ADR 0140 R3 — Phase 1 수평 제한 해제·lookahead bias 경고 표기 (spec §3-R3) |
+<!-- trendline-phase2-slot-end -->
 <!-- order-toast-qty-drift -->
 | 2026-07-06 | **fix(frontend): 주문 토스트 "매수 0주" 표기 결함 — STOMP 계약 필드 drift 정합 (qty·rejectReason)** — qa Visual이 발견한 "[09:55] 주문 접수 — 014910 매수 0주" 근본 원인 = 백엔드 `OrderStompPayload`는 `qty`·`rejectReason`으로 직렬화(StompOrderNotifier, PR #636~)하는데 프론트 `useStompOrder`·`useStompReconnect`(backfill 경로)는 옛 필드명 `quantity`·`reason`을 읽어 `?? 0` 폴백 → 실주문 9주가 0주로 표시(거절 사유도 공백). `orderQty()`/`orderRejectReason()` 헬퍼로 신계약 우선+옛 영속 stomp_event row 폴백 이중 read, `executedPrice` string 직렬화 포맷 정합, FILLED skip 판정(결함 3-A)도 qty 인지. 실계약 페이로드 회귀 테스트 추가("매수 9주"·0주 부재 검증). `pnpm typecheck`+vitest 7/7+`pnpm build` GREEN. (작성: orchestrator) | frontend/src/api/hooks/{useStompOrder,useStompReconnect}.ts + useStompReconnect.test.tsx | 실주문 수량 오표기(0주) 사용자 오인 제거 — DB qty=9 정상이었던 표시 전용 결함 |
 <!-- release-v3.16.0 -->
