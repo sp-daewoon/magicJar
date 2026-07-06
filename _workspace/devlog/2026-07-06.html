@@ -1,0 +1,113 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-07-06</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{--brown:#5b3a1f;--paper:#fff8ed;--line:#d8d4c8;--muted:#666}
+body{font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",sans-serif;background:#fafaf7;color:#222;max-width:960px;margin:0 auto;padding:40px 24px 80px;line-height:1.6}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:10px}
+h2{color:var(--brown);margin-top:36px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+.meta{color:var(--muted);font-size:.9rem;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.86rem;background:#fff}
+th{background:var(--paper);color:var(--brown);text-align:left;padding:8px 10px;border:1px solid var(--line)}
+td{padding:7px 10px;border:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#fffdf7}
+code{background:#f3efe6;padding:1px 5px;border-radius:3px;font-size:.82em}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.74rem;font-weight:600;vertical-align:1px}
+.b-ok{background:#e3f4e3;color:#1d6b2f}.b-warn{background:#fdf3d0;color:#8a6d00}.b-pending{background:#e3edfa;color:#1d4f8f}.b-todo{background:#fbe3ef;color:#a01a5e}.b-mute{background:#eee;color:#666}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:12px 0}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:.88rem}
+.card b{color:var(--brown)}
+ul{margin:6px 0;padding-left:20px}li{margin:3px 0;font-size:.9rem}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem}
+</style></head><body>
+
+<h1>2026-07-06 (월) — minor 3연속 cut: 감사조치 배포 → 보관함·가이드·추세매매 Phase 1 → Phase 2 완주</h1>
+<div class="meta">#1회차 · 16:55 KST 작성 · 세션 범위 2026-07-05(토) 저녁 ~ 07-06(월) 16:50 · v3.15.0 → v3.16.0 → <b>v3.17.0</b> · ADR 0140 · V97/V98/V99</div>
+
+<div class="grid">
+<div class="card"><b>릴리즈 3건</b><br/>v3.15.0 감사 일괄조치(V97) · v3.16.0 보관함+가이드+추세매매 P1(V98) · v3.17.0 추세매매 P2+운영수선(V99)</div>
+<div class="card"><b>머지 PR 18건</b><br/>#1143~#1160 (본체 11 + 릴리즈 절차 6 + qa spec 동봉 1)</div>
+<div class="card"><b>라이브 실증 2건</b><br/>감사 P0 WS 3채널 재발사(14:00 실단절) · 기울선 e2e 왕복(409 가드→force PAUSED)</div>
+<div class="card"><b>사고 1건 회복</b><br/>장중 호스트 포화(스왑 19.4GB)→WS 폭풍 40분 → renice+고아 vitest 8 kill → 여유 10%→65%</div>
+</div>
+
+<h2>① 머지 PR 매트릭스 (18건)</h2>
+<table>
+<tr><th>PR</th><th>제목</th><th>트랙</th><th>에이전트</th><th>비고</th></tr>
+<tr><td>#1143</td><td>2026-07-03 감사 일괄조치 본체 (87파일·7커밋)</td><td>감사</td><td>orchestrator(5팀 합작)</td><td>V97 · ADR 0137/38/39 <span class="badge b-ok">v3.15.0</span></td></tr>
+<tr><td>#1144·1145</td><td>v3.15.0 CHANGELOG row · README/master</td><td>release</td><td>orchestrator</td><td><span class="badge b-mute">절차</span></td></tr>
+<tr><td>#1146</td><td>매매 세팅 가이드 화면 (/guide, STEP 0~6 허브)</td><td>UX</td><td>frontend</td><td>라이브 체크리스트 · qa 17/17 <span class="badge b-ok">v3.16.0</span></td></tr>
+<tr><td>#1147</td><td>전략 보관함 UI — ARCHIVED 탭·보관/꺼내기</td><td>전략</td><td>frontend</td><td>vitest 203 <span class="badge b-ok">v3.16.0</span></td></tr>
+<tr><td>#1148</td><td>전략 아카이브 백엔드 — ARCHIVED+V98+가드</td><td>전략</td><td>strategy-engine</td><td>포지션/미체결 409 · 꺼내기=PAUSED <span class="badge b-ok">v3.16.0</span></td></tr>
+<tr><td>#1149</td><td>추세매매 Phase 1 — 수평선→빌더 프리셋</td><td>T-추세</td><td>frontend</td><td>백엔드 변경 0 · vitest 778 <span class="badge b-ok">v3.16.0</span></td></tr>
+<tr><td>#1150·1151</td><td>v3.16.0 CHANGELOG row · README/master</td><td>release</td><td>orchestrator</td><td><span class="badge b-mute">절차</span></td></tr>
+<tr><td>#1152</td><td>주문 토스트 "매수 0주" — STOMP qty/rejectReason drift 정합</td><td>hotfix</td><td>orchestrator</td><td>qa 발견 → 근본원인 필드명 drift · 회귀 테스트 <span class="badge b-ok">배포</span></td></tr>
+<tr><td>#1153</td><td>추세매매 Phase 2 ADR 0140 + spec (R1~R3 라운드)</td><td>T-추세</td><td>architect</td><td>Accepted · CHANGELOG 슬롯 3 <span class="badge b-pending">spec</span></td></tr>
+<tr><td>#1154</td><td>무tick fallback 만성 silent 백오프 + 로그 위생</td><td>ops</td><td>market-data</td><td>60s→cap 600s · seed USER_PATH→INGESTION <span class="badge b-ok">v3.17.0</span></td></tr>
+<tr><td>#1155</td><td>P2 R1 — TrendlineRef DSL 노드 + 선형보간 평가</td><td>T-추세</td><td>strategy-engine</td><td>domain 순수함수 · 부재/범위밖=매수차단 <span class="badge b-ok">v3.17.0</span></td></tr>
+<tr><td>#1156</td><td>P2 R2 — V99 참조 테이블 + 어댑터 + 삭제 가드</td><td>T-추세</td><td>backend-core</td><td>persistence-shared TTL 30s 캐시 · force→PAUSED+Slack P2 <span class="badge b-ok">v3.17.0</span></td></tr>
+<tr><td>#1157</td><td>P2 R3 — 기울선 UI + lookahead 경고 + 삭제 모달</td><td>T-추세</td><td>frontend</td><td>vitest 793 · qa Visual 6/6 <span class="badge b-ok">v3.17.0</span></td></tr>
+<tr><td>#1158</td><td>P2 R2b — 추세선 동적 손절 봉 경계 slPrice 재박제</td><td>T-추세</td><td>strategy-engine</td><td>trade_plan JSONB(Flyway 0) · 이익잠금 래칫 <span class="badge b-ok">v3.17.0</span></td></tr>
+<tr><td>#1159·1160</td><td>v3.17.0 CHANGELOG row(+qa s16 spec) · README/master</td><td>release</td><td>orchestrator·qa</td><td><span class="badge b-mute">절차</span></td></tr>
+</table>
+<p>전 에이전트 모델 = opus (ADR 0080 · 2026-06-05 4.8 상향 유지). 머지 전부 <code>--rebase</code>, author 화이트리스트 준수.</p>
+
+<h2>② PostgreSQL 변경</h2>
+<table>
+<tr><th>Flyway</th><th>내용</th><th>릴리즈</th></tr>
+<tr><td><code>V97</code></td><td>strategy wipsaw mitigation — dsl_exit 0.3% 버퍼 + min_hold_bars 3→8 (감사 부록A, ADR 0137)</td><td>v3.15.0</td></tr>
+<tr><td><code>V98</code></td><td>strategy.archived_at + status CHECK에 ARCHIVED 추가</td><td>v3.16.0</td></tr>
+<tr><td><code>V99</code></td><td><code>strategy_trendline_ref</code> 참조 무결성 테이블 (UNIQUE·FK ON DELETE CASCADE·역참조 인덱스 2) — ADR 0140</td><td>v3.17.0</td></tr>
+</table>
+<p>R2b 동적 손절은 <code>trade_plan</code> JSONB 확장(TRENDLINE stop type)으로 <b>Flyway 추가 0</b>. 전부 add-only, 라이브 적용 3건 모두 <code>success=t</code> 실측.</p>
+
+<h2>③ Kafka 토픽·데이터 흐름 변경</h2>
+<ul>
+<li>신규 토픽 <b>0</b> · 신규 STOMP destination <b>0</b> (spec 자원 audit 목표 달성)</li>
+<li>consumer 신규 리스너: <code>TrendlineStopBoundaryListener</code> — 9 interval 봉 경계 <b>독립 groupId</b>로 구독(신호 hot path 무접촉), TRENDLINE 손절 lot만 재박제</li>
+<li>데이터 흐름 신설: 전략 저장 → dsl AST에서 <code>trendline(id)</code> 추출 → <code>strategy_trendline_ref</code> diff sync → 평가 시 <code>TrendlinePricePort</code>(선형보간) → 시그널/손절</li>
+<li>감사 P0 재구독: WS 재연결 시 H0UNASP0/H0UNMKO0/H0STOUP0 재발사 — <b>14:00 실단절에서 라이브 검증</b> ("재구독 재발사(P0-1): orderbook 16건")</li>
+</ul>
+
+<h2>④ Redis 사용처 변경</h2>
+<ul>
+<li>신규 Redis key <b>0</b> — R2 추세선 anchor 캐시는 <b>프로세스 로컬 TTL 30s</b>(<code>magicjar.trendline.cache-ttl-ms</code>)로 설계, 외부 의존 회피. cross-JVM 즉시 무효화(Redis pub/sub)는 Phase 2 후속 레버로 ADR에 기록</li>
+<li>ENV 신규: 무tick 백오프 <code>no-tick-fallback-backoff-{base,cap}-seconds</code>(60/600s) · 추세선 캐시 TTL</li>
+</ul>
+
+<h2>⑤ sub-agent 디스패치 내역</h2>
+<table>
+<tr><th>#</th><th>에이전트</th><th>작업</th><th>결과</th></tr>
+<tr><td>1~3</td><td>Explore ×3</td><td>전략 상태·화면 라우트·차트/DSL 병렬 탐색</td><td><span class="badge b-ok">완료</span> 설계 입력 확보</td></tr>
+<tr><td>4~6</td><td>strategy-engine·frontend ×2</td><td>보관함 백엔드/UI + 가이드 화면 (병렬 worktree)</td><td><span class="badge b-ok">3 PR</span> CHANGELOG rebase 충돌 2건 자율 해소</td></tr>
+<tr><td>7</td><td>qa</td><td>보관함+가이드 Visual</td><td><span class="badge b-ok">17/17</span> + 토스트 0주 결함 발견(→#1152)</td></tr>
+<tr><td>8</td><td>frontend</td><td>추세매매 Phase 1</td><td><span class="badge b-ok">PR #1149</span></td></tr>
+<tr><td>9</td><td>market-data</td><td>무tick 백오프</td><td><span class="badge b-ok">PR #1154</span> 진단대로 이중 경로 규명</td></tr>
+<tr><td>10</td><td>architect</td><td>ADR 0140 + spec + 슬롯</td><td><span class="badge b-ok">PR #1153</span> task.mjs 4단계 완주</td></tr>
+<tr><td>11~13</td><td>strategy-engine·backend-core·frontend</td><td>P2 R1→R2→(R2b∥R3)</td><td><span class="badge b-ok">4 PR</span> R2가 R2b 격리 제안→오케스트라 즉시 추가 디스패치</td></tr>
+<tr><td>14</td><td>qa</td><td>P2 R3 Visual</td><td><span class="badge b-ok">6/6</span> + s16 회귀 spec 발행</td></tr>
+</table>
+<p><b>이슈/복구</b>: ① 장중 R2b(gradle)+R3(vitest) 병렬 → 호스트 포화(load 18·스왑 19.4GB·여유 10%) → KIS WS heartbeat 폭풍 40분·Kafka REQUEST_TIMED_OUT — <code>renice +15</code> 즉효(14:16 재연결)+<b>고아 vitest 8개</b> kill(여유 65% 회복). 프로그램 누수 아님 실측(consumer 999MB 안정). ② <code>worktree-agent-*</code> 브랜치 22건 사용자 승인 후 일괄 삭제. ③ 워크트리·에이전트 브랜치 잔재 0 마감.</p>
+
+<h2>⑥ sanity / dogfooding 결과</h2>
+<table>
+<tr><th>검증</th><th>결과</th></tr>
+<tr><td>smoke.sh (3 시나리오)</td><td><span class="badge b-ok">3/3 PASS</span> — 토요일 tick→signal SKIP이 월요일 장중 시그널 22건으로 해소 (2연속 SKIP=FAIL 규칙 회피)</td></tr>
+<tr><td>9 컨테이너</td><td><span class="badge b-ok">전부 healthy</span> — 16:50 기준. 배포 3회(전체 2 + frontend 단독 2) 모두 health gate 통과</td></tr>
+<tr><td>기울선 e2e 왕복</td><td><span class="badge b-ok">전 구간 GREEN</span> — 선 생성→<code>trendline(80)</code> 파서→ref sync→삭제 409→force 삭제 시 참조 정리·PAUSED→잔재 0</td></tr>
+<tr><td>아카이브 왕복</td><td><span class="badge b-ok">GREEN</span> — 전략 87: 보관 200→ARCHIVED→꺼내기→PAUSED(archived_at 감사 보존)</td></tr>
+<tr><td>autopilot 105 실주문</td><td><span class="badge b-ok">2건 ACK</span> — 014910·013120 각 9주 LIMIT(09:55). 장중 청산 완료, 마감 후 포지션 0</td></tr>
+<tr><td>WS P0 3채널 재발사</td><td><span class="badge b-ok">라이브 실증</span> — 14:00 실단절 → 재발사 로그 + streaming OK 재개 (수정 전이면 호가/VI 영구 사망)</td></tr>
+<tr><td>KIS 키 보안</td><td><span class="badge b-warn">사용자 후속</span> — 평문 파일 <code>~/.config/magicjar/</code> 이동 완료(chmod 600). <b>예방적 재발급 권장 미이행</b> + IntelliJ 경로 갱신</td></tr>
+</table>
+
+<h2>⑦ 다음 세션 일정</h2>
+<table>
+<tr><th>우선순위</th><th>의제</th><th>사이즈</th></tr>
+<tr><td>1</td><td>무tick 백오프 효과 장중 실측 (EGW00201 감소 여부) + 기울선 전략 첫 실전 관찰</td><td>S <span class="badge b-pending">관찰</span></td></tr>
+<tr><td>2</td><td>autopilot 105 유지·universe 재스왑/R2b게이트 follow-up (2026-07-03 제어 결함 잔여)</td><td>M <span class="badge b-todo">미해결</span></td></tr>
+<tr><td>3</td><td>QA 일괄: consumer flaky 2종(reactor mockk 레이스·NoTick 벽시계 경계) + LWC "Object is disposed"</td><td>M <span class="badge b-mute">누적 후 일괄</span></td></tr>
+<tr><td>4</td><td>Phase 2 후속 레버(ADR 0140 기록): tick 수준 선 보간 손절 · Redis pub/sub 캐시 무효화</td><td>L <span class="badge b-mute">결재 대기</span></td></tr>
+<tr><td>5</td><td>워크트리 wrapper 캐시 ~17 디렉토리 디스크 정리 + task 파일 일괄 archive</td><td>S <span class="badge b-mute">정리</span></td></tr>
+</table>
+
+<footer>magicJar devlog · 2026-07-06 #1 · 16:55 KST · orchestrator 작성 · main=2073dcda · 교훈: 장중 무거운 빌드 금지(메모리 박제)</footer>
+</body></html>
