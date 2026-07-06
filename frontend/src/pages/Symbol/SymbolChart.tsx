@@ -31,6 +31,7 @@
  * - interval 변경 시 maxCapReachedLockRef 초기화 (재무장)
  */
 import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { IChartApi, ISeriesApi, SeriesMarker, UTCTimestamp } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
@@ -68,6 +69,10 @@ import { IndicatorPanel } from './IndicatorPanel'
 import { IndicatorOverlay } from './IndicatorOverlay'
 import { SMART_MONEY_INDICATOR_IDS, SmartMoneyZoneOverlay } from './SmartMoneyZoneOverlay'
 import { TrendlineOverlay } from './TrendlineOverlay'
+import {
+  buildTrendlineStrategyDraft,
+  storeTrendlineStrategyDraft,
+} from '../../lib/trendlineStrategy/trendlineDraft'
 import { CandleCountSelector } from './CandleCountSelector'
 import { RecollectModal, type RecollectModalSubmit } from './RecollectModal'
 import {
@@ -201,6 +206,7 @@ export const SymbolChart = memo(function SymbolChart({
 
   // 토스트
   const { showToast } = useToast()
+  const navigate = useNavigate()
 
   const { data: trendlines = [] } = useTrendlines(code)
   const { mutate: createTrendline, isPending: isSavingTrendline } = useCreateTrendline(code)
@@ -624,6 +630,28 @@ export const SymbolChart = memo(function SymbolChart({
       })
     },
     [createTrendline, showToast],
+  )
+
+  // 추세매매 Phase 1 — 수평 추세선 → 전략 프리셋 (백엔드 변경 0, 기존 DSL·저장 플로우 재사용)
+  const handleCreateStrategyFromTrendline = useCallback(
+    (trendline: TrendlineDto) => {
+      const { draft, reason } = buildTrendlineStrategyDraft({
+        code,
+        interval,
+        anchor1Price: Number(trendline.anchor1Price),
+        anchor2Price: Number(trendline.anchor2Price),
+        lineType: trendline.type,
+        label: trendline.label,
+      })
+      if (!draft) {
+        showToast(reason ?? '추세선으로 전략을 만들 수 없습니다', 'error')
+        return
+      }
+      const draftId = storeTrendlineStrategyDraft(draft)
+      showToast('추세선 프리셋을 전략 빌더로 불러옵니다', 'success')
+      navigate(`/strategy/builder?trendlineDraftId=${encodeURIComponent(draftId)}`)
+    },
+    [code, interval, navigate, showToast],
   )
 
   const handleIndicatorToggle = useCallback((id: string) => {
@@ -1155,6 +1183,7 @@ export const SymbolChart = memo(function SymbolChart({
                 onUpdate={handleUpdateTrendline}
                 onDelete={handleDeleteTrendline}
                 onDuplicate={handleDuplicateTrendline}
+                onCreateStrategy={handleCreateStrategyFromTrendline}
               />
             </div>
           )}

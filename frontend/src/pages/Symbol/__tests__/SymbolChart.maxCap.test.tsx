@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, act, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../../components/ui/ToastProvider'
 import { SymbolChart } from '../SymbolChart'
 
@@ -105,11 +106,13 @@ function renderSymbolChart(code: string, props: Partial<ComponentProps<typeof Sy
     defaultOptions: { queries: { retry: false } },
   })
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <SymbolChart code={code} {...props} />
-      </ToastProvider>
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <SymbolChart code={code} {...props} />
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 

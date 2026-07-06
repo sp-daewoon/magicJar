@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Coordinate, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import type { CandleDto } from '../../api/symbol'
 import type { TrendlineCreateRequest, TrendlineDto, TrendlineUpdateRequest } from '../../api/trendlines'
+import { isHorizontalTrendline } from '../../lib/trendlineStrategy/trendlineDraft'
 
 interface TrendlineOverlayProps {
   chart: IChartApi | null
@@ -17,6 +18,8 @@ interface TrendlineOverlayProps {
   onUpdate?: (id: number, request: TrendlineUpdateRequest) => void
   onDelete?: (id: number) => void
   onDuplicate?: (request: TrendlineCreateRequest) => void
+  /** 추세매매 Phase 1 — 선택된 수평 추세선으로 전략 프리셋 생성 (수평선만 활성) */
+  onCreateStrategy?: (trendline: TrendlineDto) => void
 }
 
 type DragMode = 'anchor1' | 'anchor2' | 'line'
@@ -349,6 +352,7 @@ export function TrendlineOverlay({
   onUpdate,
   onDelete,
   onDuplicate,
+  onCreateStrategy,
 }: TrendlineOverlayProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -823,6 +827,40 @@ export function TrendlineOverlay({
                   }}
                 />
               )}
+              {isSelected && onCreateStrategy && !isDrawingMode && (() => {
+                const horizontal = isHorizontalTrendline(
+                  Number(trendline.anchor1Price),
+                  Number(trendline.anchor2Price),
+                )
+                const midX = (Number(item.x1) + Number(item.x2)) / 2
+                const topY = Math.min(Number(item.y1), Number(item.y2))
+                return (
+                  <button
+                    type="button"
+                    disabled={!horizontal}
+                    className={`pointer-events-auto absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold shadow-lg outline-none ${
+                      horizontal
+                        ? 'cursor-pointer bg-blue-600 text-white hover:bg-blue-500 active:bg-blue-700'
+                        : 'cursor-not-allowed bg-gray-700 text-gray-400'
+                    }`}
+                    style={{ left: `${midX}px`, top: `${topY - 34}px` }}
+                    title={
+                      horizontal
+                        ? '이 수평선으로 전략 프리셋을 만듭니다'
+                        : '기울어진 추세선 매매는 Phase 2 예정 — 수평선만 지원'
+                    }
+                    aria-label="이 선으로 전략 만들기"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (!horizontal) return
+                      onCreateStrategy(trendline)
+                    }}
+                  >
+                    이 선으로 전략 만들기
+                  </button>
+                )
+              })()}
             </div>
           )
         })}
