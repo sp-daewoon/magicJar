@@ -548,6 +548,7 @@ GitHub 방문자가 한 번에 진입할 수 있도록 release notes(📋) + bas
 
 | 버전 | 날짜 | 미러스톤 | Release | Baseline |
 |------|------|----------|---------|----------|
+| **v3.17.0** | 2026-07-06 | 추세매매 Phase 2 | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.17.0) | — |
 | **v3.16.0** | 2026-07-06 | 전략 보관함 + 매매 세팅 가이드 + 추세매매 Phase 1 minor cut | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.16.0) | — |
 | **v3.15.0** | 2026-07-05 | 2026-07-03 전 영역 시스템 감사 일괄조치 minor cut | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.15.0) | — |
 | **v3.14.3** | 2026-06-29 | (검토) | [📋](https://github.com/sp-daewoon/magicJar/releases/tag/v3.14.3) | [📊](_workspace/baseline/v3.14.0/html/index.html) |
