@@ -1,11 +1,12 @@
 /**
  * BlockNode — 트리 노드 재귀 컴포넌트
  *
- * 8 분기:
+ * 9 분기:
  *   indicator  — 지표 함수 호출 (파라미터 인라인 편집)
  *   candle     — 캔들 직접 참조
  *   pattern    — 패턴 감지 조건
  *   literal    — 상수값 인라인 편집
+ *   trendline  — 차트 추세선 참조 trendline(id) (추세매매 Phase 2, ADR 0140)
  *   comparison — 비교 조건 (left op right)
  *   logical    — AND | OR 이항 결합
  *   not        — NOT 단항 부정
@@ -26,6 +27,7 @@ import type {
 } from '../../lib/dsl/blockTree'
 import { INDICATOR_CATALOG_MAP } from '../../api/indicator'
 import { PATTERN_CATALOG_MAP } from '../../api/patterns'
+import { useTrendlineLabel } from './trendlineLabelContext'
 
 interface BlockNodeProps {
   node: BlockNodeType
@@ -98,6 +100,9 @@ export function BlockNode({ node, onChange, onRemove, depth = 0 }: BlockNodeProp
       )}
       {node.kind === 'literal' && (
         <LiteralNodeView node={node} onChange={onChange} onRemove={onRemove} />
+      )}
+      {node.kind === 'trendline' && (
+        <TrendlineNodeView node={node} onRemove={onRemove} />
       )}
       {node.kind === 'comparison' && (
         <ComparisonNodeView
@@ -334,6 +339,39 @@ function LiteralNodeView({
             {node.value}
           </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// 추세선 노드 (추세매매 Phase 2, ADR 0140 — trendline(id))
+// ─────────────────────────────────────────────
+
+function TrendlineNodeView({
+  node,
+  onRemove,
+}: {
+  node: Extract<BlockNodeType, { kind: 'trendline' }>
+  onRemove: () => void
+}) {
+  const info = useTrendlineLabel(node.trendlineId)
+  const suffix = info ? ` (${[info.code, info.label].filter(Boolean).join(' · ')})` : ''
+
+  return (
+    <div className={[NODE_BASE, 'border-teal-900/50 px-3 py-2'].join(' ')} tabIndex={0}>
+      <button className={REMOVE_BTN} onClick={onRemove} aria-label="노드 삭제" tabIndex={0}>
+        ×
+      </button>
+      <div className="flex items-center gap-2">
+        <span className="rounded bg-teal-900/40 px-1.5 py-0.5 font-mono text-xs text-teal-300">
+          추세선
+        </span>
+        <span className="font-mono text-sm text-white">trendline({node.trendlineId})</span>
+        <span className="text-xs text-gray-500">
+          추세선 #{node.trendlineId}
+          {suffix}
+        </span>
       </div>
     </div>
   )

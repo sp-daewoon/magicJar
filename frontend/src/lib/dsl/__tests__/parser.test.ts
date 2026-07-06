@@ -81,6 +81,47 @@ describe('parseDslText — 화이트리스트 위반 → throw', () => {
   })
 })
 
+describe('parseDslText — trendline(id) 추세선 참조 (추세매매 Phase 2, ADR 0140)', () => {
+  it('close crosses_above trendline(123) → comparison(candle close, crosses_above, trendline 123)', () => {
+    const tree = parseDslText('close crosses_above trendline(123)')
+    expect(tree.kind).toBe('comparison')
+    if (tree.kind === 'comparison') {
+      expect(tree.op).toBe('crosses_above')
+      expect(tree.left?.kind).toBe('candle')
+      expect(tree.right?.kind).toBe('trendline')
+      if (tree.right?.kind === 'trendline') {
+        expect(tree.right.trendlineId).toBe(123)
+      }
+    }
+  })
+
+  it('close crosses_below trendline(7) → 청산 방향도 파싱', () => {
+    const tree = parseDslText('close crosses_below trendline(7)')
+    expect(tree.kind).toBe('comparison')
+    if (tree.kind === 'comparison' && tree.right?.kind === 'trendline') {
+      expect(tree.op).toBe('crosses_below')
+      expect(tree.right.trendlineId).toBe(7)
+    }
+  })
+
+  it('AND 조합 안에서도 trendline 참조 파싱', () => {
+    const tree = parseDslText('(close crosses_above trendline(5)) AND (rsi(14) < 70)')
+    expect(tree.kind).toBe('logical')
+  })
+
+  it('소수 id → ParseError', () => {
+    expect(() => parseDslText('close crosses_above trendline(1.5)')).toThrow()
+  })
+
+  it('id 없는 trendline() → ParseError', () => {
+    expect(() => parseDslText('close crosses_above trendline()')).toThrow()
+  })
+
+  it('0 id → ParseError (양의 정수만)', () => {
+    expect(() => parseDslText('close crosses_above trendline(0)')).toThrow()
+  })
+})
+
 describe('parseDslTextToTree', () => {
   it('entry만 있는 경우', () => {
     const tree = parseDslTextToTree('rsi(14) < 30')

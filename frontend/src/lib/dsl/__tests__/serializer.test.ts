@@ -146,6 +146,27 @@ describe('DslSerializer round-trip', () => {
   })
 })
 
+describe('trendline(id) 직렬화 + 왕복 (추세매매 Phase 2, ADR 0140)', () => {
+  it('trendline 노드 → trendline(123)', () => {
+    const node: BlockNode = {
+      kind: 'comparison',
+      op: 'crosses_above',
+      left: { kind: 'candle', field: 'close' },
+      right: { kind: 'trendline', trendlineId: 123 },
+    }
+    expect(serializeNode_(node)).toBe('close crosses_above trendline(123)')
+  })
+
+  it('parse → serialize 왕복 안정성 (close crosses_below trendline(9))', () => {
+    const dsl = 'close crosses_below trendline(9)'
+    expect(serializeNode_(parseDslText(dsl))).toBe(dsl)
+  })
+
+  it('잘못된 id(0) 직렬화 시 throw', () => {
+    expect(() => serializeNode_({ kind: 'trendline', trendlineId: 0 })).toThrow()
+  })
+})
+
 describe('serializeBlockTree — entry/exit 두 트리', () => {
   it('entry만 있는 경우 exit은 빈 문자열', () => {
     const tree: BlockTree = {

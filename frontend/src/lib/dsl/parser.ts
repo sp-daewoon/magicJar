@@ -398,6 +398,12 @@ class Parser {
         return this.parseConsecutive()
       }
 
+      // trendline(123) — 차트 추세선 참조 (추세매매 Phase 2, ADR 0140 §3-1)
+      // backend KisYamlDslParser 의 name=="trendline" 분기와 1:1 정합.
+      if (name === 'trendline') {
+        return this.parseTrendlineRef()
+      }
+
       // CANDLE 필드
       if (CANDLE_FIELDS.has(name)) {
         this.depth--
@@ -472,6 +478,32 @@ class Parser {
     }
     if (this.lex.peek().type === 'RPAREN') this.lex.consume()
     return params
+  }
+
+  /**
+   * trendline(123) → TrendlineBlock (추세매매 Phase 2, ADR 0140 §3-1).
+   * 인자는 양의 정수 id 하나. 소수·음수·0·비정수는 화이트리스트 위반으로 거부.
+   */
+  private parseTrendlineRef(): BlockNode {
+    if (this.lex.peek().type !== 'LPAREN') {
+      throw new ParseError('trendline 다음에 "(" 가 필요합니다')
+    }
+    this.lex.consume() // (
+    const numTok = this.lex.peek()
+    if (numTok.type !== 'NUMBER' || numTok.value.includes('.')) {
+      throw new ParseError('trendline() 안에 추세선 id(양의 정수)가 필요합니다')
+    }
+    this.lex.consume()
+    const trendlineId = parseInt(numTok.value, 10)
+    if (!Number.isInteger(trendlineId) || trendlineId <= 0) {
+      throw new ParseError(`trendline id 가 올바르지 않습니다: "${numTok.value}"`)
+    }
+    if (this.lex.peek().type !== 'RPAREN') {
+      throw new ParseError('trendline() 닫는 괄호가 없습니다')
+    }
+    this.lex.consume()
+    this.depth--
+    return { kind: 'trendline', trendlineId }
   }
 
   private parsePatternDetected(): BlockNode {

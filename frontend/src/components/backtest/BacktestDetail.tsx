@@ -14,6 +14,8 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { backtestApi } from '../../api/backtest'
 import type { BacktestRunDetailDto } from '../../api/backtest'
+import { useSigStrategy } from '../../api/hooks/useSigStrategy'
+import { parseTrendlineRefIds } from '../../lib/trendlineStrategy/trendlineDraft'
 import { BacktestKpiPanel, kpiFromDetail } from './BacktestKpiPanel'
 import { EquityCurveChart } from './EquityCurveChart'
 import { TradeTable } from './TradeTable'
@@ -111,6 +113,15 @@ export function BacktestDetail({ runId, userId, onBack }: BacktestDetailProps) {
     staleTime: 60_000,
   })
 
+  // 추세매매 Phase 2 (ADR 0140 §3-5) — lookahead bias 경고 판정.
+  //   ruleDsl 은 요약 포맷이라 실제 DSL 이 없다 → strategyId 를 파싱해 전략 buy/sell 조건을 조회하고,
+  //   trendline(id) 참조가 있으면 경고 배너를 노출한다(사용자가 미래 pivot 을 보고 그은 선일 수 있음).
+  const backtestStrategyId = parseStrategyIdFromRuleDsl(detail?.ruleDsl ?? null)
+  const { data: backtestStrategy } = useSigStrategy(backtestStrategyId ?? undefined)
+  const referencesTrendline =
+    parseTrendlineRefIds(backtestStrategy?.buyCondition).length > 0 ||
+    parseTrendlineRefIds(backtestStrategy?.sellCondition).length > 0
+
   if (isDetailLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -170,6 +181,22 @@ export function BacktestDetail({ runId, userId, onBack }: BacktestDetailProps) {
           <MetaRow label="규칙 DSL" value={detail.ruleDsl} />
         </div>
       </div>
+
+      {/* 추세매매 Phase 2 — lookahead bias 경고 (ADR 0140 §3-5) */}
+      {referencesTrendline && (
+        <div
+          className="rounded-xl border border-amber-800/60 bg-amber-950/30 p-4"
+          role="alert"
+        >
+          <p className="text-sm font-semibold text-amber-300">⚠ 미래 정보 편향(lookahead bias) 주의</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/90">
+            이 전략은 차트에 그은 추세선(trendline)을 참조합니다. 선을 그은 시점 이전 구간의 백테스트는
+            <span className="font-semibold"> 미래 정보 편향</span>이 있을 수 있습니다 — 미래의 고점·저점을 보고
+            그은 선을 과거에 적용하면 성과가 낙관적으로 부풀 수 있으니, 결과를 그대로 신뢰하지 말고 참고용으로만
+            해석하세요.
+          </p>
+        </div>
+      )}
 
       {/* FAILED 상태 */}
       {detail.status === 'FAILED' && (
