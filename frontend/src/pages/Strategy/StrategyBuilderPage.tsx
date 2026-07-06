@@ -45,6 +45,10 @@ import {
   consumeStrategyResearchDraft,
   type StrategyResearchBuilderDraft,
 } from '../../lib/strategyResearch/builderDraft'
+import {
+  consumeTrendlineStrategyDraft,
+  type TrendlineStrategyDraft,
+} from '../../lib/trendlineStrategy/trendlineDraft'
 import { ScreenerResultModal } from '../../features/screener/components/ScreenerResultModal'
 import { StrategyStartScreen } from '../../components/strategy/StrategyStartScreen'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -169,6 +173,9 @@ export function StrategyBuilderPage() {
   const [started, setStarted] = useState(false)
   const [researchDraftMeta, setResearchDraftMeta] = useState<StrategyResearchBuilderDraft | null>(null)
   const importedResearchDraftIdRef = useRef<string | null>(null)
+  // 추세매매 Phase 1 — 차트 추세선에서 넘어온 프리셋 메타
+  const [trendlineDraftMeta, setTrendlineDraftMeta] = useState<TrendlineStrategyDraft | null>(null)
+  const importedTrendlineDraftIdRef = useRef<string | null>(null)
   const favoritesMigratedRef = useRef(false)
 
   // 모달 상태
@@ -237,6 +244,7 @@ export function StrategyBuilderPage() {
       setStrategyId(isDuplicate ? undefined : loadedStrategy.id)
       setAiDraftMeta(null)
       setStartItemMeta(null)
+      setTrendlineDraftMeta(null)
       setComplexity(loadedStrategy.complexity ?? null)
       setEvalResult(null)
       setValidateError(null)
@@ -277,6 +285,7 @@ export function StrategyBuilderPage() {
       setResearchDraftMeta(draft)
       setAiDraftMeta(null)
       setStartItemMeta(null)
+      setTrendlineDraftMeta(null)
       setStrategyId(undefined)
       setComplexity(null)
       setEvalResult(null)
@@ -287,6 +296,44 @@ export function StrategyBuilderPage() {
       showToast(`${draft.candidateTitle} draft 불러옴`)
     } catch (err) {
       showToast(`리서치 draft 변환 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
+    }
+  }, [searchParams, setSearchParams, showToast, tree.entry, tree.exit])
+
+  // 추세매매 Phase 1 — ?trendlineDraftId= 딥링크 소비 → 시작 화면 건너뛰고 프리셋 로드
+  useEffect(() => {
+    const draftId = searchParams.get('trendlineDraftId')
+    if (!draftId || importedTrendlineDraftIdRef.current === draftId) return
+    importedTrendlineDraftIdRef.current = draftId
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('trendlineDraftId')
+    setSearchParams(nextParams, { replace: true })
+
+    const draft = consumeTrendlineStrategyDraft(draftId)
+    if (!draft) {
+      showToast('추세선 프리셋을 찾을 수 없습니다 — 차트에서 다시 시도해 주세요', 'error')
+      return
+    }
+    if ((tree.entry || tree.exit) && !window.confirm('현재 작성 중인 조건을 추세선 프리셋으로 교체할까요?')) {
+      return
+    }
+    try {
+      setTree(parseDslTextToTree(draft.entryDsl, draft.exitDsl))
+      setTrendlineDraftMeta(draft)
+      setResearchDraftMeta(null)
+      setAiDraftMeta(null)
+      setStartItemMeta(null)
+      setStrategyId(undefined)
+      setComplexity(null)
+      setEvalResult(null)
+      setValidateError(null)
+      setCanvasTab('entry')
+      setEvalForm({ code: draft.code, interval: draft.interval })
+      loadedStrategyIdRef.current = null
+      setStarted(true)
+      showToast(`${draft.nameKo} 프리셋 불러옴`)
+    } catch (err) {
+      showToast(`추세선 프리셋 변환 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`, 'error')
     }
   }, [searchParams, setSearchParams, showToast, tree.entry, tree.exit])
 
@@ -355,6 +402,7 @@ export function StrategyBuilderPage() {
       setCanvasTab('entry')
       setStrategyId(undefined)
       setAiDraftMeta(null)
+      setTrendlineDraftMeta(null)
       setComplexity(null)
       setEvalResult(null)
       setValidateError(null)
@@ -465,6 +513,7 @@ export function StrategyBuilderPage() {
       setAiDraftMeta(item)
       setResearchDraftMeta(null)
       setStartItemMeta(null)
+      setTrendlineDraftMeta(null)
       setStrategyId(undefined)
       setComplexity(null)
       setEvalResult(null)
@@ -547,7 +596,8 @@ export function StrategyBuilderPage() {
   const { entry: entryDsl, exit: exitDsl } = serializeBlockTree(tree)
 
   // 시작 화면 분기 (spec 2026-06-18 §4.1) — 빈 트리 + 미로드 + URL deeplink 없음 + 미시작일 때만.
-  const hasDeepLink = !!routeStrategyId || !!searchParams.get('researchDraftId')
+  const hasDeepLink =
+    !!routeStrategyId || !!searchParams.get('researchDraftId') || !!searchParams.get('trendlineDraftId')
   const isFresh =
     !started &&
     !hasDeepLink &&
@@ -556,7 +606,8 @@ export function StrategyBuilderPage() {
     !strategyId &&
     !researchDraftMeta &&
     !aiDraftMeta &&
-    !startItemMeta
+    !startItemMeta &&
+    !trendlineDraftMeta
   const showStartScreen = isFresh
 
   if (showStartScreen) {
@@ -600,6 +651,31 @@ export function StrategyBuilderPage() {
   const resultsPanelContent = (
     <>
       <h2 className="text-sm font-semibold text-gray-300">전략 실행</h2>
+
+      {trendlineDraftMeta && (
+        <div className="rounded-lg border border-sky-800/60 bg-sky-950/30 p-3">
+          <div className="text-xs font-semibold text-sky-200">차트 추세선에서 생성된 프리셋</div>
+          <p className="mt-1 text-xs leading-relaxed text-sky-100/90">
+            자동매매 결정을 대신하지 않습니다 — 백테스트로 검증한 뒤 직접 저장·활성화하세요.
+          </p>
+          <div className="mt-2 text-xs text-gray-300">{trendlineDraftMeta.nameKo}</div>
+          <div className="mt-1 text-[11px] text-gray-500">
+            {trendlineDraftMeta.code} · {trendlineDraftMeta.interval} ·{' '}
+            {trendlineDraftMeta.lineType === 'RESISTANCE' ? '저항(돌파)' : '지지(반등)'} @{' '}
+            {trendlineDraftMeta.linePrice.toLocaleString('ko-KR')}
+          </div>
+          <p className="mt-2 rounded bg-amber-950/40 px-2 py-1 text-[11px] text-amber-300">
+            휩쏘 주의 — 선 바로 아래 이탈 청산은 반복 매매 위험이 있습니다. 손절 {trendlineDraftMeta.stopLossPct}%는
+            선 가격 기준 제안값이니 저장 전 조정하고, minHold·버퍼는 저장 후 전략 설정에서 보강하세요.
+          </p>
+          <Link
+            to="/strategy/backtest"
+            className="mt-2 block w-full rounded-md border border-sky-700 py-1.5 text-center text-xs text-sky-200 hover:bg-sky-900/40"
+          >
+            백테스트로 검증하기 →
+          </Link>
+        </div>
+      )}
 
       {researchDraftMeta && !strategyId && (
         <div className="rounded-lg border border-blue-900/60 bg-blue-950/20 p-3">
@@ -880,15 +956,15 @@ export function StrategyBuilderPage() {
           userId={registeredUserId}
           entry={entryDsl}
           exit={exitDsl}
-          initialName={loadedStrategy?.name ?? researchDraftMeta?.name ?? aiDraftMeta?.name ?? startItemMeta?.name}
-          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo ?? aiDraftMeta?.name ?? startItemMeta?.nameKo ?? undefined}
+          initialName={loadedStrategy?.name ?? researchDraftMeta?.name ?? trendlineDraftMeta?.name ?? aiDraftMeta?.name ?? startItemMeta?.name}
+          initialNameKo={loadedStrategy?.nameKo ?? researchDraftMeta?.nameKo ?? trendlineDraftMeta?.nameKo ?? aiDraftMeta?.name ?? startItemMeta?.nameKo ?? undefined}
           initialUniverse={loadedStrategy?.universe}
           initialTf={evalForm.interval}
           initialCode={evalForm.code}
-          initialCodes={loadedStrategy?.codes ?? researchDraftMeta?.universeCodes}
+          initialCodes={loadedStrategy?.codes ?? researchDraftMeta?.universeCodes ?? (trendlineDraftMeta ? [trendlineDraftMeta.code] : undefined)}
           initialCodeNames={loadedStrategy?.codeNames}
           initialStopLossPct={
-            loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? startItemMeta?.fixedStopLossPct ?? undefined
+            loadedStrategy?.stopLossPct ?? researchDraftMeta?.stopLossPct ?? trendlineDraftMeta?.stopLossPct ?? aiDraftMeta?.riskPlan.fixedStopLossPct ?? startItemMeta?.fixedStopLossPct ?? undefined
           }
           initialTakeProfitPct={
             loadedStrategy?.takeProfitPct ?? researchDraftMeta?.takeProfitPct ?? aiDraftMeta?.riskPlan.takeProfitPct ?? startItemMeta?.takeProfitPct ?? undefined
