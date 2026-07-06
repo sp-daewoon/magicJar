@@ -514,6 +514,16 @@ class KisWebSocketBridge(
     @Volatile
     var onNoTickDetected: ((code: String, trId: String, ageSeconds: Long) -> Unit)? = null
 
+    /**
+     * silent 상태였던 종목의 실시간 tick이 재개될 때 호출되는 hook ([onNoTickDetected]의 역방향).
+     *
+     * no-tick fallback이 만성 silent 종목에 지수 백오프를 걸어둔 상태에서 KIS tick이 다시 흐르면, wiring이
+     * fallback 백오프를 즉시 리셋해 base cadence로 복귀시킨다(다시 silent해질 때 과도 backoff 잔류 방지). silent→active
+     * 전이(무tick WARN이 걸려 있던 종목의 첫 tick)에서만 1회 발화한다 — 정상 tick 종목의 매 frame overhead 0.
+     */
+    @Volatile
+    var onTickResumed: ((code: String) -> Unit)? = null
+
     private fun slotLedger(): kr.spdaewoon.magicjar.consumer.ingestion.WsSlotBudgetLedger? = slotLedgerProvider.ifAvailable
 
     /**
@@ -1404,7 +1414,11 @@ class KisWebSocketBridge(
      */
     private fun recordTickReceived(code: String) {
         lastTickAtMsByCode[code] = System.currentTimeMillis()
-        noTickWarned.remove(code)
+        // silent→active 전이(무tick WARN이 걸려 있던 종목의 첫 복귀 tick)에서만 fallback 백오프 리셋 hook 발화.
+        if (noTickWarned.remove(code)) {
+            runCatching { onTickResumed?.invoke(code) }
+                .onFailure { e -> log.trace("onTickResumed hook skip: code={} err={}", code, e.message) }
+        }
         if (firstTickConfirmed.add(code)) {
             log.info("KIS WS 첫 체결 frame 수신 확정 — streaming OK: code={} trId={}", code, TR_ID_UNIFIED_TICK)
         }

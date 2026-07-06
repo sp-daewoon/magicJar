@@ -161,17 +161,20 @@ class KisRestPriceAdapter(
             )
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일 (EGW00201 = HTTP 500 wrap).
+            // 로그 위생: RateLimit은 onTpsExceeded WARN 1건만 남기고 ERROR 중복 금지(EGW00201 storm 시 분당 이중 로그 제거).
+            //   RateLimit 외 실패만 ERROR로 남긴다. 예외는 두 경우 모두 caller로 rethrow(동작 무변경).
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
                 log.warn("KIS inquire-price Rate Limit — onTpsExceeded: code={} status={}", code, e.statusCode.value())
+            } else {
+                log.error(
+                    "KIS inquire-price 실패: code={} status={} body={}",
+                    code,
+                    e.statusCode,
+                    e.responseBodyAsString.take(200),
+                )
             }
-            log.error(
-                "KIS inquire-price 실패: code={} status={} body={}",
-                code,
-                e.statusCode,
-                e.responseBodyAsString.take(200),
-            )
             throw e
         } finally {
             if (!signalSent) {
@@ -229,8 +232,12 @@ class KisRestPriceAdapter(
         //   acquire를 try 안으로 옮기고 signalSent flag로 통계 시그널 미발행 path 감시.
         var signalSent = false
         return try {
-            // Rate Limit acquire (spec PR #564 §2-2 LOCK — USER_PATH priority — metrics path)
-            kisRateLimiterPort.acquire(KisCallPriority.USER_PATH, timeoutMillis = 3000L, trId = "FHKST03010100")
+            // Rate Limit acquire (spec PR #564 §2-2 LOCK).
+            //   본 consumer 어댑터의 fetchPriceMetrics 유일 caller = KisWebSocketBridge.seedTodayCandle(구독 시 today-Hash
+            //   시드 · background). 자본/주문 hot path가 아니므로 USER 버킷 대신 INGESTION(shared/bg) 버킷으로 낮춰
+            //   ADR 0116 3-tier 의도대로 USER 버킷(주문·잔고)을 보호한다(fetchPollingPrice와 동일 근거). 사용자 화면
+            //   metrics는 api 모듈 KisRestPriceMetricsAdapter가 별도 담당하므로 본 변경 영향 밖.
+            kisRateLimiterPort.acquire(KisCallPriority.INGESTION, timeoutMillis = 3000L, trId = "FHKST03010100")
 
             @Suppress("UNCHECKED_CAST")
             val response =
@@ -299,6 +306,8 @@ class KisRestPriceAdapter(
             )
         } catch (e: WebClientResponseException) {
             // P0 hotfix (진단 PR #639) — classifyKisError() 분기 통일.
+            // 로그 위생: RateLimit은 onTpsExceeded WARN 1건만 남기고 ERROR 중복 금지(silent 종목 seed의 EGW00201 분당 반복 시
+            //   이중 로그 제거). RateLimit 외 실패만 ERROR. 예외는 두 경우 모두 caller로 rethrow(동작 무변경).
             if (classifyKisError(e.statusCode.value(), e.responseBodyAsString) is KisErrorClass.RateLimit) {
                 kisRateLimiterPort.onTpsExceeded()
                 signalSent = true
@@ -307,13 +316,14 @@ class KisRestPriceAdapter(
                     code,
                     e.statusCode.value(),
                 )
+            } else {
+                log.error(
+                    "KIS inquire-daily-itemchartprice (metrics) 실패: code={} status={} body={}",
+                    code,
+                    e.statusCode,
+                    e.responseBodyAsString.take(200),
+                )
             }
-            log.error(
-                "KIS inquire-daily-itemchartprice (metrics) 실패: code={} status={} body={}",
-                code,
-                e.statusCode,
-                e.responseBodyAsString.take(200),
-            )
             throw e
         } finally {
             if (!signalSent) {

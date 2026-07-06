@@ -44,6 +44,22 @@ class NoTickMinuteFallbackServiceTest {
             dedupeSeconds = 60L,
         )
 
+    /** base·cap을 초 단위 소값으로 눌러 백오프 전이를 결정적으로 검증(1s base·8s cap). */
+    private fun backoffService(): NoTickMinuteFallbackService =
+        NoTickMinuteFallbackService(
+            candleRepository = candleRepository,
+            kisOneMinuteCandleRangePort = rangePort,
+            boundaryAggregator = boundaryAggregator,
+            liveCandleUpdater = liveCandleUpdater,
+            positionStopLossTickWatcher = stopLossWatcher,
+            kafkaTemplate = kafkaTemplate,
+            objectMapper = objectMapper,
+            enabled = true,
+            dedupeSeconds = 60L,
+            backoffBaseSeconds = 1L,
+            backoffCapSeconds = 8L,
+        )
+
     @Test
     fun `no tick fallback은 REST 1m gap을 저장하고 최신 닫힌 봉 1건만 Kafka 발행한다`() {
         val lastTs = Instant.now().minusSeconds(180)
@@ -110,6 +126,65 @@ class NoTickMinuteFallbackServiceTest {
         assertThat(tickSlot.captured.price).isEqualByComparingTo("100")
         assertThat(tickSlot.captured.source).isEqualTo("KIS-NOTICK-FALLBACK")
         assertThat(tickSlot.captured.stale).isTrue()
+    }
+
+    @Test
+    fun `백오프 — 진전 없는 연속 실패마다 다음 자격 간격이 base부터 2배씩 늘고 cap에서 멈춘다`() {
+        val svc = backoffService()
+
+        // 최초는 백오프 없음(즉시 자격).
+        assertThat(svc.backoffStreak("071970")).isZero()
+        assertThat(svc.backoffRemainMs("071970")).isZero()
+
+        // 연속 실패: 1s → 2s → 4s → 8s → (16s>cap) 8s
+        val expectedMs = longArrayOf(1_000L, 2_000L, 4_000L, 8_000L, 8_000L)
+        expectedMs.forEachIndexed { idx, expected ->
+            val before = System.currentTimeMillis()
+            svc.recordBackoffOutcome("071970", madeProgress = false)
+            assertThat(svc.backoffStreak("071970")).isEqualTo(idx + 1)
+            val remain = svc.backoffRemainMs("071970", now = before)
+            // remain 은 (expected - 경과ms) 이므로 상한 expected, 하한은 여유 100ms.
+            assertThat(remain).isBetween(expected - 100L, expected)
+        }
+    }
+
+    @Test
+    fun `백오프 — 신선한 봉 유입(madeProgress) 시 streak과 자격 간격이 즉시 리셋된다`() {
+        val svc = backoffService()
+        repeat(3) { svc.recordBackoffOutcome("013580", madeProgress = false) }
+        assertThat(svc.backoffStreak("013580")).isEqualTo(3)
+        assertThat(svc.backoffRemainMs("013580")).isGreaterThan(0L)
+
+        svc.recordBackoffOutcome("013580", madeProgress = true)
+
+        assertThat(svc.backoffStreak("013580")).isZero()
+        assertThat(svc.backoffRemainMs("013580")).isZero()
+    }
+
+    @Test
+    fun `백오프 — WS tick 재개(onTickResumed) 시 백오프가 청산된다`() {
+        val svc = backoffService()
+        repeat(2) { svc.recordBackoffOutcome("071970", madeProgress = false) }
+        assertThat(svc.backoffRemainMs("071970")).isGreaterThan(0L)
+
+        svc.onTickResumed("071970")
+
+        assertThat(svc.backoffStreak("071970")).isZero()
+        assertThat(svc.backoffRemainMs("071970")).isZero()
+    }
+
+    @Test
+    fun `백오프 활성 구간에서는 submit이 fallback REST를 발사하지 않는다`() {
+        val svc = backoffService()
+        // 백오프 자격 시각을 미래로 설정(1회 실패 → 1s).
+        svc.recordBackoffOutcome("071970", madeProgress = false)
+        assertThat(svc.backoffRemainMs("071970")).isGreaterThan(0L)
+
+        // 백오프 창 안에서 submit → 동기 skip(executor 미제출) → rangePort 미호출.
+        svc.submit(code = "071970", ageSeconds = 130)
+
+        verify(exactly = 0) { rangePort.fetchOneMinuteCandlesBetween(any(), any(), any()) }
+        verify(exactly = 0) { candleRepository.findMaxTsByCodeAndInterval(any(), any()) }
     }
 
     private fun candle(

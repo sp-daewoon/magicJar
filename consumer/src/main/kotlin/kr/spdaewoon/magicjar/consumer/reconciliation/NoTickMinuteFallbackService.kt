@@ -59,10 +59,25 @@ class NoTickMinuteFallbackService(
     private val dedupeSeconds: Long = 60L,
     @Value("\${magicjar.kis.ws.no-tick-fallback-min-call-interval-ms:1000}")
     private val minCallIntervalMs: Long = 1000L,
+    @Value("\${magicjar.kis.ws.no-tick-fallback-backoff-base-seconds:60}")
+    private val backoffBaseSeconds: Long = 60L,
+    @Value("\${magicjar.kis.ws.no-tick-fallback-backoff-cap-seconds:600}")
+    private val backoffCapSeconds: Long = 600L,
 ) {
     private val log = LoggerFactory.getLogger(NoTickMinuteFallbackService::class.java)
     private val inFlightUntilMs = ConcurrentHashMap<String, Long>()
     private val lastPublishedTsByCode = ConcurrentHashMap<String, Instant>()
+
+    /**
+     * 만성 silent 종목 종목별 지수 백오프 상태.
+     *
+     * 저유동성 종목은 WS tick이 분당 거의 없어 무tick watchdog이 매 점검(30s)마다 [submit]을 호출한다. 새 1분봉이
+     * 실제로 유입되지 않는 한(published/inserted 0) fallback REST는 매분 KIS 공유 TPS를 소모하고, 경합 시
+     * EGW00201(초당 거래건수 초과)를 분당 반복 생산한다. 진전 없는 연속 실패마다 다음 호출 자격 시각을
+     * base(1분)→2→4→…cap(10분)으로 늘려 공유 TPS 압력을 완화한다. 신선한 봉 유입([recordBackoffOutcome]
+     * madeProgress) 또는 실시간 tick 재개([onTickResumed]) 시 즉시 base cadence로 리셋해 데이터 신선도를 지킨다.
+     */
+    private val backoffByCode = ConcurrentHashMap<String, BackoffState>()
     private var nextRestCallAtMs: Long = 0L
     private val threadCounter = AtomicInteger(0)
     private val executor: ExecutorService =
@@ -93,12 +108,85 @@ class NoTickMinuteFallbackService(
         val inFlightUntil = inFlightUntilMs[code]
         if (inFlightUntil != null && now < inFlightUntil) return
 
+        // 만성 silent 백오프 gate — 진전 없는 연속 실패로 늘어난 자격 시각 전에는 REST를 발사하지 않는다.
+        val backoff = backoffByCode[code]
+        if (backoff != null && now < backoff.nextEligibleAtMs) {
+            log.debug(
+                "WS no-tick 1m fallback 백오프 skip: code={} remainMs={} failureStreak={}",
+                code,
+                backoff.nextEligibleAtMs - now,
+                backoff.failureStreak,
+            )
+            return
+        }
+
         inFlightUntilMs[code] = now + dedupeMs
         executor.submit {
             runCatching { runFallbackNow(code = code, ageSeconds = ageSeconds) }
-                .onFailure { e -> log.warn("WS no-tick 1m fallback 실패: code={} err={}", code, e.message) }
+                .onSuccess { result -> recordBackoffOutcome(code, madeProgress = result.published || result.inserted > 0) }
+                .onFailure { e ->
+                    log.warn("WS no-tick 1m fallback 실패: code={} err={}", code, e.message)
+                    recordBackoffOutcome(code, madeProgress = false)
+                }
         }
     }
+
+    /**
+     * fallback 실행 결과로 종목별 백오프를 갱신한다.
+     *
+     * - madeProgress(신선한 봉 저장·발행) → 백오프 제거 → 다음 무tick 감지 시 base cadence 즉시 복귀(신선도 우선).
+     * - 진전 없음/예외(EGW00201 등) → 연속 실패 streak 증가 → 다음 자격 시각을 base<<(streak-1)로, cap까지 늘린다.
+     */
+    internal fun recordBackoffOutcome(
+        code: String,
+        madeProgress: Boolean,
+    ) {
+        if (madeProgress) {
+            backoffByCode.remove(code)
+            return
+        }
+        val baseMs = backoffBaseSeconds.coerceAtLeast(1L) * 1000L
+        val capMs = backoffCapSeconds.coerceAtLeast(backoffBaseSeconds).coerceAtLeast(1L) * 1000L
+        val state = backoffByCode.getOrPut(code) { BackoffState() }
+        synchronized(state) {
+            val streak = state.failureStreak + 1
+            state.failureStreak = streak
+            val shift = (streak - 1).coerceIn(0, 20)
+            val scaledMs = (baseMs shl shift).let { if (it <= 0L) capMs else it }
+            val intervalMs = scaledMs.coerceAtMost(capMs)
+            state.nextEligibleAtMs = System.currentTimeMillis() + intervalMs
+        }
+    }
+
+    /**
+     * WS 실시간 tick이 재개된 종목의 백오프를 즉시 리셋한다.
+     *
+     * silent→active 전이 시 [kr.spdaewoon.magicjar.consumer.ingestion.KisWsNoTickFallbackWiring]가
+     * KisWebSocketBridge.onTickResumed hook 경유로 호출한다. tick이 정상 유입되면 fallback REST 자체가 불필요하므로
+     * 다시 silent해지더라도 base cadence부터 재출발하도록 streak을 청산한다.
+     */
+    fun onTickResumed(code: String) {
+        if (code.isBlank()) return
+        backoffByCode.remove(code)
+    }
+
+    /** 종목별 지수 백오프 상태 — [submit] 호출 스레드와 단일 fallback executor가 공유. */
+    internal class BackoffState {
+        @Volatile
+        var nextEligibleAtMs: Long = 0L
+
+        @Volatile
+        var failureStreak: Int = 0
+    }
+
+    /** 테스트 관측용 — 종목 현재 실패 streak(백오프 미설정 시 0). */
+    internal fun backoffStreak(code: String): Int = backoffByCode[code]?.failureStreak ?: 0
+
+    /** 테스트 관측용 — 종목 다음 fallback 자격까지 남은 ms(백오프 미설정·만료 시 0). */
+    internal fun backoffRemainMs(
+        code: String,
+        now: Long = System.currentTimeMillis(),
+    ): Long = backoffByCode[code]?.let { (it.nextEligibleAtMs - now).coerceAtLeast(0L) } ?: 0L
 
     internal fun runFallbackNow(
         code: String,
