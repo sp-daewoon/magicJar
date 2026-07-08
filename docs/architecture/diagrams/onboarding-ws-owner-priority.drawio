@@ -1,0 +1,39 @@
+<mxfile host="magicjar-architect">
+  <diagram name="ws-owner-priority" id="ws-owner-priority">
+    <mxGraphModel dx="1100" dy="720" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="960" pageHeight="520" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t1" value="KIS WebSocket 40 slot — owner priority + eviction (ADR 0124 · 0138)" style="text;html=1;fontSize=15;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;fontColor=#1a2b4a;" vertex="1" parent="1">
+          <mxGeometry x="20" y="12" width="920" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="sub" value="체결가는 H0UNCNT0 단일 통합 채널 (KRX+NXT · 종목당 1채널) · 호가는 H0UNASP0 (STRATEGY·DETAIL 한정)" style="text;html=1;fontSize=11;fontStyle=2;align=center;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="20" y="42" width="920" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h" value="HOLDING (priority 0)&#10;보유 종목 — 청산 tick 자본 risk 최우선 · evict 절대 금지 (ADR 0114 LOCK)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f6c9c0;strokeColor=#b5442e;fontColor=#5a1a10;fontSize=12;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="76" width="840" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="p" value="PENDING_BUY (priority 5)&#10;미체결 매수 주문 종목 · evict 절대 금지 (ADR 0114 LOCK)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8ddc2;strokeColor=#c07a2e;fontColor=#5a3410;fontSize=12;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="140" width="840" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="s" value="STRATEGY (priority 10)&#10;자동매매 평가·진입 (매매 경로) · DETAIL 소진 후에만 evict · 상한 15" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4e6b8;strokeColor=#b39a2e;fontColor=#4a4010;fontSize=12;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="204" width="840" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="d" value="DETAIL (priority 20)&#10;종목 상세 화면 표시 중 (관찰 경로) · slot 경합 시 최우선 evict victim · 이탈/15분 idle 해제" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6ecd6;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=12;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="268" width="840" height="52" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow" value="slot 경합 시 evict 순서 (priority 큰 값부터)" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#b5442e;fontSize=10;fontColor=#b5442e;" edge="1" parent="1" source="d" target="s"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="wl" value="Watchlist — WS slot 사용 안 함 · 5초 REST polling 전용 (ADR 0124 결정 B)&#10;시세 채널만 WS→polling 강등, watchlist 기능(등록/삭제/priority/화면)은 유지 · WS 40 slot은 매매 수요 전용" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=11;dashed=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="344" width="840" height="56" as="geometry" />
+        </mxCell>
+
+        <mxCell id="foot" value="매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선 — 기존 DETAIL10 > STRATEGY40 역전(ADR 0124). WsSlotBudgetLedger가 채널(code,trId) 단위 회계 · OPSP0008 선제 예방 · queued 시 WARN+Slack." style="text;html=1;fontSize=10;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="60" y="410" width="840" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

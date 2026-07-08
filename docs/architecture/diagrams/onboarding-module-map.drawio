@@ -1,0 +1,69 @@
+<mxfile host="magicjar-architect">
+  <diagram name="module-map" id="module-map">
+    <mxGraphModel dx="1200" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="640" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t1" value="magicJar JVM 9 모듈 + frontend (settings.gradle.kts 단일 권위)" style="text;html=1;fontSize=15;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;fontColor=#1a2b4a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="12" width="920" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="fe" value="frontend&#10;React 19 + TS + Vite + Tailwind + LWC v4 — pnpm · 컨테이너 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f0ff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=12;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="52" width="920" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="applbl" value="응용 어댑터 레이어 — Spring Boot bootJar · 컨테이너 3" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="118" width="920" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="api" value="api&#10;REST · STOMP · Swagger&#10;KIS/DART/Naver 어댑터&#10;Kafka producer · MCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6ecd6;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="138" width="290" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="batch" value="batch&#10;Spring Batch&#10;일봉 backfill · corp action&#10;백테스트 · 성과 집계 cron" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6ecd6;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="355" y="138" width="290" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="consumer" value="consumer&#10;Kafka 소비 · KIS WS&#10;시그널·주문·리스크·정합&#10;AI 분석 · 알림 dispatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6ecd6;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="670" y="138" width="290" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="liblbl" value="공유 라이브러리 jar — Spring Boot main 0 · 컨테이너 0 (api·consumer 상호의존 회피)" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="236" width="920" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="pe" value="pattern-engine&#10;57 캔들 패턴&#10;ADR 0054" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="256" width="172" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="ii" value="indicator-impl&#10;80 지표 계산&#10;ADR 0083" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="227" y="256" width="172" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="se" value="strategy-engine&#10;DSL parser + evaluator&#10;ADR 0092" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="414" y="256" width="172" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="ps" value="persistence-shared&#10;Outbox + JPA 어댑터&#10;ADR 0088" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="601" y="256" width="172" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="mte" value="market-trend-engine&#10;시장 추세 pure math&#10;ADR 0100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="788" y="256" width="172" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="dom" value="domain&#10;순수 도메인 + 헥사고날 port (Spring · JPA · Kafka 의존 0)&#10;instrument · market · indicator · pattern · strategy · signal · order · risk · position · journal · ai · mcp · secret&#10;ADR 0004 · 0005 — 의존은 항상 안쪽(domain)을 향한다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe3ff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=12;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="332" width="920" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="infralbl" value="인프라 (docker compose) — 컨테이너 3" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="426" width="920" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="pg" value="PostgreSQL 16 — 영속 (Flyway)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="446" width="290" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="rd" value="Redis 7 — 캐시 · 시세 · 분산락" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="355" y="446" width="290" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="kf" value="Kafka 3.7 (KRaft) — 이벤트 백본" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="670" y="446" width="290" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="lg" value="의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain · 앱 3종 → 인프라 3종. domain은 아무것도 의존하지 않는다." style="text;html=1;fontSize=10;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="502" width="920" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="endArrow=block;html=1;strokeColor=#3d6fb4;dashed=1;" edge="1" parent="1" source="fe" target="api"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="endArrow=block;html=1;strokeColor=#4a8a4a;" edge="1" parent="1" source="api" target="se"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="endArrow=block;html=1;strokeColor=#4a8a4a;" edge="1" parent="1" source="consumer" target="ps"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="endArrow=block;html=1;strokeColor=#c79a2e;" edge="1" parent="1" source="se" target="dom"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="endArrow=block;html=1;strokeColor=#c79a2e;" edge="1" parent="1" source="ps" target="dom"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
