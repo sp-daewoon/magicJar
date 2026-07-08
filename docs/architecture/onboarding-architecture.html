@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>magicJar 온보딩 아키텍처</title>
+<style>
+  :root {
+    --blue: #3d6fb4; --blue-bg: #e3f0ff; --blue-ink: #12345a;
+    --green: #4a8a4a; --green-bg: #d6ecd6; --green-ink: #1c4a1c;
+    --gold: #b39a2e; --gold-bg: #fbeecb; --gold-ink: #5a4410;
+    --purple: #7a52b3; --purple-bg: #efe3ff; --purple-ink: #3a2360;
+    --red: #b5442e; --red-bg: #f6c9c0;
+    --ink: #1a2b4a; --muted: #5a6b82; --line: #dfe4ec; --bg: #f7f9fc; --card: #ffffff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.75; font-size: 15px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+  header.hero {
+    background: linear-gradient(135deg, #1a2b4a 0%, #2d4a7a 100%);
+    color: #fff; padding: 48px 24px 40px; margin-bottom: 8px;
+  }
+  header.hero .inner { max-width: 1080px; margin: 0 auto; }
+  header.hero h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -0.5px; }
+  header.hero p { margin: 4px 0; color: #cdd9ee; font-size: 15px; }
+  header.hero .tag { display: inline-block; margin-top: 14px; padding: 4px 12px; border: 1px solid #4a6a9a; border-radius: 20px; font-size: 12px; color: #b9cbe8; }
+  nav.toc {
+    position: sticky; top: 0; z-index: 20; background: rgba(247,249,252,0.94);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
+    padding: 10px 24px; margin-bottom: 32px;
+  }
+  nav.toc .inner { max-width: 1080px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+  nav.toc a { color: var(--muted); text-decoration: none; padding: 2px 0; }
+  nav.toc a:hover { color: var(--blue); }
+  nav.toc a.part { font-weight: 700; color: var(--ink); }
+  section { margin: 0 0 44px; }
+  h2 { font-size: 23px; margin: 40px 0 8px; padding-top: 12px; border-top: 3px solid var(--ink); letter-spacing: -0.4px; }
+  h2 .lead { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
+  h3 { font-size: 18px; margin: 30px 0 8px; color: var(--ink); }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--blue-ink); }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef2f7; padding: 1px 5px; border-radius: 4px; color: #33404f; }
+  .fig { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 20px 0; box-shadow: 0 1px 3px rgba(20,40,80,0.05); }
+  .fig svg { display: block; width: 100%; height: auto; }
+  .fig .cap { font-size: 12.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+  .callout { border-left: 4px solid var(--blue); background: var(--blue-bg); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px; }
+  .callout.warn { border-color: var(--red); background: var(--red-bg); }
+  .callout.gold { border-color: var(--gold); background: var(--gold-bg); }
+  .callout.purple { border-color: var(--purple); background: var(--purple-bg); }
+  .callout b { color: var(--ink); }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 13.5px; background: var(--card); border-radius: 8px; overflow: hidden; }
+  th, td { border: 1px solid var(--line); padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: #eef2f7; font-weight: 700; color: var(--ink); }
+  tbody tr:nth-child(even) { background: #fafbfd; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h4 { margin-top: 0; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 12px; margin-right: 6px; }
+  .pill.done { background: var(--green-bg); color: var(--green-ink); }
+  .pill.wip { background: var(--gold-bg); color: var(--gold-ink); }
+  .pill.future { background: var(--purple-bg); color: var(--purple-ink); }
+  .kbd { font-family: var(--mono); font-size: 13px; background: #1a2b4a; color: #d6e4ff; padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre; display: block; margin: 12px 0; }
+  .footnote { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } header.hero h1 { font-size: 24px; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <h1>magicJar 온보딩 아키텍처</h1>
+    <p>룰 기반 quant 자동매매 본체 + AI 옵션 보조(결정권 0) + 한국투자증권 KIS OpenAPI</p>
+    <p>처음 이 프로젝트를 접하는 백엔드/프론트 개발자를 위한 시스템 지도</p>
+    <span class="tag">SoT 정합: docs/architecture/master-architecture.md v2 · settings.gradle.kts · CLAUDE.md · 2026-07-03 감사</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="inner">
+    <a class="part" href="#part1">1부 · 시스템 설명</a>
+    <a href="#vision">정체성</a>
+    <a href="#stack">기술 스택</a>
+    <a href="#modules">9 모듈</a>
+    <a href="#flow">데이터 흐름</a>
+    <a href="#realtime">실시간 시세</a>
+    <a href="#safety">안전 장치</a>
+    <a href="#run">로컬 실행</a>
+    <a href="#reading">읽기 순서</a>
+    <a class="part" href="#part2">2부 · 중점</a>
+    <a class="part" href="#part3">3부 · 발전 방향</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<!-- ============================ PART 1 ============================ -->
+<section id="part1">
+  <h2>1부 — 처음 접하는 개발자를 위한 시스템 설명<span class="lead">이 시스템이 무엇이고, 어떻게 구성되며, 어떻게 돌리는가</span></h2>
+
+  <div id="vision"></div>
+  <h3>1.1 magicJar는 무엇인가</h3>
+  <p>
+    magicJar(마법의항아리)는 <b>룰 기반 quant trading 시스템</b>이다. 종목 마스터 + 기술적 지표 + 전략 DSL + 시그널이 자동 주문까지 이어지는 것이 본체이며,
+    이 본체는 <b>AI·외부 API·인터넷이 끊겨도 동작</b>하도록 설계됐다. AI(Claude·Gemini·OpenAI)는 <b>사용자가 버튼을 눌렀을 때만</b> 호출되는 옵션 분석 보조로,
+    종목 코멘트·기업 분석·차트 해석·지표 의미 설명을 제공할 뿐 <b>매매 트리거·결정권은 0</b>이다. 매매 결정은 오직 DSL 룰 평가 결과로만 발생한다.
+    미래에는 magicJar가 <b>MCP 서버를 노출</b>해 Claude·Cursor 같은 외부 AI 클라이언트가 magicJar의 도메인을 호출하도록 한다(우리가 server, AI가 client).
+  </p>
+  <div class="callout">
+    <b>사용자 정정 원문(2026-05-02)</b> — "AI가 매매를 하는건 허용하는게 아니다. 신호에 의한이고 AI는 옵션이다 … AI가 메인이 되면 안됨!!"
+    이 한 줄이 전체 아키텍처의 최상위 제약이다.
+  </div>
+  <table>
+    <thead><tr><th>행위자</th><th>책임</th></tr></thead>
+    <tbody>
+      <tr><td>사용자(<code>sp-daewoon</code>)</td><td>시스템 설계자·전략 작성자·검증자·운영자. 종목 universe·전략 DSL·위험 한도·매매 한도를 정의하는 최고 관리자.</td></tr>
+      <tr><td>시스템(magicJar)</td><td>종목 마스터 + 지표 + DSL + 시그널 → 자동 주문. 오프라인 동작이 1순위 검증 기준.</td></tr>
+      <tr><td>AI</td><td>사용자 클릭 시 옵션 코멘트·분석. 매매 트리거 절대 X, 결정권 0.</td></tr>
+      <tr><td>외부 AI 클라이언트</td><td>미래 — magicJar MCP 서버를 호출(read 전용 tool 5종).</td></tr>
+    </tbody>
+  </table>
+
+  <div id="stack"></div>
+  <h3>1.2 기술 스택</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>백엔드 (JVM)</h4>
+      <ul>
+        <li>Kotlin 2.0 (K2 컴파일러) + JDK 21</li>
+        <li>Spring Boot 3.3 + Spring AI</li>
+        <li>Gradle KTS (호스트 wrapper 빌드)</li>
+        <li>PostgreSQL 16 (Flyway 마이그레이션)</li>
+        <li>Redis 7 (캐시·시세·분산락)</li>
+        <li>Kafka 3.7 KRaft (이벤트 백본)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>프론트엔드 (SPA)</h4>
+      <ul>
+        <li>React 19 + TypeScript + Vite</li>
+        <li>Tailwind CSS</li>
+        <li>LWC v4 (TradingView Lightweight Charts)</li>
+        <li>pnpm 패키지 매니저</li>
+        <li>REST + STOMP(WebSocket) 실시간 구독</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:13px;color:var(--muted)">
+    외부 연동: KIS OpenAPI(REST + WebSocket, 조회 credential과 주문 credential 분리) · DART 공시 · Naver Open API 뉴스 · LLM 공급자(옵션).
+    빌드 도구는 호스트 Gradle wrapper이며 <code>package.json</code>은 husky 호스트 + 상태 스크립트 전용이다(앱 코드와 무관).
+  </p>
+
+  <div id="modules"></div>
+  <h3>1.3 JVM 9 모듈 + frontend 구조</h3>
+  <p>
+    모듈 수·목록의 <b>단일 권위는 <code>settings.gradle.kts</code></b>다. 앱 3(<code>api</code>·<code>batch</code>·<code>consumer</code>) + 순수 <code>domain</code> 1 +
+    공유 라이브러리 5(<code>pattern-engine</code>·<code>indicator-impl</code>·<code>strategy-engine</code>·<code>persistence-shared</code>·<code>market-trend-engine</code>) = <b>총 9 JVM 모듈</b>,
+    그리고 별도 <code>frontend</code> SPA. 헥사고날(포트/어댑터) 아키텍처를 따르며 의존은 항상 안쪽(<code>domain</code>)을 향한다.
+  </p>
+
+  <div class="fig">
+    <svg viewBox="0 0 960 560" role="img" aria-label="모듈 맵">
+      <style>
+        .b{font:12px -apple-system,'Malgun Gothic',sans-serif}.bs{font:11px -apple-system,'Malgun Gothic',sans-serif}
+        .lbl{font:italic 11px -apple-system,sans-serif;fill:#5a6b82}.hd{font:700 12px -apple-system,'Malgun Gothic',sans-serif}
+        .ti{font:700 15px -apple-system,'Malgun Gothic',sans-serif;fill:#1a2b4a}
+      </style>
+      <text x="480" y="24" text-anchor="middle" class="ti">JVM 9 모듈 + frontend (settings.gradle.kts 단일 권위)</text>
+      <!-- frontend -->
+      <rect x="30" y="44" width="900" height="46" rx="8" fill="#e3f0ff" stroke="#3d6fb4"/>
+      <text x="480" y="63" text-anchor="middle" class="hd" fill="#12345a">frontend</text>
+      <text x="480" y="80" text-anchor="middle" class="bs" fill="#12345a">React 19 + TS + Vite + Tailwind + LWC v4 — pnpm · 컨테이너 1</text>
+      <!-- app layer label -->
+      <text x="30" y="112" class="lbl">응용 어댑터 레이어 — Spring Boot bootJar · 컨테이너 3</text>
+      <!-- 3 apps -->
+      <g>
+        <rect x="30" y="120" width="288" height="86" rx="8" fill="#d6ecd6" stroke="#4a8a4a"/>
+        <text x="174" y="142" text-anchor="middle" class="hd" fill="#1c4a1c">api</text>
+        <text x="174" y="160" text-anchor="middle" class="bs" fill="#1c4a1c">REST · STOMP · Swagger</text>
+        <text x="174" y="176" text-anchor="middle" class="bs" fill="#1c4a1c">KIS/DART/Naver 어댑터</text>
+        <text x="174" y="192" text-anchor="middle" class="bs" fill="#1c4a1c">Kafka producer · MCP</text>
+      </g>
+      <g>
+        <rect x="336" y="120" width="288" height="86" rx="8" fill="#d6ecd6" stroke="#4a8a4a"/>
+        <text x="480" y="142" text-anchor="middle" class="hd" fill="#1c4a1c">batch</text>
+        <text x="480" y="160" text-anchor="middle" class="bs" fill="#1c4a1c">Spring Batch</text>
+        <text x="480" y="176" text-anchor="middle" class="bs" fill="#1c4a1c">일봉 backfill · corp action</text>
+        <text x="480" y="192" text-anchor="middle" class="bs" fill="#1c4a1c">백테스트 · 성과 집계 cron</text>
+      </g>
+      <g>
+        <rect x="642" y="120" width="288" height="86" rx="8" fill="#d6ecd6" stroke="#4a8a4a"/>
+        <text x="786" y="142" text-anchor="middle" class="hd" fill="#1c4a1c">consumer</text>
+        <text x="786" y="160" text-anchor="middle" class="bs" fill="#1c4a1c">Kafka 소비 · KIS WS</text>
+        <text x="786" y="176" text-anchor="middle" class="bs" fill="#1c4a1c">시그널·주문·리스크·정합</text>
+        <text x="786" y="192" text-anchor="middle" class="bs" fill="#1c4a1c">AI 분석 · 알림 dispatch</text>
+      </g>
+      <!-- lib label -->
+      <text x="30" y="228" class="lbl">공유 라이브러리 jar — Spring Boot main 0 · 컨테이너 0 (api·consumer 상호의존 회피)</text>
+      <!-- 5 libs -->
+      <g font-size="11">
+        <rect x="30" y="236" width="170" height="60" rx="7" fill="#fbeecb" stroke="#c79a2e"/>
+        <text x="115" y="258" text-anchor="middle" class="hd" fill="#5a4410">pattern-engine</text>
+        <text x="115" y="274" text-anchor="middle" class="bs" fill="#5a4410">57 캔들 패턴</text>
+        <text x="115" y="289" text-anchor="middle" class="bs" fill="#5a4410">ADR 0054</text>
+
+        <rect x="212" y="236" width="170" height="60" rx="7" fill="#fbeecb" stroke="#c79a2e"/>
+        <text x="297" y="258" text-anchor="middle" class="hd" fill="#5a4410">indicator-impl</text>
+        <text x="297" y="274" text-anchor="middle" class="bs" fill="#5a4410">80 지표 계산</text>
+        <text x="297" y="289" text-anchor="middle" class="bs" fill="#5a4410">ADR 0083</text>
+
+        <rect x="394" y="236" width="172" height="60" rx="7" fill="#fbeecb" stroke="#c79a2e"/>
+        <text x="480" y="258" text-anchor="middle" class="hd" fill="#5a4410">strategy-engine</text>
+        <text x="480" y="274" text-anchor="middle" class="bs" fill="#5a4410">DSL parser + evaluator</text>
+        <text x="480" y="289" text-anchor="middle" class="bs" fill="#5a4410">ADR 0092</text>
+
+        <rect x="578" y="236" width="172" height="60" rx="7" fill="#fbeecb" stroke="#c79a2e"/>
+        <text x="664" y="258" text-anchor="middle" class="hd" fill="#5a4410">persistence-shared</text>
+        <text x="664" y="274" text-anchor="middle" class="bs" fill="#5a4410">Outbox + JPA 어댑터</text>
+        <text x="664" y="289" text-anchor="middle" class="bs" fill="#5a4410">ADR 0088</text>
+
+        <rect x="762" y="236" width="168" height="60" rx="7" fill="#fbeecb" stroke="#c79a2e"/>
+        <text x="846" y="258" text-anchor="middle" class="hd" fill="#5a4410">market-trend-engine</text>
+        <text x="846" y="274" text-anchor="middle" class="bs" fill="#5a4410">추세 pure math</text>
+        <text x="846" y="289" text-anchor="middle" class="bs" fill="#5a4410">ADR 0100</text>
+      </g>
+      <!-- domain -->
+      <rect x="30" y="312" width="900" height="82" rx="8" fill="#efe3ff" stroke="#7a52b3"/>
+      <text x="480" y="334" text-anchor="middle" class="hd" fill="#3a2360">domain — 순수 도메인 + 헥사고날 port (Spring · JPA · Kafka 의존 0)</text>
+      <text x="480" y="354" text-anchor="middle" class="bs" fill="#3a2360">instrument · market · indicator · pattern · strategy · signal · order · risk · position · journal · ai · mcp · secret …</text>
+      <text x="480" y="378" text-anchor="middle" class="bs" fill="#3a2360">ADR 0004 · 0005 — 의존은 항상 안쪽(domain)을 향한다</text>
+      <!-- infra label -->
+      <text x="30" y="416" class="lbl">인프라 (docker compose) — 컨테이너 3</text>
+      <g>
+        <rect x="30" y="424" width="288" height="44" rx="7" fill="#e9edf2" stroke="#7d8ba0"/>
+        <text x="174" y="451" text-anchor="middle" class="b" fill="#33404f">PostgreSQL 16 — 영속 (Flyway)</text>
+        <rect x="336" y="424" width="288" height="44" rx="7" fill="#e9edf2" stroke="#7d8ba0"/>
+        <text x="480" y="451" text-anchor="middle" class="b" fill="#33404f">Redis 7 — 캐시·시세·분산락</text>
+        <rect x="642" y="424" width="288" height="44" rx="7" fill="#e9edf2" stroke="#7d8ba0"/>
+        <text x="786" y="451" text-anchor="middle" class="b" fill="#33404f">Kafka 3.7 (KRaft) — 이벤트 백본</text>
+      </g>
+      <!-- arrows -->
+      <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8a97ab"/></marker></defs>
+      <line x1="480" y1="90" x2="480" y2="118" stroke="#3d6fb4" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+      <line x1="480" y1="206" x2="480" y2="234" stroke="#4a8a4a" marker-end="url(#arr)"/>
+      <line x1="480" y1="296" x2="480" y2="310" stroke="#c79a2e" marker-end="url(#arr)"/>
+      <text x="30" y="494" class="lbl">의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain · 앱 3종 → 인프라 3종. domain은 아무것도 의존하지 않는다.</text>
+    </svg>
+    <div class="cap">그림 1 — JVM 9 모듈 + frontend 레이어링 (source: docs/architecture/diagrams/onboarding-module-map.drawio)</div>
+  </div>
+
+  <h4>각 모듈의 역할과 왜 이렇게 나뉘었는가</h4>
+  <table>
+    <thead><tr><th>모듈</th><th>컨테이너</th><th>역할</th><th>분리 이유</th></tr></thead>
+    <tbody>
+      <tr><td><code>domain</code></td><td>없음(lib)</td><td>순수 도메인 타입 + port 인터페이스. Spring·JPA·Kafka 의존 0.</td><td>비즈니스 규칙을 프레임워크에서 격리 — 오프라인 동작·테스트 용이성·규칙 불변성 보존.</td></tr>
+      <tr><td><code>api</code></td><td>api</td><td>REST/STOMP/Swagger 웹 진입점 + KIS/DART/Naver 외부 어댑터 + Kafka producer.</td><td>사용자·외부 세계와의 경계(inbound·outbound 어댑터).</td></tr>
+      <tr><td><code>batch</code></td><td>batch</td><td>Spring Batch 스케줄 잡 — 일봉 backfill·corp action·백테스트·성과 집계.</td><td>주기적 배치와 실시간 처리의 런타임 분리(ADR 0005 하이브리드 런타임).</td></tr>
+      <tr><td><code>consumer</code></td><td>consumer</td><td>Kafka 소비·KIS WS·시그널/주문/리스크/정합·AI 분석·알림. 자본 경로 본체.</td><td>실시간 이벤트 처리와 자본 흐름을 단일 책임 프로세스로 집중.</td></tr>
+      <tr><td><code>pattern-engine</code></td><td>없음(lib)</td><td>57 캔들 패턴 인식.</td><td rowspan="3">api·consumer가 동일 계산 빈을 공유하되 서로 직접 의존하지 않도록 하는 라이브러리 jar. domain 순수성 보존(ADR 0054·0083·0092 동일 패턴).</td></tr>
+      <tr><td><code>indicator-impl</code></td><td>없음(lib)</td><td>80 지표 계산(<code>IndicatorSource</code> plug-in).</td></tr>
+      <tr><td><code>strategy-engine</code></td><td>없음(lib)</td><td>DSL parser + StrategyEvaluator(sandbox).</td></tr>
+      <tr><td><code>persistence-shared</code></td><td>없음(lib)</td><td>Outbox Repository + JPA 어댑터 공유.</td><td>api·consumer 모듈 상호 의존 회피(ADR 0088).</td></tr>
+      <tr><td><code>market-trend-engine</code></td><td>없음(lib)</td><td>시장 추세 pure math.</td><td>indicator-impl 패턴 1:1, T-MARKET 트랙(ADR 0100).</td></tr>
+      <tr><td><code>frontend</code></td><td>frontend</td><td>React SPA — 차트·대시보드·전략 빌더·주문 화면.</td><td>UI는 별도 SPA로 분리, REST/STOMP 계약으로만 결합.</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13px;color:var(--muted)">
+    컨테이너는 7개(api·batch·consumer·frontend + postgres·redis·kafka)이며, W4에서 MCP 서버 sidecar 1개가 추가될 수 있다. 공유 라이브러리 5종은 Boot main·bootJar가 없어 컨테이너를 만들지 않는다.
+  </p>
+
+  <div id="flow"></div>
+  <h3>1.4 데이터 흐름 — A → B → C → D</h3>
+  <p>
+    데이터는 4영역 19컴포넌트를 지난다. <b>데이터 수집·정합(A)</b> → <b>분석·전략(B)</b> → <b>의사결정·실행(C)</b> → <b>학습·운영·UI(D)</b>.
+    아래 흐름 전체가 <b>AI 호출 0건</b>이며 외부 LLM이 끊겨도 정상 동작한다.
+  </p>
+
+  <div class="fig">
+    <svg viewBox="0 0 1040 520" role="img" aria-label="데이터 흐름">
+      <style>
+        .fb{font:11px -apple-system,'Malgun Gothic',sans-serif}.fh{font:700 13px -apple-system,'Malgun Gothic',sans-serif}
+        .fn{font:italic 10px -apple-system,sans-serif}.ft{font:700 15px -apple-system,'Malgun Gothic',sans-serif;fill:#1a2b4a}
+      </style>
+      <text x="520" y="22" text-anchor="middle" class="ft">본체 자동매매 데이터 흐름 — A → B → C → D · AI 호출 0</text>
+      <!-- A -->
+      <rect x="20" y="40" width="240" height="420" rx="10" fill="#e3f0ff" stroke="#3d6fb4"/>
+      <text x="140" y="62" text-anchor="middle" class="fh" fill="#12345a">A. 데이터 수집·정합</text>
+      <g class="fb" fill="#12345a">
+        <rect x="34" y="76" width="212" height="48" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="96" text-anchor="middle">Instrument Master</text><text x="140" y="112" text-anchor="middle">종목 universe · 상장/폐지</text>
+        <rect x="34" y="132" width="212" height="60" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="150" text-anchor="middle">Market Data Pipeline</text><text x="140" y="165" text-anchor="middle">KIS WS(H0UNCNT0)+REST</text><text x="140" y="180" text-anchor="middle">세션 FSM · fallback 3-tier</text>
+        <rect x="34" y="200" width="212" height="48" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="220" text-anchor="middle">Corp Action / Adjusted</text><text x="140" y="236" text-anchor="middle">액면분할·배당·합병 보정</text>
+        <rect x="34" y="256" width="212" height="48" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="276" text-anchor="middle">News &amp; Disclosure (옵션)</text><text x="140" y="292" text-anchor="middle">DART · Naver · 본체 영향 0</text>
+      </g>
+      <text x="140" y="330" text-anchor="middle" class="fn" fill="#3d6fb4">영속 candle + last-day-close로</text>
+      <text x="140" y="346" text-anchor="middle" class="fn" fill="#3d6fb4">인터넷 끊겨도 하위 흐름 동작</text>
+      <!-- B -->
+      <rect x="280" y="40" width="240" height="420" rx="10" fill="#d6ecd6" stroke="#4a8a4a"/>
+      <text x="400" y="62" text-anchor="middle" class="fh" fill="#1c4a1c">B. 분석·전략</text>
+      <g class="fb" fill="#1c4a1c">
+        <rect x="294" y="76" width="212" height="44" rx="6" fill="#fff" stroke="#4a8a4a"/><text x="400" y="94" text-anchor="middle">Indicator Library (80)</text><text x="400" y="110" text-anchor="middle">IndicatorSource plug-in</text>
+        <rect x="294" y="128" width="212" height="36" rx="6" fill="#fff" stroke="#4a8a4a"/><text x="400" y="150" text-anchor="middle">Candlestick Pattern (57)</text>
+        <rect x="294" y="172" width="212" height="44" rx="6" fill="#fff" stroke="#4a8a4a"/><text x="400" y="190" text-anchor="middle">Strategy DSL</text><text x="400" y="206" text-anchor="middle">.kis.yaml superset · sandbox</text>
+        <rect x="294" y="224" width="212" height="44" rx="6" fill="#fff" stroke="#4a8a4a"/><text x="400" y="242" text-anchor="middle">Strategy Builder UI</text><text x="400" y="258" text-anchor="middle">GUI 블록 빌더 + yaml</text>
+        <rect x="294" y="276" width="212" height="44" rx="6" fill="#fff" stroke="#4a8a4a"/><text x="400" y="294" text-anchor="middle">Backtest Engine</text><text x="400" y="310" text-anchor="middle">룩어헤드·세금·슬리피지</text>
+      </g>
+      <!-- C -->
+      <rect x="540" y="40" width="240" height="420" rx="10" fill="#fbeecb" stroke="#c79a2e"/>
+      <text x="660" y="62" text-anchor="middle" class="fh" fill="#5a4410">C. 의사결정·실행</text>
+      <g class="fb" fill="#5a4410">
+        <rect x="554" y="76" width="212" height="44" rx="6" fill="#fff" stroke="#c79a2e"/><text x="660" y="94" text-anchor="middle">Screener</text><text x="660" y="110" text-anchor="middle">universe × DSL → 후보 랭킹</text>
+        <rect x="554" y="128" width="212" height="46" rx="6" fill="#fff" stroke="#c79a2e"/><text x="660" y="146" text-anchor="middle">Signal Engine</text><text x="660" y="162" text-anchor="middle">DSL 평가만·AI 0 → BUY/SELL</text>
+        <rect x="554" y="182" width="212" height="56" rx="6" fill="#fff" stroke="#c79a2e"/><text x="660" y="200" text-anchor="middle">Risk Guard chain (6단)</text><text x="660" y="216" text-anchor="middle">KillSwitch·Session·DailyLimit</text><text x="660" y="231" text-anchor="middle">PositionLimit·Drawdown·Sanity</text>
+        <rect x="554" y="246" width="212" height="56" rx="6" fill="#fff" stroke="#c79a2e"/><text x="660" y="264" text-anchor="middle">Auto Order Execution</text><text x="660" y="280" text-anchor="middle">3중 게이트 → KIS → 체결</text><text x="660" y="295" text-anchor="middle">order_execution 진실원·reconcile</text>
+        <rect x="554" y="310" width="212" height="38" rx="6" fill="#fff" stroke="#c79a2e"/><text x="660" y="333" text-anchor="middle">Performance Loop (P&amp;L·MDD)</text>
+      </g>
+      <!-- D -->
+      <rect x="800" y="40" width="220" height="420" rx="10" fill="#efe3ff" stroke="#7a52b3"/>
+      <text x="910" y="62" text-anchor="middle" class="fh" fill="#3a2360">D. 학습·운영·UI</text>
+      <g class="fb" fill="#3a2360">
+        <rect x="814" y="76" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="94" text-anchor="middle">Watchlist</text><text x="910" y="110" text-anchor="middle">(5초 REST polling 전용)</text>
+        <rect x="814" y="128" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="146" text-anchor="middle">Trading Journal</text><text x="910" y="162" text-anchor="middle">5 이벤트 통합 시계열</text>
+        <rect x="814" y="180" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="198" text-anchor="middle">Chart UI (LWC v4)</text><text x="910" y="214" text-anchor="middle">자체 도형·주석·패턴</text>
+        <rect x="814" y="232" width="192" height="46" rx="6" fill="#f3ecff" stroke="#7a52b3" stroke-dasharray="4 3"/><text x="910" y="250" text-anchor="middle">AI Option Console (W4)</text><text x="910" y="266" text-anchor="middle">클릭 시 코멘트·결정권 0</text>
+        <rect x="814" y="286" width="192" height="46" rx="6" fill="#f3ecff" stroke="#7a52b3" stroke-dasharray="4 3"/><text x="910" y="304" text-anchor="middle">MCP Server (W4 미래)</text><text x="910" y="320" text-anchor="middle">외부 AI가 호출 · read</text>
+      </g>
+      <!-- flow arrows -->
+      <defs><marker id="arr2" markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1a2b4a"/></marker></defs>
+      <line x1="260" y1="250" x2="279" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
+      <line x1="520" y1="250" x2="539" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
+      <line x1="780" y1="250" x2="799" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
+      <text x="520" y="490" text-anchor="middle" class="fn" fill="#5a6b82">Kafka 이벤트 백본이 A~D를 잇는다: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.executed.v1 → journal.recorded.v1</text>
+    </svg>
+    <div class="cap">그림 2 — 4영역 데이터 흐름 (source: docs/architecture/diagrams/onboarding-data-flow.drawio)</div>
+  </div>
+
+  <p>본체 자동매매 사이클(master §3-1)의 실제 단계</p>
+  <ol style="font-size:14px">
+    <li><b>[0] Position Bootstrap</b> — consumer 부팅 시 KIS 잔고(TTTC8434R)를 DB position에 upsert + Redis 워밍 + KIS WS 구독 시작.</li>
+    <li><b>[1~2]</b> InstrumentSyncJob(17:00) → DailyCandleBackfillJob(18:00) + CorpActionSyncJob(18:30).</li>
+    <li><b>[3] Screener</b> — 사용자 트리거 시 universe × DSL → 후보 + 4기준 랭킹(inline 동기 평가).</li>
+    <li><b>[4] SignalEngine</b> — KIS WS tick → 분봉 합성 → DSL 평가 → BUY/SELL/HOLD.</li>
+    <li><b>[5] Risk Guard chain(6단)</b> — KillSwitch·Session·DailyLimit·PositionLimit·Drawdown·PriceSanity.</li>
+    <li><b>[6~7]</b> KisOrderSender → KIS API → 체결통보(WS) → order_execution → position 갱신.</li>
+    <li><b>[8~9]</b> Trading Journal 자동 기록 → 일별 PerformanceJob(P&amp;L·MDD·승률).</li>
+  </ol>
+
+  <div id="realtime"></div>
+  <h3>1.5 실시간 시세 아키텍처 — KIS WS owner 4종</h3>
+  <p>
+    KIS WebSocket은 <b>40 slot</b> 한도가 있고, 이 예산을 owner priority로 배분한다. 핵심 방향 가드는 <b>매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선</b>이라는 점이다.
+    <b>watchlist는 WS를 쓰지 않고 5초 REST polling 전용</b>이며(ADR 0124), 체결가는 <b>H0UNCNT0 단일 통합 채널</b>(KRX+NXT·종목당 1채널)로 받는다.
+  </p>
+
+  <div class="fig">
+    <svg viewBox="0 0 960 470" role="img" aria-label="WS owner priority">
+      <style>
+        .wt{font:700 15px -apple-system,'Malgun Gothic',sans-serif;fill:#1a2b4a}.wh{font:700 12.5px -apple-system,'Malgun Gothic',sans-serif}
+        .ws{font:11px -apple-system,'Malgun Gothic',sans-serif}.wn{font:italic 11px -apple-system,sans-serif;fill:#5a6b82}
+      </style>
+      <text x="480" y="24" text-anchor="middle" class="wt">KIS WebSocket 40 slot — owner priority + eviction (ADR 0124 · 0138)</text>
+      <text x="480" y="44" text-anchor="middle" class="wn">체결가 H0UNCNT0 단일 통합 채널 · 호가 H0UNASP0 (STRATEGY·DETAIL 한정)</text>
+      <rect x="60" y="60" width="840" height="52" rx="8" fill="#f6c9c0" stroke="#b5442e"/>
+      <text x="80" y="82" class="wh" fill="#5a1a10">HOLDING (priority 0)</text>
+      <text x="80" y="100" class="ws" fill="#5a1a10">보유 종목 — 청산 tick 자본 risk 최우선 · evict 절대 금지 (ADR 0114 LOCK)</text>
+      <rect x="60" y="122" width="840" height="52" rx="8" fill="#f8ddc2" stroke="#c07a2e"/>
+      <text x="80" y="144" class="wh" fill="#5a3410">PENDING_BUY (priority 5)</text>
+      <text x="80" y="162" class="ws" fill="#5a3410">미체결 매수 주문 종목 · evict 절대 금지 (ADR 0114 LOCK)</text>
+      <rect x="60" y="184" width="840" height="52" rx="8" fill="#f4e6b8" stroke="#b39a2e"/>
+      <text x="80" y="206" class="wh" fill="#4a4010">STRATEGY (priority 10)</text>
+      <text x="80" y="224" class="ws" fill="#4a4010">자동매매 평가·진입 (매매 경로) · DETAIL 소진 후에만 evict · 상한 15</text>
+      <rect x="60" y="246" width="840" height="52" rx="8" fill="#d6ecd6" stroke="#4a8a4a"/>
+      <text x="80" y="268" class="wh" fill="#1c4a1c">DETAIL (priority 20)</text>
+      <text x="80" y="286" class="ws" fill="#1c4a1c">종목 상세 화면 표시 중 (관찰 경로) · slot 경합 시 최우선 evict victim · 이탈/15분 idle 해제</text>
+      <defs><marker id="arr3" markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#b5442e"/></marker></defs>
+      <line x1="915" y1="272" x2="915" y2="360" stroke="#b5442e" stroke-width="2"/>
+      <line x1="915" y1="272" x2="915" y2="212" stroke="#b5442e" stroke-width="2" marker-end="url(#arr3)"/>
+      <rect x="60" y="316" width="840" height="56" rx="8" fill="#e9edf2" stroke="#7d8ba0" stroke-dasharray="5 3"/>
+      <text x="80" y="338" class="wh" fill="#33404f">Watchlist — WS slot 사용 안 함 · 5초 REST polling 전용 (ADR 0124 결정 B)</text>
+      <text x="80" y="356" class="ws" fill="#33404f">시세 채널만 WS→polling 강등 · watchlist 기능은 유지 · WS 40 slot은 매매 수요 전용</text>
+      <text x="60" y="396" class="wn">매매 경로(STRATEGY) &gt; 관찰 경로(DETAIL). WsSlotBudgetLedger가 채널(code,trId) 단위 회계 ·</text>
+      <text x="60" y="414" class="wn">OPSP0008 선제 예방 · slot 경합 시 priority 큰 값(DETAIL)부터 evict · queued 시 WARN+Slack.</text>
+    </svg>
+    <div class="cap">그림 3 — KIS WS owner priority (source: docs/architecture/diagrams/onboarding-ws-owner-priority.drawio)</div>
+  </div>
+
+  <div class="callout warn">
+    <b>실무 함정</b> — "WS 30초 단절 → 전 종목 5초 polling" 폴백은 <b>존재하지 않는다</b>(2026-07-03 감사 정정). <code>WatchlistPollingWorker</code>는 KIS 호출이 제거된 no-op stub이며,
+    WS 단절 시 실재하는 degraded 경로는 <b>ACTIVE 전략 명시 종목 한정 degraded polling</b>뿐이다. HOLDING·PENDING_BUY는 evict 절대 금지다.
+  </div>
+
+  <div id="safety"></div>
+  <h3>1.6 안전 장치</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>실계좌 이중(실질 3중) 게이트</h4>
+      <p>실주문이 나가려면 환경변수 두 개가 모두 참이어야 한다.</p>
+      <span class="kbd">MAGICJAR_MODE=REAL
+MAGICJAR_ALLOW_REAL=true</span>
+      <p style="font-size:13px;color:var(--muted)">여기에 주문 실행 트랙(T-O)은 <code>user_account.real_trading_consent_at</code> 사용자 동의까지 더한 3중 게이트를 적용한다. dev/staging은 항상 MOCK이다.</p>
+    </div>
+    <div class="card">
+      <h4>Guard chain 6단 + KillSwitch</h4>
+      <p>시그널이 주문이 되기 전 6단 룰(KillSwitch·MarketSession·DailyLimit·PositionLimit·DrawdownStop·PriceSanity)을 short-circuit 통과해야 한다.</p>
+      <p>KillSwitch ON 시 시그널 emit 정지 + pending 취소 + 신규 주문 422 + STOMP push. 잔고 reconcile drift 감지 시 KillSwitch가 auto-ON 된다.</p>
+    </div>
+  </div>
+  <ul>
+    <li><b>Reconcile</b> — 시장 OPEN 5분/CLOSED 1시간 cron으로 KIS 실잔고 vs DB position을 대조, drift 시 KillSwitch auto-ON.</li>
+    <li><b>Ledger rebuild(ADR 0115)</b> — 보유 수량 같은 파생 원장은 immutable 진실원 <code>order_execution</code>에서 결정론적으로 재계산 가능해야 한다. drift 시 진실원에서 rebuild로 수렴(증분 누락 영구화 방지).</li>
+    <li><b>Self-heal(ADR 0136)</b> — 장중 10분 cron으로 KIS 실보유 ↔ <code>strategy_position</code> ledger를 대조, KIS 권위 주입 rebuild로 정정.</li>
+    <li><b>Canary + drain</b> — 헌법 §9-2 dev→staging→REAL 30분 staging dwell. consumer(체결·자본 경로) 재배포는 장중 in-flight 주문 0 확인 후 또는 장 마감 후(ADR 0115 §2-P2-④).</li>
+    <li><b>기본 profile = <code>dev,real-kis</code></b> — mock 부팅 path는 폐기됐고 mock은 JVM test fixture 전용이다.</li>
+  </ul>
+
+  <div id="run"></div>
+  <h3>1.7 로컬 실행</h3>
+  <span class="kbd"># 전체 통합 기동 (gradle bootJar + docker compose build/up)
+scripts/build-and-deploy.sh              # 전체 (정석 경로)
+scripts/build-and-deploy.sh --gradle-only  # jar만 갱신
+scripts/build-and-deploy.sh --no-gradle    # docker만 (jar 최신 가정)
+
+# 인프라(postgres·kafka·redis)만 컨테이너로 + IDE bootRun
+docker compose -f docker/docker-compose.infra.yml up -d
+
+# 통합 스모크 (백테스트·시그널·AI 분석 3 시나리오)
+scripts/smoke.sh
+
+# 전체 검증
+./gradlew check</span>
+  <div class="callout warn">
+    <b>stale jar 함정</b> — <code>api/batch/consumer</code> Dockerfile은 <code>COPY build/libs/*.jar</code>로 호스트 산출물을 가져온다. 코드 변경 후 <code>bootJar</code>를 다시 돌리지 않으면
+    컨테이너에 옛 jar가 들어간다. <code>scripts/smoke.sh</code>가 src mtime &gt; jar mtime이면 abort하며(우회 <code>SKIP_FRESHNESS_CHECK=1</code>), <code>build-and-deploy.sh</code>가 정석 경로다.
+  </div>
+
+  <div id="reading"></div>
+  <h3>1.8 새 개발자가 첫 주에 읽을 문서 순서</h3>
+  <ol>
+    <li><b><code>_workspace/INDEX.md</code></b> — 모든 자원의 단일 진입점. 의도별(현행 규약 / 결정 이력 / 진행 중 / snapshot / task) 경로.</li>
+    <li><b><code>CLAUDE.md</code></b> — 프로젝트 개요 + 운영 함정 가드 + 방향성 보존 가드(watchlist polling, WS owner 4종 등).</li>
+    <li><b><code>docs/architecture/master-architecture.md</code></b> — SoT. §1 비전, §2 4영역 19컴포넌트, §5 모듈 경계.</li>
+    <li><b><code>docs/architecture/policies/</code></b> — "지금 무엇이 권위인가"의 Living Policy(KIS credential·로그 레벨·KIS-first 등).</li>
+    <li><b><code>docs/architecture/{tracks-roadmap, development-rules, code-convention, external-api-policy}.md</code></b> — 로드맵·룰북·컨벤션·외부 API 정책.</li>
+    <li><b><code>_workspace/arch/adr/README.md</code></b> §0 — ADR 인덱스(결정 이력) 빠른 lookup.</li>
+    <li><b><code>_workspace/audit/2026-07-03-system-audit.md</code></b> + remediation tracker — 현재 시스템의 알려진 갭.</li>
+  </ol>
+</section>
+
+<!-- ============================ PART 2 ============================ -->
+<section id="part2">
+  <h2>2부 — 이 시스템은 무엇에 중점을 두는가<span class="lead">설계 문서를 읽고 도출한 아키텍처의 무게중심</span></h2>
+
+  <h3>2.1 왜 룰 기반이 본체이고 AI는 보조인가</h3>
+  <p>
+    비전(§1)이 못박은 제약이다. AI가 매매 결정을 내리면 <b>재현 불가능·감사 불가능·오프라인 불가능</b>한 시스템이 된다.
+    magicJar는 반대로 "마스터 데이터만으로도 종목이 추출 가능한 시스템"을 기본 목적으로 삼고, AI는 그 결과에 대한 코멘트·기업분석을 <b>옵션으로</b> 얹는다.
+    그래서 개발 룰 5번(AI 호출 자제)은 W1~W3 트랙 코드에 LLM provider import가 발견되면 리뷰 reject다. 매매 결정 토픽(<code>ai.decision.v1</code>)은 아예 폐기됐다.
+  </p>
+  <p>
+    <b>mock 부팅 path 폐기</b>도 같은 철학이다. 기본 profile은 <code>dev,real-kis</code>이고 mock은 JVM 테스트 fixture 전용이다.
+    운영 단계에서 사용자 흐름이 mock으로 우회되면 "실제로 동작하는 것처럼 보이지만 자본에 닿지 않는" 착시를 만들기 때문이다. 검증은 실 KIS 모의투자 서버로 한다.
+  </p>
+
+  <h3>2.2 자본 안전 최우선 구조</h3>
+  <p>주문 경로는 이 시스템에서 가장 방어적으로 설계된 영역이다. 게이트·재검증·진실원 재계산이 겹겹이 쌓여 있다.</p>
+  <table>
+    <thead><tr><th>레이어</th><th>방어 장치</th></tr></thead>
+    <tbody>
+      <tr><td>발주 전</td><td>3중 게이트(MODE×ALLOW_REAL×사용자 동의) + Guard chain 6단 + OrderIdempotencyGuard(Redis SETNX)</td></tr>
+      <tr><td>체결 후</td><td>KIS WS 체결통보 → <code>order_execution</code> append-only 진실원 → position/strategy_position 파생 갱신</td></tr>
+      <tr><td>정합</td><td>BalanceReconcileJob(KIS 잔고 대조·drift 시 KillSwitch auto-ON) + KisLedgerSelfHealWorker(10분 cron)</td></tr>
+      <tr><td>복구</td><td>WS 재연결 시 missed exec fetch(inquire-daily-ccld) + ledger rebuild(진실원 결정론적 재계산)</td></tr>
+      <tr><td>배포</td><td>장중 in-flight 주문 0 확인 후 재배포(drain 게이트) + canary staging 30분 dwell</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13px;color:var(--muted)">
+    2026-06-10 005930·전략8 incident(G1~G7)가 이 방어망의 계기다. 보유 수량이 <code>position</code>(KIS 투영·1차 권위)·<code>strategy_position</code>(전략 귀속 ledger)·in-memory index 3곳에 각기 다른 권위·시차로 존재하는 문제를 명시하고, 진실원 재계산으로 수렴시키는 방향을 잡았다.
+  </p>
+
+  <h3>2.3 KIS API 예산 관리</h3>
+  <p>
+    KIS는 초당 호출 한도(ADR 0037 초당 10건)와 WS 40 slot 한도가 있는 공유 자원이다. 이를 넘기면 계정·앱키가 차단되어 <b>본체 자동매매 전체가 중단되는 catastrophic risk</b>다.
+    그래서 KIS 호출은 priority bucket(<code>KisCallPriority</code> — USER_PATH &gt; INGESTION &gt; BACKFILL)으로 라우팅하고, WS slot은 owner priority(HOLDING&gt;PENDING_BUY&gt;STRATEGY&gt;DETAIL)로 배분한다.
+    <code>WsSlotBudgetLedger</code>가 채널 단위로 회계하며 OPSP0008(MAX SUBSCRIBE OVER)을 선제 예방한다.
+  </p>
+
+  <h3>2.4 데이터 정합성 집착</h3>
+  <ul>
+    <li><b>look-ahead 차단·생존자 편향 보정</b> — 백테스트는 t 시점 데이터만, universe는 시점별로 상장 종목만.</li>
+    <li><b>raw + adjusted 양 컬럼</b> — corp action 발생 시 <code>close_raw</code>·<code>close_adjusted</code> 병존, 차트·백테스트 default는 adjusted.</li>
+    <li><b>이벤트 멱등</b> — 모든 Kafka consumer가 idempotency key로 dedup. 주문 intent는 <code>{user}:{strategy}:{ymd}:{tickSeq}</code> + Redis SETNX 24h.</li>
+    <li><b>immutable audit</b> — 모든 order·signal·screener·AI 코멘트에 감사 row(AI 코멘트는 매매 영향 0이지만 비용·드리프트 추적).</li>
+    <li><b>캔들 SLA·self-heal</b> — 분봉 결측률 가드(OK≤5% / LOW_CONFIDENCE / INSUFFICIENT), mock 보간 절대 0, 부족 시 재수집 path 노출.</li>
+  </ul>
+
+  <h3>2.5 운영 단계 특성</h3>
+  <p>
+    magicJar는 2026-05-21(ADR 0094 amend)에 <b>개발 종착 + 운영·점진 고도화 단계</b>로 진입했다. 코드 한 줄 수정도 룰 본체·자본 흐름과 결합되므로 다음 문화가 자리잡았다.
+  </p>
+  <ul>
+    <li><b>ADR 중심 의사결정</b> — 외부 데이터 규격·아키텍처 결정은 ADR로 근거를 남긴다(파일명 = 헤더 번호, master §10 + README 인덱스 동시 갱신).</li>
+    <li><b>감사·remediation 문화</b> — 2026-07-03 전 영역 시스템 감사(P0 1·P1 12·P2 16·P3 12)를 문서화하고, remediation tracker로 완료/구현 Wave 대상/이연을 추적한다.</li>
+    <li><b>방향성 보존 가드</b> — 비트리비얼 변경 전 기존 SoT/ADR/구현을 먼저 읽고 "왜 지금 이렇게 되어 있는가"를 파악한다. 대규모 재작성보다 보수적 보강을 우선한다.</li>
+    <li><b>KIS-first raw fetch</b> — KIS API 규격은 자체 추론 0, 공식 출처 raw fetch 인용 의무.</li>
+  </ul>
+</section>
+
+<!-- ============================ PART 3 ============================ -->
+<section id="part3">
+  <h2>3부 — 향후 발전 방향<span class="lead">로드맵 미완 Wave + 단기 과제 + 구조적 개선 여지</span></h2>
+
+  <h3>3.1 미완 Wave의 의미</h3>
+  <p>W1(watchlist+데이터)·W2(분석)·W3(자동매매 본체)는 룰 본체 풀 가동에 도달했고 AI 0건이다. 남은 것은 옵션·마무리 Wave다.</p>
+  <div class="grid2">
+    <div class="card">
+      <h4><span class="pill wip">진행 중</span>W4 — 시장 추세 + AI 옵션 + MCP</h4>
+      <ul>
+        <li>T-MARKET(시장 지수·섹터 추세·시장 캘린더) — Accepted, 진행.</li>
+        <li>T-AI(사용자 트리거 LLM 코멘트·기업 분석·AI 종목발굴 Claude CLI bridge).</li>
+        <li>T-MCP(MCP 서버 노출, read 전용 tool 5종 — <code>get_candles</code>·<code>run_screener</code>·<code>get_journal</code>·<code>explain_indicator</code>·<code>backtest_strategy</code>).</li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--muted)">의미 — 본체가 완성됐으므로 이제 "설명·발굴 보조"와 "외부 AI가 magicJar를 도구로 쓰는" 미래를 얹는 단계. AI가 끊겨도 본체 영향 0이라는 불변식은 유지된다.</p>
+    </div>
+    <div class="card">
+      <h4><span class="pill future">미래</span>W5 — LWC 확장 + 학습·정합성 검증</h4>
+      <ul>
+        <li>T-LWC(자체 도형/주석/패턴 overlay, TradingView Advanced 의존 0).</li>
+        <li>T-LEARN(사용자와 함께 데이터 흐름·아키 의도·표시 의미 검증).</li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--muted)">의미 — 시각화 고도화와 사용자 학습으로 시스템 이해를 일원화하는 마무리 Wave.</p>
+    </div>
+  </div>
+
+  <h3>3.2 backlog·audit tracker의 단기 과제</h3>
+  <ul>
+    <li><span class="pill wip">P0-1</span> <b>WS 재연결 시 호가·VI·시간외 재구독 누락</b> — VI 보호 silent 상실. 감사 구현 Wave 최우선(DATA 트랙). CHANGELOG상 v3.17.0에서 3채널 재발사 fix가 라이브 검증됐다.</li>
+    <li><span class="pill wip">P1-4</span> <b>KIS Rate Limit Bucket4j 실 구현</b> — <code>KisRateLimiterPort</code> Phase 1 완료, Phase 2(~20 어댑터 <code>acquire</code> 합류)·Phase 3(Circuit Breaker·ArchUnit 게이트) 대기. 자본 흐름 차단 risk로 우선순위 ★★.</li>
+    <li><span class="pill wip">ADR 0139</span> <b>KIS rate limiter 공유 모듈 승격</b> — api·consumer·batch 3중 복붙 단일화(Proposed). 구현은 전체 빌드 검증 필요로 후속 사이클 보류.</li>
+    <li><span class="pill wip">P1-⑤</span> tick 0원 캔들 sanity 가드 · <span class="pill wip">P1-⑨</span> 프론트 STOMP 재연결 후 재구독(5줄 패치) — 구현 Wave 대상.</li>
+  </ul>
+
+  <h3>3.3 구조적 개선 여지 (분석하며 발견 — 근거 동반)</h3>
+  <p>아래는 감사 보고서·ADR·backlog에 이미 근거가 명시된 항목이다(추측 아님).</p>
+  <table>
+    <thead><tr><th>개선 여지</th><th>근거</th><th>방향</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>strategy_position</code> mutable ledger의 증분 누락 영구화</td>
+        <td>master §3-5-1 3중 상태 매트릭스 — 증분 1회 누락 시 다음 정합 사이클이 발견 못하면 영구화</td>
+        <td>ADR 0115 §2-P2 대안 B-on-A — <code>order_execution</code> 진실원의 결정론적 파생 재계산 뷰로 전환(점진)</td>
+      </tr>
+      <tr>
+        <td>api/consumer/batch 3중 복붙(rate limiter 등)</td>
+        <td>감사 P1-⑮ · ADR 0139 Proposed</td>
+        <td>라이브러리 모듈 승격(ADR 0083/0088/0092 패턴 1:1)</td>
+      </tr>
+      <tr>
+        <td>DSL close 수정주가 vs 지표 원주가 혼합</td>
+        <td>감사 P1-④ 이연</td>
+        <td>가격 소스 정책 단일화 — 자본 흐름 결합이라 별도 ADR 발의 후 진행</td>
+      </tr>
+      <tr>
+        <td>position qty/quantity 이중 · TradingMode enum 2벌</td>
+        <td>감사 P2 5~6 이연</td>
+        <td>rate limiter 공유화와 함께 Phase 3 상환</td>
+      </tr>
+      <tr>
+        <td>ADR 라이프사이클 관리(Proposed triage)</td>
+        <td>감사 P1-⑫ — 정합 검증 스크립트 release 편입은 완료, 분기별 Proposed triage 이연</td>
+        <td>정합 검증 자동화 + 분기별 triage 도입</td>
+      </tr>
+      <tr>
+        <td>Prometheus alert rule 0 · Alertmanager 부재</td>
+        <td>감사 P1-⑧ 이연(인프라 변경)</td>
+        <td>최소 규칙 4개 + Alertmanager(OPS Phase 2)</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout gold">
+    <b>공통 원칙</b> — 자본 흐름에 결합된 개선(가격 소스 단일화·ledger 전환·position 필드 통합)은 작은 버그 수정처럼 처리하지 않는다. 대안·위험·마이그레이션·롤백을 정리하고 ADR/사용자 결재를 거친다(방향성 보존 가드).
+  </div>
+</section>
+
+<div class="footnote">
+  <p>작성: architect (magicjar-architect) · 2026-07-09 · 브랜치 <code>agent/architect/onboarding-architecture-doc</code></p>
+  <p>정합 SoT: <code>docs/architecture/master-architecture.md</code> v2 · <code>settings.gradle.kts</code> · <code>docs/architecture/tracks-roadmap.md</code> · <code>docs/architecture/development-rules.md</code> · <code>CLAUDE.md</code> · <code>_workspace/arch/adr/README.md</code> · <code>docs/architecture/policies/audit-remediation-tracker.md</code> · <code>_workspace/backlog.md</code></p>
+  <p>다이어그램 소스: <code>docs/architecture/diagrams/onboarding-{module-map, data-flow, ws-owner-priority}.drawio</code> — 본 HTML의 그림은 해당 레이아웃을 손수 작성한 인라인 SVG로 삽입(drawio CLI SVG export는 텍스트를 base64 raster로 임베드해 자기완결 HTML에 부적합).</p>
+</div>
+
+</div>
+</body>
+</html>
