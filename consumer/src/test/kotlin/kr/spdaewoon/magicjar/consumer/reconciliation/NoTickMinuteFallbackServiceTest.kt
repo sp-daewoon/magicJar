@@ -141,10 +141,13 @@ class NoTickMinuteFallbackServiceTest {
         expectedMs.forEachIndexed { idx, expected ->
             val before = System.currentTimeMillis()
             svc.recordBackoffOutcome("071970", madeProgress = false)
+            val after = System.currentTimeMillis()
             assertThat(svc.backoffStreak("071970")).isEqualTo(idx + 1)
             val remain = svc.backoffRemainMs("071970", now = before)
-            // remain 은 (expected - 경과ms) 이므로 상한 expected, 하한은 여유 100ms.
-            assertThat(remain).isBetween(expected - 100L, expected)
+            // 서비스는 record "내부 시각(stamp∈[before,after])"으로 nextEligibleAt=stamp+expected 를 박제하므로
+            // remain(now=before) ∈ [expected, expected+(after-before)]. 상한을 실측 경과시간으로 열어
+            // 병렬 테스트 부하에서도 결정론 보장 (벽시계 고정상한 flake 3회 재발 → 2026-07-10 정정).
+            assertThat(remain).isBetween(expected - 100L, expected + (after - before) + 1L)
         }
     }
 
