@@ -1296,6 +1296,95 @@ class RealtimeSignalGeneratorTest {
         verify(exactly = 1) { signalKafkaProducer.publish(any()) }
     }
 
+    // === 진입 가드 3종 — 레짐 필터 / 손절 쿨다운 (2026-07-08) — BUY skip / SELL 무영향 ===
+
+    @Test
+    fun `진입 가드 - 차단 레짐이면 BUY 시그널을 발행하지 않는다`() {
+        val buyAst = ast("1", Operator.GT, "0") // BUY 발화
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val regimeGate =
+            mockk<RegimeEntryGate>().also { every { it.isBuyBlockedByRegime("005930") } returns true }
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.90"), mapOf("trigger" to "BUY_CONDITION"), fixedNow, 1L)
+
+        generator(regimeEntryGate = regimeGate).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
+    @Test
+    fun `진입 가드 - 차단 레짐이어도 SELL(청산) 시그널은 발행한다`() {
+        val buyAst = ast("0", Operator.GT, "1") // BUY HOLD
+        val boundaryTs = Instant.parse("2026-05-20T00:20:00Z")
+        val savedSignal = slot<GeneratedSignal>()
+        val regimeGate =
+            mockk<RegimeEntryGate>().also { every { it.isBuyBlockedByRegime(any()) } returns true }
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst, takeProfitPct = BigDecimal("5.00")))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:15:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns holdResult()
+        every { riskPositionPort.findCurrentByUser("1234") } returns
+            listOf(Position(userId = "1234", code = "005930", quantity = 3, avgPrice = BigDecimal("100"), updatedAt = fixedNow))
+        every { signalRepository.save(capture(savedSignal)) } answers { savedSignal.captured.copy(id = 150L) }
+        every { signalKafkaProducer.publish(any()) } just Runs
+
+        generator(riskPositionPort = riskPositionPort, regimeEntryGate = regimeGate).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "106"),
+        )
+
+        assertThat(savedSignal.captured.side).isEqualTo(SignalSide.SELL)
+        verify(exactly = 1) { signalKafkaProducer.publish(any()) }
+        // SELL 경로는 레짐 게이트를 호출하지 않는다(BUY 직전에만 평가 — 청산 무영향 LOCK).
+        verify(exactly = 0) { regimeGate.isBuyBlockedByRegime(any()) }
+    }
+
+    @Test
+    fun `진입 가드 - 손절 쿨다운 중이면 BUY 시그널을 발행하지 않는다`() {
+        val buyAst = ast("1", Operator.GT, "0") // BUY 발화
+        val boundaryTs = Instant.parse("2026-05-20T00:15:00Z")
+        val cooldownGate =
+            mockk<StopLossCooldownGate>().also { every { it.isInCooldown("1234", "005930") } returns true }
+
+        every { strategyLookup.findActiveByCodeAndInterval("005930", CandleInterval.FIVE_MIN) } returns
+            listOf(strategy(buyAst = buyAst))
+        every { dedupeGuard.tryAcquire(42L, "005930", CandleInterval.FIVE_MIN, boundaryTs) } returns true
+        every {
+            candleRepository.findLatestBeforeByCodeAndInterval("005930", CandleInterval.FIVE_MIN, boundaryTs.toJavaInstant(), 499)
+        } returns listOf(candle("2026-05-20T00:10:00Z", "100"))
+        every { evaluator.evaluate(42L, buyAst, any()) } returns
+            StrategyEvalResult(StrategySignal.BUY, BigDecimal("0.90"), mapOf("trigger" to "BUY_CONDITION"), fixedNow, 1L)
+
+        generator(stopLossCooldownGate = cooldownGate).onBoundaryClosed(
+            code = "005930",
+            interval = CandleInterval.FIVE_MIN,
+            boundaryTs = boundaryTs,
+            candle = candle(boundaryTs, "120"),
+        )
+
+        verify(exactly = 0) { signalRepository.save(any()) }
+        verify(exactly = 0) { signalKafkaProducer.publish(any()) }
+    }
+
     // === 개선 ② — 보유 0 종목 DSL SELL skip / 보유>0 발행 (2026-06-25) ===
 
     @Test
@@ -1407,6 +1496,8 @@ class RealtimeSignalGeneratorTest {
         marketHoursGateEnabled: Boolean = true,
         marketHoursSellEnabled: Boolean = true,
         dailyLossLimitGate: DailyLossLimitGate? = null,
+        regimeEntryGate: RegimeEntryGate? = null,
+        stopLossCooldownGate: StopLossCooldownGate? = null,
     ): RealtimeSignalGenerator =
         RealtimeSignalGenerator(
             objectMapper =
@@ -1431,6 +1522,14 @@ class RealtimeSignalGeneratorTest {
             systemEventLoggerProvider = emptyProvider(),
             dailyLossLimitGateProvider =
                 dailyLossLimitGate
+                    ?.let { providerOf(it) }
+                    ?: emptyProvider(),
+            regimeEntryGateProvider =
+                regimeEntryGate
+                    ?.let { providerOf(it) }
+                    ?: emptyProvider(),
+            stopLossCooldownGateProvider =
+                stopLossCooldownGate
                     ?.let { providerOf(it) }
                     ?: emptyProvider(),
             jvmStrategyEvaluator = evaluator,

@@ -137,6 +137,26 @@ magicjar:
       # persist 하므로 consumer 평가 경로는 명시값을 쓰지만, 구버전 데이터(floor null)·1m 안전망 last-resort 의 일관성을
       # 위해 동일 default 를 등록한다. 컴파일 상수(domain ScaleInLimits.DEFAULT_STOP_LOSS_FLOOR_PCT=15)와 동일.
       floor-default-pct: ${MAGICJAR_STRATEGY_SCALE_IN_FLOOR_DEFAULT_PCT:15}
+    # 진입 가드 3종 (2026-07-08 즉효 3종, 최고 관리자 결재) — 신규 BUY 발행만 skip. SELL/청산/손절/익절 절대 무영향.
+    #   근거: 105 전략 25왕복 10승15패 — 손실이 DOWNTREND 레짐 3일 집중(-4,175)·손절 후 같은 종목 재손절 반복·연패 방치.
+    #   3종 모두 default true. 롤백=해당 enabled false(즉시 byte 동일).
+    entry-guard:
+      # ① 레짐 필터 — 시장 레짐이 block-regimes 이면 신규 BUY skip. 소스=market_index_daily.regime 최신(EOD 롤업, 장중=전일값).
+      #   장중 라이브 레짐 분류기 부재 → EOD 폴백이 현 권위. index-code=0001(코스피). 캐시 60s. graceful=조회실패/null 시 진행.
+      regime:
+        enabled: ${MAGICJAR_STRATEGY_ENTRY_GUARD_REGIME_ENABLED:true}
+        index-code: ${MAGICJAR_STRATEGY_ENTRY_GUARD_REGIME_INDEX_CODE:0001}
+        block-regimes: ${MAGICJAR_STRATEGY_ENTRY_GUARD_REGIME_BLOCK_REGIMES:DOWNTREND}
+        cache-ttl-millis: ${MAGICJAR_STRATEGY_ENTRY_GUARD_REGIME_CACHE_TTL_MILLIS:60000}
+      # ② 손절 후 재진입 쿨다운 — 같은 (userId,code) 실현 손실 전량청산 후 minutes 분간 신규 BUY skip. Redis 1키(재기동 생존). fail-open.
+      cooldown:
+        enabled: ${MAGICJAR_STRATEGY_ENTRY_GUARD_COOLDOWN_ENABLED:true}
+        minutes: ${MAGICJAR_STRATEGY_ENTRY_GUARD_COOLDOWN_MINUTES:60}
+      # ③ 연패 서킷 — 전략별 당일 실현 왕복 연속 threshold 패 도달 시 BUY_BLOCKED 자동 전환(청산 계속). ACTIVE 복귀=사용자 수동.
+      #   카운터 인메모리+KST 일자 리셋(신규 Redis 0). 전환 status 는 DB 영속(재기동 생존).
+      loss-streak:
+        enabled: ${MAGICJAR_STRATEGY_ENTRY_GUARD_LOSS_STREAK_ENABLED:true}
+        threshold: ${MAGICJAR_STRATEGY_ENTRY_GUARD_LOSS_STREAK_THRESHOLD:4}
   # magicjar-autopilot 자율 루프 안전 하니스 게이트 (spec 2026-06-22 §2-0-A · §3-bis Tier A)
   #   enabled: default false — 미설정 시 autopilot 전 기능 비활성 = v3.14.0 동작 그대로(zero-regression).
   #     true 일 때만 owner=AUTOPILOT 전략 평가·kill switch·REAL 게이트가 동작한다.

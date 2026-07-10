@@ -85,6 +85,12 @@ class RealtimeSignalGenerator(
     //   가 캡슐화하고 산식은 RiskGatewayEvaluator 단일 출처. bean 부재(일부 테스트 컨텍스트)면 ifAvailable null → 게이트 미적용
     //   (RiskGateway 최종 가드 유지 — zero-regression).
     private val dailyLossLimitGateProvider: ObjectProvider<DailyLossLimitGate>,
+    // 진입 가드 3종 (2026-07-08 즉효 3종) — BUY 발행 직전 skip(DailyLossLimitGate 와 동일 앞단 최적화 패턴).
+    //   ① RegimeEntryGate: 시장 레짐 DOWNTREND(등) 신규 BUY skip. ② StopLossCooldownGate: 손절 후 재진입 쿨다운.
+    //   (③ 연패 서킷은 체결 hook 에서 status=BUY_BLOCKED 전환하므로 기존 status!=ACTIVE 체크가 자동 suppress — 여기 미배선.)
+    //   ObjectProvider graceful — bean 부재(일부 테스트 컨텍스트)면 미적용(RiskGateway·후속 게이트 유지 — zero-regression).
+    private val regimeEntryGateProvider: ObjectProvider<RegimeEntryGate>,
+    private val stopLossCooldownGateProvider: ObjectProvider<StopLossCooldownGate>,
     private val jvmStrategyEvaluator: JvmStrategyEvaluator,
     private val signalDedupeGuard: SignalDedupeGuard,
     private val signalKafkaProducer: SignalKafkaProducer,
@@ -381,6 +387,33 @@ class RealtimeSignalGenerator(
             log.info(
                 "RealtimeSignalGenerator BUY skip — 일일손실 한도 도달(앞단 skip, RiskGateway 최종 가드 유지): " +
                     "strategyId={} userId={} code={} interval={} ts={}",
+                strategyId,
+                strategy.userId,
+                code,
+                interval.code,
+                boundaryTs,
+            )
+            return
+        }
+        // 진입 가드 ① (2026-07-08) — 시장 레짐이 차단 레짐(default DOWNTREND)이면 신규 BUY 발행 skip(하락장 역풍 진입 억제).
+        //   SELL(청산)은 막지 않는다(보유분 회수 항상 보장 — 롱온리). 레짐 소스=market_index_daily 최신(EOD), 캐시·graceful 은 게이트 내부.
+        if (side == SignalSide.BUY && regimeEntryGateProvider.ifAvailable?.isBuyBlockedByRegime(code) == true) {
+            log.info(
+                "RealtimeSignalGenerator BUY skip — 차단 레짐 진입 억제(SELL/청산 무영향): strategyId={} code={} interval={} ts={}",
+                strategyId,
+                code,
+                interval.code,
+                boundaryTs,
+            )
+            return
+        }
+        // 진입 가드 ② (2026-07-08) — 같은 (userId, code) 손절(실현 손실) 청산 후 쿨다운 윈도우 내면 신규 BUY skip(재손절 반복 차단).
+        //   SELL(청산)은 막지 않는다. 쿨다운 판정·Redis·fail-open 은 게이트 내부([StopLossCooldownGate]).
+        if (side == SignalSide.BUY &&
+            stopLossCooldownGateProvider.ifAvailable?.isInCooldown(strategy.userId.toString(), code) == true
+        ) {
+            log.info(
+                "RealtimeSignalGenerator BUY skip — 손절 후 재진입 쿨다운(SELL/청산 무영향): strategyId={} userId={} code={} interval={} ts={}",
                 strategyId,
                 strategy.userId,
                 code,
