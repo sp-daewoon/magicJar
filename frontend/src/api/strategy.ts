@@ -436,20 +436,20 @@ export const sigStrategyApi = {
   },
 
   /**
-   * PUT /api/strategy/{id}/archive (병렬 백엔드 LOCK 계약)
+   * PUT /api/strategy/{id}/archive?userId= (백엔드 소유자 검증 필수 — 2026-07-10 hotfix: userId 누락 400 정정)
    * 전략 보관 → status=ARCHIVED. 자동매매 평가에서 제외되고 보관함으로 이동한다.
-   * 보유 포지션·미체결 주문이 있으면 409 + 본문에 한국어 사유(토스트로 그대로 노출).
+   * 보유 포지션·미체결 주문이 있으면 409 + 본문에 한국어 사유(토스트로 그대로 노출). 소유자 불일치는 404.
    */
-  archive: async (id: string): Promise<void> => {
-    await apiClient.put(`/strategy/${id}/archive`)
+  archive: async (id: string, userId: number): Promise<void> => {
+    await apiClient.put(`/strategy/${id}/archive?userId=${userId}`)
   },
 
   /**
-   * PUT /api/strategy/{id}/unarchive (병렬 백엔드 LOCK 계약)
+   * PUT /api/strategy/{id}/unarchive?userId= (백엔드 소유자 검증 필수 — 2026-07-10 hotfix)
    * 보관 해제 → status=PAUSED(중지)로 복귀. 자동매매 시작은 사용자가 다시 눌러야 한다.
    */
-  unarchive: async (id: string): Promise<void> => {
-    await apiClient.put(`/strategy/${id}/unarchive`)
+  unarchive: async (id: string, userId: number): Promise<void> => {
+    await apiClient.put(`/strategy/${id}/unarchive?userId=${userId}`)
   },
 
   /**
