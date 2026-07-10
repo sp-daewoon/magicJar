@@ -452,6 +452,28 @@ magicjar:
       circuit-consecutive-trips: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_TRIPS:3}
       circuit-open-millis: ${MAGICJAR_CANDLE_BACKFILL_CIRCUIT_OPEN_MS:60000}
 
+  # 분봉 수집 풀(minute-pool) — 후보 풀 과거 1분봉 백필 + 장중 전방 수집 (2026-07-10 · market-data)
+  #   목적: 인트라데이 백테스트 가능 종목 확장(≈15 → 풀 30~50).
+  #   후보 풀 = 거래대금 상위 N(최신 1d close×volume) + 발굴 스코어카드 후보 + ACTIVE 전략 종목 + yml seed union.
+  #   과거 백필: POST /admin/minute-pool-backfill/run (비동기·멱등 saveAll DO NOTHING·기존 롤업 재사용).
+  #   장중 전방 수집: forward-poller (WS 슬롯 0·REST 전용·BG 버킷).
+  #   모든 KIS 콜 = FHKST03010230 · BACKFILL(BG) 버킷 — USER_PATH·INGESTION 침범 0. 자본 영향 0.
+  minute-pool-backfill:
+    enabled: ${MAGICJAR_MINUTE_POOL_BACKFILL_ENABLED:true}          # 마스터 kill-switch (false=백필·전방수집 모두 0)
+    pool-size: ${MAGICJAR_MINUTE_POOL_SIZE:30}                       # 후보 풀 상한 (union 후 clamp)
+    lookback-trading-days: ${MAGICJAR_MINUTE_POOL_LOOKBACK_DAYS:30}  # 과거 백필 소급 영업일 (KIS 1년 한도 내)
+    turnover-top-n: ${MAGICJAR_MINUTE_POOL_TURNOVER_TOP_N:30}        # 거래대금 상위 후보 수
+    scorecard-top-n: ${MAGICJAR_MINUTE_POOL_SCORECARD_TOP_N:20}      # 발굴 스코어카드 후보 수
+    include-active-strategy-codes: ${MAGICJAR_MINUTE_POOL_INCLUDE_STRATEGY:true}
+    coverage-ratio: ${MAGICJAR_MINUTE_POOL_COVERAGE_RATIO:0.70}      # skip 판정 (기대봉 대비 보유 비율)
+    max-codes-per-run: ${MAGICJAR_MINUTE_POOL_MAX_CODES_PER_RUN:60}  # 1 run 처리 종목 상한
+    per-code-delay-ms: ${MAGICJAR_MINUTE_POOL_PER_CODE_DELAY_MS:200} # 종목 간 지연(BG 버킷 burst 분산)
+    # seed-codes 미설정 시 코드 default(대형 유동주 15종) 사용. env override 시 comma 목록.
+    forward-poller:
+      enabled: ${MAGICJAR_MINUTE_POOL_FORWARD_POLLER_ENABLED:true}   # 장중 전방 수집 (2순위)
+      fixed-delay-ms: ${MAGICJAR_MINUTE_POOL_FORWARD_POLLER_DELAY_MS:300000}      # 5분 주기
+      initial-delay-ms: ${MAGICJAR_MINUTE_POOL_FORWARD_POLLER_INITIAL_DELAY_MS:90000}
+
   # MARKET_DAILY 10년 전종목 일봉 backfill 캠페인 (ADR 0118 R-BF)
   #   멱등 캠페인 — 매 run 호출이 progress(candle row 기반) 이어받아 미완료 종목만 cap까지 처리.
   #   enabled=false(default) 시 가동 0(중단=off, 적재분 보존). 트리거: POST /admin/market-daily-backfill/run.
