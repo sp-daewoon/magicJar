@@ -70,6 +70,12 @@ class ConsumerExecutionStrategyPositionAdapter(
     //   ObjectProvider graceful — autopilot 패키지 미합류/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression).
     private val autopilotReentryCooldownGuardProvider:
         ObjectProvider<kr.spdaewoon.magicjar.consumer.autopilot.AutopilotReentryCooldownGuard>? = null,
+    // 진입 가드 ②③ 체결 hook (2026-07-08 즉효 3종) — SELL 전량청산(nextQty==0) 실현 손익 delta 를 게이트에 통지.
+    //   ② StopLossCooldownGate.recordStopLossExit: 손실(realizedDelta<0) 청산 시 (userId,code) 쿨다운 기록.
+    //   ③ LossStreakCircuitBreaker.onRoundTripClosed: 왕복 승/패 카운트 → 연패 임계 시 BUY_BLOCKED.
+    //   ObjectProvider graceful — bean 부재/폐기 시 skip = 기존 체결 경로 byte 동일(zero-regression). owner 무관(전 전략).
+    private val stopLossCooldownGateProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.signal.StopLossCooldownGate>? = null,
+    private val lossStreakCircuitBreakerProvider: ObjectProvider<kr.spdaewoon.magicjar.consumer.signal.LossStreakCircuitBreaker>? = null,
     @Value("\${magicjar.position.drift-auto-correct.enabled:true}")
     private val driftAutoCorrectEnabled: Boolean = true,
     @Value("\${magicjar.position.ledger-rebuild.enabled:true}")
@@ -153,6 +159,32 @@ class ConsumerExecutionStrategyPositionAdapter(
                             request.strategyId,
                             e.message,
                         )
+                    }
+                }
+
+                // 진입 가드 3종 체결 hook (2026-07-08) — 전량 청산(왕복 완료) 시점에만. owner 무관(전 전략 공통).
+                //   ③ 연패 서킷: 왕복 실현 손익 delta 부호로 승/패 카운트(내부에서 판정). 손실이든 이익이든 통지.
+                lossStreakCircuitBreakerProvider?.ifAvailable?.let { breaker ->
+                    runCatching { breaker.onRoundTripClosed(request.strategyId, request.userId, request.code, realizedDelta) }
+                        .onFailure { e ->
+                            log.warn(
+                                "연패 서킷 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
+                                request.strategyId,
+                                e.message,
+                            )
+                        }
+                }
+                //   ② 손절 쿨다운: 실현 손실(realizedDelta<0) 전량 청산일 때만 (userId,code) 쿨다운 기록.
+                if (realizedDelta.signum() < 0) {
+                    stopLossCooldownGateProvider?.ifAvailable?.let { gate ->
+                        runCatching { gate.recordStopLossExit(request.userId, request.code) }
+                            .onFailure { e ->
+                                log.warn(
+                                    "손절 쿨다운 기록 hook 실패 — skip(체결 권위 무손상): strategyId={} err={}",
+                                    request.strategyId,
+                                    e.message,
+                                )
+                            }
                     }
                 }
             }

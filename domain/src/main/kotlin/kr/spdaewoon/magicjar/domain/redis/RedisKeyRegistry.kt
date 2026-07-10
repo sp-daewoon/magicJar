@@ -221,11 +221,33 @@ object RedisKeyRegistry {
 
         fun activeByCodePattern(): String = "strategy:active:code:*:interval:*"
 
+        /**
+         * ### stopLossReentryCooldown — 손절(실현 손실) 청산 후 재진입 쿨다운 (진입 가드 3종 ②, 2026-07-08)
+         * key = `strategy:sl-cooldown:user:{userId}:code:{code}`
+         *
+         * 같은 (userId, code)에서 **손절성(실현 손실) 전량 청산**이 체결되면 그 시점을 본 키에 기록하고 TTL 을
+         * 쿨다운 윈도우(yml `magicjar.strategy.entry-guard.cooldown.minutes`)로 건다. 같은 윈도우 안에서 같은 code 의
+         * 신규 **BUY** 시그널이 들어오면 발행을 skip 한다 — "손절 → 같은 종목 즉시 재매수 → 재손절" 반복(2026-07-08
+         * 근거 014910·037070·046940·013120)이 손실을 누적하는 통로를 닫는다. owner 무관(전 전략 공통).
+         *
+         * SELL/청산은 본 키를 절대 게이트로 쓰지 않는다(보유분 청산 항상 보장 — 롱온리). Redis 영속이라 consumer
+         * 재기동에도 쿨다운이 생존한다(윈도우 내 재부팅 후 즉시 재진입 방지). 결함 시 fail-open(진입 skip 안 함).
+         */
+        fun stopLossReentryCooldown(
+            userId: String,
+            code: String,
+        ): String = Standard.stopLossReentryCooldown(userId, code)
+
         object Standard {
             fun activeByCode(
                 code: String,
                 interval: String,
             ): String = "strategy:active:code:$code:interval:$interval"
+
+            fun stopLossReentryCooldown(
+                userId: String,
+                code: String,
+            ): String = "strategy:sl-cooldown:user:$userId:code:$code"
         }
     }
 
