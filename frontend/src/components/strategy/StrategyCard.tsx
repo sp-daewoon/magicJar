@@ -95,8 +95,8 @@ export function StrategyCard({
   const toggleMutation = useToggleSigStrategyStatus()
   const deleteMutation = useDeleteSigStrategy()
   const favoriteMutation = useToggleListFavorite(userId)
-  const archiveMutation = useArchiveSigStrategy()
-  const unarchiveMutation = useUnarchiveSigStrategy()
+  const archiveMutation = useArchiveSigStrategy(userId)
+  const unarchiveMutation = useUnarchiveSigStrategy(userId)
   const isArchived = strategy.status === 'ARCHIVED'
   const floorBadgeInfo = floorBadge(strategy.scaleIn)
   const scaleInBadge = scaleInBadgeLabel(strategy.scaleIn)
