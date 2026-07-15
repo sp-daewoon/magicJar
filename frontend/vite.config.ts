@@ -9,6 +9,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
+    // 10-core 호스트에서 기본 worker 수는 full-suite React 테스트의 5초 timeout flake를 유발했다.
+    // timeout 완화 대신 worker 상한을 고정해 테스트 의미를 유지하고 자원 경쟁만 제거한다.
+    maxWorkers: 4,
     // qa Visual (Playwright) 디렉토리는 vitest 수집 대상에서 제외 — @playwright/test API 충돌 회피
     exclude: ['node_modules', 'dist', 'tests/e2e/**', 'playwright-report/**', 'test-results/**'],
   },
