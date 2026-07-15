@@ -6,7 +6,7 @@ branch: chore/wave0-baseline-stability
 status: DONE
 startedAt: 2026-07-15T22:42:05.547+09:00
 completedAt: 2026-07-16T06:21:56.431+09:00
-pr: #2
+pr: #1165
 parentPhase: ?
 ---
 
@@ -25,6 +25,6 @@ Wave 0 baseline stabilization: deterministic frontend tests, authoritative docum
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-07-16T06:17:46+09:00 — 구현·전체 검증·독립 review APPROVED, PR 발행 준비 완료
+2026-07-16T06:23:37+09:00 — upstream PR #1165 발행 완료, merge 승인 대기
 
 ## 비고
