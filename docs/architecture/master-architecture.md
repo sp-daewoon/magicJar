@@ -1,12 +1,11 @@
 # magicJar 마스터 아키텍처 v2
 
-> **Status**: DRAFT v2 — 사용자 검토 대기
+> **Status**: Accepted living architecture summary — 2026-07-15 Wave 0 코드 대조
 > **작성일**: 2026-05-03
-> **작성자**: architect (opus 4.7 1M)
+> **작성자**: architect (최초 작성) · Wave 0 교차검토
 > **선행 폐기**: 1차안 v1 (765줄, 2026-05-03) — "AI quant trading platform · AI 직접 매매" 가정 비전 정정으로 풀 폐기.
-> **범위**: magicJar 전체 시스템의 단일 진실원. 룰 기반 quant 본체 + AI 옵션 보조 + MCP 서버 미래.
-> **선행 ADR**: 0001~0040 (전체 인덱스는 `_workspace/arch/adr/README.md`)
-> **신규 ADR**: 0041~ (master §10에 핵심 결정 한 줄. 정식 발행은 W1 진입 직전 + 트랙 진입 시 부분). 0048 슬롯은 §12 후속 예약 — 0049·0050은 PR-8 메타 ADR(GitHub Actions release 한정 / CHANGELOG 슬롯 채번룰)로 채택.
+> **권위 경계**: 시스템 비전·컴포넌트/모듈 경계의 요약 문서. 현행 운영 정책은 `docs/architecture/policies/`, Kafka wire는 `KafkaTopics.kt`, 모듈 목록은 `settings.gradle.kts`, 결정 이력은 `_workspace/arch/adr/README.md`가 각각 우선한다.
+> **범위**: 룰 기반 quant 본체 + AI 옵션 보조 + MCP 서버 미래. 본문에 남은 날짜·트랙 설명은 역사 맥락이며 현행 여부는 위 권위 파일로 확인한다.
 
 ---
 
@@ -77,7 +76,7 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 | # | 영역 | 책임 | **오프라인 동작** | 트랙 |
 |---|---|---|---|---|
 | A.1 | **Instrument Master (종목 마스터)** | KOSPI·KOSDAQ·KONEX·ETF·ETN·우선주 universe. KIS·KRX·ISIN 매핑. 상장일·상장폐지·액면분할·합병 추적. | 가능 (정적 시드 + KIS sync는 옵션) | T-IM1 |
-| A.2 | **Market Data Pipeline (시세 수집·캐시·세션)** | **Watchlist 기반 Ingestion Worker (1~5초 polling)** — KIS WS tick·체결·호가 + KIS REST 1d/1wk/1mo/1y 전체 기간 + KIS REST 1m 당일 한정 Redis only + 당일 진행 중 캔들 Redis 휘발 캐시 (ADR 0057 — Yahoo Finance 폐기, 2026-05-11). **prod credential 단일 채널** (정보 수집 모의/실전 분기 0 — 사용자 명시 정책 정정 2026-05-11). **장 상태 FSM + fallback** (live → cache → last-day-close). 5m·15m·30m·90m·1h은 **1m 합산 가공 방향 확정** (backlog §31 트랙). | 가능 (캐시·last-day-close · MockTickGenerator) | T-W1·T-W2 |
+| A.2 | **Market Data Pipeline (시세 수집·캐시·세션)** | KIS REST bootstrap/backfill + H0UNCNT0 통합 체결가 WS. WS 수요 owner는 `HOLDING > PENDING_BUY > STRATEGY > DETAIL`; watchlist는 WS 수요가 아니며 polling 전용이다. `WatchlistPollingWorker`는 KIS 호출 없는 no-op이고 WS 단절 시 degraded polling은 ACTIVE 전략 명시 종목으로 제한한다. 1m에서 다중 boundary를 합산한다. | 가능 (영속 candle·last cache; mock은 test fixture 한정) | T-W1·T-W2 |
 | A.3 | **Corporate Action & Adjusted Price** | 액면분할·증자·배당·합병으로 인한 가격 점프 보정. raw + adjusted 양 컬럼. retroactive 재계산. | 가능 (일별 batch + 정적 시드) | T-CA1 |
 | A.4 | **News & Disclosure (뉴스·공시) — ADR 0075 Accepted 2026-05-15** | DART 공시 (cron 1분 강화 + `is_correction` 분류 + Flyway V32 `disclosure` 영속 + Kafka `disclosure.new.v1` retention 7d) + Naver Open API search/news.json (Flyway V33 `news_article` 영속 + `<b>` strip + Kafka `news.collected.v1` retention 7d + Watchlist 우선 polling 분당 17건 hard limit). 종목 상세 sidebar NewsPanel + DisclosurePanel polling 60s (STOMP 0 LOCK · 의제 6-1). REST 2 endpoint `GET /api/symbols/{code}/news` + `/disclosures` Swagger 4단. KIS endpoint 호출 0 (ADR 0057 시세 단일 정합 + 뉴스 보조 §B-3 OK). AI 호출 0 (감성 분석 T-AI 흡수 backlog §62). 외부 source 끊겨도 **본체 흐름 차단 0**. | 부분 (Naver/DART 미수집 시 본체 영향 0 + frontend "데이터 없음" 한국어) | **T-NEWS (ADR 0075 Accepted, v3.6.7 patch 사이클 진입)** |
 
@@ -96,8 +95,8 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 | # | 영역 | 책임 | **오프라인 동작** | 트랙 |
 |---|---|---|---|---|
 | C.10 | **Screener (종목 발굴)** | universe(instrument 영속) × DSL 조건식 → 후보 + 랭킹(4 기준 multi-criteria fixed weights). **Redis cache 30m + 옵션 영속 V28(env toggle)**. **1차 inline 동기 평가 모드** (universe ~3000 inline ~5s) + 일별 batch cron은 post-MVP backlog §55. **KIS endpoint 호출 0 LOCK** (영속 candle + instrument reuse). Strategy Builder "전략으로 종목 찾기" 버튼 + ScreenerResultModal 합류. 상위 후보는 watchlist 자동 등록이 아니라 `STRATEGY` owner TTL 실시간 관찰 수요(`market.realtime.demand.v1`)로만 발행. ADR 0071 정밀 명세 정합. | 가능 (영속 candle + 룰만) | T-SC (ADR 0071 Accepted 2026-05-14) |
-| C.11 | **Signal Engine (시그널)** | 실시간 watch list × 활성 전략 → BUY/SELL/HOLD + 강도 + reason. **DSL 평가만, AI 호출 0**. | 가능 (in-process 룰) | T-SIG |
-| C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드(ADR 0067 ALLOWED) → KisOrderHttpAdapter(TTTC0012U·TTTC0011U) → KIS API → KisExecutionWsListener(H0STCNI0 체결통보) → audit. MAGICJAR_MODE × MAGICJAR_ALLOW_REAL × user_account.real_trading_consent_at 3중 게이트 (실계좌). 분할 체결 1:N + 사용자 수동 취소(TTTC0013U). | 가능 (MOCK 환경 — KIS VPS endpoint + H0STCNI9) | T-O (ADR 0068 plan 발행 2026-05-12, 사용자 결정 대기) |
+| C.11 | **Signal Engine (시그널)** | 활성 전략의 명시 종목에 `STRATEGY` owner 실시간 수요를 부여하고 KIS WS tick에 DSL을 평가해 BUY/SELL/HOLD + 강도 + reason을 생성한다. watchlist 자동 합집합과 AI 호출은 사용하지 않는다. | 가능 (영속 데이터 기반 평가; 실시간 진입은 KIS 필요) | T-SIG |
+| C.12 | **Auto Order Execution (주문 실행)** | 시그널 → 위험 가드 → KisOrderHttpAdapter → KIS API → KisExecutionWsListener(H0STCNI0/9 체결통보) → audit. `MAGICJAR_MODE=REAL` × `MAGICJAR_ALLOW_REAL=true` × 사용자 동의의 실계좌 게이트를 유지한다. | 가능 (기본 주문 MOCK; REAL은 명시 게이트) | T-O (Accepted·운영 중) |
 | C.13 | **Risk & Position Guard (위험 관리)** | Guard chain 6단 (KillSwitch·Session·DailyLimit·PositionLimit·DrawdownStop·PriceSanity). 사이징(Kelly·Fixed Fractional). | 가능 (in-process 정책) | T-RISK |
 | C.14 | **Performance Loop (성과 통계)** | 일별/주별 P&L·MDD·승률·평균 손익비. **5 지표 fixed LOCK** (총 P&L · 일별 P&L · MDD · 승률 · 평균 손익비). **batch DailyPerformanceJob 매일 00:30 KST cron** + inline aggregate fallback + Redis cache TTL 1h. **Sharpe·Sortino·CAGR backlog §61** (post-MVP). **AI 호출 0 LOCK** + W4 회고 코멘트 backlog §62. ADR 0072 정밀 명세 정합. | 가능 (영속 데이터만) | T-PERF (ADR 0072 Accepted 2026-05-14) |
 
@@ -119,8 +118,8 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 |---|---|
 | Notification (Slack·이메일·푸시) | W5 후 |
 | Multi-tenant 인증 (OAuth2/JWT) | 실서비스 진입 |
-| Observability (Prometheus·Grafana) | post-MVP |
-| DR/Backup | post-MVP |
+| Observability (Prometheus·Grafana·Alertmanager) | 운영 baseline 구성 완료; 실제 수신 증거는 별도 검증 |
+| DR/Backup | 운영 runbook·정기 절차 존재; drill evidence는 별도 검증 |
 | TimescaleDB | 일봉 ≥1억 행 도달 시 |
 
 ---
@@ -165,15 +164,14 @@ magicJar는 미래에 **MCP 서버를 외부에 노출**해 Claude/Cursor 등 AI
 - **Onboarding Setup (ADR 0046 + 0069)** — 첫 부팅 시 활성 user 0명 idle. localhost:3000 진입 → 셋업 마법사 7-step → KIS REST `/oauth2/tokenP` 검증 → AES-256-GCM 암호화 → user_account + user_kis_credential 영속 → UserOnboardedEvent → WatchlistIngestionWorker polling 시작. 운영 진입 후 키 변경·DART/Slack 추가·실거래 동의 토글은 **SettingsModal** (AppHeader ⚙️ 진입점, ADR 0069 §1 책임 분리 + §3 1차 scope 3 section + §4 신규 API 키 추가 5 step 표준 절차)
 - **DSL Sandbox (ADR 0047)** — Strategy 등록 시 static 검증(AST depth ≤ 32·노드 ≤ 10000·indicator ≤ 50·키워드 화이트리스트). SignalGenerator 평가 시 strategy-eval-pool(fixed 4) 경유 → realtime timeout 100ms / backtest 1000ms · CPU budget 50ms. Timeout 1회 시 strategy auto-disable + `risk.violation.v1`(type=STRATEGY_TIMEOUT) → ADR 0044 통지
 
-### 3-2. 장외 시세 fallback 흐름 (오프라인 정합)
+### 3-2. 장외·단절 시 데이터 사용 경계
 
 ```
-MarketSessionResolver = CLOSED → TickFallbackEmitter (10s) → QuoteCache.get →
-   TickEvent(stale=true, asOf=마지막 영업일 close) → Kafka market.tick.v1 →
-   STOMP → frontend stale 배지("휴장 중", "장 마감 14:30 기준")
+MarketSessionResolver = CLOSED → 영속 candle/last cache 조회 →
+   REST 응답·화면에 stale/asOf 표시
 ```
 
-KIS WS 끊겨도, KIS REST 끊겨도, 인터넷 끊겨도 — **마지막 영업일 close 데이터로 차트·지표·screener 모두 동작**. mock profile은 MockTickGenerator.
+KIS WS가 끊기면 전 종목 또는 watchlist를 5초 polling하는 fallback은 없다. 실재 degraded polling은 ACTIVE 전략 명시 종목으로 제한하며, 저장 데이터 기반 차트·지표·screener는 계속 사용할 수 있다. mock tick은 test fixture 전용이다.
 
 ### 3-3. AI 옵션 보조 흐름 (사용자 트리거 한정)
 
@@ -254,8 +252,8 @@ magicJar는 **server**. AI 클라이언트가 magicJar의 사용자.
 
 | 외부 | 용도 | 본체 의존도 | dev profile | prd MOCK_KIS | prd REAL_KIS | fallback |
 |---|---|---|---|---|---|---|
-| **KIS REST** | 일봉·분봉·잔고·종목 마스터·주문 | 매매 시 필수 (시세는 옵션) | 모의 server | 모의 server | 실 server | 캐시·last-day-close. mock profile은 stub |
-| **KIS WS** | tick·호가·체결통보 | 매매 모니터링 시 필수 | 모의 ws | 모의 ws | 실 ws | TickFallbackEmitter (10s last-cached) |
+| **KIS REST** | 일봉·분봉·잔고·종목 마스터·주문 | 조회·매매 시 필수 | 실전 조회 credential | 주문 mode에 따라 VPS/PROD | 실 server | 영속 candle·last cache; 주문은 fail closed |
+| **KIS WS** | tick·호가·체결통보 | 장중 매매 경로 필수 | H0UNCNT0/H0UNASP0 + 체결통보 | 동일 | 실 ws | ACTIVE 전략 명시 종목 degraded polling; 전 종목/watchlist fallback 없음 |
 | **DART (전자공시)** | 공시 본문·재무제표 | **옵션** | 호출 (key 발급 시) | 동일 | 동일 | 끊겨도 본체 영향 0 |
 | **NAVER 금융 / 한경** | 뉴스 본문 | **옵션** | api 외부 어댑터 | 동일 | 동일 | 끊겨도 본체 영향 0 |
 | **Anthropic Claude** | AI 옵션 분석 (W4) | **옵션** | 호출 (key 발급 + toggle) | 호출 | 호출 | 끊겨도 본체 영향 0 |
@@ -265,7 +263,7 @@ magicJar는 **server**. AI 클라이언트가 magicJar의 사용자.
 
 **모든 외부 의존이 끊겨도 다음 본체 흐름은 동작**:
 - 영속 candle로 차트·지표·screener·backtest
-- mock profile MockTickGenerator로 시세 흐름
+- mock 시세는 JVM test fixture에만 사용하며 사용자 부팅 경로에는 사용하지 않음
 - 정적 캘린더 시드로 세션 인지
 - DSL 평가 + Guard chain은 in-process
 
@@ -471,66 +469,38 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 | `kis:token:{userId}` | KIS access token | 23h | 트랙1 |
 | `ai:prompt:cache:{templateHash}` | LLM 응답 (W4 옵션) | 5분 | W4 |
 
-### 6-4. Kafka 토픽 매트릭스
+### 6-4. Kafka 토픽 registry
+
+> **단일 권위**: `domain/src/main/kotlin/kr/spdaewoon/magicjar/domain/messaging/KafkaTopics.kt`. 아래는 역할군 예시다. Kotlin producer/listener는 raw wire 문자열 대신 registry 상수를 사용하고, Spring YAML/properties의 설정 값은 registry에 등록된 wire 값과 일치해야 한다.
 
 | 토픽 | producer | consumer | retention | 트랙 |
 |---|---|---|---|---|
-| `market.tick.v1` | consumer (WS·Mock·Fallback) | api (STOMP) | 1h | 현행 + T-MS1 |
-| `market.candle.v1` | batch · consumer | consumer (지표 갱신) | 1d | T-IND |
-| `market.session.v1` | consumer | api (STOMP) | 1d | T-MS1 |
-| `watchlist.changed.v1` | api | consumer (WatchlistIngestionWorker) | 7d | T-W1·T-W2 (ADR 0028) |
-| `instrument.updated.v1` | batch | consumer (캐시 invalidate) | 7d | T-IM1 |
-| `corp_action.applied.v1` | batch | consumer (candle 재조정) | 30d | T-CA1 |
-| `news.crawled.v1` | api | consumer | 7d | post-MVP |
-| `screener.result.v1` (post-MVP — ADR 0071 v3.6.3는 동기 inline 채택, 비동기 모드는 backlog §52) | consumer/batch | consumer (시그널), api (STOMP) | 1d | T-SC (post-MVP) |
-| `signal.generated.v1` | consumer | consumer (order intent), api (STOMP) | 7d | T-SIG |
-| `order.intent.v1` | consumer (signal), api (수동) | consumer (KisOrderSender) | 7d | 트랙1 |
-| `order.executed.v1` | consumer | api (STOMP), consumer (journal) | 30d | 트랙1 |
-| `order.rejected.v1` | consumer | api (STOMP) | 30d | T-MS1 |
-| `journal.recorded.v1` | consumer | api (STOMP fanout) | 30d | T-J |
-| `risk.event.v1` | consumer | api (STOMP), consumer (KillSwitch trigger) | 30d | T-RISK |
-| `reconcile.run.v1` (ADR 0041·0070) | consumer (BalanceReconcileJob `@Scheduled`) | api(StompReconcileNotifier audit) · consumer(NotificationDispatcher 옵션 P2) | 7d | T-RECON |
-| `reconcile.drift.v1` (ADR 0041·0070 — 기존 `position.drift.v1` 명명 갱신) | consumer (BalanceReconcileJob) | consumer(KillSwitchAutoToggler·NotificationDispatcher), api(StompReconcileNotifier STOMP fanout) | 30d | T-RECON·T-O |
-| `killswitch.engaged.v1` (ADR 0043·0070) | consumer (KillSwitchAutoToggler) · api·batch (manual toggle 경로) | consumer(NotificationDispatcher) · api(STOMP fanout) | 30d | T-RECON·T-RISK·T-O |
-| `risk.killswitch.v1` (ADR 0043 — 기존, killswitch.engaged.v1과 정합 검토 의제) | api·batch·consumer | api(STOMP fanout)·consumer(NotificationDispatcher) | 30d | T-RISK·T-O |
-| `risk.violation.v1` (ADR 0044) | consumer (Guard chain) | consumer(NotificationDispatcher), api(STOMP) | 30d | T-RISK·T-NOTIFY |
-| `kis.token.expired.v1` (ADR 0044) | api·consumer (KisOAuthAdapter) | consumer(NotificationDispatcher) | 30d | T-W2·T-NOTIFY |
-| `system.startup.v1` (ADR 0045) | api·batch·consumer (ApplicationReadyEvent) | consumer(NotificationDispatcher) | 7d | 횡단·T-NOTIFY |
-| `system.shutdown.v1` (ADR 0045) | api·batch·consumer (SmartLifecycle.stop) | consumer(NotificationDispatcher) | 7d | 횡단·T-NOTIFY |
-| `notification.sent.v1` (ADR 0044) | consumer (NotificationDispatcher) | (audit only) | 30d | T-NOTIFY |
-| `ai.comment.requested.v1` (W4) | api | consumer (LLM 호출) | 1d | W4 |
-| `ai.comment.responded.v1` (W4) | consumer | api (STOMP) | 7d | W4 |
+| `kafka.consumer.evt.market.tick.v1` | consumer | api·consumer | registry/config 권위 | Market |
+| `kafka.consumer.evt.market.candle.{interval}.closed.v1` | consumer | api·consumer | registry/config 권위 | Candle |
+| `kafka.consumer.evt.strategy.signal-generated.v1` | consumer | api·consumer | registry/config 권위 | Risk |
+| `kafka.shared.cmd.order.intent.v1` | api·consumer | consumer | registry/config 권위 | Order |
+| `kafka.consumer.evt.order.{requested|filled|rejected|cancelled}.v1` | consumer | api·consumer | registry/config 권위 | Order |
+| `kafka.consumer.evt.risk.violation.v1` | consumer | api·consumer | registry/config 권위 | Risk |
+| `kafka.api.cmd.market.realtime-demand.v1` | api | consumer | registry/config 권위 | Market |
+| `kafka.api.cmd.autopilot.control.v1` | api | consumer | registry/config 권위 | Autopilot |
 
 **`ai.decision.v1` 폐기** — 1차안의 "AI 의사결정 토픽". v2엔 매매 결정 토픽 자체 없음 (시그널 → 주문은 룰 평가).
 
 ---
 
-## §7. Profile 분기 매트릭스 (mock/dev/prd × 컴포넌트 × source × AI on/off)
+## §7. 운영 profile · 주문 mode · AI toggle
 
-### 7-1. 컴포넌트 × profile
+### 7-1. profile과 주문 mode
 
-| 컴포넌트 | mock | dev | prd MOCK_KIS | prd REAL_KIS |
-|---|---|---|---|---|
-| MarketSessionResolver | NoOp(OPEN) | active | active | active(strict) |
-| MarketSessionGuard | bypass | active(toggle) | active | active(strict) |
-| KisRestPort | StubKisRestAdapter | RealKisRestAdapter(모의) | RealKisRestAdapter(모의) | RealKisRestAdapter(실전) |
-| KisWsPort | n/a (Mock) | RealKisWs(모의) | RealKisWs(모의) | RealKisWs(실전) |
-| MockTickGenerator | active | inactive (default) — toggle ON 시 활성 | inactive | inactive |
-| TickFallbackEmitter | inactive | active(CLOSED) | active(CLOSED) | active(CLOSED) |
-| QuoteCache | InMemory | Redis | Redis | Redis |
-| InstrumentSync | mock seed | KIS sync | KIS sync | KIS sync |
-| CorpActionSync | mock seed | KIS+DART sync | KIS+DART sync | KIS+DART sync |
-| **IndicatorEngine** (`IndicatorSource` plug-in) | active(JVM Native) | active(JVM Native + KisStrategyBuilderSource 옵션) | active | active |
-| PatternRecognizer | active | active | active | active |
-| Screener | active(mock data) | active | active | active |
-| SignalGenerator | active(룰 매칭) | active | active | active |
-| OrderSender | Mock(즉시 FILLED) | KisOrderSender (CLOSED+toggle 시 Mock) | KisOrderSender(모의) | KisOrderSender(실전, 이중 게이트) |
-| KillSwitch | bypass(default OFF) | DB row | DB row | DB row (default ON, 명시 OFF) |
-| RiskCalculator | active | active | active | active(strict) |
-| TradingJournal | active | active | active | active |
-| **AI Option Console** | inactive (default) | inactive (default) — `MAGICJAR_AI_ENABLED=true` 시 활성 | inactive (default) | inactive (default) |
-| **AiCommentProvider** (Anthropic·Gemini·OpenAI) | n/a | toggle ON 시 호출 + 5분 cache | toggle ON | toggle ON |
-| **MCP Server** (W4) | inactive | toggle ON 시 활성 (localhost) | toggle ON | toggle ON |
+| 구분 | 현행 규약 |
+|---|---|
+| 기본 Spring profile | `dev,real-kis` — KIS 조회 source는 실전 credential을 사용한다. |
+| mock profile | 사용자 부팅 path에서는 폐기. mock adapter/tick은 JVM test fixture로만 사용한다. |
+| 기본 주문 mode | `MAGICJAR_MODE`가 REAL이 아니면 주문은 MOCK이며 조회 profile과 독립이다. |
+| 실계좌 주문 | `MAGICJAR_MODE=REAL` + `MAGICJAR_ALLOW_REAL=true` + 사용자 실거래 동의가 모두 필요하다. 하나라도 없으면 fail closed. |
+| 시세 | 장중 권위는 KIS WS H0UNCNT0 tick. REST는 bootstrap/backfill 및 제한된 degraded 경로다. |
+| AI Option Console | `MAGICJAR_AI_ENABLED=false` 기본. 사용자 트리거 옵션이며 매매 결정권은 없다. |
+| MCP Server | 명시 toggle 시만 활성화하며 read-only 도구부터 노출한다. |
 
 ### 7-2. AI 호출 토글 (비용·속도 제어)
 
