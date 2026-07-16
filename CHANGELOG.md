@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- nas-frontend-node24 -->
+| 2026-07-16 | **fix(ops): NAS frontend image build Node 기준 정합** — Docker build stage를 프로젝트 `.node-version`과 동일한 `node:24.18.0-alpine`으로 고정하고 NAS regression test로 drift를 차단. | `frontend/Dockerfile`·NAS deployment test | 승인 SHA 이미지가 검증된 Node 24 toolchain과 다르게 Node 20으로 빌드되는 cutover 차단 결함 수정 |
 <!-- nas-docker-runtime -->
 | 2026-07-16 | **ops: Docker runtime/data plane을 NAS remote context로 이전하는 안전 경로 추가 (ADR 0141)** — Mac build/control plane과 NAS 9-container runtime을 분리하고 전역 context 변경 없이 명시적 `--context nas`만 사용. NAS override가 infra/API host port와 Mac bind mount를 제거하고 frontend·Dozzle·Kafka UI를 loopback 기본으로 제한. 기존 PostgreSQL은 MOCK·flat·in-flight 0에서 source writer 정지→final dump→NAS 복원→전체 public table exact row count/Flyway parity→9-service health 후 로컬 stop하며 실패 시 source 자동 재기동. backup/restore/smoke/drain/daily snapshot을 context-aware하게 확장하고 safety fixture 4건을 pre-push에 연결. 매매·리스크·주문·DB schema 변경 0. (작성: backend-core/orchestrator) | `docker-compose.nas.yml`·deploy/migration/context scripts·backup/smoke/ops·ADR/policy/runbook | NAS 상시 실행 전환 시 데이터 단절·이중 consumer·port 노출·context 오발사 차단 |
 <!-- wave0-baseline-stability -->

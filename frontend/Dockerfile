@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 # 멀티 스테이지 빌드:
-#   stage 1 (build)  — node:20-alpine + pnpm + Vite → dist/
+#   stage 1 (build)  — node:24.18.0-alpine + pnpm + Vite → dist/
 #   stage 2 (serve)  — nginx:alpine → dist/ 정적 서빙
 #
 # ADR 0009 정합 (React 19 + TS + Vite + LWC v4).
 # 로컬 빌드: docker compose -f docker/docker-compose.yml build frontend
 
 # ─────────── Stage 1: 빌드 ───────────
-FROM node:20-alpine AS build
+FROM node:24.18.0-alpine AS build
 
 WORKDIR /build
 
