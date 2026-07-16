@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -282,7 +282,7 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
 
   assert.match(backup, /umask 077/)
   assert.match(backup, /PARTIAL_SET=.*\.partial/)
-  assert.match(backup, /mkdir "\$LOCK_DIR"/)
+  assert.match(backup, /ln "\$LOCK_CANDIDATE" "\$LOCK_FILE"/)
   assert.match(backup, /pg_restore --list/)
   assert.match(backup, /redis-cli --raw BGSAVE/)
   assert.match(backup, /com\.docker\.compose\.project/)
@@ -300,7 +300,7 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   assert.doesNotMatch(installer, /^\s*(?:sudo\s+)?(?:synoschedtask|crontab)\b/m)
 })
 
-test('NAS backup scheduler publishes PostgreSQL and Redis only after validated container identity', () => {
+test('NAS backup scheduler publishes PostgreSQL and Redis only after validated container identity', async () => {
   const fixture = mkdtempSync(join(tmpdir(), 'magicjar-nas-backup-runtime-'))
   try {
     const fakeDocker = join(fixture, 'docker')
@@ -326,7 +326,7 @@ case "$cmd" in
     container="$1"; shift
     case "$*" in
       *pg_isready*) exit 0 ;;
-      *pg_dump*) printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
+      *pg_dump*) sleep "\${FAKE_DOCKER_DELAY:-0}"; printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
       *pg_restore*--list*) cat >/dev/null ;;
       *redis-cli*PING*) printf '%s\\n' PONG ;;
       *redis-cli*LASTSAVE*) [ -f "$FAKE_DOCKER_STATE" ] && cat "$FAKE_DOCKER_STATE" || printf '%s\\n' 100 ;;
@@ -352,8 +352,8 @@ esac
     chmodSync(fakeDocker, 0o755)
 
     const backupRoot = join(fixture, 'backups')
-    mkdirSync(join(backupRoot, '.backup.lock'), { recursive: true })
-    writeFileSync(join(backupRoot, '.backup.lock/owner'), '999999 stale-boot stale-ticks\n')
+    mkdirSync(backupRoot, { recursive: true })
+    writeFileSync(join(backupRoot, '.backup.lock'), 'stale-token 999999 stale-boot stale-ticks\n')
     mkdirSync(join(backupRoot, 'sets/.stale.partial.999999'), { recursive: true })
     writeFileSync(join(backupRoot, 'sets/.stale.partial.999999/postgres.dump'), 'crash residue')
     const fakeState = join(fixture, 'redis-lastsave')
@@ -411,6 +411,34 @@ esac
     assert.notEqual(staleRdb.status, 0)
     assert.match(staleRdb.stderr, /Redis BGSAVE was not started/)
     assert.equal(readdirSync(join(staleRdbRoot, 'sets')).length, 0)
+
+    const concurrentRoot = join(fixture, 'concurrent')
+    const concurrentEnv = {
+      ...process.env,
+      MAGICJAR_DOCKER_BIN: fakeDocker,
+      MAGICJAR_NAS_BACKUP_ROOT: concurrentRoot,
+      MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+      FAKE_DOCKER_STATE: join(fixture, 'concurrent-redis-lastsave'),
+      FAKE_DOCKER_DELAY: '2',
+    }
+    const first = spawn('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      cwd: root,
+      env: concurrentEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let firstStderr = ''
+    first.stderr.on('data', (chunk) => { firstStderr += chunk.toString() })
+    const firstExit = new Promise((resolveExit) => first.on('close', resolveExit))
+    for (let attempt = 0; attempt < 50 && !existsSync(join(concurrentRoot, '.backup.lock')); attempt += 1) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    }
+    assert.equal(existsSync(join(concurrentRoot, '.backup.lock')), true, 'first backup must hold lock')
+    const second = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], { env: concurrentEnv })
+    assert.notEqual(second.status, 0)
+    assert.match(second.stderr, /another backup is running/)
+    assert.equal(await firstExit, 0, firstStderr)
+    assert.equal(existsSync(join(concurrentRoot, '.backup.lock')), false)
+    assert.equal(readdirSync(join(concurrentRoot, 'sets')).length, 1)
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
