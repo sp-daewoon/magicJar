@@ -23,6 +23,28 @@
 NAS runtime(ADR-0141)에서는 backup script에 `MAGICJAR_DOCKER_CONTEXT=nas`를
 지정한다. dump/RDB 산출물은 계속 Mac의 ignored `_workspace/backups/`에 저장된다.
 
+Mac sleep과 무관한 PostgreSQL+Redis 자동 백업은 DSM Task Scheduler 경로를 권위로 한다.
+
+```bash
+# clean approved SHA에서 NAS stable path에 entrypoint provision
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+scripts/install-nas-backup-entrypoint.sh
+```
+
+DSM Control Panel → Task Scheduler에서 **root 사용자**의 사용자 정의 스크립트를 매일 03:00 KST로 등록한다.
+일반 DSM 사용자는 Container Manager socket 접근 권한이 없어 fail할 수 있다.
+
+```text
+/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh >> /volume1/docker/magicjar/ops/backup.log 2>&1
+```
+
+산출물은 PostgreSQL
+`/volume1/docker/magicjar/backups/postgres/daily/<KST timestamp>.dump{,.sha256,.meta}`와 Redis
+`/volume1/docker/magicjar/backups/redis/snapshots/dump-<KST timestamp>.rdb{,.sha256,.meta}`다.
+두 컨테이너의 Compose project/service label을 확인하고 두 산출물이 모두 검증된 뒤 publish한다.
+installer는 DSM task를 대신 등록하거나 crontab을 우회 수정하지 않는다. Task Scheduler가
+만든 artifact의 checksum·PostgreSQL restore drill을 확인하기 전에는 autonomous backup readiness를 주장하지 않는다.
+
 확인:
 
 ```bash

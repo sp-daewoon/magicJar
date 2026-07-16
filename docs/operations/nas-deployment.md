@@ -172,8 +172,35 @@ MAGICJAR_DOCKER_CONTEXT=nas scripts/backup/redis-snapshot.sh
 dump를 명시한 `pg-restore.sh --file <pre-nas-cutover.dump> --target-db magicjar_restore_test --drop-after`
 exact-parity drill을 포함한다. 일반 daily dump는 live
 writer snapshot이므로 checksum + `pg_restore --exit-on-error` + Flyway failed=0을 검증한다.
-Mac sleep과 무관한 NAS Task Scheduler wiring은 후속 운영 작업으로 등록하고, 활성화
-전까지 자동 backup을 주장하지 않는다.
+Mac sleep과 무관한 NAS-native entrypoint는 다음 경로로 checksum 검증해 provision한다.
+
+```bash
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+scripts/install-nas-backup-entrypoint.sh
+```
+
+고정 경로 `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`는 repository checkout
+없이 local Docker CLI로 `magicjar-postgres`와 `magicjar-redis`를 백업하며 Compose label·lock·
+free-space·atomic rename·SHA-256·`pg_restore --list`·BGSAVE·7일/3일 retention을 강제한다.
+DSM Task Scheduler에서 root 사용자·매일 03:00 KST로
+등록하고 scheduler-triggered artifact + restore drill을 확인하기 전에는 자동 backup을
+주장하지 않는다. installer는 Synology crontab을 직접 수정하지 않는다.
+
+## 7.1 Observability overlay
+
+```bash
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_ENV_FILE="$PWD/.env" \
+scripts/deploy-nas-observability.sh preflight
+
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_ENV_FILE="$PWD/.env" \
+scripts/deploy-nas-observability.sh up
+```
+
+NAS overlay는 remote-safe `configs.content`, NAS-only scrape config, pinned digest, loopback port, Grafana auth,
+external `magicjar_default` network를 사용한다. core 9개를 recreate하지 않는다.
+Alertmanager webhook 미설정은 blackhole/DEGRADED이며 수신 실증 전 notification readiness는 PENDING이다.
 
 ## 8. Rollback
 
