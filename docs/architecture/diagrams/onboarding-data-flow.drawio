@@ -72,7 +72,7 @@
         <mxCell id="D" value="D. 학습·운영·UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe3ff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
           <mxGeometry x="800" y="56" width="220" height="420" as="geometry" />
         </mxCell>
-        <mxCell id="d1" value="Watchlist&#10;(5초 REST polling 전용)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d1" value="Watchlist&#10;(WS 미사용 · 자동 polling no-op)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="816" y="92" width="188" height="48" as="geometry" />
         </mxCell>
         <mxCell id="d2" value="Trading Journal&#10;5 이벤트 통합 시계열" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">

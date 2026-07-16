@@ -108,8 +108,8 @@
   <div id="vision"></div>
   <h3>1.1 magicJar는 무엇인가</h3>
   <p>
-    magicJar(마법의항아리)는 <b>룰 기반 quant trading 시스템</b>이다. 종목 마스터 + 기술적 지표 + 전략 DSL + 시그널이 자동 주문까지 이어지는 것이 본체이며,
-    이 본체는 <b>AI·외부 API·인터넷이 끊겨도 동작</b>하도록 설계됐다. AI(Claude·Gemini·OpenAI)는 <b>사용자가 버튼을 눌렀을 때만</b> 호출되는 옵션 분석 보조로,
+    magicJar(마법의항아리)는 <b>룰 기반 quant trading 시스템</b>이다. 종목 마스터 + 기술적 지표 + 전략 DSL + 시그널이 자동 주문까지 이어지는 것이 본체다.
+    영속 데이터 기반 분석·스크리너·백테스트는 AI·외부 LLM·인터넷 단절과 무관하게 재현 가능하지만, <b>실시간 시세·잔고·자동 주문은 KIS REST/WS 연결이 필수</b>다. AI(Claude·Gemini·OpenAI)는 <b>사용자가 버튼을 눌렀을 때만</b> 호출되는 옵션 분석 보조로,
     종목 코멘트·기업 분석·차트 해석·지표 의미 설명을 제공할 뿐 <b>매매 트리거·결정권은 0</b>이다. 매매 결정은 오직 DSL 룰 평가 결과로만 발생한다.
     미래에는 magicJar가 <b>MCP 서버를 노출</b>해 Claude·Cursor 같은 외부 AI 클라이언트가 magicJar의 도메인을 호출하도록 한다(우리가 server, AI가 client).
   </p>
@@ -121,7 +121,7 @@
     <thead><tr><th>행위자</th><th>책임</th></tr></thead>
     <tbody>
       <tr><td>사용자(<code>sp-daewoon</code>)</td><td>시스템 설계자·전략 작성자·검증자·운영자. 종목 universe·전략 DSL·위험 한도·매매 한도를 정의하는 최고 관리자.</td></tr>
-      <tr><td>시스템(magicJar)</td><td>종목 마스터 + 지표 + DSL + 시그널 → 자동 주문. 오프라인 동작이 1순위 검증 기준.</td></tr>
+      <tr><td>시스템(magicJar)</td><td>종목 마스터 + 지표 + DSL + 시그널 → 자동 주문. 오프라인 재현 범위는 영속 데이터 기반 분석·스크리너·백테스트이며 라이브 실행은 KIS 연결 필수.</td></tr>
       <tr><td>AI</td><td>사용자 클릭 시 옵션 코멘트·분석. 매매 트리거 절대 X, 결정권 0.</td></tr>
       <tr><td>외부 AI 클라이언트</td><td>미래 — magicJar MCP 서버를 호출(read 전용 tool 5종).</td></tr>
     </tbody>
@@ -166,7 +166,7 @@
   </p>
 
   <div class="fig">
-    <svg viewBox="0 0 960 560" role="img" aria-label="모듈 맵">
+    <svg viewBox="0 0 960 590" role="img" aria-label="모듈 맵">
       <style>
         .b{font:12px -apple-system,'Malgun Gothic',sans-serif}.bs{font:11px -apple-system,'Malgun Gothic',sans-serif}
         .lbl{font:italic 11px -apple-system,sans-serif;fill:#5a6b82}.hd{font:700 12px -apple-system,'Malgun Gothic',sans-serif}
@@ -236,7 +236,7 @@
       <text x="480" y="354" text-anchor="middle" class="bs" fill="#3a2360">instrument · market · indicator · pattern · strategy · signal · order · risk · position · journal · ai · mcp · secret …</text>
       <text x="480" y="378" text-anchor="middle" class="bs" fill="#3a2360">ADR 0004 · 0005 — 의존은 항상 안쪽(domain)을 향한다</text>
       <!-- infra label -->
-      <text x="30" y="416" class="lbl">인프라 (docker compose) — 컨테이너 3</text>
+      <text x="30" y="416" class="lbl">데이터 인프라 (docker compose) — 컨테이너 3</text>
       <g>
         <rect x="30" y="424" width="288" height="44" rx="7" fill="#e9edf2" stroke="#7d8ba0"/>
         <text x="174" y="451" text-anchor="middle" class="b" fill="#33404f">PostgreSQL 16 — 영속 (Flyway)</text>
@@ -245,12 +245,20 @@
         <rect x="642" y="424" width="288" height="44" rx="7" fill="#e9edf2" stroke="#7d8ba0"/>
         <text x="786" y="451" text-anchor="middle" class="b" fill="#33404f">Kafka 3.7 (KRaft) — 이벤트 백본</text>
       </g>
+      <!-- operations UI -->
+      <text x="30" y="490" class="lbl">운영 UI (docker compose) — 컨테이너 2</text>
+      <g>
+        <rect x="30" y="498" width="441" height="44" rx="7" fill="#eef4fb" stroke="#6584a8"/>
+        <text x="250" y="525" text-anchor="middle" class="b" fill="#294766">Kafka UI — 이벤트 백본 관측</text>
+        <rect x="489" y="498" width="441" height="44" rx="7" fill="#eef4fb" stroke="#6584a8"/>
+        <text x="710" y="525" text-anchor="middle" class="b" fill="#294766">Dozzle — 컨테이너 로그 관측</text>
+      </g>
       <!-- arrows -->
       <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8a97ab"/></marker></defs>
       <line x1="480" y1="90" x2="480" y2="118" stroke="#3d6fb4" stroke-dasharray="4 3" marker-end="url(#arr)"/>
       <line x1="480" y1="206" x2="480" y2="234" stroke="#4a8a4a" marker-end="url(#arr)"/>
       <line x1="480" y1="296" x2="480" y2="310" stroke="#c79a2e" marker-end="url(#arr)"/>
-      <text x="30" y="494" class="lbl">의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain · 앱 3종 → 인프라 3종. domain은 아무것도 의존하지 않는다.</text>
+      <text x="30" y="566" class="lbl">의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain. 데이터 인프라 3 + 운영 UI 2를 포함해 core 9컨테이너이며 domain은 아무것도 의존하지 않는다.</text>
     </svg>
     <div class="cap">그림 1 — JVM 9 모듈 + frontend 레이어링 (source: docs/architecture/diagrams/onboarding-module-map.drawio)</div>
   </div>
@@ -298,8 +306,8 @@
         <rect x="34" y="200" width="212" height="48" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="220" text-anchor="middle">Corp Action / Adjusted</text><text x="140" y="236" text-anchor="middle">액면분할·배당·합병 보정</text>
         <rect x="34" y="256" width="212" height="48" rx="6" fill="#fff" stroke="#3d6fb4"/><text x="140" y="276" text-anchor="middle">News &amp; Disclosure (옵션)</text><text x="140" y="292" text-anchor="middle">DART · Naver · 본체 영향 0</text>
       </g>
-      <text x="140" y="330" text-anchor="middle" class="fn" fill="#3d6fb4">영속 candle + last-day-close로</text>
-      <text x="140" y="346" text-anchor="middle" class="fn" fill="#3d6fb4">인터넷 끊겨도 하위 흐름 동작</text>
+      <text x="140" y="330" text-anchor="middle" class="fn" fill="#3d6fb4">영속 candle + last-day-close로 분석·</text>
+      <text x="140" y="346" text-anchor="middle" class="fn" fill="#3d6fb4">스크리너·백테스트 재현 (라이브 실행 제외)</text>
       <!-- B -->
       <rect x="280" y="40" width="240" height="420" rx="10" fill="#d6ecd6" stroke="#4a8a4a"/>
       <text x="400" y="62" text-anchor="middle" class="fh" fill="#1c4a1c">B. 분석·전략</text>
@@ -324,7 +332,7 @@
       <rect x="800" y="40" width="220" height="420" rx="10" fill="#efe3ff" stroke="#7a52b3"/>
       <text x="910" y="62" text-anchor="middle" class="fh" fill="#3a2360">D. 학습·운영·UI</text>
       <g class="fb" fill="#3a2360">
-        <rect x="814" y="76" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="94" text-anchor="middle">Watchlist</text><text x="910" y="110" text-anchor="middle">(5초 REST polling 전용)</text>
+        <rect x="814" y="76" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="94" text-anchor="middle">Watchlist</text><text x="910" y="110" text-anchor="middle">(WS 미사용 · 자동 polling no-op)</text>
         <rect x="814" y="128" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="146" text-anchor="middle">Trading Journal</text><text x="910" y="162" text-anchor="middle">5 이벤트 통합 시계열</text>
         <rect x="814" y="180" width="192" height="44" rx="6" fill="#fff" stroke="#7a52b3"/><text x="910" y="198" text-anchor="middle">Chart UI (LWC v4)</text><text x="910" y="214" text-anchor="middle">자체 도형·주석·패턴</text>
         <rect x="814" y="232" width="192" height="46" rx="6" fill="#f3ecff" stroke="#7a52b3" stroke-dasharray="4 3"/><text x="910" y="250" text-anchor="middle">AI Option Console (W4)</text><text x="910" y="266" text-anchor="middle">클릭 시 코멘트·결정권 0</text>
@@ -355,7 +363,7 @@
   <h3>1.5 실시간 시세 아키텍처 — KIS WS owner 4종</h3>
   <p>
     KIS WebSocket은 <b>40 slot</b> 한도가 있고, 이 예산을 owner priority로 배분한다. 핵심 방향 가드는 <b>매매 경로(STRATEGY)가 관찰 경로(DETAIL)보다 우선</b>이라는 점이다.
-    <b>watchlist는 WS를 쓰지 않고 5초 REST polling 전용</b>이며(ADR 0124), 체결가는 <b>H0UNCNT0 단일 통합 채널</b>(KRX+NXT·종목당 1채널)로 받는다.
+    <b>watchlist는 WS를 쓰지 않는다</b>(ADR 0124). polling 전용 경계는 유지하지만 현재 <code>WatchlistPollingWorker</code>는 KIS 호출이 제거된 <b>no-op</b>이므로 자동 5초 시세 공급이 존재한다고 해석하면 안 된다. 체결가는 <b>H0UNCNT0 단일 통합 채널</b>(KRX+NXT·종목당 1채널)로 받는다.
   </p>
 
   <div class="fig">
@@ -382,8 +390,8 @@
       <line x1="915" y1="272" x2="915" y2="360" stroke="#b5442e" stroke-width="2"/>
       <line x1="915" y1="272" x2="915" y2="212" stroke="#b5442e" stroke-width="2" marker-end="url(#arr3)"/>
       <rect x="60" y="316" width="840" height="56" rx="8" fill="#e9edf2" stroke="#7d8ba0" stroke-dasharray="5 3"/>
-      <text x="80" y="338" class="wh" fill="#33404f">Watchlist — WS slot 사용 안 함 · 5초 REST polling 전용 (ADR 0124 결정 B)</text>
-      <text x="80" y="356" class="ws" fill="#33404f">시세 채널만 WS→polling 강등 · watchlist 기능은 유지 · WS 40 slot은 매매 수요 전용</text>
+      <text x="80" y="338" class="wh" fill="#33404f">Watchlist — WS slot 사용 안 함 · polling 경계 유지 · 자동 worker는 no-op</text>
+      <text x="80" y="356" class="ws" fill="#33404f">watchlist 시세 WS 폐지 · 자동 polling no-op · 기능(등록/삭제/priority/화면)은 유지</text>
       <text x="60" y="396" class="wn">매매 경로(STRATEGY) &gt; 관찰 경로(DETAIL). WsSlotBudgetLedger가 채널(code,trId) 단위 회계 ·</text>
       <text x="60" y="414" class="wn">OPSP0008 선제 예방 · slot 경합 시 priority 큰 값(DETAIL)부터 evict · queued 시 WARN+Slack.</text>
     </svg>
@@ -414,7 +422,7 @@ MAGICJAR_ALLOW_REAL=true</span>
   <ul>
     <li><b>Reconcile</b> — 시장 OPEN 5분/CLOSED 1시간 cron으로 KIS 실잔고 vs DB position을 대조, drift 시 KillSwitch auto-ON.</li>
     <li><b>Ledger rebuild(ADR 0115)</b> — 보유 수량 같은 파생 원장은 immutable 진실원 <code>order_execution</code>에서 결정론적으로 재계산 가능해야 한다. drift 시 진실원에서 rebuild로 수렴(증분 누락 영구화 방지).</li>
-    <li><b>Self-heal(ADR 0136)</b> — 장중 10분 cron으로 KIS 실보유 ↔ <code>strategy_position</code> ledger를 대조, KIS 권위 주입 rebuild로 정정.</li>
+    <li><b>Self-heal(ADR 0136, default-off opt-in)</b> — 명시 활성화 시 장중 10분 cron으로 KIS 실보유 ↔ <code>strategy_position</code> ledger를 대조, KIS 권위 주입 rebuild로 정정.</li>
     <li><b>Canary + drain</b> — 헌법 §9-2 dev→staging→REAL 30분 staging dwell. consumer(체결·자본 경로) 재배포는 장중 in-flight 주문 0 확인 후 또는 장 마감 후(ADR 0115 §2-P2-④).</li>
     <li><b>기본 profile = <code>dev,real-kis</code></b> — mock 부팅 path는 폐기됐고 mock은 JVM test fixture 전용이다.</li>
   </ul>
@@ -474,7 +482,7 @@ scripts/smoke.sh
     <tbody>
       <tr><td>발주 전</td><td>3중 게이트(MODE×ALLOW_REAL×사용자 동의) + Guard chain 6단 + OrderIdempotencyGuard(Redis SETNX)</td></tr>
       <tr><td>체결 후</td><td>KIS WS 체결통보 → <code>order_execution</code> append-only 진실원 → position/strategy_position 파생 갱신</td></tr>
-      <tr><td>정합</td><td>BalanceReconcileJob(KIS 잔고 대조·drift 시 KillSwitch auto-ON) + KisLedgerSelfHealWorker(10분 cron)</td></tr>
+      <tr><td>정합</td><td>BalanceReconcileJob(KIS 잔고 대조·drift 시 KillSwitch auto-ON) + KisLedgerSelfHealWorker(10분 cron, <b>default-off opt-in</b>)</td></tr>
       <tr><td>복구</td><td>WS 재연결 시 missed exec fetch(inquire-daily-ccld) + ledger rebuild(진실원 결정론적 재계산)</td></tr>
       <tr><td>배포</td><td>장중 in-flight 주문 0 확인 후 재배포(drain 게이트) + canary staging 30분 dwell</td></tr>
     </tbody>
@@ -486,7 +494,7 @@ scripts/smoke.sh
   <h3>2.3 KIS API 예산 관리</h3>
   <p>
     KIS는 초당 호출 한도(ADR 0037 초당 10건)와 WS 40 slot 한도가 있는 공유 자원이다. 이를 넘기면 계정·앱키가 차단되어 <b>본체 자동매매 전체가 중단되는 catastrophic risk</b>다.
-    그래서 KIS 호출은 priority bucket(<code>KisCallPriority</code> — USER_PATH &gt; INGESTION &gt; BACKFILL)으로 라우팅하고, WS slot은 owner priority(HOLDING&gt;PENDING_BUY&gt;STRATEGY&gt;DETAIL)로 배분한다.
+    그래서 KIS REST 호출은 ADR 0116의 3-tier priority bucket(<code>KisCallPriority</code> — USER_PATH &gt; REALTIME/INGESTION &gt; BACKFILL, default-on; 비활성·설정 불일치 시 단일 global bucket으로 fail-safe 회귀)으로 라우팅하고, WS slot은 owner priority(HOLDING&gt;PENDING_BUY&gt;STRATEGY&gt;DETAIL)로 배분한다.
     <code>WsSlotBudgetLedger</code>가 채널 단위로 회계하며 OPSP0008(MAX SUBSCRIBE OVER)을 선제 예방한다.
   </p>
 
@@ -591,7 +599,7 @@ scripts/smoke.sh
 </section>
 
 <div class="footnote">
-  <p>작성: architect (magicjar-architect) · 2026-07-09 · 현행 정합 갱신 2026-07-16 · 브랜치 <code>agent/architect/onboarding-architecture-doc</code></p>
+  <p>작성: architect (magicjar-architect) · 2026-07-09 · 현행 정합 갱신 2026-07-16 · 브랜치 <code>docs/onboarding-architecture-current</code></p>
   <p>정합 SoT: <code>docs/architecture/master-architecture.md</code> v2 · <code>settings.gradle.kts</code> · <code>docs/architecture/tracks-roadmap.md</code> · <code>docs/architecture/development-rules.md</code> · <code>CLAUDE.md</code> · <code>_workspace/arch/adr/README.md</code> · <code>docs/architecture/policies/audit-remediation-tracker.md</code> · <code>_workspace/backlog.md</code></p>
   <p>다이어그램 소스: <code>docs/architecture/diagrams/onboarding-{module-map, data-flow, ws-owner-priority}.drawio</code> — 본 HTML의 그림은 해당 레이아웃을 손수 작성한 인라인 SVG로 삽입(drawio CLI SVG export는 텍스트를 base64 raster로 임베드해 자기완결 HTML에 부적합).</p>
 </div>
