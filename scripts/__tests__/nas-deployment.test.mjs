@@ -281,16 +281,15 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   const installer = readFileSync(join(root, 'scripts/install-nas-backup-entrypoint.sh'), 'utf8')
 
   assert.match(backup, /umask 077/)
-  assert.match(backup, /\$\{PG_FINAL\}\.partial/)
-  assert.match(backup, /\$\{REDIS_FINAL\}\.partial/)
+  assert.match(backup, /PARTIAL_SET=.*\.partial/)
   assert.match(backup, /mkdir "\$LOCK_DIR"/)
   assert.match(backup, /pg_restore --list/)
   assert.match(backup, /redis-cli --raw BGSAVE/)
   assert.match(backup, /com\.docker\.compose\.project/)
   assert.match(backup, /com\.docker\.compose\.service/)
   assert.match(backup, /sha256sum|shasum -a 256/)
-  assert.match(backup, /mv "\$PG_PARTIAL" "\$PG_FINAL"/)
-  assert.match(backup, /mv "\$REDIS_PARTIAL" "\$REDIS_FINAL"/)
+  assert.match(backup, /AFTER_SAVE.*-gt.*BEFORE_SAVE/)
+  assert.match(backup, /mv "\$PARTIAL_SET" "\$FINAL_SET"/)
   assert.match(backup, /\/volume1\/docker\/magicjar\/backups/)
   assert.doesNotMatch(backup, /synoschedtask|crontab/)
 
@@ -330,8 +329,15 @@ case "$cmd" in
       *pg_dump*) printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
       *pg_restore*--list*) cat >/dev/null ;;
       *redis-cli*PING*) printf '%s\\n' PONG ;;
-      *redis-cli*LASTSAVE*) printf '%s\\n' 100 ;;
-      *redis-cli*BGSAVE*) printf '%s\\n' 'Background saving started' ;;
+      *redis-cli*LASTSAVE*) [ -f "$FAKE_DOCKER_STATE" ] && cat "$FAKE_DOCKER_STATE" || printf '%s\\n' 100 ;;
+      *redis-cli*BGSAVE*)
+        if [ -n "\${FAKE_BGSAVE_RESPONSE:-}" ]; then
+          printf '%s\\n' "$FAKE_BGSAVE_RESPONSE"
+        else
+          printf '%s\\n' 101 > "$FAKE_DOCKER_STATE"
+          printf '%s\\n' 'Background saving started'
+        fi
+        ;;
       *redis-cli*INFO*persistence*) printf 'rdb_bgsave_in_progress:0\\r\\nrdb_last_bgsave_status:ok\\r\\n' ;;
       *) exit 3 ;;
     esac
@@ -346,25 +352,32 @@ esac
     chmodSync(fakeDocker, 0o755)
 
     const backupRoot = join(fixture, 'backups')
+    mkdirSync(join(backupRoot, '.backup.lock'), { recursive: true })
+    writeFileSync(join(backupRoot, '.backup.lock/owner'), '999999 stale-boot stale-ticks\n')
+    const fakeState = join(fixture, 'redis-lastsave')
     const result = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {
         ...process.env,
         MAGICJAR_DOCKER_BIN: fakeDocker,
         MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+        FAKE_DOCKER_STATE: fakeState,
       },
     })
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.stdout, /BACKUP_PASS/)
-    const pgFiles = readdirSync(join(backupRoot, 'postgres/daily'))
-    const redisFiles = readdirSync(join(backupRoot, 'redis/snapshots'))
-    assert.equal(pgFiles.filter((name) => name.endsWith('.dump')).length, 1)
-    assert.equal(pgFiles.filter((name) => name.endsWith('.sha256')).length, 1)
-    assert.equal(pgFiles.filter((name) => name.endsWith('.meta')).length, 1)
-    assert.equal(redisFiles.filter((name) => name.endsWith('.rdb')).length, 1)
-    assert.equal(redisFiles.filter((name) => name.endsWith('.sha256')).length, 1)
-    assert.equal(redisFiles.filter((name) => name.endsWith('.meta')).length, 1)
-    assert.equal([...pgFiles, ...redisFiles].some((name) => name.endsWith('.partial')), false)
+    assert.match(result.stdout, /reclaimed stale backup lock/)
+    const sets = readdirSync(join(backupRoot, 'sets'))
+    assert.equal(sets.length, 1)
+    assert.equal(sets[0].includes('.partial'), false)
+    assert.deepEqual(readdirSync(join(backupRoot, 'sets', sets[0])).sort(), [
+      'postgres.dump',
+      'postgres.dump.meta',
+      'postgres.dump.sha256',
+      'redis.rdb',
+      'redis.rdb.meta',
+      'redis.rdb.sha256',
+    ])
 
     const rejectedRoot = join(fixture, 'rejected')
     const rejected = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
@@ -374,12 +387,28 @@ esac
         MAGICJAR_NAS_BACKUP_ROOT: rejectedRoot,
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
         FAKE_PROJECT: 'wrong-project',
+        FAKE_DOCKER_STATE: join(fixture, 'rejected-redis-lastsave'),
       },
     })
     assert.notEqual(rejected.status, 0)
     assert.match(rejected.stderr, /unexpected Compose project/)
-    assert.equal(readdirSync(join(rejectedRoot, 'postgres/daily')).length, 0)
-    assert.equal(readdirSync(join(rejectedRoot, 'redis/snapshots')).length, 0)
+    assert.equal(readdirSync(join(rejectedRoot, 'sets')).length, 0)
+
+    const staleRdbRoot = join(fixture, 'stale-rdb')
+    const staleRdb = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_NAS_BACKUP_ROOT: staleRdbRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+        MAGICJAR_REDIS_BGSAVE_TIMEOUT_SECONDS: '0',
+        FAKE_DOCKER_STATE: join(fixture, 'stale-rdb-lastsave'),
+        FAKE_BGSAVE_RESPONSE: 'ERR Background save already in progress',
+      },
+    })
+    assert.notEqual(staleRdb.status, 0)
+    assert.match(staleRdb.stderr, /Redis BGSAVE was not started/)
+    assert.equal(readdirSync(join(staleRdbRoot, 'sets')).length, 0)
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }

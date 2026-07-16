@@ -4,25 +4,25 @@
 set -eu
 umask 077
 
-PATH="/usr/local/bin:/usr/bin:/bin:/var/packages/ContainerManager/target/usr/bin:${PATH:-}"
-BACKUP_ROOT="${MAGICJAR_NAS_BACKUP_ROOT:-/volume1/docker/magicjar/backups}"
-PG_DIR="${BACKUP_ROOT}/postgres/daily"
-REDIS_DIR="${BACKUP_ROOT}/redis/snapshots"
-PG_CONTAINER="${MAGICJAR_PG_CONTAINER:-magicjar-postgres}"
-REDIS_CONTAINER="${MAGICJAR_REDIS_CONTAINER:-magicjar-redis}"
-DB_USER="${MAGICJAR_PG_USER:-magicjar}"
-DB_NAME="${MAGICJAR_PG_DB:-magicjar}"
-PG_RETENTION_DAYS="${MAGICJAR_PG_BACKUP_RETENTION_DAYS:-7}"
-REDIS_RETENTION_DAYS="${MAGICJAR_REDIS_BACKUP_RETENTION_DAYS:-3}"
-MIN_FREE_KB="${MAGICJAR_NAS_BACKUP_MIN_FREE_KB:-102400}"
-LOCK_DIR="${BACKUP_ROOT}/.backup.lock"
-STAMP="$(TZ=Asia/Seoul date '+%Y-%m-%d-%H%M%S')"
-PG_FINAL="${PG_DIR}/${STAMP}.dump"
-PG_PARTIAL="${PG_FINAL}.partial"
-REDIS_FINAL="${REDIS_DIR}/dump-${STAMP}.rdb"
-REDIS_PARTIAL="${REDIS_FINAL}.partial"
+PATH="/usr/local/bin:/usr/bin:/bin:/var/packages/ContainerManager/target/usr/bin"
+export PATH
 
-log() { printf '[%s KST] [nas-backup] %s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+BACKUP_ROOT="${MAGICJAR_NAS_BACKUP_ROOT:-/volume1/docker/magicjar/backups}"
+SET_ROOT="$BACKUP_ROOT/sets"
+RETENTION_DAYS="${MAGICJAR_NAS_BACKUP_RETENTION_DAYS:-7}"
+MIN_FREE_KB="${MAGICJAR_NAS_BACKUP_MIN_FREE_KB:-5242880}"
+REDIS_BGSAVE_TIMEOUT_SECONDS="${MAGICJAR_REDIS_BGSAVE_TIMEOUT_SECONDS:-120}"
+POSTGRES_CONTAINER="${MAGICJAR_POSTGRES_CONTAINER:-magicjar-postgres}"
+REDIS_CONTAINER="${MAGICJAR_REDIS_CONTAINER:-magicjar-redis}"
+TIMESTAMP="$(TZ=Asia/Seoul date '+%Y%m%d-%H%M%S')"
+FINAL_SET="$SET_ROOT/$TIMESTAMP"
+PARTIAL_SET="$SET_ROOT/.$TIMESTAMP.partial.$$"
+PG_PARTIAL="$PARTIAL_SET/postgres.dump"
+REDIS_PARTIAL="$PARTIAL_SET/redis.rdb"
+LOCK_DIR="$BACKUP_ROOT/.backup.lock"
+LOCK_HELD=0
+
+log() { printf '%s %s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
 fail() { log "ERROR: $*" >&2; exit 1; }
 
 find_docker() {
@@ -34,12 +34,8 @@ find_docker() {
   for candidate in \
     /usr/local/bin/docker \
     /var/packages/ContainerManager/target/usr/bin/docker \
-    /usr/bin/docker
-  do
-    if [ -x "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
+    /var/packages/Docker/target/usr/bin/docker; do
+    [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
   done
   command -v docker 2>/dev/null || return 1
 }
@@ -47,94 +43,119 @@ find_docker() {
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
   else
-    fail "SHA-256 utility not found"
+    shasum -a 256 "$1" | awk '{print $1}'
   fi
 }
 
-assert_compose_container() {
+boot_id() {
+  [ -r /proc/sys/kernel/random/boot_id ] && cat /proc/sys/kernel/random/boot_id || printf '%s\n' unknown
+}
+
+process_start_ticks() {
+  pid="$1"
+  [ -r "/proc/$pid/stat" ] || return 1
+  awk '{print $22}' "/proc/$pid/stat"
+}
+
+lock_owner_is_alive() {
+  [ -r "$LOCK_DIR/owner" ] || return 1
+  read -r owner_pid owner_boot owner_ticks < "$LOCK_DIR/owner" || return 1
+  [ "$owner_boot" = "$(boot_id)" ] || return 1
+  kill -0 "$owner_pid" 2>/dev/null || return 1
+  current_ticks="$(process_start_ticks "$owner_pid" 2>/dev/null || true)"
+  [ -n "$current_ticks" ] && [ "$current_ticks" = "$owner_ticks" ]
+}
+
+acquire_lock() {
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_owner_is_alive && fail "another backup is running (lock=$LOCK_DIR)"
+    stale="$LOCK_DIR.stale.$$"
+    mv "$LOCK_DIR" "$stale" 2>/dev/null || fail "backup lock changed while reclaiming"
+    rm -rf "$stale"
+    mkdir "$LOCK_DIR" 2>/dev/null || fail "backup lock acquisition raced"
+    log "reclaimed stale backup lock"
+  fi
+  owner_ticks="$(process_start_ticks "$$" 2>/dev/null || printf '%s' unknown)"
+  printf '%s %s %s\n' "$$" "$(boot_id)" "$owner_ticks" > "$LOCK_DIR/owner"
+  LOCK_HELD=1
+}
+
+cleanup() {
+  rm -rf "$PARTIAL_SET"
+  if [ "$LOCK_HELD" -eq 1 ]; then
+    rm -rf "$LOCK_DIR"
+    LOCK_HELD=0
+  fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+validate_container() {
   container="$1"
   expected_service="$2"
-  "$DOCKER" inspect "$container" >/dev/null 2>&1 || fail "container missing: $container"
-  running="$("$DOCKER" inspect "$container" --format '{{.State.Running}}' 2>/dev/null || true)"
-  project="$("$DOCKER" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)"
-  service="$("$DOCKER" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null || true)"
-  [ "$running" = true ] || fail "container not running: $container"
-  [ "$project" = magicjar ] || fail "unexpected Compose project for $container: $project"
-  [ "$service" = "$expected_service" ] || fail "unexpected Compose service for $container: $service"
+  "$DOCKER_BIN" inspect "$container" >/dev/null 2>&1 || fail "$container container not found"
+  [ "$("$DOCKER_BIN" inspect "$container" --format '{{.State.Running}}')" = true ] || fail "$container is not running"
+  project="$("$DOCKER_BIN" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+  service="$("$DOCKER_BIN" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.service"}}')"
+  [ "$project" = magicjar ] || fail "$container has unexpected Compose project"
+  [ "$service" = "$expected_service" ] || fail "$container has unexpected Compose service"
 }
 
-DOCKER="$(find_docker)" || fail "Docker CLI not found"
-mkdir -p "$PG_DIR" "$REDIS_DIR"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  fail "another backup is running: $LOCK_DIR"
-fi
-cleanup() {
-  rm -f \
-    "$PG_PARTIAL" "${PG_FINAL}.sha256.partial" "${PG_FINAL}.meta.partial" \
-    "$REDIS_PARTIAL" "${REDIS_FINAL}.sha256.partial" "${REDIS_FINAL}.meta.partial"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
-}
-trap cleanup EXIT HUP INT TERM
+DOCKER_BIN="$(find_docker)" || fail "docker CLI not found"
+case "$REDIS_BGSAVE_TIMEOUT_SECONDS" in ''|*[!0-9]*) fail "invalid Redis BGSAVE timeout" ;; esac
+mkdir -p "$SET_ROOT"
+[ ! -e "$FINAL_SET" ] || fail "backup set already exists: $FINAL_SET"
+acquire_lock
+mkdir "$PARTIAL_SET"
 
-case "$PG_RETENTION_DAYS:$REDIS_RETENTION_DAYS:$MIN_FREE_KB" in *[!0-9:]*) fail "invalid numeric setting" ;; esac
-FREE_KB="$(df -Pk "$BACKUP_ROOT" | tail -1 | awk '{print $4}')"
-[ "$FREE_KB" -ge "$MIN_FREE_KB" ] || fail "insufficient free space: ${FREE_KB}KB < ${MIN_FREE_KB}KB"
+AVAILABLE_KB="$(df -Pk "$BACKUP_ROOT" | awk 'NR==2 {print $4}')"
+case "$AVAILABLE_KB" in ''|*[!0-9]*) fail "cannot determine free disk space" ;; esac
+[ "$AVAILABLE_KB" -ge "$MIN_FREE_KB" ] || fail "insufficient free disk space (${AVAILABLE_KB}KB < ${MIN_FREE_KB}KB)"
 
-assert_compose_container "$PG_CONTAINER" postgres
-assert_compose_container "$REDIS_CONTAINER" redis
-"$DOCKER" exec "$PG_CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1 || fail "pg_isready failed"
-[ "$("$DOCKER" exec "$REDIS_CONTAINER" redis-cli --raw PING 2>/dev/null)" = PONG ] || fail "redis PING failed"
+validate_container "$POSTGRES_CONTAINER" postgres
+validate_container "$REDIS_CONTAINER" redis
+"$DOCKER_BIN" exec "$POSTGRES_CONTAINER" pg_isready -U magicjar -d magicjar >/dev/null 2>&1 || fail "PostgreSQL is not ready"
+[ "$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw PING)" = PONG ] || fail "Redis is not ready"
 
-log "PostgreSQL backup start: $PG_FINAL"
-if ! "$DOCKER" exec "$PG_CONTAINER" pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "$PG_PARTIAL"; then
-  fail "pg_dump failed"
-fi
-[ -s "$PG_PARTIAL" ] || fail "empty PostgreSQL dump"
-"$DOCKER" exec -i "$PG_CONTAINER" pg_restore --list < "$PG_PARTIAL" >/dev/null || fail "pg_restore list validation failed"
+log "creating PostgreSQL custom-format dump"
+"$DOCKER_BIN" exec "$POSTGRES_CONTAINER" pg_dump -U magicjar -d magicjar -Fc > "$PG_PARTIAL"
+[ -s "$PG_PARTIAL" ] || fail "PostgreSQL dump is empty"
+"$DOCKER_BIN" exec -i "$POSTGRES_CONTAINER" pg_restore --list < "$PG_PARTIAL" >/dev/null || fail "pg_restore --list validation failed"
 PG_SHA="$(sha256_file "$PG_PARTIAL")"
-printf '%s  %s\n' "$PG_SHA" "$(basename "$PG_FINAL")" > "${PG_FINAL}.sha256.partial"
-printf 'created_at_kst=%s\ncontainer=%s\ndatabase=%s\nsha256=%s\n' "$STAMP" "$PG_CONTAINER" "$DB_NAME" "$PG_SHA" > "${PG_FINAL}.meta.partial"
+printf '%s  %s\n' "$PG_SHA" postgres.dump > "$PARTIAL_SET/postgres.dump.sha256"
+printf 'created_at_kst=%s\ncontainer=%s\ncompose_project=magicjar\ncompose_service=postgres\nsha256=%s\nvalidation=pg_restore_list_pass\n' \
+  "$TIMESTAMP" "$POSTGRES_CONTAINER" "$PG_SHA" > "$PARTIAL_SET/postgres.dump.meta"
 
-log "Redis snapshot start: $REDIS_FINAL"
-BEFORE_SAVE="$("$DOCKER" exec "$REDIS_CONTAINER" redis-cli --raw LASTSAVE | tr -d '\r')"
-"$DOCKER" exec "$REDIS_CONTAINER" redis-cli --raw BGSAVE >/dev/null || fail "Redis BGSAVE start failed"
-DEADLINE=$(( $(date '+%s') + 120 ))
+log "creating fresh Redis RDB snapshot"
+BEFORE_SAVE="$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw LASTSAVE)"
+case "$BEFORE_SAVE" in ''|*[!0-9]*) fail "invalid Redis LASTSAVE before BGSAVE" ;; esac
+BGSAVE_RESPONSE="$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw BGSAVE)"
+[ "$BGSAVE_RESPONSE" = "Background saving started" ] || fail "Redis BGSAVE was not started"
+DEADLINE=$(( $(date +%s) + REDIS_BGSAVE_TIMEOUT_SECONDS ))
 while :; do
-  INFO="$("$DOCKER" exec "$REDIS_CONTAINER" redis-cli --raw INFO persistence | tr -d '\r')"
-  IN_PROGRESS="$(printf '%s\n' "$INFO" | awk -F: '$1=="rdb_bgsave_in_progress"{print $2}')"
-  STATUS="$(printf '%s\n' "$INFO" | awk -F: '$1=="rdb_last_bgsave_status"{print $2}')"
-  LAST_SAVE="$("$DOCKER" exec "$REDIS_CONTAINER" redis-cli --raw LASTSAVE | tr -d '\r')"
-  [ "$IN_PROGRESS" = 0 ] && [ "$STATUS" = ok ] && [ "$LAST_SAVE" -ge "$BEFORE_SAVE" ] && break
-  [ "$(date '+%s')" -lt "$DEADLINE" ] || fail "Redis BGSAVE timeout"
-  sleep 2
+  INFO="$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw INFO persistence | tr -d '\r')"
+  IN_PROGRESS="$(printf '%s\n' "$INFO" | awk -F: '$1=="rdb_bgsave_in_progress" {print $2}')"
+  LAST_STATUS="$(printf '%s\n' "$INFO" | awk -F: '$1=="rdb_last_bgsave_status" {print $2}')"
+  AFTER_SAVE="$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw LASTSAVE)"
+  if [ "$IN_PROGRESS" = 0 ] && [ "$LAST_STATUS" = ok ] && [ "$AFTER_SAVE" -gt "$BEFORE_SAVE" ] 2>/dev/null; then
+    break
+  fi
+  [ "$(date +%s)" -lt "$DEADLINE" ] || fail "Redis BGSAVE did not produce a fresh snapshot within ${REDIS_BGSAVE_TIMEOUT_SECONDS}s"
+  sleep 1
 done
-"$DOCKER" cp "$REDIS_CONTAINER:/data/dump.rdb" "$REDIS_PARTIAL" >/dev/null || fail "Redis snapshot copy failed"
-[ -s "$REDIS_PARTIAL" ] || fail "empty Redis snapshot"
+"$DOCKER_BIN" cp "$REDIS_CONTAINER:/data/dump.rdb" "$REDIS_PARTIAL"
+[ -s "$REDIS_PARTIAL" ] || fail "Redis snapshot is empty"
 REDIS_SHA="$(sha256_file "$REDIS_PARTIAL")"
-printf '%s  %s\n' "$REDIS_SHA" "$(basename "$REDIS_FINAL")" > "${REDIS_FINAL}.sha256.partial"
-printf 'created_at_kst=%s\ncontainer=%s\nsha256=%s\n' "$STAMP" "$REDIS_CONTAINER" "$REDIS_SHA" > "${REDIS_FINAL}.meta.partial"
+printf '%s  %s\n' "$REDIS_SHA" redis.rdb > "$PARTIAL_SET/redis.rdb.sha256"
+printf 'created_at_kst=%s\ncontainer=%s\ncompose_project=magicjar\ncompose_service=redis\nsha256=%s\nvalidation=fresh_bgsave_pass\n' \
+  "$TIMESTAMP" "$REDIS_CONTAINER" "$REDIS_SHA" > "$PARTIAL_SET/redis.rdb.meta"
 
-# Publish only after both PostgreSQL and Redis validation have completed.
-mv "$PG_PARTIAL" "$PG_FINAL"
-mv "${PG_FINAL}.sha256.partial" "${PG_FINAL}.sha256"
-mv "${PG_FINAL}.meta.partial" "${PG_FINAL}.meta"
-mv "$REDIS_PARTIAL" "$REDIS_FINAL"
-mv "${REDIS_FINAL}.sha256.partial" "${REDIS_FINAL}.sha256"
-mv "${REDIS_FINAL}.meta.partial" "${REDIS_FINAL}.meta"
-chmod 0600 "$PG_FINAL" "${PG_FINAL}.sha256" "${PG_FINAL}.meta" "$REDIS_FINAL" "${REDIS_FINAL}.sha256" "${REDIS_FINAL}.meta"
+chmod 0600 "$PARTIAL_SET"/*
+# One same-filesystem directory rename is the commit marker for the verified PG+Redis set.
+mv "$PARTIAL_SET" "$FINAL_SET"
 
-find "$PG_DIR" -type f -name '*.dump' -mtime "+$PG_RETENTION_DAYS" | while IFS= read -r old; do
-  rm -f "$old" "$old.sha256" "$old.meta"
-  log "PostgreSQL retention delete: $old"
-done
-find "$REDIS_DIR" -type f -name '*.rdb' -mtime "+$REDIS_RETENTION_DAYS" | while IFS= read -r old; do
-  rm -f "$old" "$old.sha256" "$old.meta"
-  log "Redis retention delete: $old"
-done
-
-PG_SIZE="$(du -k "$PG_FINAL" | awk '{print $1}')"
-REDIS_SIZE="$(du -k "$REDIS_FINAL" | awk '{print $1}')"
-log "BACKUP_PASS pg=$(basename "$PG_FINAL") pg_kb=$PG_SIZE pg_sha256=$PG_SHA redis=$(basename "$REDIS_FINAL") redis_kb=$REDIS_SIZE redis_sha256=$REDIS_SHA"
+find "$SET_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+$RETENTION_DAYS" ! -name '.*' -exec rm -rf '{}' ';'
+log "BACKUP_PASS set=$FINAL_SET postgres_sha256=$PG_SHA redis_sha256=$REDIS_SHA"

@@ -27,7 +27,8 @@ Mac sleep과 무관한 PostgreSQL+Redis 자동 백업은 DSM Task Scheduler 경�
 
 ```bash
 # clean approved SHA에서 NAS stable path에 entrypoint provision
-MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+APPROVED_SHA='<merged main SHA from PR/release evidence>'
+MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
 scripts/install-nas-backup-entrypoint.sh
 ```
 
@@ -38,10 +39,11 @@ DSM Control Panel → Task Scheduler에서 **root 사용자**의 사용자 정�
 /volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh >> /volume1/docker/magicjar/ops/backup.log 2>&1
 ```
 
-산출물은 PostgreSQL
-`/volume1/docker/magicjar/backups/postgres/daily/<KST timestamp>.dump{,.sha256,.meta}`와 Redis
-`/volume1/docker/magicjar/backups/redis/snapshots/dump-<KST timestamp>.rdb{,.sha256,.meta}`다.
-두 컨테이너의 Compose project/service label을 확인하고 두 산출물이 모두 검증된 뒤 publish한다.
+산출물은 `/volume1/docker/magicjar/backups/sets/<KST timestamp>/` 아래의
+`postgres.dump{,.sha256,.meta}`와 `redis.rdb{,.sha256,.meta}`다. 두 컨테이너의
+Compose project/service label을 확인하고 fresh Redis BGSAVE와 양쪽 checksum 검증 후
+timestamp directory 전체를 한 번 rename해 atomic publish한다. stale lock은 NAS boot-id와
+PID/start-ticks가 실제 생존하지 않을 때만 회수한다.
 installer는 DSM task를 대신 등록하거나 crontab을 우회 수정하지 않는다. Task Scheduler가
 만든 artifact의 checksum·PostgreSQL restore drill을 확인하기 전에는 autonomous backup readiness를 주장하지 않는다.
 

@@ -9,8 +9,6 @@ cd "$REPO_ROOT"
 export MAGICJAR_DOCKER_CONTEXT="${MAGICJAR_DOCKER_CONTEXT:-nas}"
 export MAGICJAR_EXPECTED_DOCKER_ENDPOINT="${MAGICJAR_EXPECTED_DOCKER_ENDPOINT:-ssh://magicjar-nas-docker}"
 export MAGICJAR_ENV_FILE="${MAGICJAR_ENV_FILE:-$REPO_ROOT/.env}"
-export NAS_BIND_ADDRESS="${NAS_BIND_ADDRESS:-127.0.0.1}"
-export MAGICJAR_OBSERVABILITY_REVISION="${MAGICJAR_EXPECTED_GIT_SHA:-$(git rev-parse HEAD 2>/dev/null || printf status-only)}"
 
 # shellcheck source=scripts/lib/docker-target.sh
 source "$REPO_ROOT/scripts/lib/docker-target.sh"
@@ -45,13 +43,46 @@ case "$cmd" in
   *) usage >&2; exit 2 ;;
 esac
 
-[[ -f "$MAGICJAR_ENV_FILE" ]] || die "env file 부재: $MAGICJAR_ENV_FILE"
-[[ "$MAGICJAR_ENV_FILE" = /* ]] || die "MAGICJAR_ENV_FILE은 절대경로여야 함"
-
 mj_require_remote_docker
 actual_endpoint="$(mj_docker_endpoint)"
 [[ "$actual_endpoint" == "$MAGICJAR_EXPECTED_DOCKER_ENDPOINT" ]] ||
   die "NAS endpoint mismatch: expected=$MAGICJAR_EXPECTED_DOCKER_ENDPOINT actual=$actual_endpoint"
+
+assert_observability_identity() {
+  local name="$1" expected_service="$2" project service
+  project="$(mj_docker inspect "$name" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+  service="$(mj_docker inspect "$name" --format '{{index .Config.Labels "com.docker.compose.service"}}')"
+  [[ "$project" == magicjar-observability && "$service" == "$expected_service" ]] ||
+    die "$name identity mismatch: project=$project service=$service"
+}
+
+# Incident-safe status/down: no repository env file or Grafana credential is required.
+if [[ "$cmd" == status || "$cmd" == down ]]; then
+  existing=()
+  for pair in magicjar-prometheus:prometheus magicjar-grafana:grafana magicjar-alertmanager:alertmanager; do
+    name="${pair%%:*}"
+    service="${pair##*:}"
+    if mj_docker inspect "$name" >/dev/null 2>&1; then
+      assert_observability_identity "$name" "$service"
+      existing+=("$name")
+    fi
+  done
+  if [[ "$cmd" == status ]]; then
+    ((${#existing[@]})) || { ok "observability containers absent"; exit 0; }
+    mj_docker ps -a --filter label=com.docker.compose.project=magicjar-observability \
+      --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+    exit 0
+  fi
+  if ((${#existing[@]})); then
+    mj_docker stop -t 30 "${existing[@]}" >/dev/null
+    mj_docker rm "${existing[@]}" >/dev/null
+  fi
+  ok "observability containers removed; named volumes retained"
+  exit 0
+fi
+
+[[ -f "$MAGICJAR_ENV_FILE" ]] || die "env file 부재: $MAGICJAR_ENV_FILE"
+[[ "$MAGICJAR_ENV_FILE" = /* ]] || die "MAGICJAR_ENV_FILE은 절대경로여야 함"
 
 server_arch="$(mj_docker info --format '{{.Architecture}}')"
 case "$server_arch" in amd64|x86_64) ;; *) die "unsupported NAS architecture: $server_arch" ;; esac
@@ -76,12 +107,17 @@ PY
 password="$(read_env_value GRAFANA_ADMIN_PASSWORD)"
 grafana_user="$(read_env_value GRAFANA_ADMIN_USER)"
 grafana_user="${grafana_user:-admin}"
+slack="$(read_env_value ALERTMANAGER_SLACK_WEBHOOK)"
 [[ -n "$password" ]] || die "GRAFANA_ADMIN_PASSWORD 미설정"
 case "$password" in admin|password|changeme) die "GRAFANA_ADMIN_PASSWORD unsafe default" ;; esac
 [[ "$password" != "$grafana_user" ]] || die "GRAFANA_ADMIN_PASSWORD must differ from admin user"
 (( ${#password} >= 20 )) || die "GRAFANA_ADMIN_PASSWORD must be at least 20 characters"
 
-[[ "$NAS_BIND_ADDRESS" == "127.0.0.1" ]] || die "observability ports must bind to 127.0.0.1"
+export GRAFANA_ADMIN_PASSWORD="$password"
+export GRAFANA_ADMIN_USER="$grafana_user"
+export ALERTMANAGER_SLACK_WEBHOOK="$slack"
+export NAS_BIND_ADDRESS=127.0.0.1
+export MAGICJAR_OBSERVABILITY_REVISION="${MAGICJAR_EXPECTED_GIT_SHA:-$(git rev-parse HEAD)}"
 
 rendered="$(mktemp -t magicjar-nas-observability.XXXXXX.yml)"
 verify_dir=""
@@ -153,6 +189,22 @@ wait_healthy() {
   done
 }
 
+verify_grafana_auth() {
+  # Credentials remain inside the container environment and HTTP stdin; they
+  # are never expanded into the host command line or emitted to logs.
+  mj_docker exec magicjar-grafana sh -ec '
+    auth="$(printf "%s:%s" "$GF_SECURITY_ADMIN_USER" "$GF_SECURITY_ADMIN_PASSWORD" | base64 | tr -d "\n")"
+    status="$(
+      { printf "GET /api/user HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Basic %s\r\nConnection: close\r\n\r\n" "$auth"; } |
+        nc -w 5 127.0.0.1 3000 |
+        sed -n "1p" |
+        tr -d "\r"
+    )"
+    [ "$status" = "HTTP/1.1 200 OK" ] || [ "$status" = "HTTP/1.0 200 OK" ]
+  ' >/dev/null
+  ok "GRAFANA_AUTH_PASS"
+}
+
 verify_targets() {
   local targets rules
   targets="$(mj_docker exec magicjar-prometheus wget -qO- http://localhost:9090/api/v1/targets)"
@@ -216,8 +268,35 @@ case "$cmd" in
     validate_model
     require_core_runtime
     core_before="$(snapshot_core_runtime)"
-    slack="$(read_env_value ALERTMANAGER_SLACK_WEBHOOK)"
     [[ -n "$slack" ]] || printf '⚠ ALERTMANAGER_SLACK_WEBHOOK 미설정 — blackhole/DEGRADED\n'
+
+    existing_count=0
+    for pair in magicjar-prometheus:prometheus magicjar-grafana:grafana magicjar-alertmanager:alertmanager; do
+      name="${pair%%:*}"
+      service="${pair##*:}"
+      if mj_docker inspect "$name" >/dev/null 2>&1; then
+        existing_count=$((existing_count + 1))
+        assert_observability_identity "$name" "$service"
+        revision="$(mj_docker inspect "$name" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+        [[ "$revision" == "$MAGICJAR_EXPECTED_GIT_SHA" ]] ||
+          die "$name revision mismatch; explicit down/LKG plan required before upgrade"
+      fi
+    done
+    if (( existing_count > 0 && existing_count < 3 )); then
+      die "partial observability stack detected; inspect then use incident-safe down"
+    fi
+    if (( existing_count == 3 )); then
+      wait_healthy || die "existing observability stack unhealthy; no containers changed"
+      verify_grafana_auth || die "existing Grafana admin credential mismatch; no containers changed"
+      verify_config_integrity || die "existing observability config mismatch; no containers changed"
+      verify_targets || die "existing observability target/rule verification failed; no containers changed"
+      core_after="$(snapshot_core_runtime)"
+      [[ "$core_after" == "$core_before" ]] || die "core runtime identity changed during verification"
+      ok "CORE_INVARIANCE_PASS containers=9"
+      ok "NAS observability runtime PASS (idempotent verification; notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
+      exit 0
+    fi
+
     while IFS= read -r image; do
       log "pull pinned image: ${image%%@*}"
       mj_docker pull "$image" >/dev/null
@@ -231,7 +310,7 @@ case "$cmd" in
       obs_compose down >/dev/null 2>&1 || true
       die "observability health timeout; containers removed, volumes retained"
     fi
-    if ! verify_config_integrity || ! verify_targets; then
+    if ! verify_grafana_auth || ! verify_config_integrity || ! verify_targets; then
       obs_compose down >/dev/null 2>&1 || true
       die "observability verification failed; containers removed, volumes retained"
     fi
@@ -242,13 +321,5 @@ case "$cmd" in
     fi
     ok "CORE_INVARIANCE_PASS containers=9"
     ok "NAS observability runtime PASS (notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
-    ;;
-  status)
-    obs_compose ps
-    if mj_docker inspect magicjar-prometheus >/dev/null 2>&1; then verify_targets; fi
-    ;;
-  down)
-    obs_compose down
-    ok "observability containers removed; named volumes retained"
     ;;
 esac
