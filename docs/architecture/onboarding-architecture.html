@@ -272,7 +272,7 @@
     </tbody>
   </table>
   <p style="font-size:13px;color:var(--muted)">
-    컨테이너는 7개(api·batch·consumer·frontend + postgres·redis·kafka)이며, W4에서 MCP 서버 sidecar 1개가 추가될 수 있다. 공유 라이브러리 5종은 Boot main·bootJar가 없어 컨테이너를 만들지 않는다.
+    운영 core 컨테이너는 9개(api·batch·consumer·frontend + postgres·redis·kafka + kafka-ui·dozzle)이며, W4에서 MCP 서버 sidecar 1개가 추가될 수 있다. 비실행 라이브러리 모듈 6종(domain + 공유 라이브러리 5종)은 Boot main·bootJar가 없어 컨테이너를 만들지 않는다.
   </p>
 
   <div id="flow"></div>
@@ -513,13 +513,13 @@ scripts/smoke.sh
 
 <!-- ============================ PART 3 ============================ -->
 <section id="part3">
-  <h2>3부 — 향후 발전 방향<span class="lead">로드맵 미완 Wave + 단기 과제 + 구조적 개선 여지</span></h2>
+  <h2>3부 — 향후 발전 방향<span class="lead">로드맵 후속 Wave + 현행 이연 과제 + 구조적 개선 여지</span></h2>
 
-  <h3>3.1 미완 Wave의 의미</h3>
-  <p>W1(watchlist+데이터)·W2(분석)·W3(자동매매 본체)는 룰 본체 풀 가동에 도달했고 AI 0건이다. 남은 것은 옵션·마무리 Wave다.</p>
+  <h3>3.1 후속 Wave의 의미</h3>
+  <p>W1(watchlist+데이터)·W2(분석)·W3(자동매매 본체)는 룰 본체 풀 가동에 도달했다. 아래 W4·W5는 현재 작업 상태표가 아니라 <code>tracks-roadmap.md</code>의 후속 방향이며, 실제 착수·완료 상태는 <code>_workspace/INDEX.md</code>와 task ledger를 다시 확인한다.</p>
   <div class="grid2">
     <div class="card">
-      <h4><span class="pill wip">진행 중</span>W4 — 시장 추세 + AI 옵션 + MCP</h4>
+      <h4><span class="pill wip">후속 방향</span>W4 — 시장 추세 + AI 옵션 + MCP</h4>
       <ul>
         <li>T-MARKET(시장 지수·섹터 추세·시장 캘린더) — Accepted, 진행.</li>
         <li>T-AI(사용자 트리거 LLM 코멘트·기업 분석·AI 종목발굴 Claude CLI bridge).</li>
@@ -537,13 +537,16 @@ scripts/smoke.sh
     </div>
   </div>
 
-  <h3>3.2 backlog·audit tracker의 단기 과제</h3>
+  <h3>3.2 audit tracker의 현행 이연·부분 완료 과제</h3>
   <ul>
-    <li><span class="pill wip">P0-1</span> <b>WS 재연결 시 호가·VI·시간외 재구독 누락</b> — VI 보호 silent 상실. 감사 구현 Wave 최우선(DATA 트랙). CHANGELOG상 v3.17.0에서 3채널 재발사 fix가 라이브 검증됐다.</li>
-    <li><span class="pill wip">P1-4</span> <b>KIS Rate Limit Bucket4j 실 구현</b> — <code>KisRateLimiterPort</code> Phase 1 완료, Phase 2(~20 어댑터 <code>acquire</code> 합류)·Phase 3(Circuit Breaker·ArchUnit 게이트) 대기. 자본 흐름 차단 risk로 우선순위 ★★.</li>
+    <li><span class="pill wip">P1-④</span> <b>DSL close 수정주가 vs 지표 원주가 가격 소스 정책</b> — 자본 흐름과 결합되므로 별도 ADR·사용자 결재 후 단일화한다.</li>
+    <li><span class="pill wip">P1-⑥</span> <b>NEW_MKOP_CLS_CODE 세션 처리</b> — parser 전파는 완료됐지만 코드값별 예상체결 제외 정책은 KIS 원문·라이브 evidence 확보 전까지 부분 완료다.</li>
+    <li><span class="pill wip">P1-⑧</span> <b>운영 알림 실증</b> — Prometheus 규칙과 Alertmanager 구성은 완료됐고 실제 운영 라우팅·전송 검증이 남았다.</li>
+    <li><span class="pill wip">P1-⑭</span> <b>KIS 자격증명 운영 조치</b> — 레포 밖 보관 상태를 유지하고 노출 이력이 의심되면 사용자가 예방적으로 재발급한다.</li>
     <li><span class="pill wip">ADR 0139</span> <b>KIS rate limiter 공유 모듈 승격</b> — api·consumer·batch 3중 복붙 단일화(Proposed). 구현은 전체 빌드 검증 필요로 후속 사이클 보류.</li>
-    <li><span class="pill wip">P1-⑤</span> tick 0원 캔들 sanity 가드 · <span class="pill wip">P1-⑨</span> 프론트 STOMP 재연결 후 재구독(5줄 패치) — 구현 Wave 대상.</li>
+    <li><span class="pill wip">P2</span> 백테스트·position 필드·공휴일·외부 API 실패 가시성·DLQ 관측 등은 tracker의 Phase 3 이연 항목으로 관리한다.</li>
   </ul>
+  <p style="font-size:12.5px;color:var(--muted)">P0-1 WS 3채널 재구독, tick 0원/OHLC 가드, 프론트 STOMP 재구독, smoke 계약, alert rule 구성은 현재 tracker에서 완료로 판정됐다. 과거 감사 보고서는 당시 snapshot이며 현행 상태는 반드시 remediation tracker를 따른다.</p>
 
   <h3>3.3 구조적 개선 여지 (분석하며 발견 — 근거 동반)</h3>
   <p>아래는 감사 보고서·ADR·backlog에 이미 근거가 명시된 항목이다(추측 아님).</p>
@@ -576,9 +579,9 @@ scripts/smoke.sh
         <td>정합 검증 자동화 + 분기별 triage 도입</td>
       </tr>
       <tr>
-        <td>Prometheus alert rule 0 · Alertmanager 부재</td>
-        <td>감사 P1-⑧ 이연(인프라 변경)</td>
-        <td>최소 규칙 4개 + Alertmanager(OPS Phase 2)</td>
+        <td>Prometheus·Alertmanager 운영 전송 실증</td>
+        <td>감사 P1-⑧ — 규칙 5개와 Alertmanager 구성 완료, 실제 운영 전송은 환경 검증 대상</td>
+        <td>NAS observability 배치·라우팅·수신 evidence를 별도 운영 게이트로 확보</td>
       </tr>
     </tbody>
   </table>
@@ -588,7 +591,7 @@ scripts/smoke.sh
 </section>
 
 <div class="footnote">
-  <p>작성: architect (magicjar-architect) · 2026-07-09 · 브랜치 <code>agent/architect/onboarding-architecture-doc</code></p>
+  <p>작성: architect (magicjar-architect) · 2026-07-09 · 현행 정합 갱신 2026-07-16 · 브랜치 <code>agent/architect/onboarding-architecture-doc</code></p>
   <p>정합 SoT: <code>docs/architecture/master-architecture.md</code> v2 · <code>settings.gradle.kts</code> · <code>docs/architecture/tracks-roadmap.md</code> · <code>docs/architecture/development-rules.md</code> · <code>CLAUDE.md</code> · <code>_workspace/arch/adr/README.md</code> · <code>docs/architecture/policies/audit-remediation-tracker.md</code> · <code>_workspace/backlog.md</code></p>
   <p>다이어그램 소스: <code>docs/architecture/diagrams/onboarding-{module-map, data-flow, ws-owner-priority}.drawio</code> — 본 HTML의 그림은 해당 레이아웃을 손수 작성한 인라인 SVG로 삽입(drawio CLI SVG export는 텍스트를 base64 raster로 임베드해 자기완결 HTML에 부적합).</p>
 </div>
