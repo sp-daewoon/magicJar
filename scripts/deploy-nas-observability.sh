@@ -201,13 +201,13 @@ verify_grafana_auth() {
         tr -d "\r"
     )"
     [ "$status" = "HTTP/1.1 200 OK" ] || [ "$status" = "HTTP/1.0 200 OK" ]
-  ' >/dev/null
+  ' >/dev/null || return 1
   ok "GRAFANA_AUTH_PASS"
 }
 
 verify_targets() {
   local targets rules
-  targets="$(mj_docker exec magicjar-prometheus wget -qO- http://localhost:9090/api/v1/targets)"
+  targets="$(mj_docker exec magicjar-prometheus wget -qO- http://localhost:9090/api/v1/targets)" || return 1
   python3 -c '
 import json, sys
 p=json.load(sys.stdin)
@@ -218,15 +218,15 @@ missing=wanted-set(state)
 down={job:state.get(job) for job in wanted if state.get(job)!="up"}
 assert not missing and not down, {"missing":sorted(missing),"down":down}
 print("TARGETS_PASS " + " ".join(f"{job}=up" for job in sorted(wanted)))
-' <<<"$targets"
-  rules="$(mj_docker exec magicjar-prometheus wget -qO- http://localhost:9090/api/v1/rules)"
+' <<<"$targets" || return 1
+  rules="$(mj_docker exec magicjar-prometheus wget -qO- http://localhost:9090/api/v1/rules)" || return 1
   python3 -c '
 import json, sys
 p=json.load(sys.stdin)
 groups=p["data"].get("groups", [])
 assert groups, "no Prometheus rule groups loaded"
 print(f"RULES_PASS groups={len(groups)}")
-' <<<"$rules"
+' <<<"$rules" || return 1
 }
 
 verify_config_integrity() {
