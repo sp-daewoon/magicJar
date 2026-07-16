@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- nas-kafka-volume-path -->
+| 2026-07-16 | **fix(ops): NAS Kafka persistent volume 및 source rollback anchor 정합** — Synology named volume을 root-owned `/tmp/kafka-logs`가 아니라 Apache Kafka uid 1000 권위 경로 `/var/lib/kafka/data`에 mount하고 `KAFKA_LOG_DIRS`를 동일하게 override. source stop/recovery는 mutable Compose 재구성 대신 기존 core container를 직접 stop/start하고 health·absence를 증명. | `docker-compose.nas.yml`·migration/NAS deployment test | NAS cold cutover의 Kafka `bootstrap.checkpoint.tmp` permission denied와 Compose worktree drift로 인한 source 자동 복구 실패 수정 |
 <!-- nas-frontend-node24 -->
 | 2026-07-16 | **fix(ops): NAS frontend image build Node 기준 정합** — Docker build stage를 프로젝트 `.node-version`과 동일한 `node:24.18.0-alpine`으로 고정하고 NAS regression test로 drift를 차단. | `frontend/Dockerfile`·NAS deployment test | 승인 SHA 이미지가 검증된 Node 24 toolchain과 다르게 Node 20으로 빌드되는 cutover 차단 결함 수정 |
 <!-- nas-docker-runtime -->

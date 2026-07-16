@@ -64,12 +64,14 @@ mj_require_release_provenance "$REPO_ROOT"
 
 SRC_DOCKER=(docker --context "$SOURCE_CONTEXT")
 TGT_DOCKER=(docker --context "$TARGET_CONTEXT")
-BASE_COMPOSE=(--env-file "$ENV_FILE" -f "$REPO_ROOT/docker/docker-compose.yml" -f "$REPO_ROOT/docker/docker-compose.dev.yml")
-TARGET_COMPOSE=("${BASE_COMPOSE[@]}" -f "$NAS_OVERRIDE")
+TARGET_BASE_COMPOSE=(--env-file "$ENV_FILE" -f "$REPO_ROOT/docker/docker-compose.yml" -f "$REPO_ROOT/docker/docker-compose.dev.yml")
+TARGET_COMPOSE=("${TARGET_BASE_COMPOSE[@]}" -f "$NAS_OVERRIDE")
+SOURCE_WRITERS=(magicjar-api magicjar-batch magicjar-consumer)
+SOURCE_NON_WRITERS=(magicjar-frontend magicjar-dozzle magicjar-kafka-ui magicjar-kafka magicjar-postgres magicjar-redis)
+SOURCE_CORE=("${SOURCE_WRITERS[@]}" "${SOURCE_NON_WRITERS[@]}")
 
 src_docker() { "${SRC_DOCKER[@]}" "$@"; }
 tgt_docker() { "${TGT_DOCKER[@]}" "$@"; }
-src_compose() { src_docker compose "${BASE_COMPOSE[@]}" "$@"; }
 tgt_compose() { tgt_docker compose "${TARGET_COMPOSE[@]}" "$@"; }
 
 read_env_value() {
@@ -122,6 +124,12 @@ if ! src_docker ps --format '{{.Names}}' | grep -q '^magicjar-postgres$'; then
   echo "✗ source magicjar-postgres가 running 아님" >&2
   exit 1
 fi
+for container in "${SOURCE_CORE[@]}"; do
+  if [[ "$(src_docker inspect "$container" --format '{{.State.Running}}' 2>/dev/null || true)" != "true" ]]; then
+    echo "✗ source core container가 running 아님: $container" >&2
+    exit 1
+  fi
+done
 if tgt_docker volume ls --format '{{.Name}}' | grep -Eq '^magicjar_(pg|kafka|redis)_data$'; then
   echo "✗ target state volume이 이미 존재 — 자동 덮어쓰기/삭제 금지, 수동 조사 필요" >&2
   exit 1
@@ -177,15 +185,30 @@ restart_source_after_verified_target_stop() {
     echo "🚨 target writer 정지 증명 실패 — source 자동 재기동 금지" >&2
     return 1
   fi
-  if ! src_compose up -d >/dev/null 2>&1; then
-    echo "🚨 target 정지는 확인했으나 source stack 재기동 실패 — 수동 incident 대응 필요" >&2
+  if ! src_docker start "${SOURCE_CORE[@]}" >/dev/null 2>&1; then
+    echo "🚨 target 정지는 확인했으나 기존 source container 재기동 실패 — 수동 incident 대응 필요" >&2
     return 1
   fi
-  if ! src_docker ps --format '{{.Names}}' | grep -q '^magicjar-consumer$'; then
-    echo "🚨 source consumer 재기동 검증 실패 — 수동 incident 대응 필요" >&2
-    return 1
-  fi
-  echo "✓ target writer 정지 확인 후 source stack 복귀" >&2
+  local container state deadline
+  for container in "${SOURCE_CORE[@]}"; do
+    deadline=$((SECONDS + 180))
+    while :; do
+      state="$(src_docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
+      case "$state" in
+        healthy|running) break ;;
+        unhealthy|exited)
+          echo "🚨 source container 복구 실패: $container=$state" >&2
+          return 1
+          ;;
+      esac
+      if (( SECONDS >= deadline )); then
+        echo "🚨 source container 복구 timeout: $container=$state" >&2
+        return 1
+      fi
+      sleep 3
+    done
+  done
+  echo "✓ target writer 정지 확인 후 기존 source core container 복귀" >&2
 }
 
 cleanup() {
@@ -210,7 +233,7 @@ tgt_compose build api-app batch-app consumer-app frontend
 # Freeze every writer before the final dump. Infrastructure remains available.
 echo "▶ source writers stop: api/batch/consumer"
 SOURCE_APPS_STOPPED=1
-src_compose stop api-app batch-app consumer-app
+src_docker stop "${SOURCE_WRITERS[@]}"
 
 # Re-check after stop so a last-second in-flight transition cannot be missed.
 inflight="$(src_docker exec magicjar-postgres psql -U magicjar -d magicjar -Atc \
@@ -299,7 +322,13 @@ fi
 
 # Only now stop the remaining local services. Containers and pg_data stay intact.
 echo "▶ target healthy + DB parity PASS — local stack stop (rollback anchor 보존)"
-src_compose stop
+src_docker stop "${SOURCE_NON_WRITERS[@]}"
+for container in "${SOURCE_CORE[@]}"; do
+  if [[ "$(src_docker inspect "$container" --format '{{.State.Running}}')" != "false" ]]; then
+    echo "✗ source core container stop 증명 실패: $container" >&2
+    exit 1
+  fi
+done
 CUTOVER_COMPLETE=1
 
 echo "✓ NAS cutover complete"

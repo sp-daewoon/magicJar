@@ -217,14 +217,17 @@ test('cutover and restore scripts retain fail-closed ordering and parity gates',
   const rollbackStart = migration.indexOf('restart_source_after_verified_target_stop()')
   const targetStop = migration.indexOf('tgt_compose stop api-app batch-app consumer-app frontend', rollbackStart)
   const targetProof = migration.indexOf('mj_assert_writers_stopped "$TARGET_CONTEXT"', targetStop)
-  const sourceStart = migration.indexOf('src_compose up -d', targetProof)
+  const sourceStart = migration.indexOf('src_docker start "${SOURCE_CORE[@]}"', targetProof)
   assert.ok(rollbackStart >= 0 && targetStop > rollbackStart && targetProof > targetStop && sourceStart > targetProof)
   assert.equal((migration.match(/strategy_position WHERE quantity > 0/g) ?? []).length, 2)
   assert.match(migration, /target_dump_sha=.*sha256sum/)
+  assert.doesNotMatch(migration, /src_compose/)
+  assert.match(migration, /SOURCE_CORE=\("\$\{SOURCE_WRITERS\[@\]\}" "\$\{SOURCE_NON_WRITERS\[@\]\}"\)/)
   assert.match(
     migration,
-    /echo "▶ source writers stop: api\/batch\/consumer"\nSOURCE_APPS_STOPPED=1\nsrc_compose stop api-app batch-app consumer-app/,
+    /echo "▶ source writers stop: api\/batch\/consumer"\nSOURCE_APPS_STOPPED=1\nsrc_docker stop "\$\{SOURCE_WRITERS\[@\]\}"/,
   )
+  assert.match(migration, /src_docker stop "\$\{SOURCE_NON_WRITERS\[@\]\}"/)
   assert.match(migration, /shasum -a 256 "\$\(basename "\$DUMP_FILE"\)"/)
   assert.match(migration, /diff -u "\$SOURCE_COUNTS" "\$TARGET_COUNTS"/)
 
@@ -321,6 +324,8 @@ test('NAS compose publishes only frontend to the selected address and keeps inte
     assert.equal(config.services['consumer-app'].stop_grace_period, '1m30s')
     assert.equal(config.services.frontend.stop_grace_period, '10s')
     assert.equal(config.services.kafka.volumes[0].source, 'kafka_data')
+    assert.equal(config.services.kafka.volumes[0].target, '/var/lib/kafka/data')
+    assert.equal(config.services.kafka.environment.KAFKA_LOG_DIRS, '/var/lib/kafka/data')
     assert.equal(config.services.redis.volumes[0].source, 'redis_data')
     assert.equal(config.volumes.kafka_data.name, 'magicjar_kafka_data')
     assert.equal(config.volumes.redis_data.name, 'magicjar_redis_data')
