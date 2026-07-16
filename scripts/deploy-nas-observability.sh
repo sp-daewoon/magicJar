@@ -231,11 +231,12 @@ print(f"RULES_PASS groups={len(groups)}")
 
 verify_config_integrity() {
   local container target source expected actual
-  verify_dir="$(mktemp -d -t magicjar-observability-configs.XXXXXX)"
+  verify_dir="$(mktemp -d -t magicjar-observability-configs.XXXXXX)" || return 1
   while IFS='|' read -r container target source; do
-    mj_docker cp "$container:$target" "$verify_dir/actual" >/dev/null
-    expected="$(shasum -a 256 "$REPO_ROOT/$source" | awk '{print $1}')"
-    actual="$(shasum -a 256 "$verify_dir/actual" | awk '{print $1}')"
+    rm -f "$verify_dir/actual"
+    mj_docker cp "$container:$target" "$verify_dir/actual" >/dev/null || return 1
+    expected="$(shasum -a 256 "$REPO_ROOT/$source" | awk '{print $1}')" || return 1
+    actual="$(shasum -a 256 "$verify_dir/actual" | awk '{print $1}')" || return 1
     [[ "$actual" == "$expected" ]] || {
       echo "✗ config checksum mismatch: $container:$target" >&2
       return 1

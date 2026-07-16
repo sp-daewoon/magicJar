@@ -78,7 +78,8 @@ mj_docker run --rm --pull never -i \
     trap '\''rm -f "$tmp" "$prev_tmp"'\'' EXIT HUP INT TERM
     mkdir -p /target /backups/sets
     cat > "$tmp"
-    actual="$(sha256sum "$tmp" | awk '\''{print $1}'\'')"
+    checksum_line="$(sha256sum "$tmp")" || exit 1
+    actual="${checksum_line%% *}"
     [ "$actual" = "$expected" ] || { echo "provisioned checksum mismatch" >&2; exit 1; }
     chmod 0700 "$tmp"
     if [ -f "$final" ]; then
