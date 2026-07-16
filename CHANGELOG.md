@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- nas-observability-backup-autonomy -->
+| 2026-07-17 | **ops: NAS-safe observability + native backup entrypoint** — remote Docker에서 깨지는 local bind config를 `configs.content` 전송으로 대체하고 NAS-only scrape config(bootRun 0), Prometheus·Grafana·Alertmanager linux/amd64 digest pin, loopback bind, Grafana anonymous/default password 차단, external core network, config SHA/rules/5-target/core-nine identity 검증과 volume-preserving rollback을 추가. DSM Task Scheduler용 PostgreSQL+Redis entrypoint는 stable NAS path에 checksum provision하며 Compose label·lock·free-space·atomic publish·SHA-256·`pg_restore --list`·BGSAVE·7일/3일 retention을 강제하고 crontab 우회를 금지. core 9·DB schema·주문/KIS 설정 변경 0. (작성: backend-core) | NAS observability renderer/deploy helper·backup entrypoint/installer·ops docs/tests | Mac sleep과 remote bind에 의존하던 관측·백업 운영 blocker를 fail-closed 경로로 해소 |
 <!-- task-ledger-reconciliation -->
 | 2026-07-16 | **chore(task): active task ledger 실상 정합 및 완료 기록 114건 archive** — GitHub merged PR·commit evidence로 stale RUNNING 30건을 표준 `task.mjs done --branch ... --pr ...` 경로로 DONE 정정하고, 기존 DONE 84건과 함께 `task.mjs archive`로 이동. `--force`·수동 삭제 0, 제품 코드·런타임 변경 0. | `_workspace/tasks/` → `_workspace/tasks/done/` | 구현 완료 상태와 ledger 불일치 제거, active task hygiene `RUNNING=0·DONE=0` 복구 |
 <!-- nas-kafka-volume-path -->

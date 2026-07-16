@@ -52,12 +52,47 @@ docker compose -f docker/docker-compose.infra.yml -f docker/docker-compose.obser
 
 Prometheus가 자동으로 `host.docker.internal:8080·8081·8082` scrape — IDE 디버깅 친화.
 
+### 2.4 NAS remote context — remote-safe overlay
+
+NAS에서는 로컬 bind mount 기반 `docker-compose.observability.yml`을 직접 실행하지 않는다.
+remote daemon은 `./observability/...`을 NAS host 경로로 해석하므로 config가 전달되지 않는다.
+
+```bash
+# .env에 강한 비밀번호를 먼저 설정한다. 값은 로그/명령 인자에 출력하지 않는다.
+GRAFANA_ADMIN_PASSWORD=<random-secret>
+
+# approved full SHA + clean provenance + endpoint/core runtime/model 검증
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_ENV_FILE="$PWD/.env" \
+scripts/deploy-nas-observability.sh preflight
+
+# pinned digest 3종 pull → observability 3개만 기동 → config SHA/health/rules/5 target UP 검증
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_ENV_FILE="$PWD/.env" \
+scripts/deploy-nas-observability.sh up
+
+MAGICJAR_ENV_FILE="$PWD/.env" scripts/deploy-nas-observability.sh status
+```
+
+- `scripts/render-nas-observability-compose.py`가 NAS 전용 `prometheus.nas.yml`과 기존 config 8개를
+  `configs.content`로 embed한다. `configs.file`은 remote bind로 해석되므로 금지한다.
+- NAS Prometheus에는 docker core 3개·Alertmanager·self만 있으며 bootRun target은 0,
+  external label은 `cluster=magicjar-nas`, `environment=nas`다.
+- 기동 후 9개 mount를 container에서 다시 copy해 repository 원본 SHA-256과 대조한다.
+- Prometheus·Grafana·Alertmanager image는 linux/amd64 digest 고정 + `pull_policy: never`이다.
+- `magicjar_default` external network만 공유하며 core 9개를 recreate하지 않는다.
+- UI 3종은 `127.0.0.1` bind만 허용한다. LAN 직접 공개 대신 SSH tunnel을 사용한다.
+- Grafana anonymous/sign-up은 비활성이고 unsafe default password는 거부한다.
+- `ALERTMANAGER_SLACK_WEBHOOK` 미설정 시 stack은 기동 가능하지만 notification route는
+  **PENDING/DEGRADED**다. webhook 수신 실증 전 full readiness를 주장하지 않는다.
+- rollback은 `scripts/deploy-nas-observability.sh down`; 3개 container만 제거하고 named volume은 보존한다.
+
 ## 3. 접속 URL
 
 | 서비스 | URL | 비고 |
 |------|-----|------|
 | Prometheus | http://localhost:9090 | scrape targets / metric explorer |
-| Grafana | http://localhost:3001 | admin / admin (default — env `GRAFANA_ADMIN_PASSWORD`) |
+| Grafana | http://localhost:3001 | local은 env default 가능, NAS는 `GRAFANA_ADMIN_PASSWORD` 강제 |
 | Dozzle | http://localhost:8888 | 컨테이너 로그, WARN/ERROR 보조 webhook alert |
 | api `/actuator/prometheus` | http://localhost:8080/actuator/prometheus | raw metric scrape |
 | batch `/actuator/prometheus` | http://localhost:8081/actuator/prometheus | raw metric scrape |

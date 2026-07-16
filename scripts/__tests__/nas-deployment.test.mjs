@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -195,12 +195,193 @@ test('consumer and writer exclusivity guards fail closed', () => {
 })
 
 test('NAS entrypoints expose help without contacting Docker', () => {
-  for (const script of ['scripts/deploy-nas.sh', 'scripts/migrate-docker-to-nas.sh']) {
+  for (const script of [
+    'scripts/deploy-nas.sh',
+    'scripts/migrate-docker-to-nas.sh',
+    'scripts/deploy-nas-observability.sh',
+    'scripts/install-nas-backup-entrypoint.sh',
+  ]) {
     const result = run('bash', [script, '--help'], {
       env: { ...process.env, PATH: '/usr/bin:/bin' },
     })
     assert.equal(result.status, 0, `${script}: ${result.stderr}`)
     assert.match(result.stdout, /Usage:/)
+  }
+})
+
+test('NAS observability renderer is remote-safe, digest-pinned, and loopback-only', (t) => {
+  const docker = run('docker', ['compose', 'version'])
+  if (docker.status !== 0) {
+    t.skip('docker compose CLI unavailable')
+    return
+  }
+
+  const fixture = mkdtempSync(join(tmpdir(), 'magicjar-nas-observability-'))
+  try {
+    const envFile = join(fixture, '.env')
+    const composeFile = join(fixture, 'observability.yml')
+    writeFileSync(
+      envFile,
+      'GRAFANA_ADMIN_USER=admin\nGRAFANA_ADMIN_PASSWORD=test-only-not-default\nNAS_BIND_ADDRESS=127.0.0.1\nMAGICJAR_OBSERVABILITY_REVISION=0123456789abcdef0123456789abcdef01234567\n',
+    )
+    const render = run('python3', [
+      'scripts/render-nas-observability-compose.py',
+      '--output',
+      composeFile,
+    ])
+    assert.equal(render.status, 0, render.stderr)
+
+    const result = run('docker', [
+      'compose',
+      '--env-file',
+      envFile,
+      '-f',
+      composeFile,
+      'config',
+      '--format',
+      'json',
+    ])
+    assert.equal(result.status, 0, result.stderr)
+    assert.doesNotMatch(result.stderr, /variable is not set/)
+    const model = JSON.parse(result.stdout)
+    assert.deepEqual(Object.keys(model.services).sort(), ['alertmanager', 'grafana', 'prometheus'])
+    assert.equal(Object.keys(model.configs).length, 9)
+    assert.equal(model.networks.magicjar_core.external, true)
+    assert.equal(model.networks.magicjar_core.name, 'magicjar_default')
+
+    for (const [name, service] of Object.entries(model.services)) {
+      assert.match(service.image, /@sha256:[a-f0-9]{64}$/, `${name} image digest`)
+      assert.equal(service.pull_policy, 'never', `${name} pull policy`)
+      assert.equal(service.restart, 'unless-stopped', `${name} restart policy`)
+      assert.equal(service.stop_grace_period, '30s', `${name} stop grace`)
+      assert.equal(
+        service.labels['org.opencontainers.image.revision'],
+        '0123456789abcdef0123456789abcdef01234567',
+      )
+      for (const port of service.ports ?? []) {
+        assert.equal(port.host_ip, '127.0.0.1', `${name} host bind`)
+      }
+      for (const volume of service.volumes ?? []) {
+        assert.equal(volume.type, 'volume', `${name} must not use daemon-host bind mounts`)
+      }
+    }
+    assert.equal(model.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED, 'false')
+    assert.equal(model.services.grafana.environment.GF_USERS_ALLOW_SIGN_UP, 'false')
+    assert.match(model.configs.prometheus_rules.content, /\$\$labels\.application/)
+    assert.match(model.configs.prometheus_config.content, /cluster: magicjar-nas/)
+    assert.match(model.configs.prometheus_config.content, /environment: nas/)
+    assert.doesNotMatch(model.configs.prometheus_config.content, /host\.docker\.internal|bootrun/)
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
+})
+
+test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler', () => {
+  const backup = readFileSync(join(root, 'scripts/backup/nas-task-scheduler-backup.sh'), 'utf8')
+  const installer = readFileSync(join(root, 'scripts/install-nas-backup-entrypoint.sh'), 'utf8')
+
+  assert.match(backup, /umask 077/)
+  assert.match(backup, /\$\{PG_FINAL\}\.partial/)
+  assert.match(backup, /\$\{REDIS_FINAL\}\.partial/)
+  assert.match(backup, /mkdir "\$LOCK_DIR"/)
+  assert.match(backup, /pg_restore --list/)
+  assert.match(backup, /redis-cli --raw BGSAVE/)
+  assert.match(backup, /com\.docker\.compose\.project/)
+  assert.match(backup, /com\.docker\.compose\.service/)
+  assert.match(backup, /sha256sum|shasum -a 256/)
+  assert.match(backup, /mv "\$PG_PARTIAL" "\$PG_FINAL"/)
+  assert.match(backup, /mv "\$REDIS_PARTIAL" "\$REDIS_FINAL"/)
+  assert.match(backup, /\/volume1\/docker\/magicjar\/backups/)
+  assert.doesNotMatch(backup, /synoschedtask|crontab/)
+
+  assert.match(installer, /mj_require_release_provenance/)
+  assert.match(installer, /mj_require_remote_docker/)
+  assert.match(installer, /--pull never/)
+  assert.match(installer, /\/volume1\/docker\/magicjar\/ops/)
+  assert.doesNotMatch(installer, /^\s*(?:sudo\s+)?(?:synoschedtask|crontab)\b/m)
+})
+
+test('NAS backup scheduler publishes PostgreSQL and Redis only after validated container identity', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'magicjar-nas-backup-runtime-'))
+  try {
+    const fakeDocker = join(fixture, 'docker')
+    writeFileSync(
+      fakeDocker,
+      `#!/bin/sh
+set -eu
+cmd="$1"; shift
+case "$cmd" in
+  inspect)
+    container="$1"; shift
+    [ "$container" = magicjar-postgres ] || [ "$container" = magicjar-redis ] || exit 2
+    if [ "\${1:-}" = --format ]; then
+      case "$2" in
+        *State.Running*) printf '%s\\n' true ;;
+        *compose.project*) printf '%s\\n' "\${FAKE_PROJECT:-magicjar}" ;;
+        *compose.service*) [ "$container" = magicjar-postgres ] && printf '%s\\n' postgres || printf '%s\\n' redis ;;
+      esac
+    fi
+    ;;
+  exec)
+    [ "\${1:-}" = -i ] && shift
+    container="$1"; shift
+    case "$*" in
+      *pg_isready*) exit 0 ;;
+      *pg_dump*) printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
+      *pg_restore*--list*) cat >/dev/null ;;
+      *redis-cli*PING*) printf '%s\\n' PONG ;;
+      *redis-cli*LASTSAVE*) printf '%s\\n' 100 ;;
+      *redis-cli*BGSAVE*) printf '%s\\n' 'Background saving started' ;;
+      *redis-cli*INFO*persistence*) printf 'rdb_bgsave_in_progress:0\\r\\nrdb_last_bgsave_status:ok\\r\\n' ;;
+      *) exit 3 ;;
+    esac
+    ;;
+  cp)
+    printf '%s\\n' FAKE_RDB > "$2"
+    ;;
+  *) exit 4 ;;
+esac
+`,
+    )
+    chmodSync(fakeDocker, 0o755)
+
+    const backupRoot = join(fixture, 'backups')
+    const result = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+      },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /BACKUP_PASS/)
+    const pgFiles = readdirSync(join(backupRoot, 'postgres/daily'))
+    const redisFiles = readdirSync(join(backupRoot, 'redis/snapshots'))
+    assert.equal(pgFiles.filter((name) => name.endsWith('.dump')).length, 1)
+    assert.equal(pgFiles.filter((name) => name.endsWith('.sha256')).length, 1)
+    assert.equal(pgFiles.filter((name) => name.endsWith('.meta')).length, 1)
+    assert.equal(redisFiles.filter((name) => name.endsWith('.rdb')).length, 1)
+    assert.equal(redisFiles.filter((name) => name.endsWith('.sha256')).length, 1)
+    assert.equal(redisFiles.filter((name) => name.endsWith('.meta')).length, 1)
+    assert.equal([...pgFiles, ...redisFiles].some((name) => name.endsWith('.partial')), false)
+
+    const rejectedRoot = join(fixture, 'rejected')
+    const rejected = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_NAS_BACKUP_ROOT: rejectedRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+        FAKE_PROJECT: 'wrong-project',
+      },
+    })
+    assert.notEqual(rejected.status, 0)
+    assert.match(rejected.stderr, /unexpected Compose project/)
+    assert.equal(readdirSync(join(rejectedRoot, 'postgres/daily')).length, 0)
+    assert.equal(readdirSync(join(rejectedRoot, 'redis/snapshots')).length, 0)
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
   }
 })
 
