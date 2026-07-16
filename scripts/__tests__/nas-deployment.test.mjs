@@ -354,6 +354,8 @@ esac
     const backupRoot = join(fixture, 'backups')
     mkdirSync(join(backupRoot, '.backup.lock'), { recursive: true })
     writeFileSync(join(backupRoot, '.backup.lock/owner'), '999999 stale-boot stale-ticks\n')
+    mkdirSync(join(backupRoot, 'sets/.stale.partial.999999'), { recursive: true })
+    writeFileSync(join(backupRoot, 'sets/.stale.partial.999999/postgres.dump'), 'crash residue')
     const fakeState = join(fixture, 'redis-lastsave')
     const result = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {

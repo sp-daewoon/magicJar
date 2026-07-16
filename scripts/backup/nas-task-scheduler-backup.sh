@@ -109,6 +109,9 @@ case "$REDIS_BGSAVE_TIMEOUT_SECONDS" in ''|*[!0-9]*) fail "invalid Redis BGSAVE 
 mkdir -p "$SET_ROOT"
 [ ! -e "$FINAL_SET" ] || fail "backup set already exists: $FINAL_SET"
 acquire_lock
+# Exclusive ownership is established, so every pre-existing hidden partial set
+# is crash residue rather than a live backup.
+find "$SET_ROOT" -mindepth 1 -maxdepth 1 -type d -name '.*.partial.*' -exec rm -rf '{}' ';'
 mkdir "$PARTIAL_SET"
 
 AVAILABLE_KB="$(df -Pk "$BACKUP_ROOT" | awk 'NR==2 {print $4}')"
