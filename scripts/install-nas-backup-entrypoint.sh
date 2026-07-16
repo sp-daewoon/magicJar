@@ -32,12 +32,8 @@ EOF
 
 case "${1:-}" in -h|--help|help) usage; exit 0 ;; "") ;; *) usage >&2; exit 2 ;; esac
 [[ -f "$SOURCE" ]] || { echo "✗ source missing: $SOURCE" >&2; exit 1; }
-validate_nas_path() {
-  local value="$1"
-  [[ "$value" == /volume1/docker/magicjar/ops || "$value" == /volume1/docker/magicjar/backups ]]
-}
-validate_nas_path "$TARGET_DIR" || { echo "✗ unsafe target dir: $TARGET_DIR" >&2; exit 1; }
-validate_nas_path "$BACKUP_ROOT" || { echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1; }
+[[ "$TARGET_DIR" == /volume1/docker/magicjar/ops ]] || { echo "✗ unsafe target dir: $TARGET_DIR" >&2; exit 1; }
+[[ "$BACKUP_ROOT" == /volume1/docker/magicjar/backups ]] || { echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1; }
 
 mj_require_release_provenance "$REPO_ROOT"
 mj_require_remote_docker

@@ -298,6 +298,16 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   assert.match(installer, /--pull never/)
   assert.match(installer, /\/volume1\/docker\/magicjar\/ops/)
   assert.doesNotMatch(installer, /^\s*(?:sudo\s+)?(?:synoschedtask|crontab)\b/m)
+
+  const swappedPaths = run('bash', ['scripts/install-nas-backup-entrypoint.sh'], {
+    env: {
+      ...process.env,
+      MAGICJAR_NAS_OPS_DIR: '/volume1/docker/magicjar/backups',
+      MAGICJAR_NAS_BACKUP_ROOT: '/volume1/docker/magicjar/ops',
+    },
+  })
+  assert.notEqual(swappedPaths.status, 0)
+  assert.match(swappedPaths.stderr, /unsafe target dir/)
 })
 
 test('NAS backup scheduler publishes PostgreSQL and Redis only after validated container identity', async () => {
