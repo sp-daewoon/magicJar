@@ -162,6 +162,22 @@ class KisWsMessageParserTest {
     }
 
     @Test
+    fun `root body 밖의 rt_cd 성공 문자열은 subscription success가 아니다`() {
+        val json =
+            """{"decoy":{"rt_cd":"0"},"header":{"tr_id":"H0STCNI0","tr_key":"hts"},"body":{"rt_cd":"1"}}"""
+
+        assertThat(KisWsMessageParser.isSubscriptionSuccess(json)).isFalse()
+    }
+
+    @Test
+    fun `root header 밖의 tr_id와 tr_key는 subscription channel이 아니다`() {
+        val json =
+            """{"decoy":{"tr_id":"H0STCNI0","tr_key":"hts"},"header":{},"body":{"rt_cd":"0"}}"""
+
+        assertThat(KisWsMessageParser.extractSubscriptionChannel(json)).isNull()
+    }
+
+    @Test
     fun `msg1 invalid tr_type 문구만 있어도 대소문자 무시 감지`() {
         val json = """{"body":{"rt_cd":"1","msg1":"Invalid TR_TYPE"}}"""
         assertThat(KisWsMessageParser.isOpsp8997InvalidTrType(json)).isTrue()
