@@ -121,21 +121,23 @@ test('release provenance requires an approved SHA and rejects untracked input', 
     assert.equal(run('git', ['commit', '-qm', 'baseline'], { cwd: fixture }).status, 0)
     const sha = run('git', ['rev-parse', 'HEAD'], { cwd: fixture }).stdout.trim()
     const command = `source '${root}/scripts/lib/nas-deployment-safety.sh'; mj_require_release_provenance '${fixture}'`
+    const baseEnv = { ...process.env }
+    delete baseEnv.MAGICJAR_EXPECTED_GIT_SHA
 
-    const missingApproval = run('bash', ['-c', command], { cwd: fixture, env: { ...process.env } })
+    const missingApproval = run('bash', ['-c', command], { cwd: fixture, env: baseEnv })
     assert.notEqual(missingApproval.status, 0)
     assert.match(missingApproval.stderr, /EXPECTED_GIT_SHA/)
 
     const clean = run('bash', ['-c', command], {
       cwd: fixture,
-      env: { ...process.env, MAGICJAR_EXPECTED_GIT_SHA: sha },
+      env: { ...baseEnv, MAGICJAR_EXPECTED_GIT_SHA: sha },
     })
     assert.equal(clean.status, 0, clean.stderr)
 
     writeFileSync(join(fixture, 'untracked.kt'), 'class Untracked\n')
     const dirty = run('bash', ['-c', command], {
       cwd: fixture,
-      env: { ...process.env, MAGICJAR_EXPECTED_GIT_SHA: sha },
+      env: { ...baseEnv, MAGICJAR_EXPECTED_GIT_SHA: sha },
     })
     assert.notEqual(dirty.status, 0)
     assert.match(dirty.stderr, /untracked/)
@@ -145,7 +147,7 @@ test('release provenance requires an approved SHA and rejects untracked input', 
     writeFileSync(join(fixture, 'src/hidden.ignored.kt'), 'class Hidden\n')
     const ignored = run('bash', ['-c', command], {
       cwd: fixture,
-      env: { ...process.env, MAGICJAR_EXPECTED_GIT_SHA: sha },
+      env: { ...baseEnv, MAGICJAR_EXPECTED_GIT_SHA: sha },
     })
     assert.notEqual(ignored.status, 0)
     assert.match(ignored.stderr, /ignored source/)
@@ -335,4 +337,12 @@ test('NAS compose publishes only frontend to the selected address and keeps inte
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
+})
+
+test('frontend image build uses the declared Node 24 version', () => {
+  const nodeVersion = readFileSync(join(root, 'frontend/.node-version'), 'utf8').trim()
+  const dockerfile = readFileSync(join(root, 'frontend/Dockerfile'), 'utf8')
+
+  assert.equal(nodeVersion, '24.18.0')
+  assert.match(dockerfile, new RegExp(`^FROM node:${nodeVersion}-alpine AS build$`, 'm'))
 })
