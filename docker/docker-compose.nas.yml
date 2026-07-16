@@ -13,12 +13,16 @@ services:
     stop_grace_period: 30s
   kafka:
     image: apache/kafka@sha256:41c20d65b0a2180b9deca056d47540771752e69fe9225d5748dd65a25a9675d7
+    environment:
+      # The official Apache image runs as uid 1000 and declares this as its
+      # persistent data directory. /tmp/kafka-logs is root-owned on Synology.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     ports: !reset []
     restart: unless-stopped
     stop_signal: SIGTERM
     stop_grace_period: 30s
     volumes: !override
-      - kafka_data:/tmp/kafka-logs
+      - kafka_data:/var/lib/kafka/data
   redis:
     image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     ports: !reset []
