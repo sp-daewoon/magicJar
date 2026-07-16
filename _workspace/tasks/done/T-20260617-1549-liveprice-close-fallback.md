@@ -3,10 +3,10 @@ id: T-20260617-1549-liveprice-close-fallback
 agent: backend-core
 model: opus
 branch: agent/backend-core/livePrice-close-fallback
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T15:49:07.296+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.484+09:00
+pr: #1040
 parentPhase: ?
 ---
 

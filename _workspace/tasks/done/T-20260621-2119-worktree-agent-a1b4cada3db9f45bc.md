@@ -3,10 +3,10 @@ id: T-20260621-2119-worktree-agent-a1b4cada3db9f45bc
 agent: qa
 model: opus
 branch: worktree-agent-a1b4cada3db9f45bc
-status: RUNNING
+status: DONE
 startedAt: 2026-06-21T21:19:42.337+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.662+09:00
+pr: #1073
 parentPhase: ?
 ---
 

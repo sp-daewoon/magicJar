@@ -3,10 +3,10 @@ id: T-20260625-1600-signal-skip-waste
 agent: strategy
 model: opus
 branch: agent/strategy/signal-skip-waste
-status: RUNNING
+status: DONE
 startedAt: 2026-06-25T16:00:46.006+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.021+09:00
+pr: #1137
 parentPhase: ?
 ---
 

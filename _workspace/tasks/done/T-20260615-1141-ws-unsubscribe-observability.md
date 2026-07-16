@@ -3,10 +3,10 @@ id: T-20260615-1141-ws-unsubscribe-observability
 agent: market-data
 model: opus
 branch: agent/market-data/ws-unsubscribe-observability
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T11:41:02.978+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.135+09:00
+pr: #978
 parentPhase: ?
 ---
 

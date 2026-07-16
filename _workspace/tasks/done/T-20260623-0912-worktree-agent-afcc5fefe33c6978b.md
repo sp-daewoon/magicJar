@@ -3,10 +3,10 @@ id: T-20260623-0912-worktree-agent-afcc5fefe33c6978b
 agent: backend-core
 model: opus
 branch: worktree-agent-afcc5fefe33c6978b
-status: RUNNING
+status: DONE
 startedAt: 2026-06-23T09:12:03.774+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.901+09:00
+pr: #1113
 parentPhase: ?
 ---
 

@@ -3,10 +3,10 @@ id: T-20260706-1348-trendline-phase2-r2b
 agent: strategy
 model: opus
 branch: agent/strategy/trendline-phase2-r2b
-status: RUNNING
+status: DONE
 startedAt: 2026-07-06T13:48:44.938+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.562+09:00
+pr: #1158
 parentPhase: ?
 ---
 

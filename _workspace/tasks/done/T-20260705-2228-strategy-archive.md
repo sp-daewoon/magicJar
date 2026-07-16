@@ -3,10 +3,10 @@ id: T-20260705-2228-strategy-archive
 agent: strategy
 model: opus
 branch: agent/strategy/strategy-archive
-status: RUNNING
+status: DONE
 startedAt: 2026-07-05T22:28:46.325+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.263+09:00
+pr: #1148
 parentPhase: ?
 ---
 

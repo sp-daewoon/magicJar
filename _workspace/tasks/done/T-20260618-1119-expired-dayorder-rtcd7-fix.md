@@ -3,10 +3,10 @@ id: T-20260618-1119-expired-dayorder-rtcd7-fix
 agent: backend-core
 model: opus
 branch: agent/backend-core/expired-dayorder-rtcd7-fix
-status: RUNNING
+status: DONE
 startedAt: 2026-06-18T11:19:38.728+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.602+09:00
+pr: #1046
 parentPhase: ?
 ---
 

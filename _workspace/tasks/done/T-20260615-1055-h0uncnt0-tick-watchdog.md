@@ -3,10 +3,10 @@ id: T-20260615-1055-h0uncnt0-tick-watchdog
 agent: market-data
 model: opus
 branch: agent/market-data/h0uncnt0-tick-watchdog
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T10:55:55.210+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.018+09:00
+pr: #976
 parentPhase: ?
 ---
 

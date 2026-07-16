@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- task-ledger-reconciliation -->
+| 2026-07-16 | **chore(task): active task ledger 실상 정합 및 완료 기록 114건 archive** — GitHub merged PR·commit evidence로 stale RUNNING 30건을 표준 `task.mjs done --branch ... --pr ...` 경로로 DONE 정정하고, 기존 DONE 84건과 함께 `task.mjs archive`로 이동. `--force`·수동 삭제 0, 제품 코드·런타임 변경 0. | `_workspace/tasks/` → `_workspace/tasks/done/` | 구현 완료 상태와 ledger 불일치 제거, active task hygiene `RUNNING=0·DONE=0` 복구 |
 <!-- nas-kafka-volume-path -->
 | 2026-07-16 | **fix(ops): NAS Kafka persistent volume 및 source rollback anchor 정합** — Synology named volume을 root-owned `/tmp/kafka-logs`가 아니라 Apache Kafka uid 1000 권위 경로 `/var/lib/kafka/data`에 mount하고 `KAFKA_LOG_DIRS`를 동일하게 override. source stop/recovery는 mutable Compose 재구성 대신 기존 core container를 직접 stop/start하고 health·absence를 증명. | `docker-compose.nas.yml`·migration/NAS deployment test | NAS cold cutover의 Kafka `bootstrap.checkpoint.tmp` permission denied와 Compose worktree drift로 인한 source 자동 복구 실패 수정 |
 <!-- nas-frontend-node24 -->

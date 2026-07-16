@@ -3,10 +3,10 @@ id: T-20260617-1538-blocked-label-popover
 agent: frontend
 model: opus
 branch: agent/frontend/blocked-label-popover
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T15:38:11.237+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.423+09:00
+pr: #1038
 parentPhase: ?
 ---
 

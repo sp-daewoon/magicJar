@@ -3,10 +3,10 @@ id: T-20260708-2222-entry-guards-triple
 agent: strategy
 model: opus
 branch: agent/strategy/entry-guards-triple
-status: RUNNING
+status: DONE
 startedAt: 2026-07-08T22:22:52.850+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.622+09:00
+pr: #1162
 parentPhase: ?
 ---
 

@@ -3,10 +3,10 @@ id: T-20260617-1507-strategy-position-unrealized-pnl
 agent: backend-core
 model: opus
 branch: agent/backend-core/strategy-position-unrealized-pnl
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T15:07:25.677+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.365+09:00
+pr: #1035
 parentPhase: ?
 ---
 

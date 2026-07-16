@@ -3,10 +3,10 @@ id: T-20260622-1904-intraday-candle-early-backfill
 agent: market-data
 model: opus
 branch: agent/market-data/intraday-candle-early-backfill
-status: RUNNING
+status: DONE
 startedAt: 2026-06-22T19:04:27.648+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.842+09:00
+pr: #1108
 parentPhase: ?
 ---
 
