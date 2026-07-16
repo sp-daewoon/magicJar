@@ -46,6 +46,22 @@ magicJar는 외부 API에 무분별하게 호출하지 않는다. 각 API의 공
 
 **magicJar credential 정책 (사용자 명시 2026-05-11)**: 정보 수집 API(시세·캔들·호가·종목 마스터 등)는 **prod(실전) credential 단일 채널** 사용. `AccountType.REAL` 자격으로 KIS REST/WS 호출. 모의/실전 분기는 **주문 라우터(거래 액션)에만** 적용. 정보 수집에서 모의 credential 사용 0건.
 
+### 2-1-A. WebSocket environment·readiness tuple (ADR 0142)
+
+시장 데이터 tuple은 runtime 주문 mode와 무관하게 고정한다.
+
+`(credential=REAL, approval=prod, endpoint=ws://ops.koreainvestment.com:21000, plane=market-data)`
+
+- 시장 채널은 `H0UNCNT0`·`H0UNASP0`·`H0UNMKO0`·`H0STOUP0`의 현행 수요 조건을 유지한다.
+- REAL execution notice `H0STCNI0`은 같은 prod session을 공유하되, explicit HTS ID와 matching subscribe ACK·AES key를 모두 확인해야 `READY`다.
+- MOCK/PAPER `H0STCNI9`은 Phase 1 prod market session에 발사하지 않는다. 전용 VPS session이 없으면 `NOT_CONFIGURED`다.
+- HTTP 101, local demand, local slot만으로 remote ACK·first frame·parsed publish를 주장하지 않는다.
+- demand 0은 `IDLE/NOT_REQUIRED`이며 장애가 아니다.
+- execution이 READY가 아니면 신규 BUY만 fail-closed한다. SELL·cancel·reconcile·backfill은 유지한다.
+- rollback에서 `REAL approval + VPS endpoint` 혼합을 복원하지 않는다.
+
+공식 source는 `koreainvestment/open-trading-api@885dd4e2f5c37e4f7e23dd63c15555a9967bc7bc`에 pin한다. VPS 전용 session은 별도 ADR·MOCK credential·실제 first-notice evidence 없이 도입하지 않는다.
+
 ### 2-2. Rate Limit 강제 (ADR 0037)
 
 | 항목 | 정책 |

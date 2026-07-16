@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.config.KisWsTransportProperties
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -89,10 +90,13 @@ class KisWebSocketBridgeReconnectTest {
                 liveCandleUpdater = mockk(relaxed = true),
                 quoteCachePort = quoteCachePort,
                 wsClient = wsClient,
-                wsUrlProd = "ws://localhost:21000",
-                wsUrlVps = "ws://localhost:31000",
+                wsTransport =
+                    KisWsTransportProperties(
+                        urlProd = "ws://ops.koreainvestment.com:21000",
+                        credentialOwnerId = "user001",
+                        htsId = "user001",
+                    ),
                 magicjarMode = "REAL",
-                defaultUserId = "user001",
                 executionListenerProvider = executionListenerProvider,
                 systemEventLogger = systemEventLogger,
                 priceMetricsPortProvider = priceMetricsPortProvider,
@@ -425,10 +429,18 @@ class KisWebSocketBridgeReconnectTest {
         // OPSP8996 — false (오탐 차단)
         val opsp8996 = """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
         assertThat(KisWsMessageParser.isUnsubscribeAck(opsp8996)).isFalse()
+
+        val failedUnsubscribe =
+            """{"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1","msg_cd":"OPSP0002","msg1":"UNSUBSCRIBE FAILED"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(failedUnsubscribe)).isFalse()
+
+        val nestedDecoy =
+            """{"decoy":{"msg_cd":"OPSP0002","msg1":"UNSUBSCRIBE SUCCESS"},"header":{"tr_id":"H0UNCNT0"},"body":{"rt_cd":"1"}}"""
+        assertThat(KisWsMessageParser.isUnsubscribeAck(nestedDecoy)).isFalse()
     }
 
     @Test
-    fun `unsubscribe emit helper는 tr_type 2로 해제 메시지를 만든다`() {
+    fun `unsubscribe emit helper는 공식 tr_type 0으로 해제 메시지를 만든다`() {
         val method =
             KisWebSocketBridge::class.java.getDeclaredMethod(
                 "emitUnsubscribeMessage",
@@ -444,10 +456,11 @@ class KisWebSocketBridgeReconnectTest {
         tracesField.isAccessible = true
         val traces = tracesField.get(bridge) as java.util.concurrent.ConcurrentLinkedDeque<*>
         val lastTrace = traces.peekLast()
-        val rawJsonField = lastTrace!!::class.java.getDeclaredField("rawJson")
-        rawJsonField.isAccessible = true
+        val trTypeField = lastTrace!!::class.java.getDeclaredField("trType")
+        trTypeField.isAccessible = true
 
-        assertThat(rawJsonField.get(lastTrace).toString()).contains(""""tr_type":"2"""")
+        assertThat(trTypeField.get(lastTrace)).isEqualTo("0")
+        assertThat(lastTrace::class.java.declaredFields.map { it.name }).doesNotContain("rawJson")
     }
 
     /**
@@ -1161,10 +1174,13 @@ class KisWebSocketBridgeReconnectTest {
             liveCandleUpdater = mockk(relaxed = true),
             quoteCachePort = quoteCachePort,
             wsClient = wsClient,
-            wsUrlProd = "ws://localhost:21000",
-            wsUrlVps = "ws://localhost:31000",
+            wsTransport =
+                KisWsTransportProperties(
+                    urlProd = "ws://ops.koreainvestment.com:21000",
+                    credentialOwnerId = "user001",
+                    htsId = "user001",
+                ),
             magicjarMode = mode,
-            defaultUserId = "user001",
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,
@@ -1198,35 +1214,31 @@ class KisWebSocketBridgeReconnectTest {
     }
 
     @Test
-    fun `getWsUrl MOCK 모드 — vps endpoint(31000) 반환 (체결통보 H0STCNI9 발송 서버 정합)`() {
-        // 회귀: e0a88a3f가 getWsUrl을 wsUrlProd로 무조건 고정 → MOCK 체결통보(H0STCNI9)가
-        // prod endpoint(:21000)에 구독되어 KIS가 데이터를 영구 미발송 (6/8 수신 0).
-        // fix: MOCK → vops(:31000) 복원.
+    fun `getWsUrl MOCK 모드 — market-data는 prod endpoint 21000 고정`() {
         val mock = newBridge("MOCK")
-        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://localhost:31000")
+        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://ops.koreainvestment.com:21000")
     }
 
     @Test
-    fun `getWsUrl PAPER 모드 — vps endpoint(31000) 반환 (REAL 아님 = 모의 서버)`() {
+    fun `getWsUrl PAPER 모드 — market-data는 prod endpoint 21000 고정`() {
         val paper = newBridge("PAPER")
-        assertThat(invokeGetWsUrl(paper)).isEqualTo("ws://localhost:31000")
+        assertThat(invokeGetWsUrl(paper)).isEqualTo("ws://ops.koreainvestment.com:21000")
     }
 
     @Test
     fun `getWsUrl REAL 모드 — prod endpoint(21000) 반환`() {
         val real = newBridge("REAL")
-        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://localhost:21000")
+        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://ops.koreainvestment.com:21000")
     }
 
     @Test
-    fun `endpoint와 체결통보 tr_id 정합 LOCK — MOCK은 vps+H0STCNI9, REAL은 prod+H0STCNI0`() {
-        // 두 분기가 동일 기준(RuntimeModeParser.isRealMode)을 쓰므로 endpoint↔tr_id 짝이 항상 맞아야 한다.
+    fun `market endpoint와 execution TR은 plane별 독립 — market은 prod, MOCK notice는 발송 금지 대상`() {
         val mock = newBridge("MOCK")
-        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://localhost:31000")
+        assertThat(invokeGetWsUrl(mock)).isEqualTo("ws://ops.koreainvestment.com:21000")
         assertThat(invokeExecutionNoticeTrId(mock)).isEqualTo("H0STCNI9")
 
         val real = newBridge("REAL")
-        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://localhost:21000")
+        assertThat(invokeGetWsUrl(real)).isEqualTo("ws://ops.koreainvestment.com:21000")
         assertThat(invokeExecutionNoticeTrId(real)).isEqualTo("H0STCNI0")
     }
 }

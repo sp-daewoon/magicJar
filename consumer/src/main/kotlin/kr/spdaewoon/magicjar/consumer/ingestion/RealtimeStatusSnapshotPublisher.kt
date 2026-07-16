@@ -85,14 +85,38 @@ class RealtimeStatusSnapshotPublisher(
     }
 
     private fun buildSnapshot(): RealtimeStatusSnapshot {
+        val realtimeDemands = realtimeRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
+        val orderbookDemands = orderbookRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
         val bridge =
             bridgeProvider.getIfAvailable()
-                ?: return RealtimeStatusSnapshot(updatedAt = Instant.now().toString())
+                ?: run {
+                    val subscriptions =
+                        realtimeDemands.map {
+                            SubscriptionView("H0UNCNT0", it.code, it.owners, it.sinceMs)
+                        } +
+                            orderbookDemands.map {
+                                SubscriptionView("H0UNASP0", it.code, it.owners, it.sinceMs)
+                            }
+                    val required = subscriptions.isNotEmpty()
+                    return RealtimeStatusSnapshot(
+                        updatedAt = Instant.now().toString(),
+                        subscriptions = subscriptions.sortedWith(compareBy({ it.trId }, { it.code })),
+                        market =
+                            if (required) {
+                                MarketView(required = true, state = "DEGRADED", degradedReason = "BRIDGE_BEAN_ABSENT")
+                            } else {
+                                MarketView(required = false, state = "IDLE", degradedReason = "NOT_REQUIRED")
+                            },
+                        executionNotice =
+                            ExecutionNoticeView(
+                                state = "NOT_CONFIGURED",
+                                degradedReason = "BRIDGE_BEAN_ABSENT",
+                            ),
+                    )
+                }
         val ws = bridge.wsStatusSnapshot()
 
         val slot = slotLedgerProvider.getIfAvailable()?.snapshot()
-        val realtimeDemands = realtimeRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
-        val orderbookDemands = orderbookRouterProvider.getIfAvailable()?.snapshotDemands() ?: emptyList()
 
         // tr_id별 구독 투영 — 체결가 + 호가(H0UNASP0). code별 owner 합집합 + since.
         // ADR 0124 결정 4 — 체결가 trId 는 하드코딩 대신 실제 활성 채널을 표기한다(통합 flag ON 시 H0UNCNT0).
@@ -128,6 +152,23 @@ class RealtimeStatusSnapshotPublisher(
                 ),
             )
         }
+        bridge.subscribedOvertimeSinglePriceCodes().forEach { code ->
+            subscriptions.add(
+                SubscriptionView(
+                    trId = "H0STOUP0",
+                    code = code,
+                    owners = listOf("overtime:session"),
+                    sinceMs = null,
+                ),
+            )
+        }
+        val marketRequired = subscriptions.isNotEmpty()
+        val market =
+            when {
+                !marketRequired -> MarketView(required = false, state = "IDLE", degradedReason = "NOT_REQUIRED")
+                ws.connected -> MarketView(required = true, state = "CONNECTED")
+                else -> MarketView(required = true, state = "DEGRADED", degradedReason = "MARKET_SESSION_DISCONNECTED")
+            }
 
         return RealtimeStatusSnapshot(
             updatedAt = Instant.now().toString(),
@@ -143,12 +184,19 @@ class RealtimeStatusSnapshotPublisher(
                     SlotView(used = it.used, max = it.max, byTrId = it.byTrId, codesByTrId = it.codesByTrId)
                 } ?: SlotView(used = 0, max = 0, byTrId = emptyMap(), codesByTrId = emptyMap()),
             subscriptions = subscriptions.sortedWith(compareBy({ it.trId }, { it.code })),
+            market = market,
             executionNotice =
                 ExecutionNoticeView(
                     subscribed = ws.executionSubscribed,
                     mode = ws.executionMode,
                     trId = ws.executionTrId,
                     userIdMasked = ws.executionUserIdMasked,
+                    state = ws.executionState,
+                    transport = ws.executionTransport,
+                    connected = ws.executionConnected,
+                    ack = ws.executionAck,
+                    aes = ws.executionAes,
+                    degradedReason = ws.executionDegradedReason,
                 ),
         )
     }
@@ -165,7 +213,14 @@ data class RealtimeStatusSnapshot(
     val ws: WsView = WsView(),
     val slots: SlotView = SlotView(),
     val subscriptions: List<SubscriptionView> = emptyList(),
+    val market: MarketView = MarketView(),
     val executionNotice: ExecutionNoticeView = ExecutionNoticeView(),
+)
+
+data class MarketView(
+    val required: Boolean = false,
+    val state: String = "IDLE",
+    val degradedReason: String? = "NOT_REQUIRED",
 )
 
 data class WsView(
@@ -195,4 +250,10 @@ data class ExecutionNoticeView(
     val mode: String = "MOCK",
     val trId: String = "H0STCNI9",
     val userIdMasked: String? = null,
+    val state: String = "NOT_CONFIGURED",
+    val transport: String = "NONE",
+    val connected: Boolean = false,
+    val ack: Boolean = false,
+    val aes: Boolean = false,
+    val degradedReason: String? = null,
 )
