@@ -62,12 +62,13 @@ remote daemon은 `./observability/...`을 NAS host 경로로 해석하므로 con
 GRAFANA_ADMIN_PASSWORD=<random-secret>
 
 # approved full SHA + clean provenance + endpoint/core runtime/model 검증
-MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+APPROVED_SHA='<merged main SHA from PR/release evidence>'
+MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
 MAGICJAR_ENV_FILE="$PWD/.env" \
 scripts/deploy-nas-observability.sh preflight
 
 # pinned digest 3종 pull → observability 3개만 기동 → config SHA/health/rules/5 target UP 검증
-MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
 MAGICJAR_ENV_FILE="$PWD/.env" \
 scripts/deploy-nas-observability.sh up
 
@@ -83,6 +84,10 @@ MAGICJAR_ENV_FILE="$PWD/.env" scripts/deploy-nas-observability.sh status
 - `magicjar_default` external network만 공유하며 core 9개를 recreate하지 않는다.
 - UI 3종은 `127.0.0.1` bind만 허용한다. LAN 직접 공개 대신 SSH tunnel을 사용한다.
 - Grafana anonymous/sign-up은 비활성이고 unsafe default password는 거부한다.
+- 기동 후 `/api/user`에 실제 admin Basic 인증 HTTP 200을 요구하므로 persistent Grafana DB의
+  credential이 `.env`와 다르면 PASS하지 않는다. credential은 host command/log에 출력하지 않는다.
+- `status/down`은 `.env` 유실 incident에서도 exact Compose project/service label 확인 후 동작하며
+  named volume은 보존한다. 다른 revision이 이미 떠 있으면 자동 upgrade하지 않고 LKG 계획을 요구한다.
 - `ALERTMANAGER_SLACK_WEBHOOK` 미설정 시 stack은 기동 가능하지만 notification route는
   **PENDING/DEGRADED**다. webhook 수신 실증 전 full readiness를 주장하지 않는다.
 - rollback은 `scripts/deploy-nas-observability.sh down`; 3개 container만 제거하고 named volume은 보존한다.

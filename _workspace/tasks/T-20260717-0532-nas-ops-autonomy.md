@@ -3,9 +3,9 @@ id: T-20260717-0532-nas-ops-autonomy
 agent: backend-core
 model: opus
 branch: agent/backend-core/nas-ops-autonomy
-status: DONE
+status: RUNNING
 startedAt: 2026-07-17T05:32:44.819+09:00
-completedAt: 2026-07-17T07:33:43.210+09:00
+completedAt: null
 pr: #1173
 parentPhase: ?
 ---

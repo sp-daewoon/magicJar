@@ -32,8 +32,16 @@ EOF
 
 case "${1:-}" in -h|--help|help) usage; exit 0 ;; "") ;; *) usage >&2; exit 2 ;; esac
 [[ -f "$SOURCE" ]] || { echo "✗ source missing: $SOURCE" >&2; exit 1; }
-case "$TARGET_DIR" in /volume1/docker/magicjar/*) ;; *) echo "✗ unsafe target dir: $TARGET_DIR" >&2; exit 1 ;; esac
-case "$BACKUP_ROOT" in /volume1/docker/magicjar/*) ;; *) echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1 ;; esac
+validate_nas_path() {
+  local value="$1"
+  case "$value" in
+    /volume1/docker/magicjar/*) ;;
+    *) return 1 ;;
+  esac
+  [[ "$value" != *..* && "$value" != *:* && "$value" != *$'\n'* ]]
+}
+validate_nas_path "$TARGET_DIR" || { echo "✗ unsafe target dir: $TARGET_DIR" >&2; exit 1; }
+validate_nas_path "$BACKUP_ROOT" || { echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1; }
 
 mj_require_release_provenance "$REPO_ROOT"
 mj_require_remote_docker
@@ -43,18 +51,49 @@ actual_endpoint="$(mj_docker_endpoint)"
   exit 1
 }
 
+[[ "$(mj_docker inspect magicjar-postgres --format '{{.State.Running}}')" == true ]] || {
+  echo "✗ magicjar-postgres is not running" >&2
+  exit 1
+}
+[[ "$(mj_docker inspect magicjar-postgres --format '{{index .Config.Labels "com.docker.compose.project"}}')" == magicjar ]] || {
+  echo "✗ magicjar-postgres Compose project mismatch" >&2
+  exit 1
+}
+[[ "$(mj_docker inspect magicjar-postgres --format '{{index .Config.Labels "com.docker.compose.service"}}')" == postgres ]] || {
+  echo "✗ magicjar-postgres Compose service mismatch" >&2
+  exit 1
+}
 image="$(mj_docker inspect magicjar-postgres --format '{{.Config.Image}}')"
 [[ -n "$image" ]] || { echo "✗ magicjar-postgres image unresolved" >&2; exit 1; }
 
+local_sha="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
 mj_docker run --rm --pull never -i \
   -v "$TARGET_DIR:/target" \
   -v "$BACKUP_ROOT:/backups" \
-  "$image" sh -c 'umask 077; mkdir -p /target /backups/postgres/daily /backups/redis/snapshots; cat > /target/nas-task-scheduler-backup.sh; chmod 0700 /target/nas-task-scheduler-backup.sh' \
+  "$image" sh -ceu '
+    expected="$1"
+    final=/target/nas-task-scheduler-backup.sh
+    tmp="/target/.nas-task-scheduler-backup.sh.tmp.$$"
+    prev_tmp="/target/.nas-task-scheduler-backup.sh.prev.tmp.$$"
+    trap '\''rm -f "$tmp" "$prev_tmp"'\'' EXIT HUP INT TERM
+    mkdir -p /target /backups/sets
+    cat > "$tmp"
+    actual="$(sha256sum "$tmp" | awk '\''{print $1}'\'')"
+    [ "$actual" = "$expected" ] || { echo "provisioned checksum mismatch" >&2; exit 1; }
+    chmod 0700 "$tmp"
+    if [ -f "$final" ]; then
+      cp -p "$final" "$prev_tmp"
+      mv "$prev_tmp" /target/nas-task-scheduler-backup.sh.prev
+    fi
+    mv "$tmp" "$final"
+    trap - EXIT HUP INT TERM
+  ' sh "$local_sha" \
   < "$SOURCE"
 
-local_sha="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
 remote_sha="$(mj_docker run --rm --pull never -v "$TARGET_DIR:/target:ro" "$image" sha256sum /target/nas-task-scheduler-backup.sh | awk '{print $1}')"
 [[ "$local_sha" == "$remote_sha" ]] || { echo "✗ provisioned checksum mismatch" >&2; exit 1; }
+remote_mode="$(mj_docker run --rm --pull never -v "$TARGET_DIR:/target:ro" "$image" stat -c '%a' /target/nas-task-scheduler-backup.sh)"
+[[ "$remote_mode" == 700 ]] || { echo "✗ provisioned mode mismatch" >&2; exit 1; }
 
 cat <<EOF
 ✓ NAS backup entrypoint provisioned
