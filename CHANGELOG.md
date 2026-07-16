@@ -5,6 +5,8 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+<!-- nas-docker-runtime -->
+| 2026-07-16 | **ops: Docker runtime/data plane을 NAS remote context로 이전하는 안전 경로 추가 (ADR 0141)** — Mac build/control plane과 NAS 9-container runtime을 분리하고 전역 context 변경 없이 명시적 `--context nas`만 사용. NAS override가 infra/API host port와 Mac bind mount를 제거하고 frontend·Dozzle·Kafka UI를 loopback 기본으로 제한. 기존 PostgreSQL은 MOCK·flat·in-flight 0에서 source writer 정지→final dump→NAS 복원→전체 public table exact row count/Flyway parity→9-service health 후 로컬 stop하며 실패 시 source 자동 재기동. backup/restore/smoke/drain/daily snapshot을 context-aware하게 확장하고 safety fixture 4건을 pre-push에 연결. 매매·리스크·주문·DB schema 변경 0. (작성: backend-core/orchestrator) | `docker-compose.nas.yml`·deploy/migration/context scripts·backup/smoke/ops·ADR/policy/runbook | NAS 상시 실행 전환 시 데이터 단절·이중 consumer·port 노출·context 오발사 차단 |
 <!-- wave0-baseline-stability -->
 | 2026-07-16 | **chore(quality): Wave 0 기준선 안정화 — 재현 가능한 frontend 테스트·아키텍처 fitness·문서 drift·비파괴 task hygiene gate** — Node 24.18.0/pnpm 9.15.9 검증 경로와 worker-local Web Storage를 고정하고 Vitest worker 상한 4를 적용. 9모듈 경계·domain 격리·모듈 의존 방향/cycle·Kafka topic registry/config 정합성을 자동 검사하며 Kotlin/Gradle 문자열·주석·중첩 block comment를 구분. 현행 문서를 9모듈·Compose 9서비스·H0UNCNT0·7-agent opus·KIS/Naver Open API 기준으로 동기화하고 drift guard를 추가. DONE task 83건은 자동 이동/삭제 없이 경고만 제공. 실제 Node 24 frontend 797 tests+typecheck+build, fresh JVM 3,036 tests, architecture/docs 18 tests 및 독립 reviewer APPROVED. 제품 매매·리스크·주문·KIS·DB/Flyway·배포 동작 변경 0. (작성: orchestrator) | frontend test harness·pre-push·scripts architecture/docs/task gates·README/SoT/runbook | 운영 단계 기준선을 코드화해 환경·문서·모듈 drift를 push 전에 차단 |
 <!-- minute-pool-backfill -->

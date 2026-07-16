@@ -110,10 +110,12 @@ sequenceDiagram
 cp .env.example .env
 $EDITOR .env
 
-# 2. Gradle bootJar + Docker compose up (9 컨테이너 = 인프라 3 + 앱 4 + 운영 UI 2)
-scripts/build-and-deploy.sh
+# 2. Gradle bootJar + NAS Docker compose up (9 컨테이너 = 인프라 3 + 앱 4 + 운영 UI 2)
+# 최초 PostgreSQL 이관은 docs/operations/nas-deployment.md 절차를 먼저 수행
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" scripts/deploy-nas.sh
 
-# 3. 접속
+# 3. NAS loopback tunnel 후 접속
+ssh -N -L 3000:127.0.0.1:3000 janghoesoo@192.168.45.161
 open http://localhost:3000
 ```
 
@@ -200,6 +202,8 @@ sequenceDiagram
 ```
 
 Docker dev에서는 컨테이너가 host의 Claude CLI를 직접 실행할 수 없으므로 `scripts/claude-discovery-bridge.mjs`가 host에서 `claude -p`를 대신 실행한다. `api-app`은 `docker-compose.dev.yml` 기본값으로 `http://host.docker.internal:8787` bridge를 호출한다. Bridge는 한 번에 한 요청만 실행하며, 이미 Claude 호출이 진행 중이면 다음 요청은 busy 응답으로 돌려보낸다. timeout이 지나면 Claude 하위 프로세스를 종료하고 `_workspace/logs/claude-discovery-bridge.log`에 request id, pid, elapsedMs를 남긴다.
+
+NAS remote Docker 배포에서는 `host.docker.internal`이 Mac을 가리키지 않으므로 Claude discovery bridge를 자동 기동하지 않는다. NAS에서 bridge 기능이 필요하면 별도 인증된 network path 설계가 선행돼야 하며, 기본 NAS 배포에서는 AI 종목발굴 bridge가 비활성/degraded될 수 있다.
 
 Docker frontend(`http://localhost:3000`)는 nginx가 `/api/`를 `api-app:8080`으로 프록시한다. AI 종목발굴은 최대 300초까지 기다릴 수 있으므로 `frontend/nginx.conf`의 `proxy_read_timeout`/`proxy_send_timeout`은 310초로 맞춘다.
 

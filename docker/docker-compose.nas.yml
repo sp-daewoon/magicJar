@@ -1,0 +1,98 @@
+# magicJar NAS runtime override.
+# The Mac remains the build/control plane; every container and named volume is
+# created by the explicitly selected remote Docker context.
+name: magicjar
+
+services:
+  # Internal stateful services must never be published on the NAS host.
+  postgres:
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    ports: !reset []
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+  kafka:
+    image: apache/kafka@sha256:41c20d65b0a2180b9deca056d47540771752e69fe9225d5748dd65a25a9675d7
+    ports: !reset []
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+    volumes: !override
+      - kafka_data:/tmp/kafka-logs
+  redis:
+    image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    ports: !reset []
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+    volumes: !override
+      - redis_data:/data
+
+  # Operator UIs are loopback-only. Reach them through an SSH tunnel when needed.
+  dozzle:
+    image: amir20/dozzle@sha256:6f4644814cce31e11fe80f2610515df6a5a2e40120b4087c298a72df8d65866b
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+    ports: !override
+      - "127.0.0.1:${DOZZLE_HOST_PORT:-8888}:8080"
+  kafka-ui:
+    image: provectuslabs/kafka-ui@sha256:8f2ff02d64b0a7a2b71b6b3b3148b85f66d00ec20ad40c30bdcd415d46d31818
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+    ports: !override
+      - "127.0.0.1:${KAFKA_UI_HOST_PORT:-8090}:8080"
+
+  api-app:
+    image: magicjar/api:${MAGICJAR_IMAGE_TAG:?MAGICJAR_IMAGE_TAG must be an immutable Git SHA}
+    labels:
+      org.opencontainers.image.revision: ${MAGICJAR_GIT_SHA:?MAGICJAR_GIT_SHA is required}
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    env_file: !override
+      - ${MAGICJAR_ENV_FILE:?MAGICJAR_ENV_FILE must be an absolute path}
+    ports: !reset []
+    # Base compose binds Mac workspace paths. They do not exist on the NAS daemon.
+    volumes: !reset []
+
+  batch-app:
+    image: magicjar/batch:${MAGICJAR_IMAGE_TAG:?MAGICJAR_IMAGE_TAG must be an immutable Git SHA}
+    labels:
+      org.opencontainers.image.revision: ${MAGICJAR_GIT_SHA:?MAGICJAR_GIT_SHA is required}
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 90s
+    env_file: !override
+      - ${MAGICJAR_ENV_FILE:?MAGICJAR_ENV_FILE must be an absolute path}
+    ports: !reset []
+
+  consumer-app:
+    image: magicjar/consumer:${MAGICJAR_IMAGE_TAG:?MAGICJAR_IMAGE_TAG must be an immutable Git SHA}
+    labels:
+      org.opencontainers.image.revision: ${MAGICJAR_GIT_SHA:?MAGICJAR_GIT_SHA is required}
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 90s
+    env_file: !override
+      - ${MAGICJAR_ENV_FILE:?MAGICJAR_ENV_FILE must be an absolute path}
+    ports: !reset []
+
+  # The frontend is the only LAN-facing entry point and proxies /api and /ws
+  # through the internal Compose network. Safe default is NAS loopback.
+  frontend:
+    image: magicjar/frontend:${MAGICJAR_IMAGE_TAG:?MAGICJAR_IMAGE_TAG must be an immutable Git SHA}
+    labels:
+      org.opencontainers.image.revision: ${MAGICJAR_GIT_SHA:?MAGICJAR_GIT_SHA is required}
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+    ports: !override
+      - "${NAS_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_HOST_PORT:-3000}:80"
+
+volumes:
+  kafka_data:
+    name: magicjar_kafka_data
+  redis_data:
+    name: magicjar_redis_data

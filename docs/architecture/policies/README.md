@@ -29,6 +29,7 @@ magicJar는 **메타 룰**을 두 층위로 분리한다:
 | **외부 통합** | KIS Credential 식별 규약 | [kis-credential-identity.md](kis-credential-identity.md) | 낮음 |
 | **외부 통합** | KIS-first raw fetch 의무 | [kis-first-raw-fetch.md](kis-first-raw-fetch.md) | 낮음 |
 | **운영** | 모듈별 로그 레벨 | [logging-levels.md](logging-levels.md) | 중간 |
+| **운영** | Docker 배포 토폴로지 (Mac build/control + NAS runtime/data) | [deployment-topology.md](deployment-topology.md) | 낮음 |
 | **운영** | Task 사이클 (start·check·done·archive) | [task-cycle.md](task-cycle.md) | 낮음 |
 | **운영** | Mermaid 작성 규약 (mermaid 10 호환) | [mermaid-conventions.md](mermaid-conventions.md) | 낮음 |
 | **자동매매** | BUY 전 손절/익절 RiskPlan 필수화 | [autotrading-risk-plan.md](autotrading-risk-plan.md) | 중간 |

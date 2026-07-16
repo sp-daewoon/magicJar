@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+node_modules
+dist
+coverage
+playwright-report
+test-results
+*.log
+src/**/__tests__
+src/**/*.test.*
+src/**/*.spec.*
