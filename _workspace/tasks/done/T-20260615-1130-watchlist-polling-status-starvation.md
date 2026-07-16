@@ -3,10 +3,10 @@ id: T-20260615-1130-watchlist-polling-status-starvation
 agent: market-data
 model: opus
 branch: agent/market-data/watchlist-polling-status-starvation
-status: RUNNING
+status: DONE
 startedAt: 2026-06-15T11:30:53.828+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.078+09:00
+pr: #977
 parentPhase: ?
 ---
 

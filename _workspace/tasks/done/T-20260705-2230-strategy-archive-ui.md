@@ -3,10 +3,10 @@ id: T-20260705-2230-strategy-archive-ui
 agent: frontend
 model: opus
 branch: agent/frontend/strategy-archive-ui
-status: RUNNING
+status: DONE
 startedAt: 2026-07-05T22:30:11.425+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.380+09:00
+pr: #1147
 parentPhase: ?
 ---
 

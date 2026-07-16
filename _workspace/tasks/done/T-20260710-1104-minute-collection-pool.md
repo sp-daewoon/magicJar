@@ -3,10 +3,10 @@ id: T-20260710-1104-minute-collection-pool
 agent: market-data
 model: opus
 branch: agent/market-data/minute-collection-pool
-status: RUNNING
+status: DONE
 startedAt: 2026-07-10T11:04:04.052+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.681+09:00
+pr: #1164
 parentPhase: ?
 ---
 

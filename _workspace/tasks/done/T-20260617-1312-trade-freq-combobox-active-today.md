@@ -3,10 +3,10 @@ id: T-20260617-1312-trade-freq-combobox-active-today
 agent: frontend
 model: opus
 branch: agent/frontend/trade-freq-combobox-active-today
-status: RUNNING
+status: DONE
 startedAt: 2026-06-17T13:12:13.099+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:17.308+09:00
+pr: #1033
 parentPhase: ?
 ---
 

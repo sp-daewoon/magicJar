@@ -3,10 +3,10 @@ id: T-20260706-1105-notick-fallback-backoff
 agent: market-data
 model: opus
 branch: agent/market-data/notick-fallback-backoff
-status: RUNNING
+status: DONE
 startedAt: 2026-07-06T11:05:29.252+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:03:18.500+09:00
+pr: #1154
 parentPhase: ?
 ---
 
