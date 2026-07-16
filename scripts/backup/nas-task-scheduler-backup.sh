@@ -41,11 +41,16 @@ find_docker() {
 }
 
 sha256_file() {
+  checksum_line=""
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
+    checksum_line="$(sha256sum "$1")" || return 1
   else
-    shasum -a 256 "$1" | awk '{print $1}'
+    checksum_line="$(shasum -a 256 "$1")" || return 1
   fi
+  checksum="${checksum_line%% *}"
+  [ "${#checksum}" -eq 64 ] || return 1
+  case "$checksum" in *[!0-9a-fA-F]*) return 1 ;; esac
+  printf '%s\n' "$checksum"
 }
 
 boot_id() {
@@ -127,7 +132,7 @@ log "creating PostgreSQL custom-format dump"
 "$DOCKER_BIN" exec "$POSTGRES_CONTAINER" pg_dump -U magicjar -d magicjar -Fc > "$PG_PARTIAL"
 [ -s "$PG_PARTIAL" ] || fail "PostgreSQL dump is empty"
 "$DOCKER_BIN" exec -i "$POSTGRES_CONTAINER" pg_restore --list < "$PG_PARTIAL" >/dev/null || fail "pg_restore --list validation failed"
-PG_SHA="$(sha256_file "$PG_PARTIAL")"
+PG_SHA="$(sha256_file "$PG_PARTIAL")" || fail "PostgreSQL checksum failed"
 printf '%s  %s\n' "$PG_SHA" postgres.dump > "$PARTIAL_SET/postgres.dump.sha256"
 printf 'created_at_kst=%s\ncontainer=%s\ncompose_project=magicjar\ncompose_service=postgres\nsha256=%s\nvalidation=pg_restore_list_pass\n' \
   "$TIMESTAMP" "$POSTGRES_CONTAINER" "$PG_SHA" > "$PARTIAL_SET/postgres.dump.meta"
@@ -151,7 +156,7 @@ while :; do
 done
 "$DOCKER_BIN" cp "$REDIS_CONTAINER:/data/dump.rdb" "$REDIS_PARTIAL"
 [ -s "$REDIS_PARTIAL" ] || fail "Redis snapshot is empty"
-REDIS_SHA="$(sha256_file "$REDIS_PARTIAL")"
+REDIS_SHA="$(sha256_file "$REDIS_PARTIAL")" || fail "Redis checksum failed"
 printf '%s  %s\n' "$REDIS_SHA" redis.rdb > "$PARTIAL_SET/redis.rdb.sha256"
 printf 'created_at_kst=%s\ncontainer=%s\ncompose_project=magicjar\ncompose_service=redis\nsha256=%s\nvalidation=fresh_bgsave_pass\n' \
   "$TIMESTAMP" "$REDIS_CONTAINER" "$REDIS_SHA" > "$PARTIAL_SET/redis.rdb.meta"
