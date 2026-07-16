@@ -3,10 +3,10 @@ id: T-20260709-0737-worktree-agent-a7c8f4bd3d29f5ed8
 agent: architect
 model: opus
 branch: docs/onboarding-architecture-current
-status: RUNNING
+status: DONE
 startedAt: 2026-07-09T07:37:46.273+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T23:11:49.382+09:00
+pr: #1171
 parentPhase: ?
 ---
 
