@@ -34,11 +34,7 @@ case "${1:-}" in -h|--help|help) usage; exit 0 ;; "") ;; *) usage >&2; exit 2 ;;
 [[ -f "$SOURCE" ]] || { echo "✗ source missing: $SOURCE" >&2; exit 1; }
 validate_nas_path() {
   local value="$1"
-  case "$value" in
-    /volume1/docker/magicjar/*) ;;
-    *) return 1 ;;
-  esac
-  [[ "$value" != *..* && "$value" != *:* && "$value" != *$'\n'* ]]
+  [[ "$value" == /volume1/docker/magicjar/ops || "$value" == /volume1/docker/magicjar/backups ]]
 }
 validate_nas_path "$TARGET_DIR" || { echo "✗ unsafe target dir: $TARGET_DIR" >&2; exit 1; }
 validate_nas_path "$BACKUP_ROOT" || { echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1; }
@@ -65,6 +61,16 @@ actual_endpoint="$(mj_docker_endpoint)"
 }
 image="$(mj_docker inspect magicjar-postgres --format '{{.Config.Image}}')"
 [[ -n "$image" ]] || { echo "✗ magicjar-postgres image unresolved" >&2; exit 1; }
+
+mj_docker run --rm --pull never \
+  -v /volume1/docker/magicjar:/nas-root \
+  "$image" sh -ceu '
+    for path in /nas-root/ops /nas-root/backups; do
+      [ ! -L "$path" ] || { echo "symlink path rejected: $path" >&2; exit 1; }
+      mkdir -p "$path"
+      [ "$(readlink -f "$path")" = "$path" ] || { echo "non-canonical path rejected: $path" >&2; exit 1; }
+    done
+  '
 
 local_sha="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
 mj_docker run --rm --pull never -i \

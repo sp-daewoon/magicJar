@@ -19,7 +19,9 @@ FINAL_SET="$SET_ROOT/$TIMESTAMP"
 PARTIAL_SET="$SET_ROOT/.$TIMESTAMP.partial.$$"
 PG_PARTIAL="$PARTIAL_SET/postgres.dump"
 REDIS_PARTIAL="$PARTIAL_SET/redis.rdb"
-LOCK_DIR="$BACKUP_ROOT/.backup.lock"
+LOCK_FILE="$BACKUP_ROOT/.backup.lock"
+LOCK_CANDIDATE="$BACKUP_ROOT/.backup.lock.candidate.$$"
+LOCK_TOKEN=""
 LOCK_HELD=0
 
 log() { printf '%s %s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
@@ -64,32 +66,39 @@ process_start_ticks() {
 }
 
 lock_owner_is_alive() {
-  [ -r "$LOCK_DIR/owner" ] || return 1
-  read -r owner_pid owner_boot owner_ticks < "$LOCK_DIR/owner" || return 1
+  [ -r "$LOCK_FILE" ] || return 1
+  read -r owner_token owner_pid owner_boot owner_ticks < "$LOCK_FILE" || return 1
+  [ -n "$owner_token" ] || return 1
   [ "$owner_boot" = "$(boot_id)" ] || return 1
   kill -0 "$owner_pid" 2>/dev/null || return 1
+  [ "$owner_ticks" != unknown ] || return 0
   current_ticks="$(process_start_ticks "$owner_pid" 2>/dev/null || true)"
   [ -n "$current_ticks" ] && [ "$current_ticks" = "$owner_ticks" ]
 }
 
 acquire_lock() {
-  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    lock_owner_is_alive && fail "another backup is running (lock=$LOCK_DIR)"
-    stale="$LOCK_DIR.stale.$$"
-    mv "$LOCK_DIR" "$stale" 2>/dev/null || fail "backup lock changed while reclaiming"
-    rm -rf "$stale"
-    mkdir "$LOCK_DIR" 2>/dev/null || fail "backup lock acquisition raced"
-    log "reclaimed stale backup lock"
-  fi
   owner_ticks="$(process_start_ticks "$$" 2>/dev/null || printf '%s' unknown)"
-  printf '%s %s %s\n' "$$" "$(boot_id)" "$owner_ticks" > "$LOCK_DIR/owner"
+  owner_boot="$(boot_id)"
+  LOCK_TOKEN="$owner_boot:$$:$owner_ticks:$(date +%s)"
+  printf '%s %s %s %s\n' "$LOCK_TOKEN" "$$" "$owner_boot" "$owner_ticks" > "$LOCK_CANDIDATE"
+  while ! ln "$LOCK_CANDIDATE" "$LOCK_FILE" 2>/dev/null; do
+    [ -e "$LOCK_FILE" ] || fail "cannot create backup lock"
+    lock_owner_is_alive && fail "another backup is running (lock=$LOCK_FILE)"
+    stale="$LOCK_FILE.stale.$$"
+    mv "$LOCK_FILE" "$stale" 2>/dev/null || continue
+    rm -f "$stale"
+    log "reclaimed stale backup lock"
+  done
+  rm -f "$LOCK_CANDIDATE"
   LOCK_HELD=1
 }
 
 cleanup() {
   rm -rf "$PARTIAL_SET"
+  rm -f "$LOCK_CANDIDATE"
   if [ "$LOCK_HELD" -eq 1 ]; then
-    rm -rf "$LOCK_DIR"
+    current_token="$(awk 'NR==1 {print $1}' "$LOCK_FILE" 2>/dev/null || true)"
+    [ "$current_token" != "$LOCK_TOKEN" ] || rm -f "$LOCK_FILE"
     LOCK_HELD=0
   fi
 }
@@ -112,8 +121,8 @@ validate_container() {
 DOCKER_BIN="$(find_docker)" || fail "docker CLI not found"
 case "$REDIS_BGSAVE_TIMEOUT_SECONDS" in ''|*[!0-9]*) fail "invalid Redis BGSAVE timeout" ;; esac
 mkdir -p "$SET_ROOT"
-[ ! -e "$FINAL_SET" ] || fail "backup set already exists: $FINAL_SET"
 acquire_lock
+[ ! -e "$FINAL_SET" ] || fail "backup set already exists: $FINAL_SET"
 # Exclusive ownership is established, so every pre-existing hidden partial set
 # is crash residue rather than a live backup.
 find "$SET_ROOT" -mindepth 1 -maxdepth 1 -type d -name '.*.partial.*' -exec rm -rf '{}' ';'
@@ -163,7 +172,14 @@ printf 'created_at_kst=%s\ncontainer=%s\ncompose_project=magicjar\ncompose_servi
 
 chmod 0600 "$PARTIAL_SET"/*
 # One same-filesystem directory rename is the commit marker for the verified PG+Redis set.
-mv "$PARTIAL_SET" "$FINAL_SET"
+[ ! -e "$FINAL_SET" ] || fail "backup set collision before publish: $FINAL_SET"
+mv "$PARTIAL_SET" "$FINAL_SET" || fail "backup set publish failed"
+for required in postgres.dump postgres.dump.sha256 postgres.dump.meta redis.rdb redis.rdb.sha256 redis.rdb.meta; do
+  [ -f "$FINAL_SET/$required" ] || fail "published backup set missing $required"
+done
+file_count="$(find "$FINAL_SET" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')"
+dir_count="$(find "$FINAL_SET" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+[ "$file_count" -eq 6 ] && [ "$dir_count" -eq 0 ] || fail "published backup set shape invalid"
 
 find "$SET_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+$RETENTION_DAYS" ! -name '.*' -exec rm -rf '{}' ';'
 log "BACKUP_PASS set=$FINAL_SET postgres_sha256=$PG_SHA redis_sha256=$REDIS_SHA"
