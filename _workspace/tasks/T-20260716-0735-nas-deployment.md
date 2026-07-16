@@ -3,10 +3,10 @@ id: T-20260716-0735-nas-deployment
 agent: backend-core
 model: opus
 branch: agent/backend-core/nas-deployment
-status: RUNNING
+status: DONE
 startedAt: 2026-07-16T07:35:25.331+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T16:01:22.405+09:00
+pr: #1167
 parentPhase: ?
 ---
 
