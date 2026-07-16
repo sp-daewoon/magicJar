@@ -121,6 +121,9 @@ class OrderRouterKafkaListener(
     // v3.13.1 — 주문 hot path 는 계좌 availability Redis snapshot read 만 수행. KIS REST 호출은 refresh worker 전용.
     private val accountAvailabilitySnapshotPortProvider: ObjectProvider<AccountAvailabilitySnapshotPort>? = null,
     private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
+    // ADR 0142 §3-4 — Spring에서는 항상 주입되어 신규 BUY를 fail-closed한다.
+    // null default는 기존 direct-constructor 단위 fixture만 격리하며 Spring production path에는 사용되지 않는다.
+    private val executionNoticeReadinessGuardProvider: ObjectProvider<ExecutionNoticeReadinessGuard>? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     @Value("\${magicjar.signal.market-hours-gate.enabled:true}")
@@ -304,11 +307,21 @@ class OrderRouterKafkaListener(
                 return
             }
 
-            val syncResult = ensureKisExecutionSync(intent, mode)
-            if (!syncResult.allowed) {
-                handleRejected(intent, mode, syncResult.reason, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
+            val executionReadinessDeny = evaluateExecutionNoticeReadiness(intent, mode)
+            if (executionReadinessDeny != null) {
+                handleRejected(intent, mode, executionReadinessDeny, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
                 ack.acknowledge()
                 return
+            }
+
+            // ADR 0142 §3-4 — sync/readiness 결함으로 청산을 막지 않는다. 신규 BUY에만 기존 sync gate 유지.
+            if (intent.side == OrderSide.BUY) {
+                val syncResult = ensureKisExecutionSync(intent, mode)
+                if (!syncResult.allowed) {
+                    handleRejected(intent, mode, syncResult.reason, OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
+                    ack.acknowledge()
+                    return
+                }
             }
 
             // ADR 0109 — canary 전역 hard cap (3중게이트·KillSwitch·장운영시간·KIS sync 통과 후, INSERT 이전).
@@ -703,6 +716,31 @@ class OrderRouterKafkaListener(
         companion object {
             val ALLOWED = SyncGateResult(true, "OK")
         }
+    }
+
+    private fun evaluateExecutionNoticeReadiness(
+        intent: OrderIntent,
+        mode: TradingMode,
+    ): String? {
+        if (intent.side != OrderSide.BUY) return null
+
+        val decision =
+            try {
+                executionNoticeReadinessGuardProvider
+                    ?.getIfAvailable()
+                    ?.evaluate(mode)
+                    ?: ExecutionReadinessDecision.Denied(
+                        state = "GUARD_BEAN_ABSENT",
+                        reason = "EXECUTION_READINESS_GUARD_UNAVAILABLE",
+                    )
+            } catch (e: Exception) {
+                log.error("KIS execution readiness guard 조회 실패 (new BUY fail-closed): type={}", e.javaClass.simpleName)
+                ExecutionReadinessDecision.Denied(
+                    state = "STATUS_ERROR",
+                    reason = "STATUS_QUERY_FAILED",
+                )
+            }
+        return (decision as? ExecutionReadinessDecision.Denied)?.rejectionReason()
     }
 
     /**

@@ -9,6 +9,8 @@ import kr.spdaewoon.magicjar.consumer.infrastructure.session.SimpleMarketSession
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerStrategyJpaRepository
 import kr.spdaewoon.magicjar.consumer.persistence.KillSwitchJpaRepository
+import kr.spdaewoon.magicjar.consumer.ws.KisWebSocketBridge
+import kr.spdaewoon.magicjar.consumer.ws.WsStatusSnapshot
 import kr.spdaewoon.magicjar.domain.market.session.BusinessDayCalendar
 import kr.spdaewoon.magicjar.domain.messaging.KafkaTopics
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
@@ -130,8 +132,16 @@ class OrderRouterKafkaListenerTest {
             every { it.getIfAvailable() } returns null
         }
 
-    // ADR 0115 §P2-2 — SELL 거부 자동정지 tracker. 본 테스트는 12 step 라우팅을 검증하므로 relaxed(부작용 무시).
+    // ADR 0115 §P2-2 — 같은 전략·종목 SELL 거부 N회 누적 시 자동 정지 + 1회 알림(유령 매도 폭주 차단).
     private val sellRejectAutoPauseTracker = mockk<SellRejectAutoPauseTracker>(relaxed = true)
+    private val readyExecutionGuard =
+        mockk<ExecutionNoticeReadinessGuard>().also {
+            every { it.evaluate(any()) } returns ExecutionReadinessDecision.Allowed
+        }
+    private val readyExecutionGuardProvider =
+        mockk<ObjectProvider<ExecutionNoticeReadinessGuard>>().also {
+            every { it.getIfAvailable() } returns readyExecutionGuard
+        }
     private val strategyReplayService = mockk<StrategyPositionExecutionReplayService>(relaxed = true)
     private val strategyReplayServiceProvider =
         mockk<ObjectProvider<StrategyPositionExecutionReplayService>>().also {
@@ -166,6 +176,7 @@ class OrderRouterKafkaListenerTest {
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
             strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
             strategyPositionRebuildAdapterProvider = strategyRebuildAdapterProvider,
             marketHoursGateEnabled = false,
@@ -219,6 +230,7 @@ class OrderRouterKafkaListenerTest {
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
             strategyPositionExecutionReplayServiceProvider = strategyReplayServiceProvider,
             consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
             magicjarMode = mode,
@@ -511,6 +523,7 @@ class OrderRouterKafkaListenerTest {
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+                executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
                 consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
                 magicjarMode = "REAL",
                 marketHoursGateEnabled = false,
@@ -635,6 +648,7 @@ class OrderRouterKafkaListenerTest {
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+                executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
                 marketHoursGateEnabled = false,
             )
 
@@ -796,6 +810,7 @@ class OrderRouterKafkaListenerTest {
                     objectMapper = objectMapper,
                     holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                     sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+                    executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
                     marketHoursGateEnabled = true,
                 ),
             )
@@ -878,6 +893,7 @@ class OrderRouterKafkaListenerTest {
                 objectMapper = objectMapper,
                 holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
                 sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+                executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
             )
 
         // KST 2026-05-20(수) 10:00 = UTC 2026-05-20T01:00:00Z
@@ -1133,6 +1149,7 @@ class OrderRouterKafkaListenerTest {
             objectMapper = objectMapper,
             holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
             sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            executionNoticeReadinessGuardProvider = readyExecutionGuardProvider,
             tradeFrequencyGuardProvider = tradeFrequencyGuardProvider,
             consumerStrategyJpaRepositoryProvider = strategyRepoProvider,
             magicjarMode = mode,
@@ -1168,6 +1185,241 @@ class OrderRouterKafkaListenerTest {
     // ─────────────────────────────────────────────────────────────────────────
     // helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `execution readiness READY인 AUTO BUY는 기존 sync와 KIS submit까지 진행한다`() {
+        stubSuccessfulOrder(mode = TradingMode.REAL)
+        val bridge = bridgeWithStatus("READY")
+        val ack = mockk<Acknowledgment>(relaxed = true)
+
+        listenerWithExecutionReadiness(bridge).onOrderIntent(buildRecord(stubPayload()), ack)
+
+        verify(exactly = 1) { executionBackfillService.syncUserTodayExecutions("12345678", AccountType.REAL) }
+        verify(exactly = 1) { kisOrderPort.submit(any(), TradingMode.REAL) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    @Test
+    fun `REAL execution READY여도 resolved MOCK BUY는 mode mismatch로 reject한다`() {
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("READY"),
+            payload = stubPayload(),
+            expectedState = "MODE_MISMATCH",
+            mode = TradingMode.MOCK,
+        )
+    }
+
+    @Test
+    fun `execution readiness NOT_CONFIGURED인 AUTO BUY는 reject audit Kafka ack 후 KIS submit하지 않는다`() {
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("NOT_CONFIGURED", "MOCK execution not configured <phase1>"),
+            payload = stubPayload(),
+            expectedState = "NOT_CONFIGURED",
+        )
+    }
+
+    @Test
+    fun `execution readiness DEGRADED인 MANUAL BUY도 reject한다`() {
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("DEGRADED", "subscribe ack pending"),
+            payload = manualPayload(),
+            expectedState = "DEGRADED",
+        )
+    }
+
+    @Test
+    fun `execution readiness status 조회 예외인 BUY는 fail-closed한다`() {
+        val bridge = mockk<KisWebSocketBridge>()
+        every { bridge.wsStatusSnapshot() } throws IllegalStateException("secret-token")
+
+        assertExecutionReadinessDenied(bridge, stubPayload(), "STATUS_ERROR")
+    }
+
+    @Test
+    fun `KisWebSocketBridge bean 부재인 BUY는 fail-closed한다`() {
+        assertExecutionReadinessDenied(null, stubPayload(), "BEAN_ABSENT")
+    }
+
+    @Test
+    fun `execution readiness guard provider 자체가 없으면 BUY를 fail-closed한다`() {
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("READY"),
+            payload = stubPayload(),
+            expectedState = "GUARD_BEAN_ABSENT",
+            targetListener = listenerWithExecutionReadiness(bridge = null, guardProvider = null),
+        )
+        verify(exactly = 1) { tradeFrequencyGuard.removeRecord(100L, "12345678", 42L) }
+    }
+
+    @Test
+    fun `execution readiness provider 조회 예외는 보상 reject 경로를 탄다`() {
+        val throwingProvider = mockk<ObjectProvider<ExecutionNoticeReadinessGuard>>()
+        every { throwingProvider.getIfAvailable() } throws IllegalStateException("secret-provider-error")
+
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("READY"),
+            payload = stubPayload(),
+            expectedState = "STATUS_ERROR",
+            targetListener = listenerWithExecutionReadiness(bridge = null, guardProvider = throwingProvider),
+        )
+        verify(exactly = 1) { tradeFrequencyGuard.removeRecord(100L, "12345678", 42L) }
+    }
+
+    @Test
+    fun `execution readiness guard 예외는 보상 reject 경로를 탄다`() {
+        val throwingGuard = mockk<ExecutionNoticeReadinessGuard>()
+        every { throwingGuard.evaluate(any()) } throws IllegalStateException("secret-guard-error")
+        val provider = mockk<ObjectProvider<ExecutionNoticeReadinessGuard>>()
+        every { provider.getIfAvailable() } returns throwingGuard
+
+        assertExecutionReadinessDenied(
+            bridge = bridgeWithStatus("READY"),
+            payload = stubPayload(),
+            expectedState = "STATUS_ERROR",
+            targetListener = listenerWithExecutionReadiness(bridge = null, guardProvider = provider),
+        )
+        verify(exactly = 1) { tradeFrequencyGuard.removeRecord(100L, "12345678", 42L) }
+    }
+
+    @Test
+    fun `SELL은 execution readiness와 execution sync가 모두 없어도 KIS submit까지 진행한다`() {
+        stubSuccessfulOrder(side = OrderSide.SELL)
+        val absentSyncProvider = mockk<ObjectProvider<KisExecutionBackfillService>>()
+        every { absentSyncProvider.getIfAvailable() } returns null
+        val ack = mockk<Acknowledgment>(relaxed = true)
+
+        listenerWithExecutionReadiness(null, absentSyncProvider).onOrderIntent(buildRecord(sellPayload()), ack)
+
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
+        verify(exactly = 1) { kisOrderPort.submit(match { it.side == OrderSide.SELL }, TradingMode.MOCK) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    private fun assertExecutionReadinessDenied(
+        bridge: KisWebSocketBridge?,
+        payload: String,
+        expectedState: String,
+        mode: TradingMode = TradingMode.REAL,
+        targetListener: OrderRouterKafkaListener = listenerWithExecutionReadiness(bridge),
+    ) {
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(mode)
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 601L) }
+        val ack = mockk<Acknowledgment>(relaxed = true)
+
+        targetListener.onOrderIntent(buildRecord(payload), ack)
+
+        verify(exactly = 1) {
+            orderRepo.save(match { it.status == OrderStatus.REJECTED && it.rejectReason?.contains(expectedState) == true })
+        }
+        verify(exactly = 1) {
+            rejectedProducer.publish(any(), match { it.startsWith("EXECUTION_NOTICE_NOT_READY") && it.contains(expectedState) })
+        }
+        val audits = mutableListOf<OrderAuditEvent>()
+        verify(atLeast = 1) { auditRepo.save(capture(audits)) }
+        assertThat(audits.map { it.eventType }).contains(OrderAuditEventType.KIS_EXECUTION_SYNC_STALE)
+        verify(exactly = 0) { executionBackfillService.syncUserTodayExecutions(any(), any()) }
+        verify(exactly = 0) { kisOrderPort.submit(any(), any()) }
+        verify(exactly = 1) { ack.acknowledge() }
+    }
+
+    private fun listenerWithExecutionReadiness(
+        bridge: KisWebSocketBridge?,
+        syncProvider: ObjectProvider<KisExecutionBackfillService> = executionBackfillProvider,
+        guardProvider: ObjectProvider<ExecutionNoticeReadinessGuard>? = executionGuardProvider(bridge),
+    ): OrderRouterKafkaListener =
+        OrderRouterKafkaListener(
+            orderRequestRepositoryProvider = orderRepoProvider,
+            orderAuditEventRepositoryProvider = auditRepoProvider,
+            killSwitchQueryPortProvider = killSwitchProvider,
+            tradingModeGate = tradingModeGate,
+            orderIdempotencyGuard = idempotencyGuard,
+            kisOrderPort = kisOrderPort,
+            orderRequestedKafkaProducer = requestedProducer,
+            orderRejectedKafkaProducer = rejectedProducer,
+            accountBalanceChangedKafkaProducer = accountBalanceChangedProducer,
+            executionBackfillServiceProvider = syncProvider,
+            killSwitchJpaRepositoryProvider = killSwitchJpaRepositoryProvider,
+            marketSessionResolver = marketSessionResolver,
+            businessDayCalendarProvider = businessDayCalendarProvider,
+            objectMapper = objectMapper,
+            holdingDemandRegistrarProvider = holdingDemandRegistrarProvider,
+            sellRejectAutoPauseTracker = sellRejectAutoPauseTracker,
+            executionNoticeReadinessGuardProvider = guardProvider,
+            tradeFrequencyGuardProvider = tradeFrequencyGuardProvider,
+            marketHoursGateEnabled = false,
+        )
+
+    private fun executionGuardProvider(bridge: KisWebSocketBridge?): ObjectProvider<ExecutionNoticeReadinessGuard> {
+        val bridgeProvider = mockk<ObjectProvider<KisWebSocketBridge>>()
+        every { bridgeProvider.getIfAvailable() } returns bridge
+        return mockk<ObjectProvider<ExecutionNoticeReadinessGuard>>().also {
+            every { it.getIfAvailable() } returns ExecutionNoticeReadinessGuard(bridgeProvider)
+        }
+    }
+
+    private fun bridgeWithStatus(
+        state: String,
+        reason: String? = null,
+    ): KisWebSocketBridge =
+        mockk<KisWebSocketBridge>().also { bridge ->
+            every { bridge.wsStatusSnapshot() } returns
+                WsStatusSnapshot(
+                    connected = state == "READY",
+                    sessionCid = null,
+                    reconnects24h = 0,
+                    lastConnectedAtMs = null,
+                    executionSubscribed = state == "READY",
+                    executionConnected = state == "READY",
+                    executionAck = state == "READY",
+                    executionAes = state == "READY",
+                    executionMode = "REAL",
+                    executionTrId = "H0STCNI0",
+                    executionTransport = "PROD_SHARED",
+                    executionUserIdMasked = null,
+                    executionState = state,
+                    executionDegradedReason = reason,
+                )
+        }
+
+    private fun stubSuccessfulOrder(
+        side: OrderSide = OrderSide.BUY,
+        mode: TradingMode = TradingMode.MOCK,
+    ) {
+        val accountType = if (mode == TradingMode.REAL) AccountType.REAL else AccountType.MOCK
+        every { idempotencyGuard.acquire(any(), any()) } returns true
+        every { tradingModeGate.resolveMode("12345678") } returns OrderResult.Right(mode)
+        every { killSwitchPort.isOn("12345678") } returns false
+        every { executionBackfillService.syncUserTodayExecutions("12345678", accountType) } returns
+            KisExecutionSyncResult(
+                userId = "12345678",
+                accountType = accountType,
+                fetched = 0,
+                inserted = 0,
+                alreadySynced = 0,
+                failed = 0,
+                error = null,
+                syncedAt = Instant.parse("2026-07-16T00:00:00Z"),
+            )
+        every { orderRepo.save(any()) } answers { firstArg<OrderRequest>().copy(id = 600L) }
+        every { orderRepo.findByKisOrderNo("ODNO_READY") } returns null
+        every { kisOrderPort.submit(match { it.side == side }, mode) } returns
+            OrderResult.Right(KisOrderAck("ODNO_READY", "ORG001", "0", "OK"))
+    }
+
+    private fun sellPayload(): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "signalId" to 43,
+                "strategyId" to 100,
+                "userId" to "12345678",
+                "code" to "005930",
+                "side" to "SELL",
+                "quantity" to 1,
+                "emittedAt" to 1747094405L,
+                "source" to "AUTO",
+            ),
+        )
 
     private fun stubPayload(): String =
         objectMapper.writeValueAsString(

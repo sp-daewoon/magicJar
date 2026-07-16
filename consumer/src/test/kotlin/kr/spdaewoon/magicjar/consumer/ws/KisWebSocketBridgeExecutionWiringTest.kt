@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.config.KisWsTransportProperties
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -181,10 +182,13 @@ class KisWebSocketBridgeExecutionWiringTest {
             liveCandleUpdater = mockk(relaxed = true),
             quoteCachePort = quoteCachePort,
             wsClient = wsClient,
-            wsUrlProd = "ws://localhost:21000",
-            wsUrlVps = "ws://localhost:31000",
+            wsTransport =
+                KisWsTransportProperties(
+                    urlProd = "ws://ops.koreainvestment.com:21000",
+                    credentialOwnerId = defaultUserId,
+                    htsId = defaultUserId,
+                ),
             magicjarMode = magicjarMode,
-            defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,

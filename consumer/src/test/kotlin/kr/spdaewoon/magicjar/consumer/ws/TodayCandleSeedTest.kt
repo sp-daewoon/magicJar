@@ -5,9 +5,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.datetime.Clock
+import kr.spdaewoon.magicjar.consumer.config.KisWsTransportProperties
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.market.LiveCandleUpdater
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialId
+import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaEntity
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.PriceMetrics
@@ -107,10 +110,13 @@ class TodayCandleSeedTest {
                 liveCandleUpdater = liveCandleUpdater,
                 quoteCachePort = quoteCachePort,
                 wsClient = wsClient,
-                wsUrlProd = "ws://localhost:21000",
-                wsUrlVps = "ws://localhost:31000",
+                wsTransport =
+                    KisWsTransportProperties(
+                        urlProd = "ws://ops.koreainvestment.com:21000",
+                        credentialOwnerId = "user001",
+                        htsId = "user001",
+                    ),
                 magicjarMode = "REAL",
-                defaultUserId = "user001",
                 executionListenerProvider = execProvider,
                 systemEventLogger = systemEventLogger,
                 priceMetricsPortProvider = metricsProvider,
@@ -118,9 +124,17 @@ class TodayCandleSeedTest {
                     mockk<ObjectProvider<ConsumerUserKisCredentialJpaRepository>>(
                         relaxed = true,
                     ).also {
-                        every {
-                            it.ifAvailable
-                        } returns null
+                        val repository = mockk<ConsumerUserKisCredentialJpaRepository>()
+                        every { repository.findAllByAccountType("REAL") } returns
+                            listOf(
+                                ConsumerUserKisCredentialJpaEntity(
+                                    id = ConsumerUserKisCredentialId(userId = "user001", accountType = "REAL"),
+                                    accountNumber = "user001",
+                                    appKeyEnc = byteArrayOf(1),
+                                    secretKeyEnc = byteArrayOf(1),
+                                ),
+                            )
+                        every { it.ifAvailable } returns repository
                     },
                 todayCandleSeedPreOpenGuardEnabled = false,
                 slotLedgerProvider =

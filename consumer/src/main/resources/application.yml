@@ -277,8 +277,9 @@ magicjar:
     # 주의: KIS WS 서버는 ws:// 사용. wss:// 연결 시 SSL handshake timeout 발생.
     ws:
       url-prod: ${MAGICJAR_KIS_WS_URL_PROD:ws://ops.koreainvestment.com:21000}
-      url-vps: ${MAGICJAR_KIS_WS_URL_VPS:ws://ops.koreainvestment.com:31000}
-      user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # KIS WS approval_key 발급 사용자 ID
+      credential-owner-id: ${MAGICJAR_KIS_WS_CREDENTIAL_OWNER_ID:} # user_kis_credential row lookup identity
+      hts-id: ${MAGICJAR_KIS_WS_HTS_ID:}         # H0STCNI0 tr_key (credential owner와 별개)
+      user-id: ${MAGICJAR_KIS_WS_USER_ID:}       # legacy credential-owner fallback only (HTS ID fallback 금지)
       heartbeat-timeout-seconds: ${MAGICJAR_KIS_WS_HEARTBEAT_TIMEOUT:10}
       polling-fallback-timeout-seconds: ${MAGICJAR_KIS_WS_POLLING_FALLBACK_TIMEOUT:30}
       # 종목별 무tick watchdog 임계(초) — SUBSCRIBE SUCCESS 후 이 시간 동안 H0UNCNT0 체결 tick 0건이면
