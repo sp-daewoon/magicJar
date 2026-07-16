@@ -113,6 +113,10 @@ cd ..
 
 ## 3. 통합 명령 (build-and-deploy.sh)
 
+> **NAS runtime 권위**: ADR-0141 이후 NAS 표준 진입점은 `scripts/deploy-nas.sh`다.
+> 상세 cold cutover·접속·rollback은 `docs/operations/nas-deployment.md` 참조. 전역
+> `docker context use nas`는 금지하고 명시적 context만 사용한다.
+
 ### 3-1. 전체 재배포 (가장 일반)
 
 ```bash
@@ -141,6 +145,7 @@ scripts/build-and-deploy.sh consumer-app
 | (없음) | gradle + docker 전체 | 코드 변경 후 표준 |
 | `--gradle-only` | jar만 갱신 (docker compose 건너뜀) | IDE bootRun 직전 산출물 갱신 |
 | `--no-gradle` | docker만 (jar 최신 가정) | .env·yml만 변경했을 때 |
+| `--no-build` | 기존 image로 up (이미 사전 build 검증한 경우) | NAS cold cutover의 downtime 최소화 |
 
 ### 3-4. 인프라 별도 셋업
 
@@ -154,6 +159,18 @@ docker compose -f docker/docker-compose.infra.yml \
   -f docker/docker-compose.observability.yml \
   --env-file "$PWD/.env" up -d
 ```
+
+### 3-4-A. NAS 전체 재배포
+
+```bash
+MAGICJAR_EXPECTED_GIT_SHA="$(git rev-parse HEAD)" \
+MAGICJAR_ENV_FILE="$PWD/.env" scripts/deploy-nas.sh
+```
+
+- Mac은 bootJar/build 제어, NAS Docker daemon은 9개 컨테이너 실행을 담당한다.
+- PostgreSQL·Kafka·Redis·api·batch·consumer host port는 NAS에서 공개하지 않는다.
+- 최초 DB 이전은 일반 재배포가 아니라 `scripts/migrate-docker-to-nas.sh --confirm-cutover`를 사용한다.
+- NAS 연결 실패 시 로컬 stack을 정지하지 않는다.
 
 ### 3-5. ★ 운영 함정 가드 (CLAUDE.md §1·§2)
 
