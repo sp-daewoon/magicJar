@@ -50,7 +50,7 @@ object KisWsChannels {
         /** 실전 체결통보 — REAL 모드 active. */
         const val EXECUTION_NOTICE_REAL = "H0STCNI0"
 
-        /** 모의 체결통보 — MOCK 모드 active. */
+        /** 모의 체결통보 — Phase 1 prod market session에서는 비활성, 향후 전용 VPS session 호환용. */
         const val EXECUTION_NOTICE_MOCK = "H0STCNI9"
 
         /** legacy/base KRX 체결가 — 파서/주석 호환 참조만 (ADR 0124로 발사 폐기). */

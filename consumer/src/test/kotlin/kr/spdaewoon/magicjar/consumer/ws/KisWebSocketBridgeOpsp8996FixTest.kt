@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kr.spdaewoon.magicjar.consumer.config.KisWsTransportProperties
 import kr.spdaewoon.magicjar.consumer.infrastructure.kis.KisApprovalAdapter
 import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
@@ -18,9 +19,14 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
+import reactor.core.Disposable
 import reactor.core.publisher.Mono
+import reactor.core.publisher.Sinks
 import java.net.URI
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * ADR 0077 G-1 + H-1 + I-1 + J-1 fix 단위 테스트 (v3.6.11 hotfix).
@@ -28,8 +34,8 @@ import java.util.concurrent.TimeUnit
  * 검증 매트릭스:
  * - test 1 (G-1): 자격증명 0건 → getApprovalKey() null → doConnect() skip + OPSP8996 발생 0건
  * - test 2 (H-1): MOCK 자격증명만 있어도 시세 WS approval_key는 REAL AccountType 사용 시도 검증 (REAL 고정)
- * - test 3 (2026-06-10 P1 회귀 fix): magicjarMode=MOCK → WS endpoint vps(:31000) — 체결통보 H0STCNI9
- *   발송 서버 정합 (e0a88a3f PROD 고정 회귀 역전). + test 3b: REAL → prod(:21000).
+ * - test 3 (ADR 0142): magicjarMode=MOCK여도 market-data WS endpoint는 prod(:21000) 고정.
+ *   H0STCNI9 무발사는 TransportContractTest가 검증. + test 3b: REAL → prod(:21000).
  * - test 4 (I-1): OPSP8996 attempt > 3 → dispose + 알림 (cap 3 LOCK)
  * - test 5 (I-1): WS subscribe 성공 → opsp8996RetryCount.get() == 0 검증 (reset)
  *
@@ -123,21 +129,13 @@ class KisWebSocketBridgeOpsp8996FixTest {
     }
 
     /**
-     * test 3: MOCK 모드 WS endpoint는 vps(:31000) — 체결통보 H0STCNI9 발송 서버 정합 (2026-06-10 P1 회귀 fix).
+     * test 3: ADR 0142 — MOCK 주문 mode도 market-data 물리 session은 REAL/prod(:21000)로 고정한다.
      *
-     * ### 회귀 배경
-     * e0a88a3f(2026-06-06)가 `getWsUrl()=wsUrlProd` 무조건 고정 + 본 테스트를 ":21000 고정"으로 박았다.
-     * 그 결과 MOCK 모드 체결통보(H0STCNI9)가 prod endpoint(:21000)에 구독되어 KIS가 데이터를 영구
-     * 미발송(6/8 WS 체결통보 수신 0). prod·vops 동일 발송인 시세(H0STCNT0)만 살아 회귀가 은폐됐다.
-     *
-     * ### KIS-first (kis_auth.py auth_ws svr) — approval_key·endpoint 동일 svr 파생 의무, 환경 mix 금지
-     * raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
-     *
-     * fix: MOCK → vops(:31000) 복원 (endpoint↔executionNoticeTrId 동일 isRealMode 기준 정합).
-     * approval_key 발급은 H-1 정책대로 REAL AccountType 유지(test 2 검증) — 본 테스트는 endpoint 분기만 검증.
+     * H0STCNI9은 이 prod session에 co-subscribe하지 않는다. outbound frame 무발사 검증은
+     * KisWebSocketBridgeTransportContractTest가 담당하며, 본 테스트는 endpoint assignment만 고정한다.
      */
     @Test
-    fun `MOCK 모드 WS endpoint는 vps(31000) — 체결통보 H0STCNI9 발송 서버 정합`() {
+    fun `MOCK 주문 mode도 market data WS endpoint는 prod 21000`() {
         every {
             approvalAdapter.getApprovalKey("user001", kr.spdaewoon.magicjar.domain.user.AccountType.REAL)
         } returns "real-approval-key"
@@ -145,13 +143,12 @@ class KisWebSocketBridgeOpsp8996FixTest {
         bridge = buildBridge(defaultUserId = "user001", magicjarMode = "MOCK")
 
         bridge.connect()
-        TimeUnit.MILLISECONDS.sleep(100L)
 
-        verify(exactly = 1) {
-            wsClient.execute(match<URI> { it.toString() == "ws://localhost:31000" }, any())
+        verify(timeout = 3_000L, exactly = 1) {
+            wsClient.execute(match<URI> { it.toString() == "ws://ops.koreainvestment.com:21000" }, any())
         }
         verify(exactly = 0) {
-            wsClient.execute(match<URI> { it.toString() == "ws://localhost:21000" }, any())
+            wsClient.execute(match<URI> { it.toString() == "ws://ops.koreainvestment.com:31000" }, any())
         }
     }
 
@@ -167,13 +164,12 @@ class KisWebSocketBridgeOpsp8996FixTest {
         bridge = buildBridge(defaultUserId = "user001", magicjarMode = "REAL")
 
         bridge.connect()
-        TimeUnit.MILLISECONDS.sleep(100L)
 
-        verify(exactly = 1) {
-            wsClient.execute(match<URI> { it.toString() == "ws://localhost:21000" }, any())
+        verify(timeout = 3_000L, exactly = 1) {
+            wsClient.execute(match<URI> { it.toString() == "ws://ops.koreainvestment.com:21000" }, any())
         }
         verify(exactly = 0) {
-            wsClient.execute(match<URI> { it.toString() == "ws://localhost:31000" }, any())
+            wsClient.execute(match<URI> { it.toString() == "ws://ops.koreainvestment.com:31000" }, any())
         }
     }
 
@@ -217,6 +213,118 @@ class KisWebSocketBridgeOpsp8996FixTest {
         // then: attempt=4 (>3) → counter reset(0) 호출
         // I-1 fix: cap 3 초과 시 opsp8996RetryCount.set(0) + wsDisposable.dispose()
         assertThat(retryCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `OPSP8996 retry는 unsubscribe와 동일 transition lock으로 직렬화된다`() {
+        val approvalLookupReached = CountDownLatch(1)
+        val approvalCalls = AtomicInteger(0)
+        every { approvalAdapter.getApprovalKey(any(), any()) } answers {
+            if (approvalCalls.incrementAndGet() == 2) {
+                approvalLookupReached.countDown()
+            }
+            "approval-key-test"
+        }
+        bridge = buildBridge(defaultUserId = "user001")
+        bridge.subscribe(listOf("005930"))
+
+        val retryCountField = KisWebSocketBridge::class.java.getDeclaredField("opsp8996RetryCount")
+        retryCountField.isAccessible = true
+        val retryCount = retryCountField.get(bridge) as java.util.concurrent.atomic.AtomicInteger
+        val stateLockField = KisWebSocketBridge::class.java.getDeclaredField("subscriptionStateLock")
+        stateLockField.isAccessible = true
+        val stateLock = stateLockField.get(bridge)
+        val failure = AtomicReference<Throwable?>()
+        val handleOpsp8996 = KisWebSocketBridge::class.java.getDeclaredMethod("handleOpsp8996", String::class.java)
+        handleOpsp8996.isAccessible = true
+        val opsp8996Json =
+            """{"header":{},"body":{"rt_cd":"1","msg_cd":"OPSP8996","msg1":"ALREADY IN USE appkey"}}"""
+        val retryThread =
+            Thread {
+                try {
+                    handleOpsp8996.invoke(bridge, opsp8996Json)
+                } catch (error: Throwable) {
+                    failure.set(error)
+                }
+            }
+
+        synchronized(stateLock) {
+            retryThread.start()
+            assertThat(approvalLookupReached.await(3, TimeUnit.SECONDS)).isTrue()
+            bridge.unsubscribe(listOf("005930"))
+        }
+        retryThread.join(3_000L)
+
+        assertThat(retryThread.isAlive).isFalse()
+        assertThat(failure.get()).isNull()
+        assertThat(retryCount.get()).isZero()
+    }
+
+    @Test
+    fun `send sink emit 실패는 connection을 폐기해 remote local divergence를 차단한다`() {
+        every { approvalAdapter.getApprovalKey(any(), any()) } returns "approval-key-test"
+        bridge = buildBridge(defaultUserId = "user001")
+        val sink = Sinks.many().multicast().directBestEffort<String>()
+        val disposable = mockk<Disposable>(relaxed = true)
+        setPrivateField("sendSink", sink)
+        setPrivateField("wsDisposable", disposable)
+        val sendTickSubscribe =
+            KisWebSocketBridge::class.java.getDeclaredMethod(
+                "sendTickSubscribe",
+                String::class.java,
+                String::class.java,
+                String::class.java,
+            )
+        sendTickSubscribe.isAccessible = true
+
+        sendTickSubscribe.invoke(bridge, "approval-key-test", "005930", "1")
+
+        verify(exactly = 1) { disposable.dispose() }
+    }
+
+    @Test
+    fun `OPSP0008 state 보정은 subscribe unsubscribe transition lock과 직렬화된다`() {
+        every { approvalAdapter.getApprovalKey(any(), any()) } returns "approval-key-test"
+        bridge = buildBridge(defaultUserId = "user001")
+        bridge.subscribe(listOf("005930"))
+        val stateLockField = KisWebSocketBridge::class.java.getDeclaredField("subscriptionStateLock")
+        stateLockField.isAccessible = true
+        val stateLock = stateLockField.get(bridge)
+        val fallbackCalled = CountDownLatch(1)
+        bridge.onSubscribeRejected = { _, _ -> fallbackCalled.countDown() }
+        val failure = AtomicReference<Throwable?>()
+        val handleOpsp0008 = KisWebSocketBridge::class.java.getDeclaredMethod("handleOpsp0008", String::class.java)
+        handleOpsp0008.isAccessible = true
+        val response =
+            """{"header":{"tr_id":"H0UNCNT0","tr_key":"005930"},"body":{"rt_cd":"1","msg_cd":"OPSP0008","msg1":"MAX SUBSCRIBE OVER"}}"""
+        val rejectionThread =
+            Thread {
+                try {
+                    handleOpsp0008.invoke(bridge, response)
+                } catch (error: Throwable) {
+                    failure.set(error)
+                }
+            }
+
+        synchronized(stateLock) {
+            rejectionThread.start()
+            assertThat(fallbackCalled.await(500, TimeUnit.MILLISECONDS)).isFalse()
+            assertThat(bridge.subscribedCodes()).contains("005930")
+        }
+        assertThat(fallbackCalled.await(3, TimeUnit.SECONDS)).isTrue()
+        rejectionThread.join(3_000L)
+
+        assertThat(failure.get()).isNull()
+        assertThat(bridge.subscribedCodes()).doesNotContain("005930")
+    }
+
+    private fun setPrivateField(
+        name: String,
+        value: Any,
+    ) {
+        val field = KisWebSocketBridge::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        field.set(bridge, value)
     }
 
     /**
@@ -279,10 +387,13 @@ class KisWebSocketBridgeOpsp8996FixTest {
             liveCandleUpdater = mockk(relaxed = true),
             quoteCachePort = quoteCachePort,
             wsClient = wsClient,
-            wsUrlProd = "ws://localhost:21000",
-            wsUrlVps = "ws://localhost:31000",
+            wsTransport =
+                KisWsTransportProperties(
+                    urlProd = "ws://ops.koreainvestment.com:21000",
+                    credentialOwnerId = defaultUserId,
+                    htsId = defaultUserId,
+                ),
             magicjarMode = magicjarMode,
-            defaultUserId = defaultUserId,
             executionListenerProvider = executionListenerProvider,
             systemEventLogger = systemEventLogger,
             priceMetricsPortProvider = priceMetricsPortProvider,

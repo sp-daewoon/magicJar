@@ -55,6 +55,8 @@
 | T-MCP | MCP Server expose (W4) | §D.19 | magicJar MCP server + tool 5종 | T-AI | - | W4 | M | architect+backend-core |
 | T-LEARN | 사용자 학습 + 데이터 정합성 검증 (W5) | §운영 | 사용자와 데이터 흐름·아키 의도·표시 의미 검증 | W4 완료 | - | W5 | M | architect+사용자 |
 
+> **2026-07-16 ADR 0142 amend — T-O execution notice 현행 권위:** T-O 행의 “H0STCNI9 MOCK subscribe emit=OK”는 2026-05-18 마감 당시의 역사 evidence다. Phase 1 현행은 market-data를 REAL/prod `:21000`에 고정하고, prod session의 MOCK/PAPER H0STCNI9 발사를 금지한다. 전용 VPS execution session이 없으므로 MOCK/PAPER execution notice는 `NOT_CONFIGURED`, 신규 BUY는 fail-closed하며 SELL·cancel·reconcile·backfill은 유지한다.
+
 ---
 
 ## §3. 트랙별 outline (8 슬롯: 마스터 위치 + 목표 + 선행/후행 + KIS 흡수 + ADR + 데이터 + 산출물 + 비범위)

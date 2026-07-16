@@ -1,5 +1,6 @@
 package kr.spdaewoon.magicjar.consumer.ws
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
@@ -50,6 +51,17 @@ import org.slf4j.LoggerFactory
  */
 object KisWsMessageParser {
     private val log = LoggerFactory.getLogger(KisWsMessageParser::class.java)
+    private val objectMapper = ObjectMapper()
+
+    data class SubscriptionResponseFields(
+        val trId: String?,
+        val trKey: String?,
+        val rtCd: String,
+        val msgCd: String?,
+        val msg1: String?,
+        val iv: String?,
+        val key: String?,
+    )
 
     private val kst = TimeZone.of("Asia/Seoul")
 
@@ -147,7 +159,7 @@ object KisWsMessageParser {
             "0" -> ParsedMessage.RealtimeData(trId = parts[1], rawData = parts[3], encrypted = false)
             "1" -> ParsedMessage.RealtimeData(trId = parts[1], rawData = parts[3], encrypted = true)
             else -> {
-                log.debug("KIS WS 알 수 없는 메시지 타입: type={} raw={}", type, raw.take(100))
+                log.debug("KIS WS 알 수 없는 메시지 타입: type={} length={}", type, raw.length)
                 ParsedMessage.Unknown(raw)
             }
         }
@@ -261,7 +273,7 @@ object KisWsMessageParser {
                 turnoverAccum = turnoverAccum,
             )
         } catch (e: Exception) {
-            log.error("H0STCNT0 파싱 실패: rawData={} error={}", rawData.take(100), e.message)
+            log.error("H0STCNT0 파싱 실패: payloadLength={} type={}", rawData.length, e.javaClass.simpleName)
             null
         }
     }
@@ -332,14 +344,52 @@ object KisWsMessageParser {
      * 구독/해제 응답 JSON에서 rt_cd(응답코드) 확인.
      * "0" = 성공, 그 외 = 실패.
      */
-    fun isSubscriptionSuccess(rawJson: String): Boolean {
-        // JSON 간단 파싱 — Jackson 미사용 (circular dep 방지)
-        return try {
-            rawJson.contains("\"rt_cd\":\"0\"") || rawJson.contains("\"rt_cd\": \"0\"")
+    fun isSubscriptionSuccess(rawJson: String): Boolean = parseSubscriptionResponse(rawJson)?.rtCd == "0"
+
+    fun parseSubscriptionResponse(rawJson: String): SubscriptionResponseFields? =
+        try {
+            val root = objectMapper.readTree(rawJson)
+            val header = root.get("header")?.takeIf { it.isObject } ?: return null
+            val body = root.get("body")?.takeIf { it.isObject } ?: return null
+            val rtCdNode = body.get("rt_cd")?.takeIf { it.isTextual } ?: return null
+            val output = body.get("output")?.takeIf { it.isObject }
+            SubscriptionResponseFields(
+                trId =
+                    header
+                        .get("tr_id")
+                        ?.takeIf { it.isTextual }
+                        ?.asText()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() },
+                trKey =
+                    header
+                        .get("tr_key")
+                        ?.takeIf { it.isTextual }
+                        ?.asText()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() },
+                rtCd = rtCdNode.asText(),
+                msgCd =
+                    body
+                        .get("msg_cd")
+                        ?.takeIf { it.isTextual }
+                        ?.asText()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() },
+                msg1 =
+                    body
+                        .get("msg1")
+                        ?.takeIf { it.isTextual }
+                        ?.asText()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() },
+                iv = output?.get("iv")?.takeIf { it.isTextual }?.asText(),
+                key = output?.get("key")?.takeIf { it.isTextual }?.asText(),
+            )
         } catch (e: Exception) {
-            false
+            log.debug("KIS WS 구독 응답 strict parse 실패: type={}", e.javaClass.simpleName)
+            null
         }
-    }
 
     /**
      * 구독 응답에서 OPSP8996 "ALREADY IN USE appkey" 에러 감지.
@@ -379,7 +429,8 @@ object KisWsMessageParser {
      *
      * DETAIL 종목 EXIT/15분 idle 해제 시 H0UNASP0(+H0UNCNT0) unsubscribe가 KIS
      * `OPSP8997 invalid tr_type` 으로 거부된 사례(REAL 세션 재현). 응답 header `tr_id=null` 이라
-     * 추적이 불가했다. 후속 hotfix는 해제 trType을 공식 계약값 "2"로 정정했다. 본 감지는 OPSP8997 분기에서
+     * 추적이 불가했다. 후속 hotfix의 "2" 추론은 2026-07-16 공식 샘플 재확인으로 supersede됐고,
+     * 현행 공식 해제값은 "0"이다. 본 감지는 OPSP8997 분기에서
      * [KisWebSocketBridge] 가 최근 unsubscribe 이력을
      * 상관관계 덤프하기 위한 관측 전용 hook 이다(부작용 0 — 코드 동작 변경 없음).
      *
@@ -400,35 +451,19 @@ object KisWsMessageParser {
      *   {"header":{"tr_id":"H0UNASP0","tr_key":"093370"}, "body":{"msg_cd":"OPSP0008",...}}
      * ledger가 해당 (trId, trKey) 채널 점유를 취소(회계 보정)하기 위해 사용.
      *
-     * Jackson tree 파싱 — extractAndStoreAesKey와 동일 패턴(KisWebSocketBridge 위임). 본 파서는
-     * objectMapper 의존을 두지 않으므로 정규식 기반 경량 추출(circular dep 회피, isSubscriptionSuccess 패턴 정합).
+     * strict Jackson tree 파싱으로 root.header의 tr_id·tr_key만 허용한다.
      * 추출 실패 시 null 반환 → 호출자(KisWebSocketBridge)가 graceful 처리.
      *
      * @return Pair(trId, trKey) — 둘 다 추출 성공 시. 하나라도 누락 시 null.
      */
-    fun extractRejectedChannel(rawJson: String): Pair<String, String>? =
-        try {
-            val trId =
-                Regex(""""tr_id"\s*:\s*"([^"]+)"""")
-                    .find(rawJson)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.trim()
-            val trKey =
-                Regex(""""tr_key"\s*:\s*"([^"]+)"""")
-                    .find(rawJson)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.trim()
-            if (!trId.isNullOrBlank() && !trKey.isNullOrBlank()) {
-                trId to trKey
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            log.debug("KIS WS 거부 채널 추출 실패: err={}", e.message)
-            null
-        }
+    fun extractSubscriptionChannel(rawJson: String): Pair<String, String>? {
+        val response = parseSubscriptionResponse(rawJson) ?: return null
+        val trId = response.trId ?: return null
+        val trKey = response.trKey ?: return null
+        return trId to trKey
+    }
+
+    fun extractRejectedChannel(rawJson: String): Pair<String, String>? = extractSubscriptionChannel(rawJson)
 
     /**
      * 구독 해제(unsubscribe) ACK 감지.
@@ -444,13 +479,8 @@ object KisWsMessageParser {
      *   — ADR 0076 E-1 명세 정합.
      */
     fun isUnsubscribeAck(rawJson: String): Boolean =
-        try {
-            // KIS-first 1차: msg_cd "OPSP0002" (ADR 0076 E-1 명세)
-            rawJson.contains("OPSP0002") ||
-                // KIS-first 2차: msg1 앞 5글자 "UNSUB" 판별 (kis_auth.py 표준)
-                // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/kis_auth.py
-                Regex(""""msg1"\s*:\s*"UNSUB""").containsMatchIn(rawJson)
-        } catch (e: Exception) {
-            false
-        }
+        parseSubscriptionResponse(rawJson)?.let { response ->
+            response.rtCd == "0" &&
+                (response.msgCd == "OPSP0002" || response.msg1?.startsWith("UNSUB", ignoreCase = true) == true)
+        } ?: false
 }
