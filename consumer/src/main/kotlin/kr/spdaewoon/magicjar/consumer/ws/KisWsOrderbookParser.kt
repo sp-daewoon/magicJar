@@ -152,7 +152,7 @@ object KisWsOrderbookParser {
                 stockDealClassCode = fields.textAt(IDX_STCK_DEAL_CLS_CODE),
             )
         } catch (e: Exception) {
-            log.error("H0UNASP0 파싱 실패: rawData={} error={}", rawData.take(100), e.message)
+            log.error("H0UNASP0 파싱 실패: payloadLength={} type={}", rawData.length, e.javaClass.simpleName)
             null
         }
     }

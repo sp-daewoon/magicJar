@@ -23,7 +23,7 @@
 | A0 | WS 체결가 | `H0UNCNT0`, `H0STOUP0` | 실시간 tick | 사용 중 |
 | A0 | WS 호가 | `H0UNASP0` | 상세/진입 통합 호가 + 예상체결 필드 | 사용 중 (`H0STASP0` 퇴역) |
 | A0 | WS 장운영/VI | `H0UNMKO0` | 보유 포지션 VI 관측 + 정책별 알림/시장가 청산 | 사용 중 |
-| A0 | WS 체결통보 | `H0STCNI0`, `H0STCNI9` | order execution | 사용 중 |
+| A0 | WS 체결통보 | `H0STCNI0` | REAL order execution | 사용 중 (`H0STCNI9` MOCK/PAPER는 Phase 1 `NOT_CONFIGURED`, 발사 금지) |
 
 ## 1. 현재 사용 중인 MCP tool
 

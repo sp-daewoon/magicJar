@@ -89,7 +89,7 @@
 | DART 키 | `OPENDART_API_KEY` | |
 | 네이버 Open API | `NAVER_OPEN_API_CLIENT_ID` · `NAVER_OPEN_API_CLIENT_SECRET` | |
 | DB/Redis 좌표·비번 | `SPRING_DATASOURCE_*` · `SPRING_REDIS_*` · `KAFKA_BOOTSTRAP` | |
-| 계좌 식별자 | `MAGICJAR_KIS_ACCOUNT_CANO` · `MAGICJAR_KIS_ACCOUNT_PRDT` · `MAGICJAR_KIS_HTS_ID` | |
+| 계좌 식별자 | `MAGICJAR_KIS_ACCOUNT_CANO` · `MAGICJAR_KIS_ACCOUNT_PRDT` · `MAGICJAR_KIS_WS_CREDENTIAL_OWNER_ID` · `MAGICJAR_KIS_WS_HTS_ID` | owner ID는 REAL credential row exact lookup, HTS ID는 체결통보 `tr_key` 전용 |
 
 > ┌─────────────────────────────────────────────────────────────────────┐
 > │ ⚠️ **".env + pg dump는 한 세트" — AES 키 없으면 dump가 있어도 복호화 불가** │

@@ -31,6 +31,21 @@ class RealtimeStatusSnapshotPublisherTest {
         mockk<ObjectProvider<T>>(relaxed = true).also { every { it.ifAvailable } returns value }
 
     @Test
+    fun `신규 market과 executionNotice 필드가 없는 legacy snapshot도 기본값으로 역직렬화된다`() {
+        val legacyJson =
+            """{"updatedAt":"2026-07-16T00:00:00Z","ws":{"connected":true},"slots":{"used":1,"max":40,"byTrId":{"H0UNCNT0":1}},"subscriptions":[]}"""
+
+        val payload = objectMapper.readValue(legacyJson, RealtimeStatusSnapshot::class.java)
+
+        assertThat(payload.market.required).isFalse()
+        assertThat(payload.market.state).isEqualTo("IDLE")
+        assertThat(payload.market.degradedReason).isEqualTo("NOT_REQUIRED")
+        assertThat(payload.executionNotice.state).isEqualTo("NOT_CONFIGURED")
+        assertThat(payload.executionNotice.transport).isEqualTo("NONE")
+        assertThat(payload.slots.codesByTrId).isEmpty()
+    }
+
+    @Test
     fun `WS·슬롯·구독·체결통보 합성 후 admin realtime-status 발행`() {
         val redis = mockk<StringRedisTemplate>()
         val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
@@ -46,14 +61,21 @@ class RealtimeStatusSnapshotPublisherTest {
                         sessionCid = "cid-1",
                         reconnects24h = 3,
                         lastConnectedAtMs = 1_700_000_000_000L,
-                        executionSubscribed = true,
+                        executionSubscribed = false,
                         executionMode = "MOCK",
                         executionTrId = "H0STCNI9",
                         executionUserIdMasked = "7468****",
+                        executionState = "NOT_CONFIGURED",
+                        executionTransport = "NONE",
+                        executionConnected = false,
+                        executionAck = false,
+                        executionAes = false,
+                        executionDegradedReason = "MOCK_EXECUTION_NOT_CONFIGURED_PHASE1",
                     )
                 // ADR 0124 — 체결가 라벨은 단일 채널 H0UNCNT0.
                 every { activeTickTrId() } returns "H0UNCNT0"
                 every { subscribedMarketStatusCodes() } returns emptySet()
+                every { subscribedOvertimeSinglePriceCodes() } returns emptySet()
             }
         val realtimeRouter =
             mockk<RealtimeSubscriptionRouter> {
@@ -99,8 +121,15 @@ class RealtimeStatusSnapshotPublisherTest {
         assertThat(payload.subscriptions).hasSize(2)
         // ADR 0124 결정 4 — 체결가 라벨은 활성 채널(H0UNCNT0). 호가는 H0UNASP0.
         assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0UNASP0", "H0UNCNT0")
-        assertThat(payload.executionNotice.subscribed).isTrue()
+        assertThat(payload.executionNotice.subscribed).isFalse()
         assertThat(payload.executionNotice.trId).isEqualTo("H0STCNI9")
+        assertThat(payload.executionNotice.state).isEqualTo("NOT_CONFIGURED")
+        assertThat(payload.executionNotice.transport).isEqualTo("NONE")
+        assertThat(payload.executionNotice.ack).isFalse()
+        assertThat(payload.executionNotice.aes).isFalse()
+        assertThat(payload.executionNotice.degradedReason).isEqualTo("MOCK_EXECUTION_NOT_CONFIGURED_PHASE1")
+        assertThat(payload.market.required).isTrue()
+        assertThat(payload.market.state).isEqualTo("CONNECTED")
     }
 
     @Test
@@ -127,6 +156,83 @@ class RealtimeStatusSnapshotPublisherTest {
         assertThat(payload.ws.connected).isFalse()
         assertThat(payload.subscriptions).isEmpty()
         assertThat(payload.updatedAt).isNotBlank()
+        assertThat(payload.market.required).isFalse()
+        assertThat(payload.market.state).isEqualTo("IDLE")
+        assertThat(payload.market.degradedReason).isEqualTo("NOT_REQUIRED")
+    }
+
+    @Test
+    fun `bridge 부재여도 local demand가 있으면 false IDLE 대신 DEGRADED다`() {
+        val redis = mockk<StringRedisTemplate>()
+        val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
+        every { redis.opsForValue() } returns valueOps
+        val jsonSlot = slot<String>()
+        every { valueOps.set(any(), capture(jsonSlot), any<Duration>()) } returns Unit
+        val realtimeRouter =
+            mockk<RealtimeSubscriptionRouter> {
+                every { snapshotDemands() } returns
+                    listOf(RealtimeDemandSnapshot("005930", listOf("strategy:86"), 1_700_000_000_000L))
+            }
+
+        RealtimeStatusSnapshotPublisher(
+            redisTemplate = redis,
+            objectMapper = objectMapper,
+            bridgeProvider = provider(null),
+            realtimeRouterProvider = provider(realtimeRouter),
+            orderbookRouterProvider = provider(null),
+            slotLedgerProvider = provider(null),
+        ).publishNow()
+
+        val payload = objectMapper.readValue(jsonSlot.captured, RealtimeStatusSnapshot::class.java)
+        assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0UNCNT0")
+        assertThat(payload.market.required).isTrue()
+        assertThat(payload.market.state).isEqualTo("DEGRADED")
+        assertThat(payload.market.degradedReason).isEqualTo("BRIDGE_BEAN_ABSENT")
+        assertThat(payload.executionNotice.state).isEqualTo("NOT_CONFIGURED")
+        assertThat(payload.executionNotice.degradedReason).isEqualTo("BRIDGE_BEAN_ABSENT")
+    }
+
+    @Test
+    fun `시간외 단일가 수요만 있어도 market required이며 단절은 DEGRADED다`() {
+        val redis = mockk<StringRedisTemplate>()
+        val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
+        every { redis.opsForValue() } returns valueOps
+        val jsonSlot = slot<String>()
+        every { valueOps.set(any(), capture(jsonSlot), any<Duration>()) } returns Unit
+        val bridge =
+            mockk<KisWebSocketBridge> {
+                every { wsStatusSnapshot() } returns
+                    WsStatusSnapshot(
+                        connected = false,
+                        sessionCid = null,
+                        reconnects24h = 0,
+                        lastConnectedAtMs = null,
+                        executionSubscribed = false,
+                        executionMode = "MOCK",
+                        executionTrId = "H0STCNI9",
+                        executionUserIdMasked = null,
+                    )
+                every { activeTickTrId() } returns "H0UNCNT0"
+                every { subscribedMarketStatusCodes() } returns emptySet()
+                every { subscribedOvertimeSinglePriceCodes() } returns setOf("005930")
+            }
+        val realtimeRouter = mockk<RealtimeSubscriptionRouter> { every { snapshotDemands() } returns emptyList() }
+        val orderbookRouter = mockk<OrderbookSubscriptionRouter> { every { snapshotDemands() } returns emptyList() }
+
+        RealtimeStatusSnapshotPublisher(
+            redisTemplate = redis,
+            objectMapper = objectMapper,
+            bridgeProvider = provider(bridge),
+            realtimeRouterProvider = provider(realtimeRouter),
+            orderbookRouterProvider = provider(orderbookRouter),
+            slotLedgerProvider = provider(null),
+        ).publishNow()
+
+        val payload = objectMapper.readValue(jsonSlot.captured, RealtimeStatusSnapshot::class.java)
+        assertThat(payload.subscriptions.map { it.trId }).containsExactly("H0STOUP0")
+        assertThat(payload.market.required).isTrue()
+        assertThat(payload.market.state).isEqualTo("DEGRADED")
+        assertThat(payload.market.degradedReason).isEqualTo("MARKET_SESSION_DISCONNECTED")
     }
 
     @Test

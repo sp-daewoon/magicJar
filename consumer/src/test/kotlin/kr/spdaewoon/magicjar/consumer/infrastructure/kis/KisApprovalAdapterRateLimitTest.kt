@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.ValueOperations
@@ -102,6 +103,45 @@ class KisApprovalAdapterRateLimitTest {
 
         adapter.getApprovalKey(userId, accountType)
 
+        verify(exactly = 0) { rateLimiter.acquire(any(), any(), any()) }
+    }
+
+    @Test
+    fun `명시 credential owner가 없으면 다른 REAL credential로 fallback하지 않는다`() {
+        val valueOps = mockk<ValueOperations<String, String>>(relaxed = true)
+        every { valueOps.get(any()) } returns null
+        every { valueOps.setIfAbsent(any(), any(), any<Duration>()) } returns true
+        val redis = mockk<StringRedisTemplate>(relaxed = true)
+        every { redis.opsForValue() } returns valueOps
+        every { redis.delete(any<String>()) } returns true
+
+        val otherCredential =
+            ConsumerUserKisCredentialJpaEntity(
+                id = ConsumerUserKisCredentialId(userId = "other-owner", accountType = accountType.name),
+                accountNumber = "50000000",
+                accountPrdtCd = "01",
+                appKeyEnc = "enc-app".toByteArray(),
+                secretKeyEnc = "enc-secret".toByteArray(),
+            )
+        val credentialRepository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { credentialRepository.findAllByAccountType(accountType.name) } returns listOf(otherCredential)
+        val secretCipher = mockk<SecretCipher>(relaxed = true)
+        val rateLimiter = mockk<KisRateLimiterPort>(relaxed = true)
+        val adapter =
+            KisApprovalAdapter(
+                webClient = mockk(),
+                redisTemplate = redis,
+                secretCipher = secretCipher,
+                credentialRepository = credentialRepository,
+                kisRateLimiterPort = rateLimiter,
+                kisBaseProd = "https://openapi.koreainvestment.com:9443",
+                kisBaseVps = "https://openapivts.koreainvestment.com:29443",
+            )
+
+        assertThatThrownBy { adapter.getApprovalKey("configured-owner", accountType) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("KIS 자격증명 없음")
+        verify(exactly = 0) { secretCipher.decrypt(any()) }
         verify(exactly = 0) { rateLimiter.acquire(any(), any(), any()) }
     }
 

@@ -156,14 +156,11 @@ class KisApprovalAdapter(
         userId: String,
         accountType: AccountType,
     ): String {
-        // user_kis_credential 식별 규약 불일치 (v3.1.0 backlog §23):
-        //   REAL 키는 OnboardingService가 user_id=계좌번호로 저장
-        //   MOCK 키는 user_id=KIS user_id로 저장
-        // single-user 환경에서는 firstOrNull fallback으로 매칭. multi-tenant 진입(W3 T-O) 시 본격 정리.
+        // WS credential owner는 명시 식별자와 exact match해야 한다.
+        // 다른 REAL row fallback은 설정 오타를 숨기고 타 계정 appkey로 세션을 여는 자본·보안 위험이므로 금지한다.
         val creds = credentialRepository.findAllByAccountType(accountType.name)
         val cred =
             creds.firstOrNull { it.id.userId == userId }
-                ?: creds.firstOrNull()
                 ?: error("KIS 자격증명 없음 — userId=$userId type=${accountType.name}")
 
         var appKey: ByteArray? = null
@@ -210,10 +207,10 @@ class KisApprovalAdapter(
                 kisRateLimiterPort.onTpsExceeded()
             }
             log.error(
-                "KIS approval_key 발급 실패 (인증 실패 — 재시도 금지): user={} status={} body={}",
+                "KIS approval_key 발급 실패 (인증 실패 — 재시도 금지): user={} status={} errorType={}",
                 maskUserId(userId),
                 e.statusCode,
-                e.responseBodyAsString.take(200),
+                e.javaClass.simpleName,
             )
             // 인증 실패(4xx)는 즉시 실패 — 재시도 금지 (ADR 0038 §2-1)
             throw e

@@ -140,7 +140,7 @@ class KisExecutionWsListener(
             val msg = KisExecutionMessage.parseFromCaretDelimited(rawBody)
             processMessage(msg)
         } catch (e: Exception) {
-            log.error("KisExecutionWsListener parse 실패: err={} body={}", e.message, rawBody.take(200))
+            log.error("KisExecutionWsListener parse 실패: payloadLength={} type={}", rawBody.length, e.javaClass.simpleName)
         }
     }
 
