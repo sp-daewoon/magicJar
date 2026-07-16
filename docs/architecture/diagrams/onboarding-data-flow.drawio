@@ -24,7 +24,7 @@
         <mxCell id="a4" value="News &amp; Disclosure&#10;DART · Naver (옵션 · 본체 영향 0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="36" y="298" width="208" height="52" as="geometry" />
         </mxCell>
-        <mxCell id="anote" value="영속 candle + last-day-close로&#10;인터넷 끊겨도 하위 전 흐름 동작" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#3d6fb4;" vertex="1" parent="1">
+        <mxCell id="anote" value="영속 candle + last-day-close로 분석·&#10;스크리너·백테스트 재현 (라이브 실행 제외)" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#3d6fb4;" vertex="1" parent="1">
           <mxGeometry x="36" y="360" width="208" height="40" as="geometry" />
         </mxCell>
 
