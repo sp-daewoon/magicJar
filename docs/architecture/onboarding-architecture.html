@@ -480,7 +480,7 @@ scripts/smoke.sh
   <table>
     <thead><tr><th>레이어</th><th>방어 장치</th></tr></thead>
     <tbody>
-      <tr><td>발주 전</td><td>3중 게이트(MODE×ALLOW_REAL×사용자 동의) + Guard chain 6단 + OrderIdempotencyGuard(Redis SETNX 60초 + DB unique 이중 방어)</td></tr>
+      <tr><td>발주 전</td><td>3중 게이트(MODE×ALLOW_REAL×사용자 동의) + Guard chain 6단 + OrderIdempotencyGuard(Redis SETNX 60초 + <code>idempotency_key</code> DB unique 이중 방어)</td></tr>
       <tr><td>체결 후</td><td>KIS WS 체결통보 → <code>order_execution</code> append-only 진실원 → position/strategy_position 파생 갱신</td></tr>
       <tr><td>정합</td><td>BalanceReconcileJob(KIS 잔고 대조·drift 시 KillSwitch auto-ON) + KisLedgerSelfHealWorker(10분 cron, <b>default-off opt-in</b>)</td></tr>
       <tr><td>복구</td><td>WS 재연결 시 missed exec fetch(inquire-daily-ccld) + ledger rebuild(진실원 결정론적 재계산)</td></tr>
@@ -502,7 +502,7 @@ scripts/smoke.sh
   <ul>
     <li><b>look-ahead 차단·생존자 편향 보정</b> — 백테스트는 t 시점 데이터만, universe는 시점별로 상장 종목만.</li>
     <li><b>raw + adjusted 양 컬럼</b> — corp action 발생 시 <code>close_raw</code>·<code>close_adjusted</code> 병존, 차트·백테스트 default는 adjusted.</li>
-    <li><b>주문 멱등</b> — 주문 intent는 signal 기반 idempotency key + Redis SETNX 60초 + DB unique(<code>signal_id</code>·<code>kis_order_no</code>) 이중 방어로 중복 KIS 호출을 차단한다(ADR 0068).</li>
+    <li><b>주문 멱등</b> — 주문 intent는 signal 기반 <code>idempotency_key</code> + Redis SETNX 60초 + <code>order_request.idempotency_key</code> DB unique 이중 방어로 중복 KIS 호출을 차단한다(ADR 0068 H-1, V38 현행 schema). <code>signal_id</code>와 <code>kis_order_no</code>는 현재 unique가 아니다.</li>
     <li><b>immutable audit</b> — 모든 order·signal·screener·AI 코멘트에 감사 row(AI 코멘트는 매매 영향 0이지만 비용·드리프트 추적).</li>
     <li><b>캔들 SLA·self-heal</b> — 분봉 결측률 가드(OK≤5% / LOW_CONFIDENCE / INSUFFICIENT), mock 보간 절대 0, 부족 시 재수집 path 노출.</li>
   </ul>
