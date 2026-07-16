@@ -43,7 +43,7 @@
         <mxCell id="dom" value="domain&#10;순수 도메인 + 헥사고날 port (Spring · JPA · Kafka 의존 0)&#10;instrument · market · indicator · pattern · strategy · signal · order · risk · position · journal · ai · mcp · secret&#10;ADR 0004 · 0005 — 의존은 항상 안쪽(domain)을 향한다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe3ff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=12;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="40" y="332" width="920" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="infralbl" value="인프라 (docker compose) — 컨테이너 3" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+        <mxCell id="infralbl" value="데이터 인프라 (docker compose) — 컨테이너 3" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
           <mxGeometry x="40" y="426" width="920" height="16" as="geometry" />
         </mxCell>
         <mxCell id="pg" value="PostgreSQL 16 — 영속 (Flyway)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=12;" vertex="1" parent="1">
@@ -55,8 +55,17 @@
         <mxCell id="kf" value="Kafka 3.7 (KRaft) — 이벤트 백본" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="670" y="446" width="290" height="48" as="geometry" />
         </mxCell>
-        <mxCell id="lg" value="의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain · 앱 3종 → 인프라 3종. domain은 아무것도 의존하지 않는다." style="text;html=1;fontSize=10;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
-          <mxGeometry x="40" y="502" width="920" height="24" as="geometry" />
+        <mxCell id="opslbl" value="운영 UI (docker compose) — 컨테이너 2" style="text;html=1;fontSize=11;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="510" width="920" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="kui" value="Kafka UI — 이벤트 백본 관측" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef4fb;strokeColor=#6584a8;fontColor=#294766;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="447" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="dozzle" value="Dozzle — 컨테이너 로그 관측" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef4fb;strokeColor=#6584a8;fontColor=#294766;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="513" y="530" width="447" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="lg" value="의존 방향: frontend → api(REST/STOMP) · api·batch·consumer → 공유 lib → domain. 데이터 인프라 3 + 운영 UI 2를 포함해 core 9컨테이너이며 domain은 아무것도 의존하지 않는다." style="text;html=1;fontSize=10;fontStyle=2;align=left;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="40" y="590" width="920" height="24" as="geometry" />
         </mxCell>
         <mxCell id="e1" style="endArrow=block;html=1;strokeColor=#3d6fb4;dashed=1;" edge="1" parent="1" source="fe" target="api"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e2" style="endArrow=block;html=1;strokeColor=#4a8a4a;" edge="1" parent="1" source="api" target="se"><mxGeometry relative="1" as="geometry" /></mxCell>

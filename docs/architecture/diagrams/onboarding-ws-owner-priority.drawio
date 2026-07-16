@@ -26,7 +26,7 @@
 
         <mxCell id="arrow" value="slot 경합 시 evict 순서 (priority 큰 값부터)" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#b5442e;fontSize=10;fontColor=#b5442e;" edge="1" parent="1" source="d" target="s"><mxGeometry relative="1" as="geometry" /></mxCell>
 
-        <mxCell id="wl" value="Watchlist — WS slot 사용 안 함 · 5초 REST polling 전용 (ADR 0124 결정 B)&#10;시세 채널만 WS→polling 강등, watchlist 기능(등록/삭제/priority/화면)은 유지 · WS 40 slot은 매매 수요 전용" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=11;dashed=1;verticalAlign=middle;" vertex="1" parent="1">
+        <mxCell id="wl" value="Watchlist — WS slot 사용 안 함 · polling 전용 경계 유지 · 자동 worker는 no-op&#10;watchlist 기능(등록/삭제/priority/화면)은 유지 · WS 40 slot은 매매 수요 전용" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9edf2;strokeColor=#7d8ba0;fontColor=#33404f;fontSize=11;dashed=1;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="60" y="344" width="840" height="56" as="geometry" />
         </mxCell>
 
