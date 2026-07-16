@@ -3,10 +3,10 @@ id: T-20260716-1126-kis-ws-gate-recovery-r1
 agent: market-data
 model: opus
 branch: agent/market-data/kis-ws-gate-recovery-r1
-status: RUNNING
+status: DONE
 startedAt: 2026-07-16T11:26:46.092+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-16T22:13:19.636+09:00
+pr: #1170
 parentPhase: ?
 ---
 
