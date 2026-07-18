@@ -21,7 +21,7 @@ R-1 §2-3 분기 LOCK — DB 분류 시 본 runbook 진입.
 
 ```bash
 # postgres 컨테이너 상태
-docker ps -a | grep magicjar-postgres
+docker --context nas ps -a | grep magicjar-postgres
 # 정상: STATUS=Up X hours (healthy)
 # 결함: Exited 또는 Up X hours (unhealthy)
 ```
@@ -30,7 +30,7 @@ docker ps -a | grep magicjar-postgres
 
 ```bash
 # postgres ready 체크
-docker exec magicjar-postgres pg_isready -U magicjar -d magicjar
+docker --context nas exec magicjar-postgres pg_isready -U magicjar -d magicjar
 # 정상: "/var/run/postgresql:5432 - accepting connections"
 # 결함: "no response" 또는 "connection refused"
 ```
@@ -39,7 +39,7 @@ docker exec magicjar-postgres pg_isready -U magicjar -d magicjar
 
 ```bash
 # Flyway info — 적용된 migration 목록 + 실패 row 확인
-docker exec magicjar-postgres psql -U magicjar -d magicjar \
+docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT installed_rank, version, description, success, installed_on FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 20;"
 ```
 
@@ -49,7 +49,7 @@ docker exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ```bash
 # api 부팅 결함 root cause
-docker logs --since 5m magicjar-api 2>&1 | grep -E "FlywayException|HikariPool|Failed to start|caused by:" | head -30
+docker --context nas logs --since 5m magicjar-api 2>&1 | grep -E "FlywayException|HikariPool|Failed to start|caused by:" | head -30
 
 # 일반 패턴:
 # "FlywayException: Validate failed: Migration checksum mismatch"
@@ -102,8 +102,7 @@ DB 결함 → 잔고·position·KillSwitch 모두 영향 → **즉시 KillSwitch
 
 ```bash
 # api·batch·consumer 정지 — DB 추가 write 차단
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
-  --env-file "$PWD/.env" stop api-app batch-app consumer-app
+docker --context nas stop magicjar-api magicjar-batch magicjar-consumer
 
 # frontend는 정지 안 함 (사용자에게 격리 상태 표시 — "데이터 없음")
 ```
@@ -131,17 +130,38 @@ Mac의 manual/off-host 보조 경로다. `scripts/backup/pg-dump-daily.sh`와
 # 사용자가 scheduler evidence에서 선택한 exact set 이름만 입력한다.
 SET_NAME=20260718-030000
 [[ "$SET_NAME" =~ ^[0-9]{8}-[0-9]{6}$ ]] || exit 1
+APPROVED_SHA='<approved full SHA from release evidence>'
+[[ "$APPROVED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
 LOCAL_SET="_workspace/backups/postgres/nas-drill/$SET_NAME"
 mkdir -p "$LOCAL_SET" && chmod 0700 "$LOCAL_SET"
 
-# 실행 중 PostgreSQL의 content-addressed image ID로 NAS 파일을 read-only export한다.
+# approved Compose reference와 running image ID를 대조한다.
+APPROVED_PG_IMAGE="$(git show "$APPROVED_SHA:docker/docker-compose.nas.yml" |
+  python3 -c 'import re,sys; m=re.search(r"(?ms)^  postgres:\n(?:(?:    .*|\s*)\n)*?    image:\s*(\S+)\s*$",sys.stdin.read()); print(m.group(1) if m and "@sha256:" in m.group(1) else "")')"
+[[ -n "$APPROVED_PG_IMAGE" ]] || exit 1
+[[ "$(docker --context nas inspect magicjar-postgres --format '{{.Config.Image}}')" == "$APPROVED_PG_IMAGE" ]] || exit 1
 PG_IMAGE_ID="$(docker --context nas inspect magicjar-postgres --format '{{.Image}}')"
-[[ "$PG_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+[[ "$PG_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ &&
+   "$PG_IMAGE_ID" == "$(docker --context nas image inspect "$APPROVED_PG_IMAGE" --format '{{.Id}}')" ]] || exit 1
+
+# uncommitted marker·symlink·extra artifact가 없는 exact-six set만 허용한다.
+docker --context nas run --rm --pull never --network none --read-only \
+  --entrypoint sh --cap-drop ALL --security-opt no-new-privileges \
+  -v /volume1/docker/magicjar/backups:/backups:ro \
+  "$PG_IMAGE_ID" -ceu '
+    dir="/backups/sets/$1"
+    [ ! -L "$dir" ] && [ -d "$dir" ]
+    [ "$(find "$dir" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d " ")" = 6 ]
+    for file in postgres.dump postgres.dump.sha256 postgres.dump.meta redis.rdb redis.rdb.sha256 redis.rdb.meta; do
+      [ ! -L "$dir/$file" ] && [ -f "$dir/$file" ]
+    done
+  ' sh "$SET_NAME"
+
 for FILE in postgres.dump postgres.dump.sha256; do
-  docker --context nas run --rm --pull never --network none \
-    --security-opt no-new-privileges \
+  docker --context nas run --rm --pull never --network none --read-only \
+    --entrypoint cat --cap-drop ALL --security-opt no-new-privileges \
     -v /volume1/docker/magicjar/backups:/backups:ro \
-    "$PG_IMAGE_ID" cat "/backups/sets/$SET_NAME/$FILE" > "$LOCAL_SET/$FILE"
+    "$PG_IMAGE_ID" "/backups/sets/$SET_NAME/$FILE" > "$LOCAL_SET/$FILE"
 done
 (cd "$LOCAL_SET" && shasum -a 256 -c postgres.dump.sha256)
 ```
@@ -172,10 +192,12 @@ MAGICJAR_EXPECTED_DOCKER_ENDPOINT=ssh://magicjar-nas-docker \
 
 ```bash
 # 예: orders 테이블만 복구
-docker exec magicjar-postgres pg_restore \
+docker --context nas cp "$LOCAL_SET/postgres.dump" magicjar-postgres:/tmp/restore.dump
+docker --context nas exec magicjar-postgres pg_restore \
   -h localhost -U magicjar -d magicjar \
   --data-only --table=orders \
   /tmp/restore.dump
+docker --context nas exec magicjar-postgres rm -f /tmp/restore.dump
 ```
 
 ### 3-4. Flyway 결함 복구 (migration 실패)
@@ -184,17 +206,17 @@ migration 파일 자체 결함 (예: V44 SQL syntax error) → fix 후 재배포
 
 ```bash
 # 1) flyway_schema_history에서 실패 row 제거
-docker exec magicjar-postgres psql -U magicjar -d magicjar \
+docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "DELETE FROM flyway_schema_history WHERE success = false;"
 
 # 2) 영향받은 partial migration 수동 rollback (테이블 drop 등)
 # 예: V44 partial — system_event 테이블 부분 생성
-docker exec magicjar-postgres psql -U magicjar -d magicjar \
+docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "DROP TABLE IF EXISTS system_event CASCADE;"
 
 # 3) migration SQL fix (api/src/main/resources/db/migration/V44__system_event.sql)
 # 4) 앱 재기동 — Flyway 자동 재실행
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
   --env-file "$PWD/.env" start api-app
 ```
 
@@ -202,16 +224,16 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
 
 ```bash
 # 1) 정지 + 컨테이너 삭제 (볼륨 유지)
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
   --env-file "$PWD/.env" stop postgres
-docker rm magicjar-postgres
+docker --context nas rm magicjar-postgres
 
 # 2) 재생성 (볼륨 그대로 — 데이터 보존)
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
   --env-file "$PWD/.env" up -d postgres
 
 # 3) healthy 도달 대기 (보통 15~30초)
-until docker exec magicjar-postgres pg_isready -U magicjar -d magicjar; do
+until docker --context nas exec magicjar-postgres pg_isready -U magicjar -d magicjar; do
   sleep 2
 done
 ```
@@ -220,10 +242,13 @@ done
 
 ```bash
 # ★ 데이터 전체 손실 risk — 백업 존재 확인 후만
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
-  --env-file "$PWD/.env" down postgres
-docker volume rm magic_ch1_postgres-data
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+PG_VOLUME="$(docker --context nas inspect magicjar-postgres --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')"
+[[ -n "$PG_VOLUME" ]] || exit 1
+[[ "${CONFIRM_DELETE_PG_VOLUME:-}" == "$PG_VOLUME" ]] || { printf 'set CONFIRM_DELETE_PG_VOLUME=%s after separate approval\n' "$PG_VOLUME"; exit 1; }
+docker --context nas stop magicjar-postgres
+docker --context nas rm magicjar-postgres
+docker --context nas volume rm "$PG_VOLUME"
+docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
   --env-file "$PWD/.env" up -d postgres
 
 # pg_restore (§3-2 절차)
@@ -236,7 +261,7 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
 ### 4-1. Flyway 정합 확인
 
 ```bash
-docker exec magicjar-postgres psql -U magicjar -d magicjar \
+docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT version, description, success FROM flyway_schema_history WHERE success = false;"
 # 결과 0 row 기대
 ```
@@ -245,11 +270,11 @@ docker exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ```bash
 # 앱 재기동
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
   --env-file "$PWD/.env" up -d api-app batch-app consumer-app
 
 # 5분 startup 로그 — Flyway 통과 + Spring Context 정상 evidence
-docker logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started|HikariPool" | head -10
+docker --context nas logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started|HikariPool" | head -10
 # 정상:
 # "Flyway Community Edition X.Y.Z by Redgate"
 # "Successfully validated NN migrations"
@@ -277,7 +302,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ```bash
 # kill_switch_state 백업 시점 enabled 값과 비교
-docker exec magicjar-postgres psql -U magicjar -d magicjar \
+docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT user_id, enabled, reason, updated_at FROM kill_switch_state;"
 ```
 

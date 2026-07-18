@@ -119,14 +119,19 @@ export ALERTMANAGER_SLACK_WEBHOOK="$slack"
 export NAS_BIND_ADDRESS=127.0.0.1
 export MAGICJAR_OBSERVABILITY_REVISION="${MAGICJAR_EXPECTED_GIT_SHA:-$(git rev-parse HEAD)}"
 
+APPROVED_ROOT="$(mktemp -d -t magicjar-nas-observability-approved.XXXXXX)"
 rendered="$(mktemp -t magicjar-nas-observability.XXXXXX.yml)"
 verify_dir=""
 cleanup() {
   rm -f "$rendered"
+  rm -rf "$APPROVED_ROOT"
   [[ -z "$verify_dir" ]] || rm -rf "$verify_dir"
 }
 trap cleanup EXIT
-python3 "$REPO_ROOT/scripts/render-nas-observability-compose.py" --output "$rendered"
+mj_require_release_provenance "$REPO_ROOT"
+git archive "$MAGICJAR_EXPECTED_GIT_SHA" scripts/render-nas-observability-compose.py docker/observability |
+  tar -x -C "$APPROVED_ROOT" || die "approved observability Git snapshot materialization failed"
+python3 "$APPROVED_ROOT/scripts/render-nas-observability-compose.py" --output "$rendered"
 
 obs_compose() {
   mj_docker compose --env-file "$MAGICJAR_ENV_FILE" -f "$rendered" "$@"
@@ -172,6 +177,14 @@ snapshot_core_runtime() {
   for name in magicjar-api magicjar-batch magicjar-consumer magicjar-frontend magicjar-postgres magicjar-kafka magicjar-redis magicjar-kafka-ui magicjar-dozzle; do
     mj_docker inspect "$name" --format '{{.Name}}|{{.Id}}|{{.State.StartedAt}}|{{.RestartCount}}'
   done
+}
+
+enforce_core_invariance() {
+  local expected="$1" mode="${2:-preserve}" actual
+  actual="$(snapshot_core_runtime)" || return 1
+  [[ "$actual" == "$expected" ]] && return 0
+  [[ "$mode" != rollback ]] || obs_compose down >/dev/null 2>&1 || true
+  return 1
 }
 
 wait_healthy() {
@@ -238,7 +251,7 @@ verify_config_integrity() {
   while IFS='|' read -r container target source; do
     rm -f "$verify_dir/actual"
     mj_docker cp "$container:$target" "$verify_dir/actual" >/dev/null || return 1
-    expected="$(shasum -a 256 "$REPO_ROOT/$source" | awk '{print $1}')" || return 1
+    expected="$(shasum -a 256 "$APPROVED_ROOT/$source" | awk '{print $1}')" || return 1
     actual="$(shasum -a 256 "$verify_dir/actual" | awk '{print $1}')" || return 1
     [[ "$actual" == "$expected" ]] || {
       echo "✗ config checksum mismatch: $container:$target" >&2
@@ -262,13 +275,11 @@ EOF
 
 case "$cmd" in
   preflight)
-    mj_require_release_provenance "$REPO_ROOT"
     validate_model
     require_core_runtime
     ok "NAS observability preflight PASS"
     ;;
   up)
-    mj_require_release_provenance "$REPO_ROOT"
     validate_model
     require_core_runtime
     core_before="$(snapshot_core_runtime)"
@@ -294,8 +305,7 @@ case "$cmd" in
       verify_grafana_auth "$grafana_user" "$password" || die "existing Grafana admin credential mismatch; no containers changed"
       verify_config_integrity || die "existing observability config mismatch; no containers changed"
       verify_targets || die "existing observability target/rule verification failed; no containers changed"
-      core_after="$(snapshot_core_runtime)"
-      [[ "$core_after" == "$core_before" ]] || die "core runtime identity changed during verification"
+      enforce_core_invariance "$core_before" preserve || die "core runtime identity changed during verification"
       ok "CORE_INVARIANCE_PASS containers=9"
       ok "NAS observability runtime PASS (idempotent verification; notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
       exit 0
@@ -304,7 +314,7 @@ case "$cmd" in
     while IFS= read -r image; do
       log "pull pinned image: ${image%%@*}"
       mj_docker pull "$image" >/dev/null
-    done < <(python3 "$REPO_ROOT/scripts/render-nas-observability-compose.py" --images)
+    done < <(python3 "$APPROVED_ROOT/scripts/render-nas-observability-compose.py" --images)
     if ! obs_compose up -d; then
       obs_compose down >/dev/null 2>&1 || true
       die "observability compose up 실패; containers removed, volumes retained"
@@ -318,11 +328,7 @@ case "$cmd" in
       obs_compose down >/dev/null 2>&1 || true
       die "observability verification failed; containers removed, volumes retained"
     fi
-    core_after="$(snapshot_core_runtime)"
-    if [[ "$core_after" != "$core_before" ]]; then
-      obs_compose down >/dev/null 2>&1 || true
-      die "core runtime identity changed; observability rolled back"
-    fi
+    enforce_core_invariance "$core_before" rollback || die "core runtime identity changed; observability rolled back"
     ok "CORE_INVARIANCE_PASS containers=9"
     ok "NAS observability runtime PASS (notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
     ;;

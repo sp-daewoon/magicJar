@@ -17,6 +17,8 @@ LOCK_RENEW_SECONDS="${MAGICJAR_NAS_BACKUP_LOCK_RENEW_SECONDS:-15}"
 LOCK_KEY="magicjar:nas-backup:lock"
 POSTGRES_CONTAINER="${MAGICJAR_POSTGRES_CONTAINER:-magicjar-postgres}"
 REDIS_CONTAINER="${MAGICJAR_REDIS_CONTAINER:-magicjar-redis}"
+POSTGRES_IMAGE_REF='postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777'
+REDIS_IMAGE_REF='redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99'
 MV_BIN="${MAGICJAR_MV_BIN:-mv}"
 TIMESTAMP="$(TZ=Asia/Seoul date '+%Y%m%d-%H%M%S')"
 SET_ROOT_CANONICAL=""
@@ -27,6 +29,9 @@ REDIS_PARTIAL=""
 LOCK_TOKEN=""
 LOCK_HELD=0
 LOCK_RENEW_PID=""
+FILESYSTEM_LOCK_HELD=0
+LOCK_FILE=""
+LOCK_CANDIDATE=""
 PUBLISHED_UNCOMMITTED=0
 
 log() { printf '%s %s\n' "$(TZ=Asia/Seoul date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
@@ -71,12 +76,21 @@ file_mode() {
 validate_container() {
   container="$1"
   expected_service="$2"
+  expected_image="$3"
   "$DOCKER_BIN" inspect "$container" >/dev/null 2>&1 || fail "$container container not found"
   [ "$("$DOCKER_BIN" inspect "$container" --format '{{.State.Running}}')" = true ] || fail "$container is not running"
   project="$("$DOCKER_BIN" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
   service="$("$DOCKER_BIN" inspect "$container" --format '{{index .Config.Labels "com.docker.compose.service"}}')"
   [ "$project" = magicjar ] || fail "$container has unexpected Compose project"
   [ "$service" = "$expected_service" ] || fail "$container has unexpected Compose service"
+  configured_image="$("$DOCKER_BIN" inspect "$container" --format '{{.Config.Image}}')"
+  [ "$configured_image" = "$expected_image" ] || fail "$container has unexpected approved image reference"
+  running_image_id="$("$DOCKER_BIN" inspect "$container" --format '{{.Image}}')"
+  approved_image_id="$("$DOCKER_BIN" image inspect "$expected_image" --format '{{.Id}}')"
+  running_digest="${running_image_id#sha256:}"
+  [ "$running_digest" != "$running_image_id" ] && [ "${#running_digest}" -eq 64 ] || fail "$container has invalid running image ID"
+  case "$running_digest" in *[!0-9a-f]*) fail "$container has invalid running image ID" ;; esac
+  [ "$running_image_id" = "$approved_image_id" ] || fail "$container running image ID does not match approved digest"
 }
 
 redis_lock_eval() {
@@ -114,6 +128,22 @@ pin_backup_sets_directory() {
   PARTIAL_SET="./.$TIMESTAMP.partial.$$"
   PG_PARTIAL="$PARTIAL_SET/postgres.dump"
   REDIS_PARTIAL="$PARTIAL_SET/redis.rdb"
+  LOCK_FILE="../.nas-backup.lock"
+  LOCK_CANDIDATE="../.nas-backup.lock.candidate.$$"
+}
+
+assert_filesystem_lock_owned() {
+  [ ! -L "$LOCK_FILE" ] && [ -f "$LOCK_FILE" ] &&
+    [ "$(cat "$LOCK_FILE" 2>/dev/null || true)" = "$LOCK_TOKEN" ]
+}
+
+acquire_filesystem_lock() {
+  printf '%s\n' "$LOCK_TOKEN" > "$LOCK_CANDIDATE"
+  FILESYSTEM_LOCK_HELD=1
+  ln "$LOCK_CANDIDATE" "$LOCK_FILE" 2>/dev/null ||
+    fail "another backup is running (filesystem fence=$LOCK_FILE)"
+  rm -f "$LOCK_CANDIDATE"
+  assert_filesystem_lock_owned || fail "filesystem backup fence ownership mismatch"
 }
 
 renew_lock_loop() {
@@ -136,6 +166,7 @@ renew_lock_loop() {
 
 acquire_lock() {
   LOCK_TOKEN="$(random_lock_token)" || fail "cannot generate backup lease token"
+  acquire_filesystem_lock
   # Enable token-owned cleanup before SET so a signal immediately after Redis
   # commits the lease cannot strand it. Compare-delete cannot remove another token.
   LOCK_HELD=1
@@ -163,6 +194,13 @@ cleanup() {
   if [ "$LOCK_HELD" -eq 1 ]; then
     redis_lock_eval 'if redis.call("get",KEYS[1])==ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end' >/dev/null 2>&1 || true
     LOCK_HELD=0
+  fi
+  rm -f "$LOCK_CANDIDATE"
+  if [ "$FILESYSTEM_LOCK_HELD" -eq 1 ]; then
+    if assert_filesystem_lock_owned; then
+      rm -f "$LOCK_FILE"
+    fi
+    FILESYSTEM_LOCK_HELD=0
   fi
 }
 trap cleanup EXIT
@@ -192,12 +230,13 @@ AVAILABLE_KB="$(df -Pk . | awk 'NR==2 {print $4}')"
 case "$AVAILABLE_KB" in ''|*[!0-9]*) fail "cannot determine free disk space" ;; esac
 [ "$AVAILABLE_KB" -ge "$MIN_FREE_KB" ] || fail "insufficient free disk space (${AVAILABLE_KB}KB < ${MIN_FREE_KB}KB)"
 
-validate_container "$POSTGRES_CONTAINER" postgres
-validate_container "$REDIS_CONTAINER" redis
+validate_container "$POSTGRES_CONTAINER" postgres "$POSTGRES_IMAGE_REF"
+validate_container "$REDIS_CONTAINER" redis "$REDIS_IMAGE_REF"
 "$DOCKER_BIN" exec "$POSTGRES_CONTAINER" pg_isready -U magicjar -d magicjar >/dev/null 2>&1 || fail "PostgreSQL is not ready"
 [ "$("$DOCKER_BIN" exec "$REDIS_CONTAINER" redis-cli --raw PING)" = PONG ] || fail "Redis is not ready"
 acquire_lock
 assert_lock_owned || fail "backup lease was lost before stale partial cleanup"
+assert_filesystem_lock_owned || fail "filesystem backup fence was lost before stale partial cleanup"
 [ ! -e "$FINAL_SET" ] || fail "backup set already exists: $FINAL_SET"
 # Never remove a recent partial set from a potentially active owner. Only
 # old crash residue is eligible after this process owns the Redis lease.
@@ -245,10 +284,11 @@ done
 entry_count="$(find "$PARTIAL_SET" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')"
 [ "$entry_count" -eq 6 ] || fail "published backup set shape invalid before publish"
 assert_lock_owned || fail "backup lease was lost before publish"
+assert_filesystem_lock_owned || fail "filesystem backup fence was lost before publish"
 [ ! -e "$FINAL_SET" ] || fail "backup set collision before publish: $FINAL_SET"
 printf '%s\n' "$LOCK_TOKEN" > "$PARTIAL_SET/.publish-owner"
 PUBLISHED_UNCOMMITTED=1
-"$MV_BIN" "$PARTIAL_SET" "$FINAL_SET" || fail "backup set publish failed"
+"$MV_BIN" -T "$PARTIAL_SET" "$FINAL_SET" || fail "backup set publish failed"
 assert_lock_owned || fail "backup lease was lost immediately after publish"
 publish_marker="$FINAL_SET/.publish-owner"
 [ ! -L "$publish_marker" ] && [ -f "$publish_marker" ] || fail "backup publish ownership marker missing"
@@ -259,6 +299,8 @@ for required in postgres.dump postgres.dump.sha256 postgres.dump.meta redis.rdb 
   [ ! -L "$FINAL_SET/$required" ] && [ -f "$FINAL_SET/$required" ] || fail "unsafe published backup set entry: $required"
   [ "$(file_mode "$FINAL_SET/$required")" = 600 ] || fail "published backup set file mode is not 0600: $required"
 done
+assert_lock_owned || fail "backup lease was lost at commit boundary"
+assert_filesystem_lock_owned || fail "filesystem backup fence was lost at commit boundary"
 rm -f "$publish_marker" || fail "backup commit marker removal failed"
 entry_count="$(find "$FINAL_SET" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')"
 [ "$entry_count" -eq 6 ] || fail "published backup set shape invalid after commit"
