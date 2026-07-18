@@ -21,7 +21,7 @@ R-1 §2-3 분기 LOCK — DB 분류 시 본 runbook 진입.
 
 ```bash
 # postgres 컨테이너 상태
-docker --context nas ps -a | grep magicjar-postgres
+docker ps -a | grep magicjar-postgres
 # 정상: STATUS=Up X hours (healthy)
 # 결함: Exited 또는 Up X hours (unhealthy)
 ```
@@ -30,7 +30,7 @@ docker --context nas ps -a | grep magicjar-postgres
 
 ```bash
 # postgres ready 체크
-docker --context nas exec magicjar-postgres pg_isready -U magicjar -d magicjar
+docker exec magicjar-postgres pg_isready -U magicjar -d magicjar
 # 정상: "/var/run/postgresql:5432 - accepting connections"
 # 결함: "no response" 또는 "connection refused"
 ```
@@ -39,7 +39,7 @@ docker --context nas exec magicjar-postgres pg_isready -U magicjar -d magicjar
 
 ```bash
 # Flyway info — 적용된 migration 목록 + 실패 row 확인
-docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
+docker exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT installed_rank, version, description, success, installed_on FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 20;"
 ```
 
@@ -49,7 +49,7 @@ docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ```bash
 # api 부팅 결함 root cause
-docker --context nas logs --since 5m magicjar-api 2>&1 | grep -E "FlywayException|HikariPool|Failed to start|caused by:" | head -30
+docker logs --since 5m magicjar-api 2>&1 | grep -E "FlywayException|HikariPool|Failed to start|caused by:" | head -30
 
 # 일반 패턴:
 # "FlywayException: Validate failed: Migration checksum mismatch"
@@ -102,7 +102,8 @@ DB 결함 → 잔고·position·KillSwitch 모두 영향 → **즉시 KillSwitch
 
 ```bash
 # api·batch·consumer 정지 — DB 추가 write 차단
-docker --context nas stop magicjar-api magicjar-batch magicjar-consumer
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+  --env-file "$PWD/.env" stop api-app batch-app consumer-app
 
 # frontend는 정지 안 함 (사용자에게 격리 상태 표시 — "데이터 없음")
 ```
@@ -111,95 +112,56 @@ docker --context nas stop magicjar-api magicjar-batch magicjar-consumer
 
 ## 3. 복구 (Recover)
 
-### 3-1. 백업 위치 (ADR 0096 §3-4 amendment)
+### 3-1. 백업 위치 (ADR 0096 §2-4 산출물 LOCK)
 
-NAS runtime의 autonomous primary는 다음 combined set이다.
-
-- **위치**: `/volume1/docker/magicjar/backups/sets/<KST timestamp>/`
-- **구성**: PostgreSQL custom dump + fresh Redis RDB + 각 SHA-256/meta, 정확히 6개 파일
-- **주기/retention**: DSM Task Scheduler 매일 03:00 KST + combined set 7일
-- **entrypoint**: `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`
-- **readiness**: scheduler-triggered artifact와 PostgreSQL restore/Redis checksum 증거 전 PENDING
-
-기존 `_workspace/backups/postgres/daily/` 및 `_workspace/backups/redis/snapshots/`는
-Mac의 manual/off-host 보조 경로다. `scripts/backup/pg-dump-daily.sh`와
-`scripts/backup/redis-snapshot.sh`를 계속 사용할 수 있지만 autonomous primary의 근거가 아니다.
-상세 설치·검증은 `docs/operations/backup-setup.md`를 따른다.
+ADR 0094 §9-4 정기 backup + ADR 0096 §2·§3 매트릭스 LOCK:
+- **PostgreSQL 위치**: `_workspace/backups/postgres/daily/YYYY-MM-DD.dump` (cron 산출물 — ADR 0096 §2-1)
+- **Redis 위치**: `_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb` (cron 산출물 — ADR 0096 §3-2)
+- **파일 형식**: pg_dump custom format (`-Fc`) — `pg_restore --clean --create` 호환
+- **주기**: PostgreSQL 매일 03:00 KST + 7일 retention · Redis 매일 03:30 KST + 3일 retention (backend-core 책임)
+- **스크립트**: `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` (executable)
+- **사용자 가이드**: `docs/operations/backup-setup.md` (macOS crontab 등록)
 
 ```bash
-# 사용자가 scheduler evidence에서 선택한 exact set 이름만 입력한다.
-SET_NAME=20260718-030000
-[[ "$SET_NAME" =~ ^[0-9]{8}-[0-9]{6}$ ]] || exit 1
-APPROVED_SHA='<approved full SHA from release evidence>'
-[[ "$APPROVED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
-LOCAL_SET="_workspace/backups/postgres/nas-drill/$SET_NAME"
-mkdir -p "$LOCAL_SET" && chmod 0700 "$LOCAL_SET"
-
-# approved Compose reference와 running image ID를 대조한다.
-APPROVED_PG_IMAGE="$(git show "$APPROVED_SHA:docker/docker-compose.nas.yml" |
-  python3 -c 'import re,sys; m=re.search(r"(?ms)^  postgres:\n(?:(?:    .*|\s*)\n)*?    image:\s*(\S+)\s*$",sys.stdin.read()); print(m.group(1) if m and "@sha256:" in m.group(1) else "")')"
-[[ -n "$APPROVED_PG_IMAGE" ]] || exit 1
-[[ "$(docker --context nas inspect magicjar-postgres --format '{{.Config.Image}}')" == "$APPROVED_PG_IMAGE" ]] || exit 1
-PG_IMAGE_ID="$(docker --context nas inspect magicjar-postgres --format '{{.Image}}')"
-[[ "$PG_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ &&
-   "$PG_IMAGE_ID" == "$(docker --context nas image inspect "$APPROVED_PG_IMAGE" --format '{{.Id}}')" ]] || exit 1
-
-# uncommitted marker·symlink·extra artifact가 없는 exact-six set만 허용한다.
-docker --context nas run --rm --pull never --network none --read-only \
-  --entrypoint sh --cap-drop ALL --security-opt no-new-privileges \
-  -v /volume1/docker/magicjar/backups:/backups:ro \
-  "$PG_IMAGE_ID" -ceu '
-    dir="/backups/sets/$1"
-    [ ! -L "$dir" ] && [ -d "$dir" ]
-    [ "$(find "$dir" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d " ")" = 6 ]
-    for file in postgres.dump postgres.dump.sha256 postgres.dump.meta redis.rdb redis.rdb.sha256 redis.rdb.meta; do
-      [ ! -L "$dir/$file" ] && [ -f "$dir/$file" ]
-    done
-  ' sh "$SET_NAME"
-
-for FILE in postgres.dump postgres.dump.sha256 redis.rdb redis.rdb.sha256; do
-  docker --context nas run --rm --pull never --network none --read-only \
-    --entrypoint cat --cap-drop ALL --security-opt no-new-privileges \
-    -v /volume1/docker/magicjar/backups:/backups:ro \
-    "$PG_IMAGE_ID" "/backups/sets/$SET_NAME/$FILE" > "$LOCAL_SET/$FILE"
-done
-(cd "$LOCAL_SET" && \
-  shasum -a 256 -c postgres.dump.sha256 && \
-  shasum -a 256 -c redis.rdb.sha256)
+# 백업 파일 목록 확인 (ADR 0096 §2-4 정합)
+ls -lh _workspace/backups/postgres/daily/ | tail -10
+# 예시 출력:
+# -rw-r--r--  1 user  staff  3.2M  5 21 03:00 2026-05-21.dump
+# -rw-r--r--  1 user  staff  3.1M  5 20 03:00 2026-05-20.dump
 ```
 
-★ **현 단계 evidence**: ADR 0096 amendment와 자동 backup 경로 구현 완료. DSM task가
-생성한 exact set 및 아래 isolated restore drill evidence 전 readiness는 PENDING이다.
+★ **현 단계 evidence**: ADR 0096 발행 완료. `_workspace/backups/postgres/daily/` 디렉토리는 사용자 macOS crontab 등록 후 첫 03:00 KST 사이클에 자동 생성. 본 runbook은 ADR 0096 §2·§3 정합 절차 인용.
 
 ### 3-2. 복구 — pg_restore
 
 ```bash
-# 기본 검증: 운영 DB 무손상 isolated restore 후 자동 DROP
-MAGICJAR_DOCKER_CONTEXT=nas \
-MAGICJAR_EXPECTED_DOCKER_ENDPOINT=ssh://magicjar-nas-docker \
-  scripts/backup/pg-restore.sh \
-    --file "$LOCAL_SET/postgres.dump" \
-    --target-db magicjar_restore_test \
-    --drop-after
+# 1) 가장 최근 백업 선택
+LATEST_BACKUP=$(ls -t _workspace/backups/postgres/*.dump | head -1)
+echo "Restoring from: $LATEST_BACKUP"
 
-# 운영 DB 전체 복원은 §2 격리 + 사용자 별도 명시 승인 후에만 실행한다.
-# MAGICJAR_DOCKER_CONTEXT=nas \
-# MAGICJAR_EXPECTED_DOCKER_ENDPOINT=ssh://magicjar-nas-docker \
-#   scripts/backup/pg-restore.sh \
-#     --file "$LOCAL_SET/postgres.dump" \
-#     --target-db magicjar --confirm-prod
+# 2) 호스트 → postgres 컨테이너 복사
+docker cp "$LATEST_BACKUP" magicjar-postgres:/tmp/restore.dump
+
+# 3) pg_restore (--clean --create — 기존 DB 삭제 후 재생성)
+docker exec magicjar-postgres pg_restore \
+  --clean --create --if-exists \
+  -h localhost -U magicjar -d postgres \
+  /tmp/restore.dump
+# 정상 종료 코드: 0
+# 경고 (warning) 일부 OK (예: "role magicjar already exists")
+
+# 4) 임시 파일 정리
+docker exec magicjar-postgres rm /tmp/restore.dump
 ```
 
 ### 3-3. 부분 복구 (특정 테이블만)
 
 ```bash
 # 예: orders 테이블만 복구
-docker --context nas cp "$LOCAL_SET/postgres.dump" magicjar-postgres:/tmp/restore.dump
-docker --context nas exec magicjar-postgres pg_restore \
+docker exec magicjar-postgres pg_restore \
   -h localhost -U magicjar -d magicjar \
   --data-only --table=orders \
   /tmp/restore.dump
-docker --context nas exec magicjar-postgres rm -f /tmp/restore.dump
 ```
 
 ### 3-4. Flyway 결함 복구 (migration 실패)
@@ -208,17 +170,17 @@ migration 파일 자체 결함 (예: V44 SQL syntax error) → fix 후 재배포
 
 ```bash
 # 1) flyway_schema_history에서 실패 row 제거
-docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
+docker exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "DELETE FROM flyway_schema_history WHERE success = false;"
 
 # 2) 영향받은 partial migration 수동 rollback (테이블 drop 등)
 # 예: V44 partial — system_event 테이블 부분 생성
-docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
+docker exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "DROP TABLE IF EXISTS system_event CASCADE;"
 
 # 3) migration SQL fix (api/src/main/resources/db/migration/V44__system_event.sql)
 # 4) 앱 재기동 — Flyway 자동 재실행
-docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
   --env-file "$PWD/.env" start api-app
 ```
 
@@ -226,16 +188,16 @@ docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compo
 
 ```bash
 # 1) 정지 + 컨테이너 삭제 (볼륨 유지)
-docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
   --env-file "$PWD/.env" stop postgres
-docker --context nas rm magicjar-postgres
+docker rm magicjar-postgres
 
 # 2) 재생성 (볼륨 그대로 — 데이터 보존)
-docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
   --env-file "$PWD/.env" up -d postgres
 
 # 3) healthy 도달 대기 (보통 15~30초)
-until docker --context nas exec magicjar-postgres pg_isready -U magicjar -d magicjar; do
+until docker exec magicjar-postgres pg_isready -U magicjar -d magicjar; do
   sleep 2
 done
 ```
@@ -244,13 +206,10 @@ done
 
 ```bash
 # ★ 데이터 전체 손실 risk — 백업 존재 확인 후만
-PG_VOLUME="$(docker --context nas inspect magicjar-postgres --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')"
-[[ -n "$PG_VOLUME" ]] || exit 1
-[[ "${CONFIRM_DELETE_PG_VOLUME:-}" == "$PG_VOLUME" ]] || { printf 'set CONFIRM_DELETE_PG_VOLUME=%s after separate approval\n' "$PG_VOLUME"; exit 1; }
-docker --context nas stop magicjar-postgres
-docker --context nas rm magicjar-postgres
-docker --context nas volume rm "$PG_VOLUME"
-docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
+  --env-file "$PWD/.env" down postgres
+docker volume rm magic_ch1_postgres-data
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
   --env-file "$PWD/.env" up -d postgres
 
 # pg_restore (§3-2 절차)
@@ -263,7 +222,7 @@ docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compo
 ### 4-1. Flyway 정합 확인
 
 ```bash
-docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
+docker exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT version, description, success FROM flyway_schema_history WHERE success = false;"
 # 결과 0 row 기대
 ```
@@ -272,11 +231,11 @@ docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ```bash
 # 앱 재기동
-docker --context nas compose -f docker/docker-compose.yml -f docker/docker-compose.nas.yml \
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
   --env-file "$PWD/.env" up -d api-app batch-app consumer-app
 
 # 5분 startup 로그 — Flyway 통과 + Spring Context 정상 evidence
-docker --context nas logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started|HikariPool" | head -10
+docker logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started|HikariPool" | head -10
 # 정상:
 # "Flyway Community Edition X.Y.Z by Redgate"
 # "Successfully validated NN migrations"
@@ -291,11 +250,9 @@ docker --context nas logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started
 ### 4-4. 자본 path 정상화 확인
 
 ```bash
-# docs/operations/nas-deployment.md §5의 approved SSH tunnel
-# (-L 3000:127.0.0.1:3000)이 별도 terminal에서 active인 상태에서
-# frontend proxy를 통한 account API 200 응답을 확인한다.
+# account API 200 응답
 curl -s -o /dev/null -w "%{http_code}\n" \
-  http://127.0.0.1:3000/api/account/inquire-balance \
+  http://localhost:18080/api/account/inquire-balance \
   -H "X-User-Id: <userId>"
 # → 200
 
@@ -306,7 +263,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ```bash
 # kill_switch_state 백업 시점 enabled 값과 비교
-docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
+docker exec magicjar-postgres psql -U magicjar -d magicjar \
   -c "SELECT user_id, enabled, reason, updated_at FROM kill_switch_state;"
 ```
 
@@ -316,21 +273,33 @@ docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ## 5. backup 정책 (운영 헌법 §9-4 — backend-core 책임 + ADR 0096 단일 권위)
 
-### 5-1. NAS DSM Task Scheduler (ADR 0096 2026-07-18 amend)
+### 5-1. cron 셋업 (ADR 0096 + `docs/operations/backup-setup.md` 정합)
 
-autonomous primary는 NAS의 단일 combined PostgreSQL+Redis task다. installer와 DSM 등록은 각각 명시적 운영 승인 후 수행한다. 세부 절차와 exact-six artifact 계약은 `docs/operations/backup-setup.md`가 권위다.
+ADR 0096 발행 완료. 사용자 macOS crontab 등록 1회 (자세한 가이드: `docs/operations/backup-setup.md` §2):
 
-```text
-schedule : daily 03:00 KST
-command  : /volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh >> /volume1/docker/magicjar/ops/backup.log 2>&1
-output   : /volume1/docker/magicjar/backups/sets/<YYYYMMDD-HHMMSS>/
+```bash
+crontab -e
 ```
 
-★ 현 단계: installer 실행·DSM task 등록·scheduler-triggered restore drill evidence 전까지 `PENDING`. Mac의 `pg-dump-daily.sh`와 `redis-snapshot.sh`는 manual/off-host fallback이며 autonomous primary가 아니다.
+```cron
+# magicJar backup — ADR 0096 P0-OPS-4 정합
+0 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/pg-dump-daily.sh >> _workspace/backups/postgres/cron.log 2>&1
+30 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/redis-snapshot.sh >> _workspace/backups/redis/cron.log 2>&1
+```
 
-### 5-2. 즉시 backup (긴급 시)
+스크립트는 `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` — pg_isready/BGSAVE 진단 + retention rotation + KST 로그 자동.
 
-DSM Task Scheduler에서 승인된 같은 task를 **Run**한다. 별도 `docker exec pg_dump`로 combined-set 계약과 Redis lease를 우회하지 않는다. 완료 후 `BACKUP_PASS` 로그, exact-six regular files, 두 checksum을 확인한다.
+★ 현 단계: ADR 0096 baseline LOCK. 사용자 cron 등록 후 첫 03:00 KST 사이클에 자동 backup 활성.
+
+### 5-2. 수동 backup (긴급 시)
+
+```bash
+# 즉시 1회 백업 (재배포 직전·DR drill 전 의무)
+mkdir -p _workspace/backups/postgres
+docker exec magicjar-postgres pg_dump -U magicjar -Fc magicjar > \
+  "_workspace/backups/postgres/magicjar-$(date +%Y-%m-%d-%H%M)-manual.dump"
+ls -lh _workspace/backups/postgres/ | tail -3
+```
 
 ### 5-3. 분기 DR drill (ADR 0094 §10-4 의무)
 
@@ -369,6 +338,5 @@ R-1 §6 통합. 추가 evidence:
 
 | 날짜 | 변경 |
 |------|------|
-| 2026-07-18 | **ADR 0096 amend 반영** — NAS DSM combined PostgreSQL+Redis task를 autonomous primary로 전환. Mac split cron은 manual/off-host fallback으로 강등하고, NAS exact-six set 선택·검증·isolated restore 경로 및 PENDING runtime evidence gate를 추가. |
 | 2026-05-21 | **ADR 0096 cross-link 보강** — §3-1 백업 위치 + §5-1 cron 셋업 + §6-1 ADR cross-link 매트릭스 갱신. ADR 0096 P0-OPS-4 DR/backup 단일 권위 본문화 완료(스크립트·산출물·RPO 24h·RTO 30분·DR drill 분기). `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` + `docs/operations/backup-setup.md` 신규 발행. (architect) |
 | 2026-05-21 | 신규 발행 — ADR 0094 §3-7 P0-OPS-5 · backend-core 1차 dispatch. pg_isready·Flyway info·무결성 SQL 5건·pg_restore·부분 복구·볼륨 손상 절차 매트릭스. P0-OPS-4 DR ADR 발행 후 cron 셋업 활성. |

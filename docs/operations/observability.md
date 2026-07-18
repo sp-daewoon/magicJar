@@ -29,12 +29,12 @@ Grafana :3001 접속 URL + scrape 전제(api·batch·consumer 기동 필요)를 
 > scrape 대상(api·batch·consumer)이 떠 있어야 metric 이 채워진다 —
 > `scripts/build-and-deploy.sh`(docker 통합) 또는 `docker-compose.infra.yml up` + `./gradlew :api:bootRun`(IDE).
 
-### 2.1 관측 스택만 (Prometheus + Grafana + Alertmanager) — 수동
+### 2.1 관측 스택만 (Prometheus + Grafana) — 수동
 ```bash
 docker compose -f docker/docker-compose.observability.yml --env-file ./.env up -d
 ```
 
-### 2.2 전체 통합 (core 9 + observability 3 = 12)
+### 2.2 전체 통합 (인프라 3 + 앱 4 + 관측 2)
 ```bash
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml --env-file ./.env up -d
 ```
@@ -52,52 +52,12 @@ docker compose -f docker/docker-compose.infra.yml -f docker/docker-compose.obser
 
 Prometheus가 자동으로 `host.docker.internal:8080·8081·8082` scrape — IDE 디버깅 친화.
 
-### 2.4 NAS remote context — remote-safe overlay
-
-NAS에서는 로컬 bind mount 기반 `docker-compose.observability.yml`을 직접 실행하지 않는다.
-remote daemon은 `./observability/...`을 NAS host 경로로 해석하므로 config가 전달되지 않는다.
-
-```bash
-# .env에 강한 비밀번호를 먼저 설정한다. 값은 로그/명령 인자에 출력하지 않는다.
-GRAFANA_ADMIN_PASSWORD=<random-secret>
-
-# approved full SHA + clean provenance + endpoint/core runtime/model 검증
-APPROVED_SHA='<merged main SHA from PR/release evidence>'
-MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
-MAGICJAR_ENV_FILE="$PWD/.env" \
-scripts/deploy-nas-observability.sh preflight
-
-# pinned digest 3종 pull → observability 3개만 기동 → config SHA/health/rules/5 target UP 검증
-MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
-MAGICJAR_ENV_FILE="$PWD/.env" \
-scripts/deploy-nas-observability.sh up
-
-MAGICJAR_ENV_FILE="$PWD/.env" scripts/deploy-nas-observability.sh status
-```
-
-- `scripts/render-nas-observability-compose.py`가 NAS 전용 `prometheus.nas.yml`과 기존 config 8개를
-  `configs.content`로 embed한다. `configs.file`은 remote bind로 해석되므로 금지한다.
-- NAS Prometheus에는 docker core 3개·Alertmanager·self만 있으며 bootRun target은 0,
-  external label은 `cluster=magicjar-nas`, `environment=nas`다.
-- 기동 후 9개 mount를 container에서 다시 copy해 repository 원본 SHA-256과 대조한다.
-- Prometheus·Grafana·Alertmanager image는 linux/amd64 digest 고정 + `pull_policy: never`이다.
-- `magicjar_default` external network만 공유하며 core 9개를 recreate하지 않는다.
-- UI 3종은 `127.0.0.1` bind만 허용한다. LAN 직접 공개 대신 SSH tunnel을 사용한다.
-- Grafana anonymous/sign-up은 비활성이고 unsafe default password는 거부한다.
-- 기동 후 `/api/user`에 실제 admin Basic 인증 HTTP 200을 요구하므로 persistent Grafana DB의
-  credential이 `.env`와 다르면 PASS하지 않는다. credential은 host command/log에 출력하지 않는다.
-- `status/down`은 `.env` 유실 incident에서도 exact Compose project/service label 확인 후 동작하며
-  named volume은 보존한다. 다른 revision이 이미 떠 있으면 자동 upgrade하지 않고 LKG 계획을 요구한다.
-- `ALERTMANAGER_SLACK_WEBHOOK` 미설정 시 stack은 기동 가능하지만 notification route는
-  **PENDING/DEGRADED**다. webhook 수신 실증 전 full readiness를 주장하지 않는다.
-- rollback은 `scripts/deploy-nas-observability.sh down`; 3개 container만 제거하고 named volume은 보존한다.
-
 ## 3. 접속 URL
 
 | 서비스 | URL | 비고 |
 |------|-----|------|
 | Prometheus | http://localhost:9090 | scrape targets / metric explorer |
-| Grafana | http://localhost:3001 | local은 env default 가능, NAS는 `GRAFANA_ADMIN_PASSWORD` 강제 |
+| Grafana | http://localhost:3001 | admin / admin (default — env `GRAFANA_ADMIN_PASSWORD`) |
 | Dozzle | http://localhost:8888 | 컨테이너 로그, WARN/ERROR 보조 webhook alert |
 | api `/actuator/prometheus` | http://localhost:8080/actuator/prometheus | raw metric scrape |
 | batch `/actuator/prometheus` | http://localhost:8081/actuator/prometheus | raw metric scrape |
@@ -270,7 +230,7 @@ name == "die" || name == "oom" || (name == "health_status" && attributes["health
 ## 7. 운영 진입 후속 작업 (ADR 0094 P0-OPS-3·4·5·6)
 
 - P0-OPS-3 — SLO/SLA 정의 + Slack/PagerDuty alertmanager routing — **ADR 0095 Accepted (2026-05-21)**
-- P0-OPS-4 — DR/backup 구현 — **코드·절차 완료 / NAS scheduler artifact·restore drill readiness PENDING**
+- P0-OPS-4 — DR/backup 자동화 (pg_dump cron + S3 업로드) — **완료 (PR baseline)**
 - P0-OPS-5 — runbook 5 시나리오 (Postgres down·Kafka lag·KIS rate limit·메모리 누수·디스크 가득) — **완료 (49f1bc31)**
 - P0-OPS-6 — persistence-shared monitoring (Outbox drain lag · SystemEvent counter · SLO Timer) — **완료 (본 PR — Stage 1 R3)**
 
@@ -281,8 +241,8 @@ name == "die" || name == "oom" || (name == "health_status" && attributes["health
 | P0-OPS-1 | logback JSON encoder | #650 (26f83f39) | ✅ |
 | P0-OPS-2 | Actuator/Prometheus exporter + Grafana | #650 (26f83f39) | ✅ |
 | P0-OPS-3 | SLO/SLA 정의 + alert routing (ADR 0095) | (b89eed6b) | ✅ |
-| P0-OPS-4 | DR/backup 구현 | NAS combined-set implementation | ⚠ runtime evidence PENDING |
+| P0-OPS-4 | DR/backup 자동화 | baseline | ✅ |
 | P0-OPS-5 | runbook 5 시나리오 | (49f1bc31) | ✅ |
 | P0-OPS-6 | persistence monitoring + SLO source wiring + Grafana | **본 PR** | ✅ |
 
-**Stage 1 P0 OPS implementation 6/6 완료**. 단, ADR 0096/0141의 NAS backup runtime readiness는 installer·DSM scheduler artifact·restore drill evidence 전까지 별도 PENDING이다.
+**Stage 1 P0 OPS 6/6 완료** → **Stage 2 정리 진입 ready** (v3.8.0 운영 baseline P0 마감).

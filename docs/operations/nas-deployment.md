@@ -130,9 +130,8 @@ docker --context nas exec magicjar-postgres psql -U magicjar -d magicjar -Atc \
 - 신규 failed outbox/system ERROR가 cutover 이후 생성되지 않음.
 - KIS WS는 장중 수요가 있을 때만 `WS_CONNECTED`, H0UNCNT0/H0UNASP0 증거를 판정하며 수요 0은 PENDING/idle이다.
 
-별도 observability Compose의 Prometheus·Grafana·Alertmanager 3개는 core 9개 cold
-cutover와 별도 readiness다. ADR-0141 2026-07-18 amend로 NAS overlay 경로는 승인됐지만,
-실제 3개 배포와 auth/target/rule 검증 전에는 observability 또는 12 workload readiness로
+별도 observability Compose의 Prometheus·Grafana·Alertmanager 3개는 이번 core 9개
+cutover 범위가 아니다. 이 3개를 NAS로 옮기기 전에는 12개 workload 전체 이전 완료로
 판정하지 않는다.
 
 ### 5-2. smoke
@@ -173,38 +172,8 @@ MAGICJAR_DOCKER_CONTEXT=nas scripts/backup/redis-snapshot.sh
 dump를 명시한 `pg-restore.sh --file <pre-nas-cutover.dump> --target-db magicjar_restore_test --drop-after`
 exact-parity drill을 포함한다. 일반 daily dump는 live
 writer snapshot이므로 checksum + `pg_restore --exit-on-error` + Flyway failed=0을 검증한다.
-Mac sleep과 무관한 NAS-native entrypoint는 다음 경로로 checksum 검증해 provision한다.
-
-```bash
-APPROVED_SHA='<merged main SHA from PR/release evidence>'
-MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
-scripts/install-nas-backup-entrypoint.sh
-```
-
-고정 경로 `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`는 repository checkout
-없이 local Docker CLI로 `magicjar-postgres`와 `magicjar-redis`를 백업하며 Compose label·Redis
-token lease·free-space·fresh BGSAVE·SHA-256·`pg_restore --list`·exact-six 검증·atomic
-set-directory rename·7일 retention을 강제한다.
-DSM Task Scheduler에서 root 사용자·매일 03:00 KST로
-등록하고 scheduler-triggered artifact + restore drill을 확인하기 전에는 자동 backup을
-주장하지 않는다. installer는 Synology crontab을 직접 수정하지 않는다.
-
-## 7.1 Observability overlay
-
-```bash
-APPROVED_SHA='<merged main SHA from PR/release evidence>'
-MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
-MAGICJAR_ENV_FILE="$PWD/.env" \
-scripts/deploy-nas-observability.sh preflight
-
-MAGICJAR_EXPECTED_GIT_SHA="$APPROVED_SHA" \
-MAGICJAR_ENV_FILE="$PWD/.env" \
-scripts/deploy-nas-observability.sh up
-```
-
-NAS overlay는 remote-safe `configs.content`, NAS-only scrape config, pinned digest, loopback port, Grafana auth,
-external `magicjar_default` network를 사용한다. core 9개를 recreate하지 않는다.
-Alertmanager webhook 미설정은 blackhole/DEGRADED이며 수신 실증 전 notification readiness는 PENDING이다.
+Mac sleep과 무관한 NAS Task Scheduler wiring은 후속 운영 작업으로 등록하고, 활성화
+전까지 자동 backup을 주장하지 않는다.
 
 ## 8. Rollback
 

@@ -29,7 +29,7 @@
 
 → **`_workspace/arch/adr/`** ([인덱스](arch/adr/README.md))
 
-총 건수·상태·최신 번호 범위는 [adr/README.md](arch/adr/README.md) 도입부가 단일 권위(본 문서에 수치 복제 금지 — stale drift 방지, 2026-07-03 감사 정정). ADR 파일은 append-only이며 각 결정 이유·대안·트레이드오프를 보존한다. README §0 빠른 lookup(최근 건 + 주제별 jump)이 첫 진입점.
+총 건수·상태 집계는 [adr/README.md](arch/adr/README.md) 도입부가 단일 권위(본 문서에 수치 복제 금지 — stale drift 방지, 2026-07-03 감사 정정). 파일 0001~0139(0058·0059·0060·0065 의도적 갭), append-only. 각 결정 이유·대안·트레이드오프. README §0 빠른 lookup(최근 건 + 주제별 jump)이 첫 진입점.
 
 ### "지금 진행 중인 의제" (TODO)
 

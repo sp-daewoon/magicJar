@@ -2,7 +2,7 @@
 
 > **권위**: 본 문서. 변경 시 직접 갱신.
 > **결정 이력**: ADR-0008 (Compose 표준), ADR-0141 (NAS runtime/data plane)
-> **마지막 갱신**: 2026-07-18
+> **마지막 갱신**: 2026-07-16
 
 ## 현행 규약
 
@@ -42,15 +42,8 @@
 ### 별도 observability 범위
 
 `docker-compose.observability.yml`의 Prometheus·Grafana·Alertmanager 3개는 core 9개
-cutover와 별도다. ADR-0141의 2026-07-18 amendment로 NAS 배포 경로는 승인됐지만
-`magicjar-observability` 별도 project, remote-safe `configs.content`, digest pin, loopback port,
-desired Grafana credential 검증, core 9 identity 불변을 강제한다. 실제 배포·target/rule/auth
-검증 전에는 observability readiness 또는 “12개 workload 전체 NAS readiness”로 판정하지 않는다.
-
-NAS-native backup은 `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`를 DSM Task
-Scheduler root 사용자가 매일 03:00 KST 실행하는 combined PG+Redis set이 autonomous primary다.
-설치·task 등록·restore drill은 각각 별도 운영 승인 대상이며, scheduler-triggered artifact와
-restore 증거 전 readiness는 PENDING이다.
+cutover와 별도다. NAS 설정 mount·alert 외부 실패 도메인을 확정하기 전에는 기존 위치를
+임의 변경하지 않으며 “12개 workload 전체 NAS 이전 완료”로 판정하지 않는다.
 
 ### 배포·운영 명령
 
@@ -83,4 +76,3 @@ MAGICJAR_DOCKER_CONTEXT=nas scripts/ops-daily-snapshot.sh
 ## 변경 이력
 
 - 2026-07-16: NAS runtime/data plane 및 current PostgreSQL cold cutover 채택 (ADR-0141).
-- 2026-07-18: 별도 NAS observability 3과 NAS-native combined backup 후속 승인 (ADR-0141/0096 amend).

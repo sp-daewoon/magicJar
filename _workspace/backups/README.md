@@ -2,9 +2,8 @@
 
 > **이 폴더는 .gitignore 대상** — git push로 보존되지 않습니다. 외부 매체(클라우드/USB) 복사가 의무입니다.
 > 전체 가이드: [`docs/operations/backup-and-restore-guide.html`](../../docs/operations/backup-and-restore-guide.html) · 새 PC 복원: [`docs/operations/new-pc-migration-runbook.md`](../../docs/operations/new-pc-migration-runbook.md)
-> 이 경로는 Mac manual/off-host fallback 산출물이다. NAS autonomous primary는 `/volume1/docker/magicjar/backups/sets/<KST timestamp>/` exact-six combined set이며, installer·DSM artifact·restore drill 전 readiness는 PENDING이다. 권위: [`docs/operations/backup-setup.md`](../../docs/operations/backup-setup.md).
 
-## Mac fallback 구조
+## 구조
 
 ```
 _workspace/backups/
@@ -16,7 +15,7 @@ _workspace/backups/
     └── cron.log
 ```
 
-## fallback 생성 주체
+## 생성 주체
 
 | 파일 | 스크립트 | 주기 |
 |------|---------|------|
