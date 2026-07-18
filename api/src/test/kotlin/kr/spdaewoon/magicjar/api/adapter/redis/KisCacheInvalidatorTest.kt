@@ -32,7 +32,7 @@ class KisCacheInvalidatorTest {
     @Test
     fun `registry — KIS approval key 는 standard wire format`() {
         assertThat(RedisKeyRegistry.Kis.approval("u-001", "REAL"))
-            .isEqualTo("kis:ws:approval:user:u-001:account:REAL")
+            .isEqualTo("kis:ws:approval:v2:user:u-001:account:REAL")
     }
 
     @Test
@@ -91,6 +91,6 @@ class KisCacheInvalidatorTest {
 
         sut.deleteApprovalKey(userId = "u-001", accountType = "REAL")
 
-        verify(redis).delete(eq("kis:ws:approval:user:u-001:account:REAL"))
+        verify(redis).delete(eq("kis:ws:approval:v2:user:u-001:account:REAL"))
     }
 }

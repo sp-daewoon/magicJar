@@ -72,12 +72,12 @@ object RedisKeyRegistry {
             fun approval(
                 userId: String,
                 accountType: String,
-            ): String = "kis:ws:approval:user:$userId:account:$accountType"
+            ): String = "kis:ws:approval:v2:user:$userId:account:$accountType"
 
             fun approvalLock(
                 userId: String,
                 accountType: String,
-            ): String = "kis:ws:approval:user:$userId:account:$accountType:lock"
+            ): String = "kis:ws:approval:v2:user:$userId:account:$accountType:lock"
 
             fun keyChangedLock(
                 userId: String,
