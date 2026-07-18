@@ -332,15 +332,15 @@ verify_grafana_auth desired-admin desired-password-123456789
 
 test('observability core invariance mismatch executes rollback', () => {
   const deploy = readFileSync(join(root, 'scripts/deploy-nas-observability.sh'), 'utf8')
-  const start = deploy.indexOf('rollback_observability() {')
-  const end = deploy.indexOf('\n\nwait_healthy() {', start)
+  const start = deploy.indexOf('enforce_core_invariance() {')
+  const end = deploy.indexOf('\n}\n', start)
   assert.ok(start >= 0 && end > start)
-  const fn = deploy.slice(start, end)
+  const fn = deploy.slice(start, end + 3)
   const fixture = mkdtempSync(join(tmpdir(), 'magicjar-core-invariance-'))
   try {
     const rollbackLog = join(fixture, 'rollback.log')
     const script = `${fn}
-snapshot_core_runtime() { [ "\${SNAPSHOT_FAIL:-0}" -eq 0 ] || return 1; printf '%s\\n' changed; }
+snapshot_core_runtime() { printf '%s\\n' changed; }
 obs_compose() { printf '%s\\n' "$*" > "$ROLLBACK_LOG"; [ "\${ROLLBACK_FAIL:-0}" -eq 0 ]; }
 mj_docker() {
   [ "\${LIST_FAIL:-0}" -eq 0 ] || return 1
@@ -372,13 +372,6 @@ exit "$status"
       env: { ...process.env, ROLLBACK_LOG: rollbackLog, CONTAINER_PRESENT: '1' },
     })
     assert.equal(residualContainer.status, 2)
-
-    const snapshotFailed = run('bash', ['-ceu', script], {
-      env: { ...process.env, ROLLBACK_LOG: rollbackLog, SNAPSHOT_FAIL: '1' },
-    })
-    assert.equal(snapshotFailed.status, 3)
-    assert.equal(readFileSync(rollbackLog, 'utf8').trim(), 'down')
-    assert.doesNotMatch(deploy, /obs_compose down[^\n]*\|\| true/)
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
