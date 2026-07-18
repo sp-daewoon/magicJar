@@ -1,6 +1,7 @@
 # ADR 0141 — Docker 실행 plane을 NAS remote context로 이전
 
 - 상태: **Accepted (2026-07-16, 사용자(최고 관리자) 결재)**
+- Amendment: **2026-07-18 Accepted — core 9와 분리된 NAS observability 3 및 NAS-native backup 후속 승인**
 - 작성일: 2026-07-16
 - 결정자: 사용자(최고 관리자) — “docker 실행되는 영역은 nas 에서 할수 있도록” 요청 후 **전체 9개 서비스 + 현재 PostgreSQL 데이터 이관** 선택
 - 관계: ADR 0008(Docker 표준) · ADR 0045(graceful shutdown) · ADR 0094(운영 단계) · ADR 0096(DR/backup) · ADR 0115(in-flight drain)
@@ -66,6 +67,24 @@
   NAS bind/config 배포 방식과 외부 alert 실패 도메인을 별도로 설계해야 하므로 이번
   9개 이관에 포함하지 않는다. 이를 포함하기 전까지 “Docker workload 12개 전부 NAS”라고
   주장하지 않으며 observability NAS 이전은 후속 승인 항목이다.
+
+### 2-6. 2026-07-18 amendment — 별도 observability와 NAS-native backup
+
+2-5의 “후속 승인” 조건을 다음과 같이 충족한다.
+
+- Prometheus·Grafana·Alertmanager는 core 9에 병합하지 않고 **`magicjar-observability` 별도
+  Compose project**로 NAS에 배포한다. 따라서 “core 9 이관”과 “observability 3 readiness”는
+  계속 별도 판정하며, 실제 3개 배포·검증 전에는 12 workload 전체 readiness를 주장하지 않는다.
+- remote daemon에 없는 Mac bind path는 사용하지 않는다. Compose `configs.content`, digest-pinned
+  linux/amd64 image, loopback port, external `magicjar_default` network를 사용한다.
+- 기존 core 9의 container ID·StartedAt·restart count를 배포 전후 byte-equal로 확인하며 core
+  recreate/restart가 관측되면 실패한다.
+- Grafana는 현재 승인 `.env`의 desired credential로 `/api/user` HTTP 200과 login identity를
+  확인한다. mismatch 시 DB/volume을 reset하지 않고 observability container만 rollback한다.
+- NAS-native PostgreSQL+Redis combined backup은 repository checkout 없이 stable NAS path에서
+  DSM Task Scheduler가 실행한다. scheduler 자동 등록과 crontab 직접 수정은 금지한다.
+- observability `up`, backup entrypoint 설치, DSM task 등록, restore drill은 각각 별도 운영 승인
+  gate이며 본 amendment 자체는 runtime 변경 승인이 아니다.
 
 ## §3. 기각한 대안
 

@@ -296,8 +296,8 @@ sub-agent가 0 tool uses 종료, 환경 결함(Bash 실패), 또는 명세 위�
 
 **단일 권위**: **ADR 0096** (P0-OPS-4 — DR/backup 절차) — PostgreSQL backup 매트릭스 + Redis snapshot 매트릭스 + RPO 24h + RTO 30분 + DR drill 분기 의무 본문화. 본 §은 charter 내 ref 슬롯만 보유 — 산출물 위치·스크립트·복구 절차 본문은 ADR 0096 + R-4 runbook 단일 권위.
 
-- postgres pg_dump cron 매일 03:00 KST + 7일 retention (`_workspace/backups/postgres/daily/YYYY-MM-DD.dump`) — **backend-core 책임** (스크립트: `scripts/backup/pg-dump-daily.sh`)
-- Redis snapshot 매일 03:30 KST + 3일 retention (`_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb`) — **backend-core 책임** (스크립트: `scripts/backup/redis-snapshot.sh`)
+- NAS runtime autonomous primary: DSM Task Scheduler 매일 03:00 KST combined PG+Redis set + 7일 retention (`/volume1/docker/magicjar/backups/sets/<KST timestamp>/`) — **backend-core 책임** (ADR 0096 2026-07-18 amend, entrypoint: `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`)
+- Mac의 분리 PostgreSQL 03:00/7일·Redis 03:30/3일 스크립트는 manual/off-host 보조 경로로 유지하며 autonomous readiness 근거로 사용하지 않는다.
 - 분기별 DR drill (사용자 결재 의무) + **qa Visual E2E 시나리오 5건 자동 재현 의무** (ADR 0096 §6-2)
 - **RPO 24h + RTO 30분** LOCK (ADR 0096 §4) — 복구 절차 본문은 R-4 runbook 단일 권위
 - 사용자 cron 등록 가이드: `docs/operations/backup-setup.md`

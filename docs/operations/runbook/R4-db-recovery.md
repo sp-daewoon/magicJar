@@ -112,46 +112,60 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
 
 ## 3. 복구 (Recover)
 
-### 3-1. 백업 위치 (ADR 0096 §2-4 산출물 LOCK)
+### 3-1. 백업 위치 (ADR 0096 §3-4 amendment)
 
-ADR 0094 §9-4 정기 backup + ADR 0096 §2·§3 매트릭스 LOCK:
-- **PostgreSQL 위치**: `_workspace/backups/postgres/daily/YYYY-MM-DD.dump` (cron 산출물 — ADR 0096 §2-1)
-- **Redis 위치**: `_workspace/backups/redis/snapshots/dump-YYYY-MM-DD-HHMM.rdb` (cron 산출물 — ADR 0096 §3-2)
-- **파일 형식**: pg_dump custom format (`-Fc`) — `pg_restore --clean --create` 호환
-- **주기**: PostgreSQL 매일 03:00 KST + 7일 retention · Redis 매일 03:30 KST + 3일 retention (backend-core 책임)
-- **스크립트**: `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` (executable)
-- **사용자 가이드**: `docs/operations/backup-setup.md` (macOS crontab 등록)
+NAS runtime의 autonomous primary는 다음 combined set이다.
+
+- **위치**: `/volume1/docker/magicjar/backups/sets/<KST timestamp>/`
+- **구성**: PostgreSQL custom dump + fresh Redis RDB + 각 SHA-256/meta, 정확히 6개 파일
+- **주기/retention**: DSM Task Scheduler 매일 03:00 KST + combined set 7일
+- **entrypoint**: `/volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh`
+- **readiness**: scheduler-triggered artifact와 PostgreSQL restore/Redis checksum 증거 전 PENDING
+
+기존 `_workspace/backups/postgres/daily/` 및 `_workspace/backups/redis/snapshots/`는
+Mac의 manual/off-host 보조 경로다. `scripts/backup/pg-dump-daily.sh`와
+`scripts/backup/redis-snapshot.sh`를 계속 사용할 수 있지만 autonomous primary의 근거가 아니다.
+상세 설치·검증은 `docs/operations/backup-setup.md`를 따른다.
 
 ```bash
-# 백업 파일 목록 확인 (ADR 0096 §2-4 정합)
-ls -lh _workspace/backups/postgres/daily/ | tail -10
-# 예시 출력:
-# -rw-r--r--  1 user  staff  3.2M  5 21 03:00 2026-05-21.dump
-# -rw-r--r--  1 user  staff  3.1M  5 20 03:00 2026-05-20.dump
+# 사용자가 scheduler evidence에서 선택한 exact set 이름만 입력한다.
+SET_NAME=20260718-030000
+[[ "$SET_NAME" =~ ^[0-9]{8}-[0-9]{6}$ ]] || exit 1
+LOCAL_SET="_workspace/backups/postgres/nas-drill/$SET_NAME"
+mkdir -p "$LOCAL_SET" && chmod 0700 "$LOCAL_SET"
+
+# 실행 중 PostgreSQL의 content-addressed image ID로 NAS 파일을 read-only export한다.
+PG_IMAGE_ID="$(docker --context nas inspect magicjar-postgres --format '{{.Image}}')"
+[[ "$PG_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+for FILE in postgres.dump postgres.dump.sha256; do
+  docker --context nas run --rm --pull never --network none \
+    --security-opt no-new-privileges \
+    -v /volume1/docker/magicjar/backups:/backups:ro \
+    "$PG_IMAGE_ID" cat "/backups/sets/$SET_NAME/$FILE" > "$LOCAL_SET/$FILE"
+done
+(cd "$LOCAL_SET" && shasum -a 256 -c postgres.dump.sha256)
 ```
 
-★ **현 단계 evidence**: ADR 0096 발행 완료. `_workspace/backups/postgres/daily/` 디렉토리는 사용자 macOS crontab 등록 후 첫 03:00 KST 사이클에 자동 생성. 본 runbook은 ADR 0096 §2·§3 정합 절차 인용.
+★ **현 단계 evidence**: ADR 0096 amendment와 자동 backup 경로 구현 완료. DSM task가
+생성한 exact set 및 아래 isolated restore drill evidence 전 readiness는 PENDING이다.
 
 ### 3-2. 복구 — pg_restore
 
 ```bash
-# 1) 가장 최근 백업 선택
-LATEST_BACKUP=$(ls -t _workspace/backups/postgres/*.dump | head -1)
-echo "Restoring from: $LATEST_BACKUP"
+# 기본 검증: 운영 DB 무손상 isolated restore 후 자동 DROP
+MAGICJAR_DOCKER_CONTEXT=nas \
+MAGICJAR_EXPECTED_DOCKER_ENDPOINT=ssh://magicjar-nas-docker \
+  scripts/backup/pg-restore.sh \
+    --file "$LOCAL_SET/postgres.dump" \
+    --target-db magicjar_restore_test \
+    --drop-after
 
-# 2) 호스트 → postgres 컨테이너 복사
-docker cp "$LATEST_BACKUP" magicjar-postgres:/tmp/restore.dump
-
-# 3) pg_restore (--clean --create — 기존 DB 삭제 후 재생성)
-docker exec magicjar-postgres pg_restore \
-  --clean --create --if-exists \
-  -h localhost -U magicjar -d postgres \
-  /tmp/restore.dump
-# 정상 종료 코드: 0
-# 경고 (warning) 일부 OK (예: "role magicjar already exists")
-
-# 4) 임시 파일 정리
-docker exec magicjar-postgres rm /tmp/restore.dump
+# 운영 DB 전체 복원은 §2 격리 + 사용자 별도 명시 승인 후에만 실행한다.
+# MAGICJAR_DOCKER_CONTEXT=nas \
+# MAGICJAR_EXPECTED_DOCKER_ENDPOINT=ssh://magicjar-nas-docker \
+#   scripts/backup/pg-restore.sh \
+#     --file "$LOCAL_SET/postgres.dump" \
+#     --target-db magicjar --confirm-prod
 ```
 
 ### 3-3. 부분 복구 (특정 테이블만)
@@ -273,33 +287,21 @@ docker exec magicjar-postgres psql -U magicjar -d magicjar \
 
 ## 5. backup 정책 (운영 헌법 §9-4 — backend-core 책임 + ADR 0096 단일 권위)
 
-### 5-1. cron 셋업 (ADR 0096 + `docs/operations/backup-setup.md` 정합)
+### 5-1. NAS DSM Task Scheduler (ADR 0096 2026-07-18 amend)
 
-ADR 0096 발행 완료. 사용자 macOS crontab 등록 1회 (자세한 가이드: `docs/operations/backup-setup.md` §2):
+autonomous primary는 NAS의 단일 combined PostgreSQL+Redis task다. installer와 DSM 등록은 각각 명시적 운영 승인 후 수행한다. 세부 절차와 exact-six artifact 계약은 `docs/operations/backup-setup.md`가 권위다.
 
-```bash
-crontab -e
+```text
+schedule : daily 03:00 KST
+command  : /volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh >> /volume1/docker/magicjar/ops/backup.log 2>&1
+output   : /volume1/docker/magicjar/backups/sets/<YYYYMMDD-HHMMSS>/
 ```
 
-```cron
-# magicJar backup — ADR 0096 P0-OPS-4 정합
-0 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/pg-dump-daily.sh >> _workspace/backups/postgres/cron.log 2>&1
-30 3 * * * cd /Users/ak-song/magic_ch1 && bash scripts/backup/redis-snapshot.sh >> _workspace/backups/redis/cron.log 2>&1
-```
+★ 현 단계: installer 실행·DSM task 등록·scheduler-triggered restore drill evidence 전까지 `PENDING`. Mac의 `pg-dump-daily.sh`와 `redis-snapshot.sh`는 manual/off-host fallback이며 autonomous primary가 아니다.
 
-스크립트는 `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` — pg_isready/BGSAVE 진단 + retention rotation + KST 로그 자동.
+### 5-2. 즉시 backup (긴급 시)
 
-★ 현 단계: ADR 0096 baseline LOCK. 사용자 cron 등록 후 첫 03:00 KST 사이클에 자동 backup 활성.
-
-### 5-2. 수동 backup (긴급 시)
-
-```bash
-# 즉시 1회 백업 (재배포 직전·DR drill 전 의무)
-mkdir -p _workspace/backups/postgres
-docker exec magicjar-postgres pg_dump -U magicjar -Fc magicjar > \
-  "_workspace/backups/postgres/magicjar-$(date +%Y-%m-%d-%H%M)-manual.dump"
-ls -lh _workspace/backups/postgres/ | tail -3
-```
+DSM Task Scheduler에서 승인된 같은 task를 **Run**한다. 별도 `docker exec pg_dump`로 combined-set 계약과 Redis lease를 우회하지 않는다. 완료 후 `BACKUP_PASS` 로그, exact-six regular files, 두 checksum을 확인한다.
 
 ### 5-3. 분기 DR drill (ADR 0094 §10-4 의무)
 
@@ -338,5 +340,6 @@ R-1 §6 통합. 추가 evidence:
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-07-18 | **ADR 0096 amend 반영** — NAS DSM combined PostgreSQL+Redis task를 autonomous primary로 전환. Mac split cron은 manual/off-host fallback으로 강등하고, NAS exact-six set 선택·검증·isolated restore 경로 및 PENDING runtime evidence gate를 추가. |
 | 2026-05-21 | **ADR 0096 cross-link 보강** — §3-1 백업 위치 + §5-1 cron 셋업 + §6-1 ADR cross-link 매트릭스 갱신. ADR 0096 P0-OPS-4 DR/backup 단일 권위 본문화 완료(스크립트·산출물·RPO 24h·RTO 30분·DR drill 분기). `scripts/backup/pg-dump-daily.sh` + `scripts/backup/redis-snapshot.sh` + `docs/operations/backup-setup.md` 신규 발행. (architect) |
 | 2026-05-21 | 신규 발행 — ADR 0094 §3-7 P0-OPS-5 · backend-core 1차 dispatch. pg_isready·Flyway info·무결성 SQL 5건·pg_restore·부분 복구·볼륨 손상 절차 매트릭스. P0-OPS-4 DR ADR 발행 후 cron 셋업 활성. |

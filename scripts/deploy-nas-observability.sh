@@ -170,7 +170,7 @@ require_core_runtime() {
 snapshot_core_runtime() {
   local name
   for name in magicjar-api magicjar-batch magicjar-consumer magicjar-frontend magicjar-postgres magicjar-kafka magicjar-redis magicjar-kafka-ui magicjar-dozzle; do
-    mj_docker inspect "$name" --format '{{.Name}}|{{.Id}}|{{.State.StartedAt}}'
+    mj_docker inspect "$name" --format '{{.Name}}|{{.Id}}|{{.State.StartedAt}}|{{.RestartCount}}'
   done
 }
 
@@ -190,17 +190,20 @@ wait_healthy() {
 }
 
 verify_grafana_auth() {
-  # Credentials remain inside the container environment and HTTP stdin; they
-  # are never expanded into the host command line or emitted to logs.
-  mj_docker exec magicjar-grafana sh -ec '
-    auth="$(printf "%s:%s" "$GF_SECURITY_ADMIN_USER" "$GF_SECURITY_ADMIN_PASSWORD" | base64 | tr -d "\n")"
-    status="$(
+  # Desired credentials come from the attested env file and travel only over
+  # docker exec stdin; they are never placed in the external command argv or logs.
+  printf '%s\n%s\n' "$1" "$2" | mj_docker exec -i magicjar-grafana sh -ec '
+    IFS= read -r desired_user
+    IFS= read -r desired_password
+    auth="$(printf "%s:%s" "$desired_user" "$desired_password" | base64 | tr -d "\n")"
+    response="$(
       { printf "GET /api/user HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Basic %s\r\nConnection: close\r\n\r\n" "$auth"; } |
-        nc -w 5 127.0.0.1 3000 |
-        sed -n "1p" |
-        tr -d "\r"
+        nc -w 5 127.0.0.1 3000
     )"
+    status="$(printf "%s\n" "$response" | sed -n "1p" | tr -d "\r")"
     [ "$status" = "HTTP/1.1 200 OK" ] || [ "$status" = "HTTP/1.0 200 OK" ]
+    login="$(printf "%s\n" "$response" | sed -n '\''s/.*"login"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p'\'' | tail -n 1)"
+    [ "$login" = "$desired_user" ]
   ' >/dev/null || return 1
   ok "GRAFANA_AUTH_PASS"
 }
@@ -288,7 +291,7 @@ case "$cmd" in
     fi
     if (( existing_count == 3 )); then
       wait_healthy || die "existing observability stack unhealthy; no containers changed"
-      verify_grafana_auth || die "existing Grafana admin credential mismatch; no containers changed"
+      verify_grafana_auth "$grafana_user" "$password" || die "existing Grafana admin credential mismatch; no containers changed"
       verify_config_integrity || die "existing observability config mismatch; no containers changed"
       verify_targets || die "existing observability target/rule verification failed; no containers changed"
       core_after="$(snapshot_core_runtime)"
@@ -311,7 +314,7 @@ case "$cmd" in
       obs_compose down >/dev/null 2>&1 || true
       die "observability health timeout; containers removed, volumes retained"
     fi
-    if ! verify_grafana_auth || ! verify_config_integrity || ! verify_targets; then
+    if ! verify_grafana_auth "$grafana_user" "$password" || ! verify_config_integrity || ! verify_targets; then
       obs_compose down >/dev/null 2>&1 || true
       die "observability verification failed; containers removed, volumes retained"
     fi
