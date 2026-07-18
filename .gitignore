@@ -12,6 +12,12 @@ target/
 # .claire/ — .claude/ 오타로 일부 도구가 만드는 임시 디렉토리 (PR-12·16에서 누적 확인)
 .claire/
 
+# OMC 하네스 런타임 상태. 프로젝트 skill만 의도적으로 커밋 가능.
+.omc/*
+!.omc/skills/
+!.omc/skills/**
+.omc-archive/
+
 # Gradle
 .gradle/
 !gradle-wrapper.properties
