@@ -157,13 +157,15 @@ docker --context nas run --rm --pull never --network none --read-only \
     done
   ' sh "$SET_NAME"
 
-for FILE in postgres.dump postgres.dump.sha256; do
+for FILE in postgres.dump postgres.dump.sha256 redis.rdb redis.rdb.sha256; do
   docker --context nas run --rm --pull never --network none --read-only \
     --entrypoint cat --cap-drop ALL --security-opt no-new-privileges \
     -v /volume1/docker/magicjar/backups:/backups:ro \
     "$PG_IMAGE_ID" "/backups/sets/$SET_NAME/$FILE" > "$LOCAL_SET/$FILE"
 done
-(cd "$LOCAL_SET" && shasum -a 256 -c postgres.dump.sha256)
+(cd "$LOCAL_SET" && \
+  shasum -a 256 -c postgres.dump.sha256 && \
+  shasum -a 256 -c redis.rdb.sha256)
 ```
 
 ★ **현 단계 evidence**: ADR 0096 amendment와 자동 backup 경로 구현 완료. DSM task가
@@ -289,9 +291,11 @@ docker --context nas logs --since 2m magicjar-api 2>&1 | grep -E "Flyway|Started
 ### 4-4. 자본 path 정상화 확인
 
 ```bash
-# account API 200 응답
+# docs/operations/nas-deployment.md §5의 approved SSH tunnel
+# (-L 3000:127.0.0.1:3000)이 별도 terminal에서 active인 상태에서
+# frontend proxy를 통한 account API 200 응답을 확인한다.
 curl -s -o /dev/null -w "%{http_code}\n" \
-  http://localhost:18080/api/account/inquire-balance \
+  http://127.0.0.1:3000/api/account/inquire-balance \
   -H "X-User-Id: <userId>"
 # → 200
 

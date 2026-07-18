@@ -29,12 +29,12 @@ Grafana :3001 접속 URL + scrape 전제(api·batch·consumer 기동 필요)를 
 > scrape 대상(api·batch·consumer)이 떠 있어야 metric 이 채워진다 —
 > `scripts/build-and-deploy.sh`(docker 통합) 또는 `docker-compose.infra.yml up` + `./gradlew :api:bootRun`(IDE).
 
-### 2.1 관측 스택만 (Prometheus + Grafana) — 수동
+### 2.1 관측 스택만 (Prometheus + Grafana + Alertmanager) — 수동
 ```bash
 docker compose -f docker/docker-compose.observability.yml --env-file ./.env up -d
 ```
 
-### 2.2 전체 통합 (인프라 3 + 앱 4 + 관측 2)
+### 2.2 전체 통합 (core 9 + observability 3 = 12)
 ```bash
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml --env-file ./.env up -d
 ```

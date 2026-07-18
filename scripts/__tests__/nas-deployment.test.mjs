@@ -339,15 +339,39 @@ test('observability core invariance mismatch executes rollback', () => {
   const fixture = mkdtempSync(join(tmpdir(), 'magicjar-core-invariance-'))
   try {
     const rollbackLog = join(fixture, 'rollback.log')
-    const result = run('bash', ['-ceu', `${fn}
+    const script = `${fn}
 snapshot_core_runtime() { printf '%s\\n' changed; }
-obs_compose() { printf '%s\\n' "$*" > "$ROLLBACK_LOG"; }
+obs_compose() { printf '%s\\n' "$*" > "$ROLLBACK_LOG"; [ "\${ROLLBACK_FAIL:-0}" -eq 0 ]; }
+mj_docker() {
+  [ "\${LIST_FAIL:-0}" -eq 0 ] || return 1
+  [ "\${CONTAINER_PRESENT:-0}" -eq 0 ] || printf '%s\\n' magicjar-prometheus
+}
+set +e
 enforce_core_invariance original rollback
-`], {
+status=$?
+printf '%s\\n' "$status"
+exit "$status"
+`
+    const result = run('bash', ['-ceu', script], {
       env: { ...process.env, ROLLBACK_LOG: rollbackLog },
     })
-    assert.notEqual(result.status, 0)
+    assert.equal(result.status, 1)
     assert.equal(readFileSync(rollbackLog, 'utf8').trim(), 'down')
+
+    const rollbackFailed = run('bash', ['-ceu', script], {
+      env: { ...process.env, ROLLBACK_LOG: rollbackLog, ROLLBACK_FAIL: '1' },
+    })
+    assert.equal(rollbackFailed.status, 2)
+
+    const listFailed = run('bash', ['-ceu', script], {
+      env: { ...process.env, ROLLBACK_LOG: rollbackLog, LIST_FAIL: '1' },
+    })
+    assert.equal(listFailed.status, 2)
+
+    const residualContainer = run('bash', ['-ceu', script], {
+      env: { ...process.env, ROLLBACK_LOG: rollbackLog, CONTAINER_PRESENT: '1' },
+    })
+    assert.equal(residualContainer.status, 2)
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
@@ -862,6 +886,28 @@ esac
     assert.match(commitFence.stderr, /lease was lost at commit boundary/)
     assert.equal(readdirSync(join(commitFenceRoot, 'sets')).length, 0)
 
+    const replaceFenceMv = join(fixture, 'mv-replace-filesystem-fence')
+    writeFileSync(replaceFenceMv, '#!/bin/sh\n[ "${1:-}" != -T ] || shift\n/bin/mv "$@"\nprintf "%s\\n" replacement-token > "$FAKE_FS_LOCK"\n')
+    chmodSync(replaceFenceMv, 0o755)
+    const filesystemFenceRoot = join(fixture, 'filesystem-commit-fence')
+    mkdirSync(join(filesystemFenceRoot, 'sets'), { recursive: true })
+    const filesystemFence = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...concurrentEnv,
+        MAGICJAR_MV_BIN: replaceFenceMv,
+        MAGICJAR_NAS_BACKUP_ROOT: filesystemFenceRoot,
+        FAKE_DOCKER_DELAY: '0',
+        FAKE_DOCKER_STATE: join(fixture, 'filesystem-fence-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'filesystem-fence-key'),
+        FAKE_FS_LOCK: join(filesystemFenceRoot, '.nas-backup.lock'),
+      },
+    })
+    assert.notEqual(filesystemFence.status, 0)
+    assert.match(filesystemFence.stderr, /filesystem backup fence was lost at commit boundary/)
+    assert.doesNotMatch(filesystemFence.stdout, /BACKUP_PASS/)
+    assert.equal(readdirSync(join(filesystemFenceRoot, 'sets')).length, 0)
+    assert.equal(readFileSync(join(filesystemFenceRoot, '.nas-backup.lock'), 'utf8').trim(), 'replacement-token')
+
     const renewFailureRoot = join(fixture, 'renew-failure')
     mkdirSync(join(renewFailureRoot, 'sets'), { recursive: true })
     const renewFailure = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
@@ -920,6 +966,28 @@ test('R4 recovery commands pin the NAS Docker context', () => {
   const runbook = readFileSync(join(root, 'docs/operations/runbook/R4-db-recovery.md'), 'utf8')
   assert.doesNotMatch(runbook, /^docker (?!--context nas\b)/m)
   assert.match(runbook, /docker --context nas stop magicjar-api magicjar-batch magicjar-consumer/)
+  assert.match(runbook, /postgres\.dump postgres\.dump\.sha256 redis\.rdb redis\.rdb\.sha256/)
+  assert.match(runbook, /shasum -a 256 -c redis\.rdb\.sha256/)
+})
+
+test('PostgreSQL restore rejects unsafe identifiers before Docker access', () => {
+  const unsafeTargets = ['magicjar;DROP_DATABASE_magicjar', 'magic jar', 'magicjar"', 'magicjar--comment', '-option']
+  for (const target of unsafeTargets) {
+    const result = run('bash', ['scripts/backup/pg-restore.sh', '--target-db', target, '--dry-run'], {
+      env: { ...process.env, MAGICJAR_DOCKER_CONTEXT: '' },
+    })
+    assert.notEqual(result.status, 0, target)
+    assert.match(result.stderr, /not a safe unquoted PostgreSQL identifier/, target)
+    assert.doesNotMatch(result.stderr, /docker 명령 부재/, target)
+  }
+
+  for (const [name, value] of [['MAGICJAR_PG_DB', 'magicjar;select'], ['MAGICJAR_PG_USER', 'magic jar']]) {
+    const result = run('bash', ['scripts/backup/pg-restore.sh', '--dry-run'], {
+      env: { ...process.env, MAGICJAR_DOCKER_CONTEXT: '', [name]: value },
+    })
+    assert.notEqual(result.status, 0, name)
+    assert.match(result.stderr, /not a safe unquoted PostgreSQL identifier/, name)
+  }
 })
 
 test('cutover refuses to run without the explicit confirmation flag', () => {
