@@ -93,8 +93,8 @@
         <mxCell id="fbc" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#1a2b4a;" edge="1" parent="1" source="B" target="C"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="fcd" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#1a2b4a;" edge="1" parent="1" source="C" target="D"><mxGeometry relative="1" as="geometry" /></mxCell>
 
-        <mxCell id="foot" value="Kafka 이벤트 백본이 A~D를 잇는다: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.executed.v1 → journal.recorded.v1" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
-          <mxGeometry x="20" y="486" width="1000" height="24" as="geometry" />
+        <mxCell id="foot" value="현행 자본 흐름: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.requested.v1&#10;→ order.filled.v1 → JournalEventConsumer → trading_journal 직접 영속" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="20" y="480" width="1000" height="30" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
