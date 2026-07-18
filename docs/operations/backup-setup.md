@@ -1,6 +1,7 @@
-# magicJar backup cron 셋업 가이드
+# magicJar backup 셋업 가이드
 
-> ADR 0096 §2·§3 정합 — 사용자 단독 운영자(macOS) cron 등록 절차
+> **현행 권위**: ADR 0096 2026-07-18 amend — NAS DSM Task Scheduler combined PostgreSQL+Redis set이 autonomous primary다.
+> 이 문서의 macOS cron 절차는 과거 운영 이력 및 명시적으로 승인한 off-host fallback에만 사용하며 autonomous readiness 근거가 아니다.
 > **★ 시각 가이드(HTML)**: [`backup-and-restore-guide.html`](backup-and-restore-guide.html) — 무슨 파일이 어떻게 남는지·외부 매체 복사·복원 한눈에 보기
 
 ## ★ 실태 이력 (2026-06-06)
@@ -11,14 +12,14 @@
 >
 > → **이번 강화 산출물**: ① `scripts/backup/pg-restore.sh`(복원 + dry-run + 검증) ② `docs/operations/new-pc-migration-runbook.md`(새 PC 완전 복원 3계층 런북) ③ 본 가이드 갱신(실태 이력 + 외부 매체 동기화 + 런북 cross-link).
 >
-> ⚠️ **아직 cron 등록은 사용자 1회 작업이 필요하다** — §2 절차로 등록해야 자동 백업이 활성화된다.
+> 당시에는 macOS cron 등록이 미완료였다. 이 경고는 2026-07-18 amendment로 supersede됐으며, 현재 미완료 gate는 NAS installer·DSM task 등록·scheduler artifact·restore drill이다.
 
-## 0. 사전 조건
+## 0. NAS primary 사전 조건
 
-- macOS 환경 (Linux 사용자는 §5 참조)
-- 대상 Docker daemon 연결 + `magicjar-postgres` · `magicjar-redis` 컨테이너 running
-- `scripts/backup/pg-dump-daily.sh` · `scripts/backup/redis-snapshot.sh` executable
-- 호스트 디스크 여유 공간 ≥ 100MB (PostgreSQL 7일 + Redis 3일 baseline ~50MB)
+- clean approved full SHA의 Mac control plane과 attested `nas` Docker context
+- NAS의 `magicjar-postgres`·`magicjar-redis`가 `magicjar` Compose identity로 running
+- `/volume1/docker/magicjar/{ops,backups/sets}` non-symlink canonical path와 NAS 여유 공간 ≥ 5GiB
+- installer 실행과 DSM Task Scheduler 등록에 대한 각각의 명시적 운영 승인
 
 NAS runtime(ADR-0141)에서 기존 분리 backup script를 수동 보조 경로로 실행할 때는
 `MAGICJAR_DOCKER_CONTEXT=nas`를 지정하며 산출물은 Mac의 ignored `_workspace/backups/`에
@@ -65,9 +66,9 @@ chmod +x scripts/backup/pg-dump-daily.sh scripts/backup/redis-snapshot.sh
 
 ---
 
-## 1. 수동 1회 실행 — 검증 baseline (cron 등록 전 의무)
+## 1. Mac manual/off-host fallback 1회 검증
 
-cron 등록 전에 수동 1회 실행으로 환경 정합 검증:
+Mac fallback을 별도로 승인한 경우에만 다음 경로로 환경 정합을 검증한다. 이는 NAS primary 검증을 대체하지 않는다.
 
 ```bash
 # PostgreSQL backup 1회
@@ -87,7 +88,9 @@ ls -lh _workspace/backups/redis/snapshots/
 
 ---
 
-## 2. cron 등록 — macOS crontab (권장 — 단독 운영자 단순화)
+## 2. Legacy macOS crontab — 선택적 off-host fallback
+
+> 기본 경로가 아니다. Mac sleep 의존성이 있으므로 NAS autonomous primary readiness에 포함하지 않는다. 사용자가 off-host 보조 자동화를 별도로 승인한 경우에만 등록한다.
 
 ### 2-0. 한 줄 등록 (비대화식 — vi 없이 즉시)
 
@@ -110,7 +113,7 @@ crontab -e
 
 vi/vim 진입 후 `i` 키로 insert mode 진입.
 
-### 2-2. 다음 4 라인 추가 (ADR 0096 §2-1·§3-2 LOCK)
+### 2-2. 다음 4 라인 추가 (2026-05-21 legacy baseline)
 
 ```cron
 # ─────────────────────────────────────────────────────────────
@@ -141,7 +144,7 @@ crontab -l | grep magicJar -A 5
 
 ---
 
-## 3. cron 동작 검증 (등록 후 1주일 dwell)
+## 3. Legacy Mac fallback cron 동작 검증 (등록한 경우)
 
 ### 3-1. 다음 03:00 KST 이후 산출물 확인
 
@@ -192,7 +195,7 @@ find _workspace/backups/redis/snapshots -name "*.rdb" -mtime +3
 
 ---
 
-## 4. 진단 매트릭스 (cron 실패 시)
+## 4. Legacy Mac fallback 진단 매트릭스
 
 | 증상 | 진단 명령 | root cause |
 |------|----------|-----------|
@@ -207,7 +210,7 @@ find _workspace/backups/redis/snapshots -name "*.rdb" -mtime +3
 
 ---
 
-## 5. Linux 환경 (참고 — 사용자 환경 외)
+## 5. Legacy Linux fallback (참고 — 사용자 환경 외)
 
 Linux는 systemd timer 또는 cron 둘 다 가능. 본 magicJar 운영 단계 기본은 macOS 단독 운영자 가정 (ADR 0094 §9-3). Linux 운영 시:
 
@@ -221,7 +224,7 @@ Linux는 systemd timer 또는 cron 둘 다 가능. 본 magicJar 운영 단계 �
 
 ---
 
-## 6. cron 등록 해제 (rollback)
+## 6. Legacy Mac fallback cron 등록 해제
 
 ADR 0096 §7-2 rollback plan 정합:
 
@@ -286,6 +289,7 @@ rm -rf _workspace/backups/redis/snapshots/*.rdb
 
 | 날짜 | 변경 |
 |------|------|
+| 2026-07-18 | ADR 0096 amend 반영 — NAS DSM combined set을 autonomous primary로 지정하고 macOS/Linux cron 절차를 선택적 legacy/off-host fallback으로 강등. installer·scheduler artifact·restore drill 전 readiness PENDING. |
 | 2026-05-21 | 신규 발행 — ADR 0096 §2·§3 정합 + macOS crontab 등록 + 진단 매트릭스 + DR drill 분기 의무 cross-link (architect) |
 | 2026-06-06 | 실태 이력(cron 미등록·백업 0회 → 첫 백업 + 강화) + §3-4 외부 매체 동기화 권고 + new-pc-migration-runbook·pg-restore.sh cross-link 추가 (backend-core) |
 | 2026-07-03 | §2-0 한 줄 crontab 등록 명령 추가 + pg-dump-daily.sh 실패 Slack 알림(env 게이트) 반영 — 시스템 감사 §7 대응 |
