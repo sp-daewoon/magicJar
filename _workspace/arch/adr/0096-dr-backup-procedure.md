@@ -1,7 +1,6 @@
 # ADR 0096: P0-OPS-4 — DR/backup 절차 (PostgreSQL pg_dump + Redis snapshot + RPO/RTO 정의)
 
 - 상태: **Accepted (2026-05-21 — architect 단독 결재, 사용자 의제는 ADR 0094 D-5 운영 단계 v3.8.0 cut 결재에 통합 완료)**
-- Amendment: **2026-07-18 Accepted — NAS runtime용 combined PG+Redis autonomous backup primary 추가**
 - 작성일: 2026-05-21
 - 결정자: architect (ADR 0094 §3-7 P0-OPS-4 task 본문화 의무 정합)
 - 영역: 운영 헌법 §9 (DR/backup) + persistence + observability
@@ -122,48 +121,6 @@ _workspace/backups/
 | **dedup/rate limit (ADR 0075 T-NEWS)** | 임시 state | 5분 내 자연 회복 | LOW |
 
 → Redis snapshot은 **DR drill 시 staging 환경 복구 evidence 보존 + 컨테이너 자체 결함 시 빠른 복구**가 본질. RPO=24h 정합.
-
-### 3-4. 2026-07-18 amendment — NAS combined backup 권위
-
-ADR-0141의 NAS runtime에는 §2-1과 §3-2의 Mac 분리 cron 대신 다음 combined set을
-**autonomous primary**로 사용한다. 기존 Mac 스크립트와 ignored `_workspace/backups/`는
-manual/off-host 보조 경로로 유지하며 자동 primary readiness의 근거로 사용하지 않는다.
-
-| 항목 | NAS runtime 권위 |
-|---|---|
-| 실행 actor | Synology DSM Task Scheduler root 사용자 — 수동 등록 |
-| 주기 | 매일 03:00 KST, PostgreSQL 후 fresh Redis BGSAVE를 같은 실행에서 순차 수행 |
-| 산출물 | `/volume1/docker/magicjar/backups/sets/<KST timestamp>/` 아래 정확한 6개 dump/checksum/meta 파일 |
-| retention | combined set 7일; 1일 초과 crash partial만 lease 소유 중 정리 |
-| 동시성 | Redis `SET NX PX` token lease + compare-renew/release; filesystem fallback 금지 |
-| commit marker | `pg_restore --list`, fresh `LASTSAVE`, 양쪽 SHA-256, exact-six non-symlink 검증 후 directory atomic rename |
-| 설치 | 승인 full SHA의 entrypoint를 `/volume1/docker/magicjar/ops/`에 checksum·0700으로 provision |
-
-다음 증거를 모두 얻기 전 autonomous backup readiness는 **PENDING**이다.
-
-1. DSM Task Scheduler가 실제 생성한 combined artifact와 checksum
-2. PostgreSQL restore drill 성공과 Redis checksum 검증
-3. RPO 24h·RTO 30분 유지 증거
-
-외부 storage/3-2-1 copy는 이 amendment 범위 밖이며 별도 사용자 결재 대상으로 유지한다.
-
-### 3-5. 2026-07-18 security amendment — cross-system commit fence
-
-§3-4의 “filesystem fallback 금지”는 Redis lease를 대체하는 best-effort fallback을
-금지한 결정이었다. exact-six commit marker 제거는 Redis와 NAS filesystem 사이에서
-원자화할 수 없으므로, Redis TTL 만료·재시작·whole-system pause 뒤 stale process가
-commit하는 경계를 닫기 위해 다음 **dual fence**를 의무화한다.
-
-1. Redis `SET NX PX` token lease + compare-renew/delete는 기존대로 유지한다.
-2. pinned `backups/sets` parent에 같은 token의 atomic hard-link lock을 추가하고,
-   두 fence의 소유권을 marker 제거 직전에 모두 재검증한다.
-3. filesystem fence는 Redis의 fallback이 아니라 commit serialization의 필수 2차 fence다.
-4. signal/normal exit는 token 일치 시에만 fence를 제거한다. crash residue는 자동 탈취하지
-   않고 조사 후 수동 제거해 fail-closed availability를 선택한다.
-
-따라서 §3-4 동시성 행의 “filesystem fallback 금지”는 유지하되, **필수 dual commit
-fence에는 적용하지 않는 것으로 supersede**한다. readiness evidence에는 overlapping
-scheduler 차단과 commit-boundary lease-loss fault injection을 포함한다.
 
 ---
 
@@ -429,5 +386,3 @@ scheduler 차단과 commit-boundary lease-loss fault injection을 포함한다.
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-21 | **ADR 0096 Accepted — P0-OPS-4 DR/backup 절차 본문화** (ADR 0094 §3-7 P0-OPS-4 task 본문화 + 운영 헌법 §9-4 backup 매트릭스 amend + PostgreSQL daily 03:00 KST + 7일 retention + Redis snapshot 매일 03:30 + 3일 retention + RPO 24h + RTO 30분 + R-4 runbook cross-link + DR drill 분기 의무 + qa Visual E2E 5 시나리오 + 운영 ADR 양식 3 슬롯 두 번째 적용 사례 + `_workspace/backups/` .gitignore + 사용자 macOS crontab 가이드 + backend-core P0-OPS-4 후속 wiring 5건 권고). 운영 코드 0 touch. | architect (ADR 0094 §3-7 task 본문화 의무) |
-| 2026-07-18 | **NAS combined backup amendment Accepted** — ADR 0141 NAS runtime의 autonomous primary를 DSM Task Scheduler 단일 PG+Redis exact-six set으로 전환. Mac split scripts는 manual/off-host fallback으로 강등하고 scheduler artifact·restore drill 전 readiness PENDING. | 사용자(최고 관리자) |
-| 2026-07-18 | **Cross-system commit fence security amendment Accepted** — Redis lease와 token-owned atomic hard-link filesystem fence를 marker 제거까지 함께 보유·검증. crash fence 자동 탈취 금지. | 사용자 승인 하 release-gate 보강 |

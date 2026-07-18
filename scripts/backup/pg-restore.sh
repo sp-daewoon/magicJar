@@ -72,14 +72,6 @@ err() {
   log "ERROR: $*" >&2
 }
 
-validate_pg_identifier() {
-  local label="$1" value="$2"
-  if [[ ! "$value" =~ ^[a-z_][a-z0-9_]{0,62}$ ]]; then
-    err "$label='$value' is not a safe unquoted PostgreSQL identifier"
-    exit 1
-  fi
-}
-
 # ────────────────────────────────────────────────────────────
 # 인자 파싱
 # ────────────────────────────────────────────────────────────
@@ -101,12 +93,6 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-
-# Every value interpolated into SQL or passed as a PostgreSQL identifier must
-# stay within PostgreSQL's 63-byte lowercase unquoted-identifier subset.
-validate_pg_identifier "target-db" "$TARGET_DB"
-validate_pg_identifier "production-db" "$PROD_DB"
-validate_pg_identifier "db-user" "$DB_USER"
 
 # ────────────────────────────────────────────────────────────
 # 운영 DB 이중 게이트 (오발사 방지)
@@ -132,7 +118,7 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! mj_docker ps --format '{{.Names}}' | grep -Fxq "${CONTAINER_NAME}"; then
+if ! mj_docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   err "${CONTAINER_NAME} 컨테이너 running 0 — 'docker compose -f docker/docker-compose.infra.yml up -d' 후 재시도"
   exit 1
 fi
