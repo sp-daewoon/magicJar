@@ -5,7 +5,7 @@
 **개인 맞춤형 한국 주식 자동매매 시스템**
 _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
-[![Version](https://img.shields.io/badge/version-v3.13.1-blue)](https://github.com/sp-daewoon/magicJar/releases)
+[![Version](https://img.shields.io/badge/version-v3.17.0-blue)](https://github.com/sp-daewoon/magicJar/releases)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0_(K2)-purple)](https://kotlinlang.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6db33f)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
@@ -37,7 +37,7 @@ _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 
 1. **룰 기반 quant trading 본체** — 사용자가 정의한 DSL 룰이 KIS WebSocket 실시간 시세에 평가되어 BUY/SELL 시그널 발행 → 리스크 게이트 → 주문 의도. **AI는 매매 결정권 0**, 옵션 분석 코멘트만.
 2. **한국투자증권 KIS OpenAPI 단일 출처** — 모의투자(vps) ↔ 실전(prod) dual mode + WebSocket 실시간 시세 + 80개 지표·57개 패턴 카탈로그. 자체 추론 0 의무 (KIS-first 정책, ADR 0053).
-3. **3단 hierarchy 자율 운영** — 사용자(최고 관리자) → orchestrator(지휘자) → architect(수석 설계자) → 6 실무 sub-agent 병렬 디스패치. ADR 63건 + baseline 5세대 + devlog 4건으로 추적성 완전 보존.
+3. **3단 hierarchy 자율 운영** — 사용자(최고 관리자) → orchestrator(지휘자) → architect(수석 설계자) → 6 실무 sub-agent 병렬 디스패치. 현재 수치와 이력은 [`_workspace/INDEX.md`](_workspace/INDEX.md)와 [ADR 인덱스](_workspace/arch/adr/README.md)가 권위다.
 
 ---
 
@@ -48,7 +48,7 @@ _룰 기반 quant trading 본체 + AI 옵션 보조 + MCP 서버 미래 노출_
 ```mermaid
 sequenceDiagram
     participant Rule as 룰/시그널 엔진
-    participant Kafka as Kafka order.intent.v1
+    participant Kafka as Kafka kafka.shared.cmd.order.intent.v1
     participant Listener as OrderRouterKafkaListener<br/>(consumer)
     participant Gate as TradingModeGate<br/>(3중 게이트)
     participant Adapter as KisOrderHttpAdapter
@@ -65,7 +65,7 @@ sequenceDiagram
     alt Gate denied
         Gate-->>Listener: REAL_GATE_DENIED:<reason>
         Listener->>DB: UPDATE(status=REJECTED, reject_reason)
-        Listener->>Kafka: publish order.rejected.v1
+        Listener->>Kafka: publish kafka.consumer.evt.order.rejected.v1
         Kafka->>Stomp: forward → 사용자 토스트
     else Gate ok
         Gate-->>Listener: ok(mode, accountType)
@@ -74,12 +74,12 @@ sequenceDiagram
         KIS-->>Adapter: 200 ODNO + 응답
         Adapter-->>Listener: KisAck(ODNO)
         Listener->>DB: UPDATE(status=ACK, kis_order_no=ODNO)
-        Listener->>Kafka: publish order.requested.v1
+        Listener->>Kafka: publish kafka.consumer.evt.order.requested.v1
         Kafka->>Stomp: forward → 사용자 토스트
         WS->>ExecListener: H0STCNI0/9 체결 통보 (cntgYn=2)
         ExecListener->>DB: INSERT order_execution
         ExecListener->>DB: UPDATE order_request(status=FILLED|PARTIALLY_FILLED)
-        ExecListener->>Kafka: publish order.filled.v1
+        ExecListener->>Kafka: publish kafka.consumer.evt.order.filled.v1
         Kafka->>Stomp: forward → 사용자 토스트
     end
 ```
@@ -110,7 +110,7 @@ sequenceDiagram
 cp .env.example .env
 $EDITOR .env
 
-# 2. Gradle bootJar + Docker compose up (7 컨테이너 = 인프라 3 + 앱 4)
+# 2. Gradle bootJar + Docker compose up (9 컨테이너 = 인프라 3 + 앱 4 + 운영 UI 2)
 scripts/build-and-deploy.sh
 
 # 3. 접속
@@ -258,7 +258,7 @@ cd frontend && pnpm install && pnpm dev   # 포트 5173
 
 ## Architecture
 
-### 시스템 전경 — 4 JVM 모듈 + 외부 4 통합
+### 시스템 전경 — 9 JVM 모듈 + Frontend + 외부 통합
 
 ```mermaid
 graph TB
@@ -266,8 +266,13 @@ graph TB
         UI[SPA UI]
     end
 
-    subgraph JVM["JVM 4 Modules (Kotlin 2.0 / Spring Boot 3.3 / JDK 21)"]
+    subgraph JVM["JVM 9 Modules (Kotlin 2.0 / Spring Boot 3.3 / JDK 21)"]
         DOM[domain<br/>순수 도메인 + port<br/>Spring·JPA 의존 0]
+        PAT[pattern-engine]
+        IND[indicator-impl]
+        DSL[strategy-engine]
+        PERSIST[persistence-shared]
+        TREND[market-trend-engine]
         API[api<br/>REST/STOMP + KIS 어댑터<br/>+ Kafka producer]
         BATCH[batch<br/>Spring Batch<br/>backfill + 백테스트]
         CONS[consumer<br/>Kafka + KIS WS<br/>+ Signal + Risk 게이트]
@@ -282,7 +287,7 @@ graph TB
     subgraph EXT["External APIs"]
         KIS[KIS OpenAPI<br/>REST + WebSocket]
         DART[DART 공시]
-        NEWS[Naver RSS + Yahoo]
+        NEWS[Naver Open API]
         LLM[Anthropic LLM<br/>옵션 only]
         CLAUDE[Claude CLI bridge<br/>claude -p]
     end
@@ -291,6 +296,11 @@ graph TB
     API --> DOM
     BATCH --> DOM
     CONS --> DOM
+    PAT --> DOM
+    IND --> DOM
+    DSL --> DOM
+    PERSIST --> DOM
+    TREND --> DOM
     API -->|JPA| PG
     BATCH -->|JPA| PG
     CONS -->|JPA| PG
@@ -321,15 +331,15 @@ sequenceDiagram
 
     KIS->>CONS: tick / candle (실시간)
     CONS->>CONS: boundary fanout<br/>(5m/15m/30m/90m/1h)
-    CONS->>K: market.candle.{interval}.closed.v1
+    CONS->>K: kafka.consumer.evt.market.candle.{interval}.closed.v1
     CONS->>CONS: RealtimeSignalGenerator<br/>(DSL 평가 + SignalDedupeGuard)
-    CONS->>K: signal.generated.v1
+    CONS->>K: kafka.consumer.evt.strategy.signal-generated.v1
     K->>RISK: SignalGeneratedKafkaListener
     RISK->>RISK: 6 룰 short-circuit<br/>(포지션·일일손실·동시종목·빈도)
     alt ALLOWED
-        RISK->>K: order.intent.v1 (T-O 진입 대기)
+        RISK->>K: kafka.shared.cmd.order.intent.v1
     else BLOCKED / AUTO_PAUSED
-        RISK->>K: risk.violation.v1
+        RISK->>K: kafka.consumer.evt.risk.violation.v1
     end
     K->>API: StompSignalDispatcher / StompRiskNotifier
     API->>FE: /topic/signal.user.{userId}<br/>/topic/risk.user.{userId}
@@ -344,8 +354,8 @@ sequenceDiagram
 | **Backend** | Spring Boot · Spring AI · Spring Batch · Gradle KTS | 3.3 · 8.5 |
 | **Frontend** | React · Vite · Tailwind CSS · LWC v4 (TradingView Lightweight Charts) · pnpm | 19 · 6 · 3 · 4 · 9 |
 | **DB / Messaging / Cache** | PostgreSQL · Kafka KRaft · Redis | 16 · 3.7 · 7 |
-| **외부 API** | KIS OpenAPI (prod + vps) · DART · Yahoo Finance · Naver RSS · Anthropic · Claude CLI(`claude -p`) | — |
-| **배포** | Docker Compose 7 컨테이너 (인프라 3 + 앱 4) | — |
+| **외부 API** | KIS OpenAPI (prod + vps) · DART · Naver Open API · Anthropic · Claude CLI(`claude -p`) | — |
+| **배포** | Docker Compose 9 컨테이너 (인프라 3 + 앱 4 + 운영 UI 2) | — |
 | **개발 도구** | husky pre-commit/pre-push · task.mjs CLI · ktlint | — |
 
 ### 운영 정책 한 줄 인용
@@ -370,11 +380,11 @@ graph TB
     ARCH[architect<br/>수석 설계자 · Opus<br/>spec/plan + ADR]
 
     SE[strategy-engine<br/>Opus]
-    BC[backend-core<br/>Sonnet]
-    MD[market-data<br/>Sonnet]
+    BC[backend-core<br/>Opus]
+    MD[market-data<br/>Opus]
     AI[ai-engineer<br/>Opus]
-    FE[frontend<br/>Sonnet]
-    QA[qa<br/>Sonnet · on-demand]
+    FE[frontend<br/>Opus]
+    QA[qa<br/>Opus · Visual/E2E 품질 헌터]
 
     USER ==>|의제 위임| ORCH
     ORCH ==>|설계 dispatch| ARCH
@@ -400,18 +410,18 @@ graph TB
 |----------|------|----------|----------|
 | **orchestrator** (skill) | — | 사용자 위임 받아 지휘 · 디스패치 매트릭스 · 머지 흐름 통제 · 사이클 archive | 사이클 전체 |
 | **architect** | Opus | 시스템 설계 · ADR 발행 · spec/plan · 모듈 경계 · 헌법 갱신 | T-W1 · T-SIG · T-RISK plan |
-| **backend-core** | Sonnet | JVM 4 모듈 뼈대 · REST · JPA · Flyway · STOMP · 도메인 어댑터 | API 구현 전반 |
-| **market-data** | Sonnet | KIS OpenAPI · Yahoo · DART · Naver · 캔들 영속 · KIS-first 의무 | T-MS1 · T-CA1 · T-IM1 |
+| **backend-core** | Opus | JVM 9 모듈 경계 · REST · JPA · Flyway · STOMP · 도메인 어댑터 | API 구현 전반 |
+| **market-data** | Opus | KIS OpenAPI · DART · Naver · 캔들 영속 · KIS-first 의무 | T-MS1 · T-CA1 · T-IM1 |
 | **strategy-engine** | Opus | DSL · 80지표 · 57패턴 · 시그널 · 백테스트 · 리스크 게이트 | T-DSL · T-IND · T-PAT · T-SIG · T-BT · T-RISK |
 | **ai-engineer** | Opus | Spring AI · 프롬프트 카탈로그 · LLM 호출 게이트 · MCP 서버 | T-AI · T-MCP |
-| **frontend** | Sonnet | React SPA · LWC v4 차트 · Strategy Builder · STOMP 소비 · 토스트 | UI 전반 |
-| **qa** | Sonnet | 경계면 교차 검증 (on-demand 7 트리거 조건만) | MAGICJAR_MODE=REAL 진입 시 sunset |
+| **frontend** | Opus | React SPA · LWC v4 차트 · Strategy Builder · STOMP 소비 · 토스트 | UI 전반 |
+| **qa** | Opus | Playwright · 스크린샷 · 시각 회귀 · E2E · DR drill 자동 재현 | 운영 품질 전반 |
 
-> **모델 차등 근거 (ADR 0035)**: opus = 설계·전략·AI 깊은 추론 영역, sonnet = 구현·통합 영역.
+> **모델 정책 (ADR 0080, ADR 0094 amend)**: 활성 7개 sub-agent는 모두 `model: opus` 별칭으로 최신 opus를 추종한다.
 
 ### orchestrator 일대기
 
-사용자가 의제(예: "T-RISK 트랙 진입")를 던지면 orchestrator(SKILL: `magicjar-orchestrator`)가 **지휘봉**을 받는다. 우선 architect에게 spec/plan을 요청해 ADR 발행 + 결정 의제 N건을 사용자에게 위임한다. 사용자가 옵션을 채택하면 orchestrator는 **실제 충돌 행렬 검토 후 적극 병렬 디스패치** ([`feedback_orchestrator_active_parallel.md`](../../.claude/projects/-Users-ak-song-magic-ch1/memory/) 정합) — strategy-engine · backend-core · frontend 3 sub-agent를 background로 동시 발사. 각 sub-agent는 본인 영역만 PR 생성 → orchestrator가 머지 순서·rebase·CHANGELOG slot 정합을 통제하고 사용자에게 PR URL + evidence를 보고한다.
+사용자가 의제(예: "T-RISK 트랙 진입")를 던지면 orchestrator가 **지휘봉**을 받는다. 우선 architect에게 spec/plan을 요청해 ADR 발행 + 결정 의제 N건을 사용자에게 위임한다. 사용자가 옵션을 채택하면 orchestrator는 **실제 충돌 행렬 검토 후 적극 병렬 디스패치**한다. 각 sub-agent는 본인 영역만 PR 생성 → orchestrator가 머지 순서·rebase·CHANGELOG slot 정합을 통제하고 사용자에게 PR URL + evidence를 보고한다.
 
 ### 운영 헌법 7 § ([`_workspace/arch/agent-charter.md`](_workspace/arch/agent-charter.md))
 
@@ -425,7 +435,7 @@ graph TB
 | **§6** | JPA Repository default fun 금지 | body 가진 fun이 query inference에 걸려 부팅 실패 (ADR 0051) |
 | **§7** | sub-agent fail 분기 | 재디스패치 OR 자율 진행 둘 중 하나만, 동시 진행 금지 |
 
-### 진화 — 5 baseline (v3.1.0 → v3.5.0)
+### 역사적 초기 진화 — v3.1.0 → v3.5.0
 
 | 버전 | 마감 미러스톤 | 핵심 트랙 / ADR |
 |------|--------------|------------------|
@@ -434,7 +444,7 @@ graph TB
 | **v3.2.2** | NXT 통합거래 + 5종 합산 | ADR 0062 · 0063 |
 | **v3.3.0** | boundary fanout 실시간 합산 | ADR 0064 (5m/15m/30m/90m/1h fanout) |
 | **v3.4.0** | T-SIG 가동 본체 (매매 결정 노드) | ADR 0066 — DSL 평가 → Kafka `signal.generated.v1` → STOMP |
-| **v3.5.0** ★ 현재 | T-RISK 리스크 관리 게이트 | ADR 0067 — 6 룰 short-circuit → `order.intent.v1` |
+| **v3.5.0** | T-RISK 리스크 관리 게이트 | ADR 0067 — 6 룰 short-circuit → `order.intent.v1` |
 
 > Wave 로드맵: **W1**(인프라) → **W2**(매칭 본체) → **W3**(시그널·리스크·주문) → **W4**(AI·MCP) → **W5**(LWC·러닝). 전체 [`docs/architecture/tracks-roadmap.md`](docs/architecture/tracks-roadmap.md).
 
@@ -446,10 +456,10 @@ graph TB
 
 | 자원 | 위치 | 갱신 주기 | 관리자 | 현재 규모 |
 |------|------|----------|--------|----------|
-| **ADR** (Architecture Decision Records) | [`_workspace/arch/adr/`](_workspace/arch/adr/) | 의제마다 발행 | architect 단독 | **63건** (0001 ~ 0067, sequential) |
-| **baseline snapshot** | [`_workspace/baseline/v<X.Y.Z>/`](_workspace/baseline/) | minor release | 4 sub-agent 병렬 | **5세대** (v3.1.0 · v3.2.0 · v3.2.2 · v3.3.0 · v3.4.0) + html |
-| **devlog** (HTML 일일) | [`_workspace/devlog/`](_workspace/devlog/) | 매일 (사용자 `/devlog`) | 사용자 호출 → Claude 작성 | **4 HTML** + index |
-| **사용자 메모리** | `~/.claude/projects/.../memory/` | 자율 (Claude 누적) | Claude 자동 | **27건** (feedback + project + reference) |
+| **ADR** (Architecture Decision Records) | [`_workspace/arch/adr/`](_workspace/arch/adr/) | 의제마다 발행 | architect 단독 | ADR README 도입부가 수치 권위 |
+| **baseline snapshot** | [`_workspace/baseline/v<X.Y.Z>/`](_workspace/baseline/) | minor release | 병렬 생성 | 디렉터리 인덱스가 권위 |
+| **devlog** (HTML 일일) | [`_workspace/devlog/`](_workspace/devlog/) | 사용자 호출 시 | 사용자 호출 → agent 작성 | 디렉터리 인덱스가 권위 |
+| **사용자 메모리** | profile별 Hermes/agent memory | 자율 | 사용자·agent | 저장소 문서의 수치 복제 금지 |
 
 ### 단일 진실원 (SoT)
 
@@ -469,7 +479,7 @@ graph TB
 | "무엇을 알고 싶은가" | 진입 위치 |
 |---------------------|----------|
 | 현행 권위는 무엇인가 | [`docs/architecture/policies/README.md`](docs/architecture/policies/) |
-| 결정 이력은 무엇인가 | [`_workspace/arch/adr/README.md`](_workspace/arch/adr/) (63건 인덱스) |
+| 결정 이력은 무엇인가 | [`_workspace/arch/adr/README.md`](_workspace/arch/adr/) |
 | 진행 중 의제는 무엇인가 | [`_workspace/backlog.md`](_workspace/backlog.md) |
 | 특정 시점 풀 snapshot은 | [`_workspace/baseline/v3.4.0/README.md`](_workspace/baseline/v3.4.0/) |
 | 에이전트 운영 규칙은 | [`_workspace/arch/agent-charter.md`](_workspace/arch/agent-charter.md) |
@@ -477,7 +487,7 @@ graph TB
 ### 핵심 명령
 
 ```bash
-# 전체 검증 (4 JVM 모듈)
+# 전체 검증 (9 JVM 모듈)
 ./gradlew check
 
 # 단일 모듈
@@ -509,14 +519,15 @@ node scripts/task.mjs done --pr <N>
 ### CI/CD
 
 - **로컬 빌드**: `scripts/build-and-deploy.sh` (Gradle bootJar + Docker compose up)
-- **GitHub Actions**: 폐기 (ADR 0049 Superseded) — `release/v*` 태그 이미지 push만 유지
+- **GitHub Actions**: 사용하지 않음 (ADR 0049 Superseded) — 로컬 hook과 release script가 권위
 - **릴리즈**: `v*.*.*` 태그 → release commit + baseline cut + immutable
 
 ### 디렉토리 구조
 
 ```
 .
-├── domain/ api/ batch/ consumer/    JVM 4 모듈 (Kotlin 2.0 / Spring Boot 3.3)
+├── domain/ pattern-engine/ indicator-impl/ strategy-engine/
+├── persistence-shared/ market-trend-engine/ api/ batch/ consumer/  JVM 9 모듈
 ├── frontend/                        React 19 + Vite + LWC v4
 ├── docker/                          docker-compose 3 yml (전체 / 인프라 / 앱)
 ├── docs/
@@ -524,8 +535,8 @@ node scripts/task.mjs done --pr <N>
 │   └── operations/                  운영 가이드 + KIS API 레퍼런스
 ├── _workspace/
 │   ├── INDEX.md                     ★ 단일 진입점
-│   ├── arch/                        ADR (63건) + 운영 헌법 + 브랜칭 룰
-│   ├── baseline/                    5 세대 immutable snapshot
+│   ├── arch/                        ADR 인덱스 + 운영 헌법 + 브랜칭 룰
+│   ├── baseline/                    immutable snapshot
 │   ├── devlog/                      일일 작업로그 HTML
 │   ├── backlog.md                   진행 중 의제
 │   ├── tasks/                       task.mjs 4단계 산출물
@@ -632,6 +643,6 @@ TBD (Private) — `sp-daewoon/magicJar` repository
 
 **magicJar** — 룰이 본체, AI가 보조, 사용자가 최고 관리자.
 
-[CHANGELOG](CHANGELOG.md) · [ADR 인덱스](_workspace/arch/adr/) · [마스터 아키텍처](docs/architecture/master-architecture.md) · [v3.5.0 baseline](_workspace/baseline/v3.5.0/html/index.html)
+[CHANGELOG](CHANGELOG.md) · [ADR 인덱스](_workspace/arch/adr/) · [마스터 아키텍처](docs/architecture/master-architecture.md) · [baseline 인덱스](_workspace/baseline/)
 
 </div>

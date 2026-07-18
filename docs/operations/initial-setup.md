@@ -46,7 +46,7 @@ OPENDART_API_KEY=발급받은_DART_키
 MAGICJAR_SECRET_MASTER_KEY=05UpBZJr7yfmQ4TeHWiG5OngESQVgi3t+Qxrk/SoMt4=
 
 # 기본 운영 (필요 시 변경)
-SPRING_PROFILES_ACTIVE=mock
+SPRING_PROFILES_ACTIVE=dev,real-kis
 API_HOST_PORT=18080
 ```
 
@@ -62,21 +62,22 @@ openssl rand -base64 32
 ### 2.3 컨테이너 부팅
 
 ```bash
-# 모의 모드 (개발·학습)
+# 개발 기동 (실전 KIS는 조회 source, 주문은 기본 MOCK)
 docker compose -f docker/docker-compose.yml \
                -f docker/docker-compose.dev.yml \
                --env-file .env up -d
 ```
 
-9개 컨테이너 모두 healthy 도달 확인 (약 30초~2분):
+9개 서비스 상태 확인 (약 30초~2분):
 - postgres·kafka·redis
 - api-app·batch-app·consumer-app·frontend
+- dozzle·kafka-ui
 
 ```bash
 docker compose ps
 ```
 
-모든 컨테이너 `Status: healthy` 확인.
+healthcheck가 정의된 컨테이너는 `Status: healthy`, 나머지는 정상 실행 상태인지 확인.
 
 ### 2.4 첫 진입 + 설정
 
@@ -110,10 +111,10 @@ docker compose ps
 | 데이터 종류 | source | 키 |
 |---|---|---|
 | 일봉 | KIS REST `FHKST03010100` | **실전 키** (모의 미지원 endpoint) |
-| 분봉 (M1) | Yahoo Finance | 키 불요 (공개 API) |
-| 분봉 (M5/M15/M30/H1) | M1 → 백엔드 합성 | 별도 호출 X |
+| 분봉 (M1) | KIS REST 분봉 + 장중 KIS WS tick 집계 | **실전 키** |
+| 분봉 (M5/M15/M30/H1) | M1/실시간 tick → 백엔드 boundary 합산 | 별도 호출 X |
 | 종목 메타·재무 | KIS CTPF1002R + DART fnlttSinglAcntAll | 실전 KIS + DART |
-| 시세 실시간 | KIS WebSocket H0STCNT0 | 실전 키 |
+| 시세 실시간 | KIS WebSocket H0UNCNT0 (KRX+NXT 통합) | 실전 키 |
 | 모의/실전 주문 | KIS REST `TTTC0011U` 등 | trading_mode 따라 |
 
 ### 3.3 키 회전
@@ -126,7 +127,7 @@ docker compose ps
 
 ### "차트 데이터 없음"
 - 신규 종목 첫 진입 시 30~60초 cold-start backfill 진행 중. 기다린 후 새로고침.
-- 또는 Yahoo Finance가 KOSDAQ 일부 종목 미지원 가능 — 직접 호출로 검증.
+- backfill 실패 시 KIS credential·rate limit·수집 worker 로그를 확인. mock 캔들로 대체하지 않는다.
 
 ### "종목 메타 빈 panel"
 - KIS 실전 키 미등록 → ⚙️에서 등록
@@ -146,5 +147,5 @@ docker compose ps
 ## 5. 다음 단계
 
 - [매매 정책 가이드](order-policy.md) — KillSwitch·DailyOrderLimit·trading_mode 운영
-- [캔들 캐시 가이드](candle-cache-guide.md) — LRU eviction·Yahoo Finance backfill
-- [MCP 서버 가이드](mcp-server-guide.md) — 외부 AI 클라이언트 연동
+- [캔들 데이터 정책](../architecture/candle-data-policy-v2.md) — KIS 수집·영속·정합 기준
+- [KIS API MCP 도입 계획](kis-api-mcp-adoption-plan.md) — 외부 AI 클라이언트 연동 검토

@@ -2,7 +2,7 @@
 
 > **권위**: 본 문서 + `scripts/task.mjs` 동작.
 > **결정 이력**: ADR-0036 §1 (사이클 정의), 운영 헌법 §1·§2, ADR-0051 (default fun trap 영향)
-> **마지막 갱신**: 2026-05-08 (Living Policy 분리)
+> **마지막 갱신**: 2026-07-15 (Wave 0 — 비파괴 task hygiene)
 
 ---
 
@@ -20,8 +20,7 @@ node scripts/task.mjs check "<항목>"
 node scripts/task.mjs done --pr <N>
 
 # 4. archive — 머지 후 정리 4단계의 일부
-node scripts/task.mjs archive T-<id>           # status=DONE 강제
-node scripts/task.mjs archive T-<id> --force   # RUNNING도 강제 (sub-agent done 누락 시)
+node scripts/task.mjs archive T-<id>           # status=DONE인 task만
 ```
 
 ## 머지 후 정리 4단계 (헌법 §2)
@@ -36,10 +35,10 @@ git worktree remove <worktree>
 git branch -d agent/<agent>/<branch>
 ```
 
-자동 점검 (orchestrator 사이클 시작 시):
+읽기 전용 자동 점검 (orchestrator 사이클 시작 시):
 
 ```bash
-ls _workspace/tasks/T-*.md | wc -l  # 5건 이상이면 일괄 archive
+node scripts/check-task-hygiene.mjs # 상태·중복·orphan 후보 보고만
 git worktree list                   # 잔재 검증
 ```
 
@@ -65,15 +64,16 @@ node scripts/task.mjs start --agent backend-core --slug pr-30-backend ...
 
 | 케이스 | 회피 |
 |--------|------|
-| sub-agent가 task done 누락 | orchestrator가 `archive --force` |
-| task 파일이 main worktree에 untracked로 남음 | git pull 전 `rm -f _workspace/tasks/T-<id>.md` |
-| worktree 안 task.mjs 호출 못함 | task 파일을 worktree에 cp 동기화 |
+| sub-agent가 task done 누락 | PR/merge evidence 확인 후 원 소유자가 `done`; 추정 완료·`--force` 금지 |
+| task 파일이 main worktree에 untracked로 남음 | 삭제하지 말고 현재 branch/worktree와 대조 후 사용자에게 보고 |
+| worktree 안 task.mjs 호출 못함 | 해당 worktree의 저장소 root에서 실행; 파일 수동 복사 금지 |
 | task ID 충돌 (분 단위) | `--slug` 명시 |
 
 ---
 
 ## 변경 이력
 
+- 2026-07-15: task 수 기반 일괄 archive·강제 완료·삭제·수동 복사를 폐기하고 읽기 전용 doctor + evidence 기반 archive로 전환
 - 2026-05-08: Living Policy로 분리 (ADR-0053, PR #248)
 - 2026-05-XX: PR-30 learnings — slug 분리 의무 명문화
 - 2026-05-XX: 운영 헌법 §2 머지 후 정리 4단계 통합 (PR-26)

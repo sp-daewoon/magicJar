@@ -121,7 +121,7 @@ scripts/build-and-deploy.sh
 # 1. ./gradlew :api:bootJar :batch:bootJar :consumer:bootJar (호스트 빌드)
 # 2. docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml \
 #       --env-file "$PWD/.env" build (jar copy + image 재생성)
-# 3. docker compose ... up -d (4 모듈 + infra 3 + dozzle·kafka-ui)
+# 3. docker compose ... up -d (앱 4 + infra 3 + 운영 UI 2; JVM 실행 앱은 api/batch/consumer)
 ```
 
 ### 3-2. 일부 서비스만
@@ -165,7 +165,7 @@ docker compose -f docker/docker-compose.infra.yml \
 
 ## 4. 검증 (Verify)
 
-### 4-1. docker ps 4 모듈 healthy
+### 4-1. docker ps 앱 4개 healthy
 
 ```bash
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep magicjar
@@ -184,12 +184,12 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep magicjar
 ### 4-2. docker logs 최근 5분 startup 에러 0건
 
 ```bash
-# 4 모듈 startup 에러 patrol
+# JVM 실행 앱 3개 startup 에러 patrol
 for m in api batch consumer; do
   echo "─── magicjar-$m ───"
   docker logs --since 5m "magicjar-$m" 2>&1 | grep -E "ERROR|FATAL|Caused by|FlywayException" | head -5
 done
-# 기대: 4 모듈 모두 출력 0 row
+# 기대: api/batch/consumer 모두 출력 0 row
 ```
 
 ### 4-3. SystemEvent emit 정상
@@ -253,10 +253,10 @@ curl -X POST http://localhost:18080/api/risk/reconcile/<userId> \
 
 ```bash
 # consumer KIS WS connect evidence
-docker logs --since 2m magicjar-consumer 2>&1 | grep -E "KisWebSocket|H0STCNT0|WS_CONNECTED"
+docker logs --since 2m magicjar-consumer 2>&1 | grep -E "KisWebSocket|H0UNCNT0|WS_CONNECTED"
 # 정상:
 # "KisWebSocketBridge WS connected — approval_key=...  (SystemEvent WS_CONNECTED emit)"
-# "subscribe H0STCNT0 — symbol=005930"
+# "subscribe H0UNCNT0 — symbol=005930"
 ```
 
 ---
@@ -269,7 +269,7 @@ docker logs --since 2m magicjar-consumer 2>&1 | grep -E "KisWebSocket|H0STCNT0|W
 # 1) build-and-deploy 재배포 (§3-1)
 scripts/build-and-deploy.sh
 
-# 2) 4 모듈 docker logs 5분 에러 patrol (§4-2)
+# 2) 앱 4개 docker logs 5분 에러 patrol (§4-2)
 for m in api batch consumer frontend; do
   echo "─── magicjar-$m ───"
   docker logs --since 5m "magicjar-$m" 2>&1 | grep -E "ERROR|FATAL|Exception" | wc -l
