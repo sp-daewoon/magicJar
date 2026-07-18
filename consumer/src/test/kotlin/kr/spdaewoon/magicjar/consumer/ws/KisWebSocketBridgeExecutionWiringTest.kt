@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.consumer.order.KisExecutionWsListener
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerUserKisCredentialJpaRepository
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.port.QuoteCachePort
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -19,6 +20,10 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient
 import reactor.core.publisher.Mono
 import java.net.URI
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * T-O Phase 1 B-1 — KisWebSocketBridge H0STCNI0/H0STCNI9 → KisExecutionWsListener wiring 단위 테스트.
@@ -164,6 +169,49 @@ class KisWebSocketBridgeExecutionWiringTest {
         verify(exactly = 1) { listener.onWebSocketMessage(any()) }
     }
 
+    @Test
+    fun `reconnect generation 전진과 경합한 이전 execution frame은 dispatch하지 않는다`() {
+        val dispatchCalled = CountDownLatch(1)
+        val listener = mockk<KisExecutionWsListener>()
+        every { listener.onWebSocketMessage(any()) } answers { dispatchCalled.countDown() }
+        val provider = mockk<ObjectProvider<KisExecutionWsListener>>()
+        every { provider.getIfAvailable() } returns listener
+        val bridge = buildBridge(executionListenerProvider = provider)
+        val readinessLock = privateField(bridge, "executionReadinessLock")
+        val generation = privateField(bridge, "connectionGeneration") as AtomicLong
+        val executionBody =
+            "user001^12345678-01^KO0001234567^^02^^01^^005930^10^70000^113000^N^2^1^001^10^홍길동^삼성전자^^0^^삼성전자^70000"
+        val rawMessage = "0|H0STCNI0|001|$executionBody"
+        val handleMessage =
+            KisWebSocketBridge::class.java
+                .getDeclaredMethod(
+                    "handleMessage",
+                    String::class.java,
+                    java.lang.Long.TYPE,
+                ).also {
+                    it.isAccessible = true
+                }
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            synchronized(readinessLock) {
+                val oldFrame =
+                    executor.submit<Unit> {
+                        handleMessage.invoke(bridge, rawMessage, 0L)
+                        Unit
+                    }
+                assertThat(dispatchCalled.await(1, TimeUnit.SECONDS)).isFalse()
+                generation.set(1L)
+                assertThat(oldFrame.isDone).isFalse()
+            }
+            executor.shutdown()
+            assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue()
+            verify(exactly = 0) { listener.onWebSocketMessage(any()) }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
     // ===== 헬퍼 =====
 
     private fun buildBridge(
@@ -208,4 +256,13 @@ class KisWebSocketBridgeExecutionWiringTest {
                 },
         )
     }
+
+    private fun privateField(
+        bridge: KisWebSocketBridge,
+        name: String,
+    ): Any =
+        KisWebSocketBridge::class.java.getDeclaredField(name).let { field ->
+            field.isAccessible = true
+            field.get(bridge)
+        }
 }

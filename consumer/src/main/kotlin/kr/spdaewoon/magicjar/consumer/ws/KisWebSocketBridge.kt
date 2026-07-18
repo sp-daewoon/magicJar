@@ -1358,7 +1358,19 @@ class KisWebSocketBridge(
                 }
                 val data =
                     if (parsed.encrypted) {
-                        val aesKey = trIdToAesKey[parsed.trId]
+                        val aesKey =
+                            synchronized(executionReadinessLock) {
+                                if (generation != connectionGeneration.get()) {
+                                    log.debug(
+                                        "KIS WS stale generation encrypted frame drop: callbackGeneration={} currentGeneration={} trId={}",
+                                        generation,
+                                        connectionGeneration.get(),
+                                        parsed.trId,
+                                    )
+                                    return
+                                }
+                                trIdToAesKey[parsed.trId]
+                            }
                         if (aesKey == null) {
                             log.error(
                                 "KIS WS encrypted 메시지 — AES key 미저장 (구독 SUCCESS 응답 누락): trId={} payloadLength={}",
@@ -1375,26 +1387,37 @@ class KisWebSocketBridge(
                     } else {
                         parsed.rawData
                     }
-                when (parsed.trId) {
-                    // H0UNCNT0 통합 체결가 — ADR 0124 단일 채널 (KRX+NXT 통합).
-                    // KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py
-                    TR_ID_UNIFIED_TICK -> handleUnifiedTickData(data)
-                    TR_ID_UNIFIED_ORDERBOOK -> handleOrderbookData(data)
-                    // H0UNMKO0 통합 장운영/VI — VI 정책 EXIT_MARKET/ALERT_ONLY 보유 종목 관측.
-                    // KIS-first: domestic_stock_functions_ws.py market_status_total()
-                    TR_ID_UNIFIED_MARKET_STATUS -> handleMarketStatusData(data)
-                    // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
-                    // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
-                    //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
-                    //   - H0STCNI0 = 실전 체결통보 / H0STCNI9 = 모의 체결통보 (env_dv real/demo 분기)
-                    //   - body는 caret(^) delimiter — KisExecutionWsListener.onWebSocketMessage()가 KisExecutionMessage.parseFromCaretDelimited() 위임
-                    //   - 흐름 분기는 cntgYn/acptYn/rfusYn 기준 (tr_id 분기 불필요 — listener 내부 §14-6 LOCK)
-                    "H0STCNI0", "H0STCNI9" -> handleExecutionNotice(parsed.trId, data)
-                    // H0STOUP0 시간외 단일가 체결가 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST
-                    // KIS-first: overtime_ccnl_krx.py tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
-                    // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
-                    "H0STOUP0" -> handleOvertimeSinglePriceTickData(data)
-                    else -> log.debug("KIS WS 알 수 없는 TR_ID: trId={}", parsed.trId)
+                synchronized(executionReadinessLock) {
+                    if (generation != connectionGeneration.get()) {
+                        log.debug(
+                            "KIS WS stale generation realtime dispatch drop: callbackGeneration={} currentGeneration={} trId={}",
+                            generation,
+                            connectionGeneration.get(),
+                            parsed.trId,
+                        )
+                        return
+                    }
+                    when (parsed.trId) {
+                        // H0UNCNT0 통합 체결가 — ADR 0124 단일 채널 (KRX+NXT 통합).
+                        // KIS-first: examples_llm/domestic_stock/ccnl_total/ccnl_total.py
+                        TR_ID_UNIFIED_TICK -> handleUnifiedTickData(data)
+                        TR_ID_UNIFIED_ORDERBOOK -> handleOrderbookData(data)
+                        // H0UNMKO0 통합 장운영/VI — VI 정책 EXIT_MARKET/ALERT_ONLY 보유 종목 관측.
+                        // KIS-first: domestic_stock_functions_ws.py market_status_total()
+                        TR_ID_UNIFIED_MARKET_STATUS -> handleMarketStatusData(data)
+                        // H0STCNI0(REAL) / H0STCNI9(MOCK) 체결통보 — ADR 0068 §14-6 LOCK
+                        // KIS-first 출처: examples_user/domestic_stock/domestic_stock_functions_ws.py L389~L446 (def ccnl_notice)
+                        //   raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_user/domestic_stock/domestic_stock_functions_ws.py
+                        //   - H0STCNI0 = 실전 체결통보 / H0STCNI9 = 모의 체결통보 (env_dv real/demo 분기)
+                        //   - body는 caret(^) delimiter — KisExecutionWsListener.onWebSocketMessage()가 KisExecutionMessage.parseFromCaretDelimited() 위임
+                        //   - 흐름 분기는 cntgYn/acptYn/rfusYn 기준 (tr_id 분기 불필요 — listener 내부 §14-6 LOCK)
+                        "H0STCNI0", "H0STCNI9" -> handleExecutionNotice(parsed.trId, data)
+                        // H0STOUP0 시간외 단일가 체결가 — ADR 0076 Phase 3 B-2 — 16:00~18:00 KST
+                        // KIS-first: overtime_ccnl_krx.py tr_id="H0STOUP0" — 국내주식 시간외 실시간체결가 (KRX) [실시간-042]
+                        // raw URL: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/examples_llm/domestic_stock/overtime_ccnl_krx/overtime_ccnl_krx.py
+                        "H0STOUP0" -> handleOvertimeSinglePriceTickData(data)
+                        else -> log.debug("KIS WS 알 수 없는 TR_ID: trId={}", parsed.trId)
+                    }
                 }
             }
 
