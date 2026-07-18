@@ -11,7 +11,7 @@ import java.time.Duration
  *
  * KIS 키 변경(PUT) 성공 직후 호출:
  *   1. `kis:oauth:token:user:{userId}:account:{accountType}` DEL — KIS OAuth tokenP cache
- *   2. `kis:ws:approval:user:{userId}:account:{accountType}` DEL — WS approval_key cache
+ *   2. `kis:ws:approval:v2:user:{userId}:account:{accountType}` DEL — WS approval_key cache
  *   3. `kis:credential:changed:user:{userId}:account:{accountType}` SET TTL 5s — T-O 주문 발행 잠금
  *
  * // AI 호출 0 건 (ADR 0074 §11-2 정합)
