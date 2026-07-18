@@ -20,8 +20,9 @@
 - `scripts/backup/pg-dump-daily.sh` · `scripts/backup/redis-snapshot.sh` executable
 - 호스트 디스크 여유 공간 ≥ 100MB (PostgreSQL 7일 + Redis 3일 baseline ~50MB)
 
-NAS runtime(ADR-0141)에서는 backup script에 `MAGICJAR_DOCKER_CONTEXT=nas`를
-지정한다. dump/RDB 산출물은 계속 Mac의 ignored `_workspace/backups/`에 저장된다.
+NAS runtime(ADR-0141)에서 기존 분리 backup script를 수동 보조 경로로 실행할 때는
+`MAGICJAR_DOCKER_CONTEXT=nas`를 지정하며 산출물은 Mac의 ignored `_workspace/backups/`에
+저장된다. autonomous primary는 아래 DSM Task Scheduler combined set이다.
 
 Mac sleep과 무관한 PostgreSQL+Redis 자동 백업은 DSM Task Scheduler 경로를 권위로 한다.
 
@@ -42,8 +43,9 @@ DSM Control Panel → Task Scheduler에서 **root 사용자**의 사용자 정�
 산출물은 `/volume1/docker/magicjar/backups/sets/<KST timestamp>/` 아래의
 `postgres.dump{,.sha256,.meta}`와 `redis.rdb{,.sha256,.meta}`다. 두 컨테이너의
 Compose project/service label을 확인하고 fresh Redis BGSAVE와 양쪽 checksum 검증 후
-timestamp directory 전체를 한 번 rename해 atomic publish한다. stale lock은 NAS boot-id와
-PID/start-ticks가 실제 생존하지 않을 때만 회수한다.
+timestamp directory 전체를 한 번 rename해 atomic publish한다. 동시 실행은 Redis
+`SET NX PX` lease로 직렬화하고 token 비교 Lua로 갱신·해제한다. lease 갱신 실패 또는
+publish 직전 ownership 불일치는 fail-closed하며, 1일이 지난 crash partial만 정리한다.
 installer는 DSM task를 대신 등록하거나 crontab을 우회 수정하지 않는다. Task Scheduler가
 만든 artifact의 checksum·PostgreSQL restore drill을 확인하기 전에는 autonomous backup readiness를 주장하지 않는다.
 

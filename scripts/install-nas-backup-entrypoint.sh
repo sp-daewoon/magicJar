@@ -55,47 +55,86 @@ actual_endpoint="$(mj_docker_endpoint)"
   echo "✗ magicjar-postgres Compose service mismatch" >&2
   exit 1
 }
-image="$(mj_docker inspect magicjar-postgres --format '{{.Config.Image}}')"
-[[ -n "$image" ]] || { echo "✗ magicjar-postgres image unresolved" >&2; exit 1; }
-
-mj_docker run --rm --pull never \
-  -v /volume1/docker/magicjar:/nas-root \
-  "$image" sh -ceu '
-    for path in /nas-root/ops /nas-root/backups; do
-      [ ! -L "$path" ] || { echo "symlink path rejected: $path" >&2; exit 1; }
-      mkdir -p "$path"
-      [ "$(readlink -f "$path")" = "$path" ] || { echo "non-canonical path rejected: $path" >&2; exit 1; }
-    done
-  '
+expected_image="$(python3 - "$REPO_ROOT/docker/docker-compose.nas.yml" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+match = re.search(r"(?ms)^  postgres:\n(?:(?:    .*|\s*)\n)*?    image:\s*(\S+)\s*$", text)
+if not match or "@sha256:" not in match.group(1):
+    raise SystemExit(1)
+print(match.group(1))
+PY
+)" || { echo "✗ approved PostgreSQL digest unresolved from NAS Compose" >&2; exit 1; }
+configured_image="$(mj_docker inspect magicjar-postgres --format '{{.Config.Image}}')"
+[[ "$configured_image" == "$expected_image" ]] || { echo "✗ magicjar-postgres approved image reference mismatch" >&2; exit 1; }
+image="$(mj_docker inspect magicjar-postgres --format '{{.Image}}')"
+expected_image_id="$(mj_docker image inspect "$expected_image" --format '{{.Id}}')"
+[[ "$image" =~ ^sha256:[a-f0-9]{64}$ && "$image" == "$expected_image_id" ]] || {
+  echo "✗ magicjar-postgres running image ID does not match approved digest" >&2
+  exit 1
+}
 
 local_sha="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
-mj_docker run --rm --pull never -i \
-  -v "$TARGET_DIR:/target" \
-  -v "$BACKUP_ROOT:/backups" \
-  "$image" sh -ceu '
+provision_result="$(mj_docker run --rm --pull never --network none --read-only \
+  --entrypoint sh --cap-drop ALL --security-opt no-new-privileges -i \
+  -v /volume1:/nas-volume1:ro \
+  -v /volume1/docker/magicjar:/nas-magicjar \
+  "$image" -ceu '
     expected="$1"
-    final=/target/nas-task-scheduler-backup.sh
-    tmp="/target/.nas-task-scheduler-backup.sh.tmp.$$"
-    prev_tmp="/target/.nas-task-scheduler-backup.sh.prev.tmp.$$"
+    readonly_root=/nas-volume1/docker/magicjar
+    root=/nas-magicjar
+    ops="$root/ops"
+    backups="$root/backups"
+    sets="$backups/sets"
+    for path in /nas-volume1/docker "$readonly_root"; do
+      [ ! -L "$path" ] && [ -d "$path" ] || { echo "unsafe NAS path: $path" >&2; exit 1; }
+      [ "$(readlink -f "$path")" = "$path" ] || { echo "non-canonical NAS path: $path" >&2; exit 1; }
+    done
+    [ "$(stat -c "%d:%i" "$readonly_root")" = "$(stat -c "%d:%i" "$root")" ] || {
+      echo "NAS magicjar mount identity mismatch" >&2
+      exit 1
+    }
+    for path in "$root" "$ops" "$backups" "$sets"; do
+      if [ -e "$path" ]; then
+        [ ! -L "$path" ] && [ -d "$path" ] || { echo "unsafe NAS path: $path" >&2; exit 1; }
+      else
+        mkdir "$path"
+      fi
+      [ "$(readlink -f "$path")" = "$path" ] || { echo "non-canonical NAS path: $path" >&2; exit 1; }
+    done
+    ops_canonical="$ops"
+    cd "$ops"
+    [ "$(readlink -f .)" = "$ops_canonical" ] || { echo "ops path changed before pin" >&2; exit 1; }
+    final=./nas-task-scheduler-backup.sh
+    previous=./nas-task-scheduler-backup.sh.prev
+    tmp="$(mktemp ./.nas-task-scheduler-backup.sh.tmp.XXXXXX)"
+    prev_tmp="$(mktemp ./.nas-task-scheduler-backup.sh.prev.tmp.XXXXXX)"
     trap '\''rm -f "$tmp" "$prev_tmp"'\'' EXIT HUP INT TERM
-    mkdir -p /target /backups/sets
     cat > "$tmp"
     checksum_line="$(sha256sum "$tmp")" || exit 1
     actual="${checksum_line%% *}"
     [ "$actual" = "$expected" ] || { echo "provisioned checksum mismatch" >&2; exit 1; }
     chmod 0700 "$tmp"
-    if [ -f "$final" ]; then
+    if [ -e "$final" ]; then
+      [ ! -L "$final" ] && [ -f "$final" ] || { echo "unsafe existing entrypoint" >&2; exit 1; }
       cp -p "$final" "$prev_tmp"
-      mv "$prev_tmp" /target/nas-task-scheduler-backup.sh.prev
+      [ ! -e "$previous" ] || { [ ! -L "$previous" ] && [ -f "$previous" ]; } || { echo "unsafe previous entrypoint" >&2; exit 1; }
+      mv -T "$prev_tmp" "$previous"
     fi
-    mv "$tmp" "$final"
+    mv -T "$tmp" "$final"
+    [ ! -L "$final" ] && [ -f "$final" ] || { echo "installed entrypoint is not a regular file" >&2; exit 1; }
+    [ "$(readlink -f .)" = "$ops_canonical" ] || { echo "ops path changed during install" >&2; exit 1; }
+    [ "$(readlink -f "$final")" = "$ops_canonical/nas-task-scheduler-backup.sh" ] || { echo "installed entrypoint path changed" >&2; exit 1; }
+    post_line="$(sha256sum "$final")" || exit 1
+    post_sha="${post_line%% *}"
+    [ "$post_sha" = "$expected" ] || { echo "installed checksum mismatch" >&2; exit 1; }
+    mode="$(stat -c "%a" "$final")"
+    [ "$mode" = 700 ] || { echo "installed mode mismatch" >&2; exit 1; }
     trap - EXIT HUP INT TERM
+    printf "%s %s\n" "$post_sha" "$mode"
   ' sh "$local_sha" \
-  < "$SOURCE"
-
-remote_sha="$(mj_docker run --rm --pull never -v "$TARGET_DIR:/target:ro" "$image" sha256sum /target/nas-task-scheduler-backup.sh | awk '{print $1}')"
+  < "$SOURCE")"
+read -r remote_sha remote_mode <<<"$provision_result"
 [[ "$local_sha" == "$remote_sha" ]] || { echo "✗ provisioned checksum mismatch" >&2; exit 1; }
-remote_mode="$(mj_docker run --rm --pull never -v "$TARGET_DIR:/target:ro" "$image" stat -c '%a' /target/nas-task-scheduler-backup.sh)"
 [[ "$remote_mode" == 700 ]] || { echo "✗ provisioned mode mismatch" >&2; exit 1; }
 
 cat <<EOF

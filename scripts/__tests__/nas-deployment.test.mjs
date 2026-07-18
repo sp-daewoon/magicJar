@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -276,27 +277,111 @@ test('NAS observability renderer is remote-safe, digest-pinned, and loopback-onl
   }
 })
 
+test('Grafana verification uses the desired env-file credential rather than the existing container credential', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'magicjar-grafana-auth-drift-'))
+  try {
+    const deploy = readFileSync(join(root, 'scripts/deploy-nas-observability.sh'), 'utf8')
+    assert.match(deploy, /\.RestartCount/)
+    const functionStart = deploy.indexOf('verify_grafana_auth() {')
+    const functionEnd = deploy.indexOf('\nverify_targets() {', functionStart)
+    assert.ok(functionStart >= 0 && functionEnd > functionStart)
+    const verifyFunction = deploy.slice(functionStart, functionEnd)
+    const fakeBin = join(fixture, 'bin')
+    mkdirSync(fakeBin, { recursive: true })
+    const fakeNc = join(fakeBin, 'nc')
+    writeFileSync(fakeNc, `#!/bin/sh
+request="$(cat)"
+expected="$(printf '%s' 'desired-admin:desired-password-123456789' | base64 | tr -d '\\n')"
+case "$request" in
+  *"Authorization: Basic $expected"*) printf 'HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n{"login":"%s"}\\n' "\${FAKE_GRAFANA_LOGIN:-desired-admin}" ;;
+  *) printf 'HTTP/1.1 401 Unauthorized\\r\\n\\r\\n' ;;
+esac
+`)
+    chmodSync(fakeNc, 0o755)
+    const harness = join(fixture, 'verify-grafana-auth.sh')
+    writeFileSync(harness, `#!/usr/bin/env bash
+set -Eeuo pipefail
+ok() { :; }
+mj_docker() {
+  [ "$1" = exec ] || return 90
+  shift
+  [ "\${1:-}" = -i ] && shift
+  [ "$1" = magicjar-grafana ] || return 91
+  shift
+  GF_SECURITY_ADMIN_USER=existing-admin \\
+  GF_SECURITY_ADMIN_PASSWORD=existing-password-000000 \\
+  PATH='${fakeBin}:/usr/bin:/bin' "$@"
+}
+${verifyFunction}
+verify_grafana_auth desired-admin desired-password-123456789
+`)
+    chmodSync(harness, 0o755)
+    const result = run('bash', [harness])
+    assert.equal(result.status, 0, result.stderr)
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /desired-password-123456789/)
+    const wrongIdentity = run('bash', [harness], {
+      env: { ...process.env, FAKE_GRAFANA_LOGIN: 'different-admin' },
+    })
+    assert.notEqual(wrongIdentity.status, 0)
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
+})
+
 test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler', () => {
   const backup = readFileSync(join(root, 'scripts/backup/nas-task-scheduler-backup.sh'), 'utf8')
   const installer = readFileSync(join(root, 'scripts/install-nas-backup-entrypoint.sh'), 'utf8')
 
   assert.match(backup, /umask 077/)
   assert.match(backup, /PARTIAL_SET=.*\.partial/)
-  assert.match(backup, /ln "\$LOCK_CANDIDATE" "\$LOCK_FILE"/)
+  assert.match(backup, /redis-cli --raw SET "\$LOCK_KEY" "\$LOCK_TOKEN" NX PX/)
+  assert.match(backup, /redis\.call\("pexpire"/)
+  assert.match(backup, /redis\.call\("del"/)
+  assert.match(backup, /random_lock_token/)
+  assert.match(backup, /\/proc\/sys\/kernel\/random\/uuid|\/dev\/urandom/)
+  assert.match(backup, /cd "\$SET_ROOT"/)
+  assert.match(backup, /\[ ! -L "\$SET_ROOT" \].*\[ -d "\$SET_ROOT" \]/)
+  assert.doesNotMatch(backup, /mkdir -p "\$SET_ROOT"/)
+  assert.ok((backup.match(/assert_lock_owned/g) ?? []).length >= 5)
   assert.match(backup, /pg_restore --list/)
   assert.match(backup, /redis-cli --raw BGSAVE/)
+  assert.match(backup, /exec "\$REDIS_CONTAINER" cat \/data\/dump\.rdb/)
+  assert.doesNotMatch(backup, /chmod 0600 "\$PARTIAL_SET"\/\*/)
+  assert.match(backup, /backup set file mode is not 0600/)
   assert.match(backup, /com\.docker\.compose\.project/)
   assert.match(backup, /com\.docker\.compose\.service/)
   assert.match(backup, /sha256sum|shasum -a 256/)
   assert.match(backup, /AFTER_SAVE.*-gt.*BEFORE_SAVE/)
-  assert.match(backup, /mv "\$PARTIAL_SET" "\$FINAL_SET"/)
+  assert.match(backup, /"\$MV_BIN" "\$PARTIAL_SET" "\$FINAL_SET"/)
+  assert.ok(backup.indexOf('published backup set shape invalid before publish') < backup.indexOf('"$MV_BIN" "$PARTIAL_SET" "$FINAL_SET"'))
+  assert.match(backup, /\[ ! -L "\$PARTIAL_SET\/\$required" \].*\[ -f "\$PARTIAL_SET\/\$required" \]/)
+  assert.match(backup, /PUBLISHED_UNCOMMITTED/)
+  assert.match(backup, /\.publish-owner/)
+  assert.ok(backup.indexOf('PUBLISHED_UNCOMMITTED=1') < backup.indexOf('"$MV_BIN" "$PARTIAL_SET" "$FINAL_SET"'))
   assert.match(backup, /\/volume1\/docker\/magicjar\/backups/)
   assert.doesNotMatch(backup, /synoschedtask|crontab/)
 
   assert.match(installer, /mj_require_release_provenance/)
   assert.match(installer, /mj_require_remote_docker/)
   assert.match(installer, /--pull never/)
+  assert.match(installer, /--network none/)
+  assert.match(installer, /--security-opt no-new-privileges/)
+  assert.match(installer, /--entrypoint sh/)
+  assert.match(installer, /--cap-drop ALL/)
+  assert.match(installer, /--read-only/)
+  assert.match(installer, /--format '\{\{\.Image\}\}'/)
+  assert.match(installer, /docker-compose\.nas\.yml/)
+  assert.match(installer, /\.Config\.Image/)
+  assert.match(installer, /image inspect/)
   assert.match(installer, /\/volume1\/docker\/magicjar\/ops/)
+  assert.match(installer, /-v \/volume1:\/nas-volume1:ro/)
+  assert.match(installer, /-v \/volume1\/docker\/magicjar:\/nas-magicjar/)
+  assert.doesNotMatch(installer, /-v "\$TARGET_DIR:\/target"/)
+  assert.match(installer, /mktemp .*nas-task-scheduler-backup\.sh\.tmp\.XXXXXX/)
+  assert.match(installer, /sets="\$backups\/sets"/)
+  assert.match(installer, /cd "\$ops"/)
+  assert.match(installer, /mv -T "\$tmp" "\$final"/)
+  assert.match(installer, /\[ ! -L "\$final" \].*\[ -f "\$final" \]/)
   assert.doesNotMatch(installer, /^\s*(?:sudo\s+)?(?:synoschedtask|crontab)\b/m)
 
   const swappedPaths = run('bash', ['scripts/install-nas-backup-entrypoint.sh'], {
@@ -308,6 +393,82 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   })
   assert.notEqual(swappedPaths.status, 0)
   assert.match(swappedPaths.stderr, /unsafe target dir/)
+})
+
+test('NAS backup installer transaction rejects parent and final symlinks', () => {
+  const fixture = mkdtempSync(join(realpathSync(tmpdir()), 'magicjar-installer-transaction-'))
+  try {
+    const installer = readFileSync(join(root, 'scripts/install-nas-backup-entrypoint.sh'), 'utf8')
+    const transaction = installer.match(/"\$image" -ceu '\n([\s\S]*?)\n  ' sh "\$local_sha"/)
+    assert.ok(transaction, 'installer transaction body must remain extractable')
+    const fakeBin = join(fixture, 'bin')
+    mkdirSync(fakeBin)
+    writeFileSync(join(fakeBin, 'readlink'), '#!/bin/sh\npython3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$2"\n')
+    writeFileSync(join(fakeBin, 'sha256sum'), '#!/bin/sh\nshasum -a 256 "$1"\n')
+    writeFileSync(join(fakeBin, 'stat'), '#!/bin/sh\ncase "$2" in %d:%i) /usr/bin/stat -f %d:%i "$3" ;; *) /usr/bin/stat -f %Lp "$3" ;; esac\n')
+    writeFileSync(join(fakeBin, 'mv'), '#!/bin/sh\n[ "${1:-}" != -T ] || shift\n/bin/mv "$@"\n')
+    for (const command of ['readlink', 'sha256sum', 'stat', 'mv']) chmodSync(join(fakeBin, command), 0o755)
+    const payload = '#!/bin/sh\nprintf "backup fixture\\n"\n'
+    const expected = createHash('sha256').update(payload).digest('hex')
+
+    const executeTransaction = (fixtureRoot) => {
+      const volume = join(fixtureRoot, 'nas-volume1')
+      mkdirSync(join(volume, 'docker/magicjar'), { recursive: true })
+      const script = transaction[1]
+        .replace(/^\s*trap .*$/gm, '')
+        .replaceAll('/nas-volume1', volume)
+        .replaceAll('/nas-magicjar', join(volume, 'docker/magicjar'))
+      return run('sh', ['-ceu', script, 'sh', expected], {
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+        input: payload,
+      })
+    }
+
+    const happyRoot = join(fixture, 'happy')
+    const happy = executeTransaction(happyRoot)
+    assert.equal(happy.status, 0, happy.stderr)
+    const installed = join(happyRoot, 'nas-volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh')
+    assert.equal(readFileSync(installed, 'utf8'), payload)
+
+    const parentSymlinkRoot = join(fixture, 'parent-symlink')
+    mkdirSync(join(parentSymlinkRoot, 'nas-volume1/docker'), { recursive: true })
+    mkdirSync(join(parentSymlinkRoot, 'outside'))
+    symlinkSync(join(parentSymlinkRoot, 'outside'), join(parentSymlinkRoot, 'nas-volume1/docker/magicjar'))
+    const parentSymlink = executeTransaction(parentSymlinkRoot)
+    assert.notEqual(parentSymlink.status, 0)
+    assert.match(parentSymlink.stderr, /unsafe NAS path/)
+
+    const setsSymlinkRoot = join(fixture, 'sets-symlink')
+    mkdirSync(join(setsSymlinkRoot, 'nas-volume1/docker/magicjar/ops'), { recursive: true })
+    mkdirSync(join(setsSymlinkRoot, 'nas-volume1/docker/magicjar/backups'), { recursive: true })
+    mkdirSync(join(setsSymlinkRoot, 'outside-sets'))
+    symlinkSync(join(setsSymlinkRoot, 'outside-sets'), join(setsSymlinkRoot, 'nas-volume1/docker/magicjar/backups/sets'))
+    const setsSymlink = executeTransaction(setsSymlinkRoot)
+    assert.notEqual(setsSymlink.status, 0)
+    assert.match(setsSymlink.stderr, /unsafe NAS path/)
+
+    const finalSymlinkRoot = join(fixture, 'final-symlink')
+    const ops = join(finalSymlinkRoot, 'nas-volume1/docker/magicjar/ops')
+    mkdirSync(join(finalSymlinkRoot, 'nas-volume1/docker/magicjar/backups/sets'), { recursive: true })
+    mkdirSync(ops, { recursive: true })
+    writeFileSync(join(finalSymlinkRoot, 'outside-entrypoint'), 'do not replace')
+    symlinkSync(join(finalSymlinkRoot, 'outside-entrypoint'), join(ops, 'nas-task-scheduler-backup.sh'))
+    const finalSymlink = executeTransaction(finalSymlinkRoot)
+    assert.notEqual(finalSymlink.status, 0)
+    assert.match(finalSymlink.stderr, /unsafe existing entrypoint/)
+    assert.equal(readFileSync(join(finalSymlinkRoot, 'outside-entrypoint'), 'utf8'), 'do not replace')
+
+    const finalDirectoryRoot = join(fixture, 'final-directory')
+    const finalDirectory = join(finalDirectoryRoot, 'nas-volume1/docker/magicjar/ops/nas-task-scheduler-backup.sh')
+    mkdirSync(join(finalDirectoryRoot, 'nas-volume1/docker/magicjar/backups/sets'), { recursive: true })
+    mkdirSync(finalDirectory, { recursive: true })
+    const directoryResult = executeTransaction(finalDirectoryRoot)
+    assert.notEqual(directoryResult.status, 0)
+    assert.match(directoryResult.stderr, /unsafe existing entrypoint/)
+    assert.deepEqual(readdirSync(finalDirectory), [])
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
 })
 
 test('NAS backup scheduler publishes PostgreSQL and Redis only after validated container identity', async () => {
@@ -339,6 +500,28 @@ case "$cmd" in
       *pg_dump*) sleep "\${FAKE_DOCKER_DELAY:-0}"; printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
       *pg_restore*--list*) cat >/dev/null ;;
       *redis-cli*PING*) printf '%s\\n' PONG ;;
+      *redis-cli*SET*NX*PX*)
+        token=""; previous=""
+        for argument in "$@"; do
+          [ "$previous" = magicjar:nas-backup:lock ] && token="$argument"
+          previous="$argument"
+        done
+        if mkdir "$FAKE_LEASE_DIR" 2>/dev/null; then
+          printf '%s\\n' "$token" > "$FAKE_LEASE_DIR/token"
+          printf '%s\\n' OK
+        fi
+        ;;
+      *redis-cli*EVAL*)
+        last=""; token=""
+        for argument in "$@"; do token="$last"; last="$argument"; done
+        owner="$(cat "$FAKE_LEASE_DIR/token" 2>/dev/null || true)"
+        case "$*" in
+          *redis.call*del*)
+            if [ "$owner" = "$token" ]; then rm -rf "$FAKE_LEASE_DIR"; printf '%s\\n' 1; else printf '%s\\n' 0; fi
+            ;;
+          *) [ "$owner" = "$token" ] && printf '%s\\n' 1 || printf '%s\\n' 0 ;;
+        esac
+        ;;
       *redis-cli*LASTSAVE*) [ -f "$FAKE_DOCKER_STATE" ] && cat "$FAKE_DOCKER_STATE" || printf '%s\\n' 100 ;;
       *redis-cli*BGSAVE*)
         if [ -n "\${FAKE_BGSAVE_RESPONSE:-}" ]; then
@@ -349,6 +532,7 @@ case "$cmd" in
         fi
         ;;
       *redis-cli*INFO*persistence*) printf 'rdb_bgsave_in_progress:0\\r\\nrdb_last_bgsave_status:ok\\r\\n' ;;
+      *cat*\/data\/dump.rdb*) printf '%s\\n' FAKE_RDB ;;
       *) exit 3 ;;
     esac
     ;;
@@ -363,10 +547,12 @@ esac
 
     const backupRoot = join(fixture, 'backups')
     mkdirSync(backupRoot, { recursive: true })
-    writeFileSync(join(backupRoot, '.backup.lock'), 'stale-token 999999 stale-boot stale-ticks\n')
     mkdirSync(join(backupRoot, 'sets/.stale.partial.999999'), { recursive: true })
     writeFileSync(join(backupRoot, 'sets/.stale.partial.999999/postgres.dump'), 'crash residue')
+    const staleDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    utimesSync(join(backupRoot, 'sets/.stale.partial.999999'), staleDate, staleDate)
     const fakeState = join(fixture, 'redis-lastsave')
+    const backupStartedAt = Date.now()
     const result = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {
         ...process.env,
@@ -374,11 +560,13 @@ esac
         MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
         FAKE_DOCKER_STATE: fakeState,
+        FAKE_LEASE_DIR: join(fixture, 'main-lease'),
       },
     })
     assert.equal(result.status, 0, result.stderr)
+    assert.ok(Date.now() - backupStartedAt < 5000, 'lease renewal cleanup must not wait for the full sleep interval')
     assert.match(result.stdout, /BACKUP_PASS/)
-    assert.match(result.stdout, /reclaimed stale backup lock/)
+
     const sets = readdirSync(join(backupRoot, 'sets'))
     assert.equal(sets.length, 1)
     assert.equal(sets[0].includes('.partial'), false)
@@ -392,6 +580,7 @@ esac
     ])
 
     const rejectedRoot = join(fixture, 'rejected')
+    mkdirSync(join(rejectedRoot, 'sets'), { recursive: true })
     const rejected = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {
         ...process.env,
@@ -400,6 +589,7 @@ esac
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
         FAKE_PROJECT: 'wrong-project',
         FAKE_DOCKER_STATE: join(fixture, 'rejected-redis-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'rejected-lease'),
       },
     })
     assert.notEqual(rejected.status, 0)
@@ -407,6 +597,7 @@ esac
     assert.equal(readdirSync(join(rejectedRoot, 'sets')).length, 0)
 
     const staleRdbRoot = join(fixture, 'stale-rdb')
+    mkdirSync(join(staleRdbRoot, 'sets'), { recursive: true })
     const staleRdb = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {
         ...process.env,
@@ -415,6 +606,7 @@ esac
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
         MAGICJAR_REDIS_BGSAVE_TIMEOUT_SECONDS: '0',
         FAKE_DOCKER_STATE: join(fixture, 'stale-rdb-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'stale-rdb-lease'),
         FAKE_BGSAVE_RESPONSE: 'ERR Background save already in progress',
       },
     })
@@ -422,33 +614,221 @@ esac
     assert.match(staleRdb.stderr, /Redis BGSAVE was not started/)
     assert.equal(readdirSync(join(staleRdbRoot, 'sets')).length, 0)
 
-    const concurrentRoot = join(fixture, 'concurrent')
+    const symlinkRoot = join(fixture, 'runtime-symlink')
+    const outsideSets = join(fixture, 'runtime-symlink-outside')
+    mkdirSync(symlinkRoot, { recursive: true })
+    mkdirSync(outsideSets)
+    symlinkSync(outsideSets, join(symlinkRoot, 'sets'))
+    const symlinkResult = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_NAS_BACKUP_ROOT: symlinkRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+      },
+    })
+    assert.notEqual(symlinkResult.status, 0)
+    assert.match(symlinkResult.stderr, /unsafe backup sets directory/)
+    assert.deepEqual(readdirSync(outsideSets), [])
+
+    const publishSignalRoot = join(fixture, 'publish-signal')
+    mkdirSync(join(publishSignalRoot, 'sets'), { recursive: true })
+    const signalAfterMove = join(fixture, 'signal-after-move')
+    writeFileSync(signalAfterMove, '#!/bin/sh\n/bin/mv "$@"\nkill -TERM "$PPID"\n')
+    chmodSync(signalAfterMove, 0o755)
+    const publishSignal = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_MV_BIN: signalAfterMove,
+        MAGICJAR_NAS_BACKUP_ROOT: publishSignalRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+        FAKE_DOCKER_STATE: join(fixture, 'publish-signal-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'publish-signal-lease'),
+      },
+    })
+    assert.notEqual(publishSignal.status, 0)
+    assert.doesNotMatch(publishSignal.stdout, /BACKUP_PASS/)
+    assert.deepEqual(readdirSync(join(publishSignalRoot, 'sets')), [])
+
+
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
+})
+
+test('NAS backup Redis lease admits one owner and blocks publish after lease loss', async () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'magicjar-backup-redis-lease-'))
+  try {
+    const backupRoot = join(fixture, 'backups')
+    mkdirSync(join(backupRoot, 'sets'), { recursive: true })
+    const fakeState = join(fixture, 'redis-lastsave')
+    const leaseDir = join(fixture, 'lease')
+    const fakeDocker = join(fixture, 'docker')
+    writeFileSync(fakeDocker, `#!/bin/sh
+set -eu
+cmd="$1"; shift
+case "$cmd" in
+  inspect)
+    container="$1"; shift
+    case "$*" in
+      *State.Running*) printf '%s\\n' true ;;
+      *compose.project*) printf '%s\\n' magicjar ;;
+      *compose.service*) [ "$container" = magicjar-postgres ] && printf '%s\\n' postgres || printf '%s\\n' redis ;;
+    esac
+    ;;
+  exec)
+    [ "\${1:-}" = -i ] && shift
+    container="$1"; shift
+    case "$*" in
+      *pg_isready*) exit 0 ;;
+      *pg_dump*) sleep "\${FAKE_DOCKER_DELAY:-0}"; printf '%s\\n' FAKE_CUSTOM_FORMAT_DUMP ;;
+      *pg_restore*--list*) cat >/dev/null ;;
+      *redis-cli*PING*) printf '%s\\n' PONG ;;
+      *redis-cli*SET*NX*PX*)
+        token=""
+        previous=""
+        for argument in "$@"; do
+          [ "$previous" = magicjar:nas-backup:lock ] && token="$argument"
+          previous="$argument"
+        done
+        if mkdir "$FAKE_LEASE_DIR" 2>/dev/null; then
+          printf '%s\\n' "$token" > "$FAKE_LEASE_DIR/token"
+          printf '%s\\n' OK
+        fi
+        ;;
+      *redis-cli*EVAL*)
+        last=""; token=""
+        for argument in "$@"; do token="$last"; last="$argument"; done
+        owner="$(cat "$FAKE_LEASE_DIR/token" 2>/dev/null || true)"
+        case "$*" in
+          *pexpire*)
+            if [ "\${FAKE_FAIL_RENEW:-0}" = 1 ]; then printf '%s\\n' 0
+            elif [ "$owner" = "$token" ]; then printf '%s\\n' 1
+            else printf '%s\\n' 0; fi
+            ;;
+          *redis.call*del*)
+            if [ "$owner" = "$token" ]; then rm -rf "$FAKE_LEASE_DIR"; printf '%s\\n' 1; else printf '%s\\n' 0; fi
+            ;;
+          *)
+            count="$(cat "$FAKE_LEASE_DIR/assert-count" 2>/dev/null || printf '%s' 0)"
+            count=$((count + 1))
+            printf '%s\\n' "$count" > "$FAKE_LEASE_DIR/assert-count"
+            if [ "\${FAKE_DROP_LEASE_ON_ASSERT:-0}" = "$count" ]; then printf '%s\\n' replacement-token > "$FAKE_LEASE_DIR/token"; printf '%s\\n' 0
+            elif [ "$owner" = "$token" ]; then printf '%s\\n' 1
+            else printf '%s\\n' 0; fi
+            ;;
+        esac
+        ;;
+      *redis-cli*LASTSAVE*) [ -f "$FAKE_DOCKER_STATE" ] && cat "$FAKE_DOCKER_STATE" || printf '%s\\n' 100 ;;
+      *redis-cli*BGSAVE*) printf '%s\\n' 101 > "$FAKE_DOCKER_STATE"; printf '%s\\n' 'Background saving started' ;;
+      *redis-cli*INFO*persistence*) printf 'rdb_bgsave_in_progress:0\\r\\nrdb_last_bgsave_status:ok\\r\\n' ;;
+      *cat*\/data\/dump.rdb*) printf '%s\\n' FAKE_RDB ;;
+      *) exit 3 ;;
+    esac
+    ;;
+  cp) printf '%s\\n' FAKE_RDB > "$2" ;;
+  *) exit 4 ;;
+esac
+`)
+    chmodSync(fakeDocker, 0o755)
+
     const concurrentEnv = {
       ...process.env,
       MAGICJAR_DOCKER_BIN: fakeDocker,
-      MAGICJAR_NAS_BACKUP_ROOT: concurrentRoot,
+      MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
       MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
-      FAKE_DOCKER_STATE: join(fixture, 'concurrent-redis-lastsave'),
+      MAGICJAR_NAS_BACKUP_LOCK_TTL_MS: '30000',
+      MAGICJAR_NAS_BACKUP_LOCK_RENEW_SECONDS: '1',
       FAKE_DOCKER_DELAY: '2',
+      FAKE_DOCKER_STATE: fakeState,
+      FAKE_LEASE_DIR: leaseDir,
     }
-    const first = spawn('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
-      cwd: root,
-      env: concurrentEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const launch = () => {
+      const child = spawn('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+        cwd: root,
+        env: concurrentEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+      return new Promise((resolveExit) => child.on('close', (status) => resolveExit({ status, stdout, stderr })))
+    }
+
+    const [first, second] = await Promise.all([launch(), launch()])
+    assert.equal([first, second].filter((result) => result.status === 0).length, 1, JSON.stringify({ first, second }))
+    assert.equal([first, second].filter((result) => /another backup is running/.test(result.stderr)).length, 1)
+    assert.equal(readdirSync(join(backupRoot, 'sets')).length, 1)
+    assert.equal(existsSync(leaseDir), false, 'the owner must release its own lease')
+
+    const lostRoot = join(fixture, 'lost-lease')
+    mkdirSync(join(lostRoot, 'sets'), { recursive: true })
+    const lostLease = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...concurrentEnv,
+        MAGICJAR_NAS_BACKUP_ROOT: lostRoot,
+        FAKE_DOCKER_DELAY: '0',
+        FAKE_DOCKER_STATE: join(fixture, 'lost-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'lost-lease-key'),
+        FAKE_DROP_LEASE_ON_ASSERT: '3',
+      },
     })
-    let firstStderr = ''
-    first.stderr.on('data', (chunk) => { firstStderr += chunk.toString() })
-    const firstExit = new Promise((resolveExit) => first.on('close', resolveExit))
-    for (let attempt = 0; attempt < 50 && !existsSync(join(concurrentRoot, '.backup.lock')); attempt += 1) {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    assert.notEqual(lostLease.status, 0)
+    assert.match(lostLease.stderr, /lease was lost before publish/)
+    assert.equal(readdirSync(join(lostRoot, 'sets')).length, 0)
+    assert.equal(readFileSync(join(fixture, 'lost-lease-key/token'), 'utf8').trim(), 'replacement-token')
+
+    const renewFailureRoot = join(fixture, 'renew-failure')
+    mkdirSync(join(renewFailureRoot, 'sets'), { recursive: true })
+    const renewFailure = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...concurrentEnv,
+        MAGICJAR_NAS_BACKUP_ROOT: renewFailureRoot,
+        FAKE_DOCKER_DELAY: '2',
+        FAKE_DOCKER_STATE: join(fixture, 'renew-failure-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'renew-failure-key'),
+        FAKE_FAIL_RENEW: '1',
+      },
+    })
+    assert.notEqual(renewFailure.status, 0)
+    assert.doesNotMatch(renewFailure.stdout, /BACKUP_PASS/)
+    assert.equal(readdirSync(join(renewFailureRoot, 'sets')).length, 0)
+
+    const runSignalCase = async (signal, expectedStatus) => {
+      const signalRoot = join(fixture, `signal-${signal}`)
+      const signalLeaseDir = join(fixture, `signal-${signal}-key`)
+      mkdirSync(join(signalRoot, 'sets'), { recursive: true })
+      const child = spawn('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+        cwd: root,
+        env: {
+          ...concurrentEnv,
+          MAGICJAR_NAS_BACKUP_ROOT: signalRoot,
+          FAKE_DOCKER_DELAY: '1',
+          FAKE_DOCKER_STATE: join(fixture, `signal-${signal}-lastsave`),
+          FAKE_LEASE_DIR: signalLeaseDir,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+      for (let attempt = 0; attempt < 100 && !existsSync(signalLeaseDir); attempt += 1) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 10))
+      }
+      assert.equal(existsSync(signalLeaseDir), true, `${signal} case must acquire the lease`)
+      child.kill(signal)
+      const status = await new Promise((resolveExit) => child.on('close', resolveExit))
+      assert.equal(status, expectedStatus, JSON.stringify({ signal, stdout, stderr }))
+      assert.doesNotMatch(stdout, /BACKUP_PASS/)
+      assert.equal(readdirSync(join(signalRoot, 'sets')).length, 0)
+      assert.equal(existsSync(signalLeaseDir), false, `${signal} cleanup must release its token`)
     }
-    assert.equal(existsSync(join(concurrentRoot, '.backup.lock')), true, 'first backup must hold lock')
-    const second = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], { env: concurrentEnv })
-    assert.notEqual(second.status, 0)
-    assert.match(second.stderr, /another backup is running/)
-    assert.equal(await firstExit, 0, firstStderr)
-    assert.equal(existsSync(join(concurrentRoot, '.backup.lock')), false)
-    assert.equal(readdirSync(join(concurrentRoot, 'sets')).length, 1)
+    await runSignalCase('SIGHUP', 129)
+    await runSignalCase('SIGINT', 130)
+    await runSignalCase('SIGTERM', 143)
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
