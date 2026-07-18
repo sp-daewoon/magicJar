@@ -179,16 +179,24 @@ snapshot_core_runtime() {
   done
 }
 
+rollback_observability() {
+  local name remaining
+  obs_compose down >/dev/null 2>&1 || return 1
+  for name in magicjar-prometheus magicjar-grafana magicjar-alertmanager; do
+    remaining="$(mj_docker ps -a --filter "name=^/${name}$" --format '{{.Names}}')" || return 1
+    [[ -z "$remaining" ]] || return 1
+  done
+}
+
 enforce_core_invariance() {
-  local expected="$1" mode="${2:-preserve}" actual name remaining
-  actual="$(snapshot_core_runtime)" || return 1
+  local expected="$1" mode="${2:-preserve}" actual
+  actual="$(snapshot_core_runtime)" || {
+    [[ "$mode" != rollback ]] || rollback_observability || return 2
+    return 3
+  }
   [[ "$actual" == "$expected" ]] && return 0
   if [[ "$mode" == rollback ]]; then
-    obs_compose down >/dev/null 2>&1 || return 2
-    for name in magicjar-prometheus magicjar-grafana magicjar-alertmanager; do
-      remaining="$(mj_docker ps -a --filter "name=^/${name}$" --format '{{.Names}}')" || return 2
-      [[ -z "$remaining" ]] || return 2
-    done
+    rollback_observability || return 2
   fi
   return 1
 }
@@ -311,7 +319,11 @@ case "$cmd" in
       verify_grafana_auth "$grafana_user" "$password" || die "existing Grafana admin credential mismatch; no containers changed"
       verify_config_integrity || die "existing observability config mismatch; no containers changed"
       verify_targets || die "existing observability target/rule verification failed; no containers changed"
-      enforce_core_invariance "$core_before" preserve || die "core runtime identity changed during verification"
+      enforce_core_invariance "$core_before" preserve || {
+        invariance_status=$?
+        [[ "$invariance_status" -ne 3 ]] || die "core runtime snapshot unavailable during verification; no containers changed"
+        die "core runtime identity changed during verification"
+      }
       ok "CORE_INVARIANCE_PASS containers=9"
       ok "NAS observability runtime PASS (idempotent verification; notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
       exit 0
@@ -322,21 +334,22 @@ case "$cmd" in
       mj_docker pull "$image" >/dev/null
     done < <(python3 "$APPROVED_ROOT/scripts/render-nas-observability-compose.py" --images)
     if ! obs_compose up -d; then
-      obs_compose down >/dev/null 2>&1 || true
+      rollback_observability || die "observability compose up failed and rollback could not be proven"
       die "observability compose up 실패; containers removed, volumes retained"
     fi
     if ! wait_healthy; then
       obs_compose ps >&2 || true
-      obs_compose down >/dev/null 2>&1 || true
+      rollback_observability || die "observability health timeout and rollback could not be proven"
       die "observability health timeout; containers removed, volumes retained"
     fi
     if ! verify_grafana_auth "$grafana_user" "$password" || ! verify_config_integrity || ! verify_targets; then
-      obs_compose down >/dev/null 2>&1 || true
+      rollback_observability || die "observability verification failed and rollback could not be proven"
       die "observability verification failed; containers removed, volumes retained"
     fi
     enforce_core_invariance "$core_before" rollback || {
       invariance_status=$?
       [[ "$invariance_status" -ne 2 ]] || die "core runtime identity changed and observability rollback could not be proven"
+      [[ "$invariance_status" -ne 3 ]] || die "core runtime snapshot unavailable; observability containers removed"
       die "core runtime identity changed; observability containers removed"
     }
     ok "CORE_INVARIANCE_PASS containers=9"
