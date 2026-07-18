@@ -103,6 +103,8 @@ Phase 1은 두 plane을 **논리적으로** 분리하지만 REAL에서는 검증
 
 두 값은 우연히 같을 수 있으나 같은 개념으로 취급하거나 한 설정값의 fallback으로 서로 대체하지 않는다. WS approval과 today-candle seed는 configured owner exact-match만 허용하고 다른 REAL row로 fallback하지 않는다. Phase 1 구현은 이름·검증·masking·status를 분리한다. DB schema 통일이나 multi-tenant migration은 범위 밖이다.
 
+과거 cross-account fallback으로 발급돼 TTL이 남아 있을 수 있는 approval cache는 신뢰하지 않는다. Phase 1은 approval cache와 lock을 `v2` namespace로 전환해 구버전 값을 즉시 격리하고, cache miss 뒤 configured owner exact-match 검증을 다시 수행한다.
+
 ### 3-4. readiness와 자본 동작
 
 - 실행 gate가 `READY`가 아니면 **신규 BUY만 차단**한다.
@@ -111,6 +113,7 @@ Phase 1은 두 plane을 **논리적으로** 분리하지만 REAL에서는 검증
 - 해당 plane의 실제 demand가 0이면 장애가 아니라 `IDLE/NOT_REQUIRED`다. 연결·구독을 억지로 만들거나 ERROR를 발생시키지 않는다.
 - 상태는 market-data와 execution을 독립 필드로 공개한다. 시장 데이터 `READY`를 근거로 execution `READY`를 추론하지 않는다.
 - execution ACK는 root header/body strict JSON 구조와 current generation을 원자적으로 검증한다. market subscription transition은 approval 지연 중 unsubscribe와 경쟁해 원격 유령 구독을 만들지 않도록 직렬화한다.
+- realtime AES material snapshot과 tick/orderbook/execution dispatch는 connection generation 전진과 동일 monitor로 선형화한다. 최초 검사 뒤 reconnect가 시작된 old-generation frame은 새 generation에 side effect를 남기지 않고 drop한다.
 
 ### 3-5. rollback
 

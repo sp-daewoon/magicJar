@@ -16,7 +16,7 @@ class RedisKeyRegistryTest {
         RedisKeyRegistry.Kis.tokenLock("74683223", AccountType.MOCK) shouldBe
             "kis:oauth:token:user:74683223:account:MOCK:lock"
         RedisKeyRegistry.Kis.approval("74683223", AccountType.REAL) shouldBe
-            "kis:ws:approval:user:74683223:account:REAL"
+            "kis:ws:approval:v2:user:74683223:account:REAL"
     }
 
     @Test
