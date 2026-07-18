@@ -2,12 +2,12 @@
 id: T-20260716-1126-kis-ws-gate-recovery-r1
 agent: market-data
 model: opus
-branch: agent/market-data/kis-ws-gate-recovery-r1
-status: RUNNING
+branch: pr/kis-ws-gate-recovery
+status: DONE
 startedAt: 2026-07-16T11:26:46.092+09:00
-completedAt: null
-pr: null
-parentPhase: ?
+completedAt: 2026-07-19T02:48:18.287+09:00
+pr: #1179
+parentPhase: KIS WS Gate Recovery Phase 1
 ---
 
 # 목표
