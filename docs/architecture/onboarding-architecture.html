@@ -343,7 +343,10 @@
       <line x1="260" y1="250" x2="279" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
       <line x1="520" y1="250" x2="539" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
       <line x1="780" y1="250" x2="799" y2="250" stroke="#1a2b4a" stroke-width="2" marker-end="url(#arr2)"/>
-      <text x="520" y="490" text-anchor="middle" class="fn" fill="#5a6b82">Kafka 이벤트 백본이 A~D를 잇는다: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.executed.v1 → journal.recorded.v1</text>
+      <text x="520" y="484" text-anchor="middle" class="fn" fill="#5a6b82">
+        <tspan x="520">현행 자본 흐름: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.requested.v1</tspan>
+        <tspan x="520" dy="14">→ order.filled.v1 → JournalEventConsumer → trading_journal 직접 영속</tspan>
+      </text>
     </svg>
     <div class="cap">그림 2 — 4영역 데이터 흐름 (source: docs/architecture/diagrams/onboarding-data-flow.drawio)</div>
   </div>
@@ -549,12 +552,12 @@ scripts/smoke.sh
   <ul>
     <li><span class="pill wip">P1-④</span> <b>DSL close 수정주가 vs 지표 원주가 가격 소스 정책</b> — 자본 흐름과 결합되므로 별도 ADR·사용자 결재 후 단일화한다.</li>
     <li><span class="pill wip">P1-⑥</span> <b>NEW_MKOP_CLS_CODE 세션 처리</b> — parser 전파는 완료됐지만 코드값별 예상체결 제외 정책은 KIS 원문·라이브 evidence 확보 전까지 부분 완료다.</li>
-    <li><span class="pill wip">P1-⑧</span> <b>운영 알림 실증</b> — Prometheus 규칙과 Alertmanager 구성은 완료됐고 실제 운영 라우팅·전송 검증이 남았다.</li>
+    <li><span class="pill wip">P1-⑧</span> <b>운영 알림 실증</b> — 현행 remediation tracker에서는 Prometheus 최소 규칙과 Alertmanager를 Phase 2 OPS 후속으로 이연한다.</li>
     <li><span class="pill wip">P1-⑭</span> <b>KIS 자격증명 운영 조치</b> — 레포 밖 보관 상태를 유지하고 노출 이력이 의심되면 사용자가 예방적으로 재발급한다.</li>
     <li><span class="pill wip">ADR 0139</span> <b>KIS rate limiter 공유 모듈 승격</b> — api·consumer·batch 3중 복붙 단일화(Proposed). 구현은 전체 빌드 검증 필요로 후속 사이클 보류.</li>
     <li><span class="pill wip">P2</span> 백테스트·position 필드·공휴일·외부 API 실패 가시성·DLQ 관측 등은 tracker의 Phase 3 이연 항목으로 관리한다.</li>
   </ul>
-  <p style="font-size:12.5px;color:var(--muted)">P0-1 WS 3채널 재구독, tick 0원/OHLC 가드, 프론트 STOMP 재구독, smoke 계약, alert rule 구성은 현재 tracker에서 완료로 판정됐다. 과거 감사 보고서는 당시 snapshot이며 현행 상태는 반드시 remediation tracker를 따른다.</p>
+  <p style="font-size:12.5px;color:var(--muted)">현재 tracker의 완료 항목은 문서 오정보 정정(P1-⑦), 거버넌스·SoT 정합(P1-⑩~⑫), backlog archive 등이다. P0-1·tick 가드·프론트 STOMP 재구독은 구현 Wave 대상이고 smoke·alert rule은 이연 상태다. 과거 감사 보고서는 당시 snapshot이며 현행 상태는 반드시 remediation tracker를 따른다.</p>
 
   <h3>3.3 구조적 개선 여지 (분석하며 발견 — 근거 동반)</h3>
   <p>아래는 감사 보고서·ADR·backlog에 이미 근거가 명시된 항목이다(추측 아님).</p>
@@ -588,8 +591,8 @@ scripts/smoke.sh
       </tr>
       <tr>
         <td>Prometheus·Alertmanager 운영 전송 실증</td>
-        <td>감사 P1-⑧ — 규칙 5개와 Alertmanager 구성 완료, 실제 운영 전송은 환경 검증 대상</td>
-        <td>NAS observability 배치·라우팅·수신 evidence를 별도 운영 게이트로 확보</td>
+        <td>감사 P1-⑧ — 현행 tracker상 Phase 2 OPS 이연, 최소 규칙·Alertmanager·실제 전송 모두 후속 검증 대상</td>
+        <td>target operational environment에서 배치·라우팅·수신 evidence를 별도 운영 게이트로 확보</td>
       </tr>
     </tbody>
   </table>
