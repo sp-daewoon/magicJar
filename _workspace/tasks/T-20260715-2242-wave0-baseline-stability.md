@@ -2,12 +2,12 @@
 id: T-20260715-2242-wave0-baseline-stability
 agent: orchestrator
 model: opus
-branch: chore/wave0-baseline-stability
-status: RUNNING
+branch: pr/wave0-quality
+status: DONE
 startedAt: 2026-07-15T22:42:05.547+09:00
-completedAt: null
-pr: null
-parentPhase: ?
+completedAt: 2026-07-19T02:29:20.069+09:00
+pr: #1181
+parentPhase: Wave 0
 ---
 
 # 목표
