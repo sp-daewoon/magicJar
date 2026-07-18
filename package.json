@@ -7,7 +7,11 @@
     "prepare": "husky",
     "status": "node scripts/render-status.mjs",
     "status:watch": "node scripts/status-watch.mjs",
-    "task": "node scripts/task.mjs"
+    "task": "node scripts/task.mjs",
+    "check:tasks": "node scripts/check-task-hygiene.mjs",
+    "test:architecture": "node --test scripts/__tests__/verify-architecture-fitness.test.mjs scripts/__tests__/verify-docs-current.test.mjs",
+    "verify:architecture": "node scripts/verify-architecture-fitness.mjs",
+    "verify:docs": "node scripts/verify-docs-current.mjs"
   },
   "devDependencies": {
     "husky": "^9.1.7"

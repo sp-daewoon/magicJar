@@ -135,13 +135,13 @@ PR 머지 직후 즉시 4단계. 누락 시 운영 부채 누적(worktree 잔재
    ```
    누락 시 git branch 잔재 누적 → 사용자가 진행 중 작업으로 오인할 risk.
 
-**자동 점검 (사이클 시작 시)** — 4 항목 모두 검증 의무:
-1. `ls _workspace/tasks/T-*.md 2>/dev/null | wc -l` 5건 이상이면 일괄 archive
+**자동 점검 (사이클 시작 시)** — 4 항목 모두 **읽기 전용으로** 검증 의무:
+1. `node scripts/check-task-hygiene.mjs` — 상태·중복·DONE 잔류·orphan 후보 보고. 수량/경과시간만으로 archive·DONE 추정 금지
 2. `git worktree list` main 외 잔재 검증
 3. `ls .claude/worktrees/agent-*/ 2>/dev/null | wc -l = 0` 검증 (빈 wrapper 디렉토리 잔재)
 4. `git branch | grep -c worktree-agent- = 0` 검증 (Agent isolation 임시 브랜치)
 
-위반 시 사용자에게 즉시 보고 + 일괄 정리 권장.
+위반 시 사용자에게 즉시 보고한다. 실제 archive·branch/worktree 제거는 PR/merge evidence와 활성 worktree 부재를 확인하고 명시 승인 후 수행한다. `archive --force`·task 삭제·수동 복사는 정리 자동화에서 금지한다.
 
 **역사 evidence** (2026-05-19): worktree 잔재 9 디렉토리 + worktree-agent-* 23 브랜치 누적 → 사용자 명시 비판("작업이 다 끝났다고 하면서 남아있으면 내가 오해하잖아"). 본 §2 갱신 hotfix.
 

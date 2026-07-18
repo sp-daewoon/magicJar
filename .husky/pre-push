@@ -50,7 +50,22 @@ case "$BRANCH" in
     ;;
 esac
 
-# 3) Gradle check — wrapper script + jar 모두 있으면 실행, 없으면 skip
+# 3) Architecture fitness + 현행 문서 drift + task metadata 회귀 차단
+echo "→ architecture fitness"
+node scripts/verify-architecture-fitness.mjs || {
+  echo "✗ pre-push: architecture fitness 실패."
+  exit 1
+}
+node scripts/verify-docs-current.mjs || {
+  echo "✗ pre-push: current documentation drift guard 실패."
+  exit 1
+}
+node scripts/check-task-hygiene.mjs || {
+  echo "✗ pre-push: task metadata/duplicate invariant 실패."
+  exit 1
+}
+
+# 3-1) Gradle check — wrapper script + jar 모두 있으면 실행, 없으면 skip
 if [ -x ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
   echo "→ ./gradlew check"
   ./gradlew check -q --daemon || {
@@ -61,23 +76,37 @@ else
   echo "ℹ pre-push: Gradle wrapper 부재(script 또는 wrapper jar) — JVM 모듈 부트스트랩 후 활성화."
 fi
 
-# 3-1) frontend 변경 시 pnpm typecheck + build
+# 3-2) frontend 변경 시 pnpm test + typecheck + build
 #      GitHub Actions 미사용(.github/workflows 없음) — frontend 검증도 pre-push 단독 책임 (CLAUDE.md CI/CD).
 FRONTEND_CHANGED="$(printf '%s\n' "$CHANGED_FILES" | grep -E '^frontend/' || true)"
 if [ -n "$FRONTEND_CHANGED" ] && [ -d frontend ] && [ -f frontend/package.json ]; then
-  if command -v pnpm >/dev/null 2>&1; then
-    echo "→ frontend pnpm typecheck + build (변경된 frontend/* 감지)"
+  if command -v pnpm >/dev/null 2>&1 || command -v corepack >/dev/null 2>&1; then
+    echo "→ frontend pnpm test + typecheck + build (변경된 frontend/* 감지)"
     (
-      cd frontend && \
-      pnpm install --frozen-lockfile --silent && \
-      pnpm typecheck && \
-      pnpm build
+      cd frontend || exit 1
+      EXPECTED_NODE="$(tr -d '[:space:]' < .node-version)"
+      ACTUAL_NODE="$(node -p 'process.versions.node')"
+      if [ "$ACTUAL_NODE" != "$EXPECTED_NODE" ]; then
+        echo "✗ pre-push: frontend Node $EXPECTED_NODE 필요, 현재 $ACTUAL_NODE."
+        exit 1
+      fi
+
+      if command -v pnpm >/dev/null 2>&1; then
+        run_pnpm() { pnpm "$@"; }
+      else
+        run_pnpm() { corepack pnpm "$@"; }
+      fi
+      run_pnpm install --frozen-lockfile --silent && \
+      run_pnpm test && \
+      run_pnpm typecheck && \
+      run_pnpm build
     ) || {
-      echo "✗ pre-push: frontend typecheck/build 실패."
+      echo "✗ pre-push: frontend test/typecheck/build 실패."
       exit 1
     }
   else
-    echo "ℹ pre-push: pnpm 미설치 — frontend 검증 skip (다른 CI 없음 — 수동 pnpm typecheck/build 권장)."
+    echo "✗ pre-push: pnpm/corepack 미설치 — frontend 검증을 실행할 수 없습니다."
+    exit 1
   fi
 fi
 
