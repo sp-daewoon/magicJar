@@ -17,7 +17,6 @@
 |------|------|
 | KIS Credential 식별 규약 | [policies/kis-credential-identity.md](../docs/architecture/policies/kis-credential-identity.md) |
 | 로그 레벨 정책 | [policies/logging-levels.md](../docs/architecture/policies/logging-levels.md) |
-| Docker 배포 토폴로지 | [policies/deployment-topology.md](../docs/architecture/policies/deployment-topology.md) |
 | KIS-first raw fetch | [policies/kis-first-raw-fetch.md](../docs/architecture/policies/kis-first-raw-fetch.md) |
 | 자동매매 RiskPlan | [policies/autotrading-risk-plan.md](../docs/architecture/policies/autotrading-risk-plan.md) |
 | Scenario Replay Sandbox | [policies/scenario-replay-sandbox.md](../docs/architecture/policies/scenario-replay-sandbox.md) |
@@ -29,7 +28,7 @@
 
 → **`_workspace/arch/adr/`** ([인덱스](arch/adr/README.md))
 
-총 건수·상태·최신 번호 범위는 [adr/README.md](arch/adr/README.md) 도입부가 단일 권위(본 문서에 수치 복제 금지 — stale drift 방지, 2026-07-03 감사 정정). ADR 파일은 append-only이며 각 결정 이유·대안·트레이드오프를 보존한다. README §0 빠른 lookup(최근 건 + 주제별 jump)이 첫 진입점.
+총 건수·상태 집계는 [adr/README.md](arch/adr/README.md) 도입부가 단일 권위(본 문서에 수치 복제 금지 — stale drift 방지, 2026-07-03 감사 정정). 파일 0001~0139(0058·0059·0060·0065 의도적 갭), append-only. 각 결정 이유·대안·트레이드오프. README §0 빠른 lookup(최근 건 + 주제별 jump)이 첫 진입점.
 
 ### "지금 진행 중인 의제" (TODO)
 
@@ -85,7 +84,6 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 기타 운영 문서:
 
 - **초기 셋업**: [docs/operations/initial-setup.md](../docs/operations/initial-setup.md)
-- **NAS Docker 배포·DB 이관**: [docs/operations/nas-deployment.md](../docs/operations/nas-deployment.md)
 - **시스템 감사 보고서**: [_workspace/audit/](audit/) — 2026-07-03 전 영역 감사(P0 1·P1 12·P2 16·P3 12) + 조치 추적 [policies/audit-remediation-tracker.md](../docs/architecture/policies/audit-remediation-tracker.md)
 
 ### 카탈로그 (전략·AI)

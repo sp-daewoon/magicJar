@@ -17,14 +17,10 @@
 
 set -Eeuo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/lib/docker-target.sh
-source "${REPO_ROOT}/scripts/lib/docker-target.sh"
-[[ -n "${MAGICJAR_DOCKER_CONTEXT:-}" ]] && mj_assert_expected_endpoint
-
 # ────────────────────────────────────────────────────────────
 # 설정 (ADR 0096 §3-2 LOCK)
 # ────────────────────────────────────────────────────────────
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="${REPO_ROOT}/_workspace/backups/redis/snapshots"
 CONTAINER_NAME="${MAGICJAR_REDIS_CONTAINER:-magicjar-redis}"
 RETENTION_DAYS="${MAGICJAR_REDIS_SNAPSHOT_RETENTION_DAYS:-3}"
@@ -49,12 +45,12 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! mj_docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   err "${CONTAINER_NAME} 컨테이너 running 0 — 'docker compose -f docker/docker-compose.infra.yml up -d' 또는 'scripts/build-and-deploy.sh' 실행 후 재시도"
   exit 1
 fi
 
-if ! mj_docker exec "${CONTAINER_NAME}" redis-cli ping | grep -q PONG; then
+if ! docker exec "${CONTAINER_NAME}" redis-cli ping | grep -q PONG; then
   err "${CONTAINER_NAME} redis-cli ping FAIL — Redis 결함 의심"
   exit 1
 fi
@@ -70,9 +66,9 @@ mkdir -p "${BACKUP_DIR}"
 log "BGSAVE 트리거 — Redis 백그라운드 snapshot 시작"
 
 # BGSAVE 실행 직전 lastsave timestamp 기록 (완료 감지 baseline)
-BEFORE_LASTSAVE=$(mj_docker exec "${CONTAINER_NAME}" redis-cli LASTSAVE)
+BEFORE_LASTSAVE=$(docker exec "${CONTAINER_NAME}" redis-cli LASTSAVE)
 
-if ! mj_docker exec "${CONTAINER_NAME}" redis-cli BGSAVE | grep -qE "Background saving started|Background save already in progress"; then
+if ! docker exec "${CONTAINER_NAME}" redis-cli BGSAVE | grep -qE "Background saving started|Background save already in progress"; then
   err "BGSAVE 트리거 FAIL"
   exit 1
 fi
@@ -83,7 +79,7 @@ WAIT=0
 while [ "${WAIT}" -lt 30 ]; do
   sleep 1
   WAIT=$((WAIT + 1))
-  AFTER_LASTSAVE=$(mj_docker exec "${CONTAINER_NAME}" redis-cli LASTSAVE)
+  AFTER_LASTSAVE=$(docker exec "${CONTAINER_NAME}" redis-cli LASTSAVE)
   if [ "${AFTER_LASTSAVE}" != "${BEFORE_LASTSAVE}" ]; then
     log "BGSAVE 완료 (${WAIT}초 소요)"
     break
@@ -100,7 +96,7 @@ fi
 # ────────────────────────────────────────────────────────────
 log "RDB 파일 호스트 복사: ${BACKUP_FILE}"
 
-if mj_docker cp "${CONTAINER_NAME}:/data/dump.rdb" "${BACKUP_FILE}"; then
+if docker cp "${CONTAINER_NAME}:/data/dump.rdb" "${BACKUP_FILE}"; then
   SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
   log "snapshot 완료: ${BACKUP_FILE} (${SIZE})"
 else

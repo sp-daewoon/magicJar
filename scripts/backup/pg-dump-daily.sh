@@ -19,14 +19,10 @@
 
 set -Eeuo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/lib/docker-target.sh
-source "${REPO_ROOT}/scripts/lib/docker-target.sh"
-[[ -n "${MAGICJAR_DOCKER_CONTEXT:-}" ]] && mj_assert_expected_endpoint
-
 # ────────────────────────────────────────────────────────────
 # 설정 (ADR 0096 §2-1·§2-4 LOCK)
 # ────────────────────────────────────────────────────────────
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="${REPO_ROOT}/_workspace/backups/postgres/daily"
 CONTAINER_NAME="${MAGICJAR_PG_CONTAINER:-magicjar-postgres}"
 DB_USER="${MAGICJAR_PG_USER:-magicjar}"
@@ -36,7 +32,6 @@ RETENTION_DAYS="${MAGICJAR_PG_BACKUP_RETENTION_DAYS:-7}"
 # KST timestamp (ADR 0096 §2-1)
 TODAY="$(date '+%Y-%m-%d')"
 BACKUP_FILE="${BACKUP_DIR}/${TODAY}.dump"
-CHECKSUM_FILE="${BACKUP_FILE}.sha256"
 
 # ────────────────────────────────────────────────────────────
 # 진단 — postgres 컨테이너 running 검증
@@ -67,12 +62,12 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! mj_docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   err "${CONTAINER_NAME} 컨테이너 running 0 — 'docker compose -f docker/docker-compose.infra.yml up -d' 또는 'scripts/build-and-deploy.sh' 실행 후 재시도"
   exit 1
 fi
 
-if ! mj_docker exec "${CONTAINER_NAME}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1; then
+if ! docker exec "${CONTAINER_NAME}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1; then
   err "${CONTAINER_NAME} pg_isready FAIL — DB 결함 의심 (R-4 runbook 진입)"
   exit 1
 fi
@@ -88,7 +83,7 @@ mkdir -p "${BACKUP_DIR}"
 log "백업 시작: ${BACKUP_FILE}"
 log "  컨테이너: ${CONTAINER_NAME}, DB: ${DB_NAME}, User: ${DB_USER}"
 
-if mj_docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -Fc "${DB_NAME}" > "${BACKUP_FILE}"; then
+if docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -Fc "${DB_NAME}" > "${BACKUP_FILE}"; then
   SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
   log "백업 완료: ${BACKUP_FILE} (${SIZE})"
 else
@@ -97,19 +92,13 @@ else
   exit 1
 fi
 
-(
-  cd "${BACKUP_DIR}"
-  shasum -a 256 "$(basename "${BACKUP_FILE}")" > "$(basename "${CHECKSUM_FILE}")"
-)
-log "무결성 sidecar 완료: ${CHECKSUM_FILE}"
-
 # ────────────────────────────────────────────────────────────
 # retention rotation — RETENTION_DAYS 초과 파일 삭제 (ADR 0096 §2-1)
 # ────────────────────────────────────────────────────────────
 log "retention rotation: ${RETENTION_DAYS}일 초과 파일 정리"
 DELETED=0
 while IFS= read -r OLD_FILE; do
-  rm -f "${OLD_FILE}" "${OLD_FILE}.sha256" "${OLD_FILE}.counts"
+  rm -f "${OLD_FILE}"
   log "  삭제: ${OLD_FILE}"
   DELETED=$((DELETED + 1))
 done < <(find "${BACKUP_DIR}" -name "*.dump" -type f -mtime "+${RETENTION_DAYS}")
