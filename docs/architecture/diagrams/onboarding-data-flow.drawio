@@ -1,0 +1,102 @@
+<mxfile host="magicjar-architect">
+  <diagram name="data-flow" id="data-flow">
+    <mxGraphModel dx="1200" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="560" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t1" value="본체 자동매매 데이터 흐름 — 데이터(A) → 분석·전략(B) → 의사결정·실행(C) → 운영(D) · AI 호출 0" style="text;html=1;fontSize=15;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;fontColor=#1a2b4a;" vertex="1" parent="1">
+          <mxGeometry x="20" y="12" width="1000" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- A -->
+        <mxCell id="A" value="A. 데이터 수집·정합" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f0ff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="20" y="56" width="240" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="Instrument Master&#10;종목 universe · 상장/폐지" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="36" y="92" width="208" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="Market Data Pipeline&#10;KIS WS tick(H0UNCNT0) + REST&#10;세션 FSM · fallback 3-tier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="36" y="156" width="208" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="Corp Action / Adjusted&#10;액면분할·배당·합병 보정" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="36" y="234" width="208" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="News &amp; Disclosure&#10;DART · Naver (옵션 · 본체 영향 0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3d6fb4;fontColor=#12345a;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="36" y="298" width="208" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="anote" value="영속 candle + last-day-close로 분석·&#10;스크리너·백테스트 재현 (라이브 실행 제외)" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#3d6fb4;" vertex="1" parent="1">
+          <mxGeometry x="36" y="360" width="208" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- B -->
+        <mxCell id="B" value="B. 분석·전략" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6ecd6;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="280" y="56" width="240" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="Indicator Library (80)&#10;IndicatorSource plug-in" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="296" y="92" width="208" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="Candlestick Pattern (57)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="296" y="150" width="208" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="Strategy DSL&#10;.kis.yaml superset · sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="296" y="200" width="208" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="Strategy Builder UI&#10;GUI 블록 빌더 + yaml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="296" y="258" width="208" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="Backtest Engine&#10;룩어헤드 차단·세금·슬리피지" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a8a4a;fontColor=#1c4a1c;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="296" y="316" width="208" height="48" as="geometry" />
+        </mxCell>
+
+        <!-- C -->
+        <mxCell id="C" value="C. 의사결정·실행" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbeecb;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="540" y="56" width="240" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="Screener&#10;universe × DSL → 후보 랭킹" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="556" y="92" width="208" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="Signal Engine&#10;DSL 평가만 · AI 0 → BUY/SELL/HOLD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="556" y="150" width="208" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="Risk Guard chain (6단)&#10;KillSwitch·Session·DailyLimit&#10;PositionLimit·Drawdown·PriceSanity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="556" y="210" width="208" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="Auto Order Execution&#10;3중 게이트 → KIS 주문 → 체결통보&#10;order_execution 진실원 · reconcile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="556" y="282" width="208" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="Performance Loop&#10;P&amp;L · MDD · 승률 · 손익비" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c79a2e;fontColor=#5a4410;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="556" y="354" width="208" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- D -->
+        <mxCell id="D" value="D. 학습·운영·UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe3ff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="800" y="56" width="220" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" value="Watchlist&#10;(WS 미사용 · 자동 polling no-op)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="816" y="92" width="188" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="Trading Journal&#10;5 이벤트 통합 시계열" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="816" y="150" width="188" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="Chart UI (LWC v4)&#10;자체 도형·주석·패턴" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="816" y="208" width="188" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="AI Option Console (W4)&#10;사용자 클릭 시 코멘트 · 결정권 0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3ecff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="816" y="266" width="188" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="d5" value="MCP Server (W4 미래)&#10;외부 AI가 magicJar 호출 · read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3ecff;strokeColor=#7a52b3;fontColor=#3a2360;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="816" y="326" width="188" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- flow arrows A->B->C->D -->
+        <mxCell id="fab" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#1a2b4a;" edge="1" parent="1" source="A" target="B"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="fbc" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#1a2b4a;" edge="1" parent="1" source="B" target="C"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="fcd" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#1a2b4a;" edge="1" parent="1" source="C" target="D"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="foot" value="Kafka 이벤트 백본이 A~D를 잇는다: market.tick.v1 → signal.generated.v1 → order.intent.v1 → order.executed.v1 → journal.recorded.v1" style="text;html=1;fontSize=10;fontStyle=2;align=center;fillColor=none;fontColor=#5a6b82;" vertex="1" parent="1">
+          <mxGeometry x="20" y="486" width="1000" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
