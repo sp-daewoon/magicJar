@@ -180,10 +180,16 @@ snapshot_core_runtime() {
 }
 
 enforce_core_invariance() {
-  local expected="$1" mode="${2:-preserve}" actual
+  local expected="$1" mode="${2:-preserve}" actual name remaining
   actual="$(snapshot_core_runtime)" || return 1
   [[ "$actual" == "$expected" ]] && return 0
-  [[ "$mode" != rollback ]] || obs_compose down >/dev/null 2>&1 || true
+  if [[ "$mode" == rollback ]]; then
+    obs_compose down >/dev/null 2>&1 || return 2
+    for name in magicjar-prometheus magicjar-grafana magicjar-alertmanager; do
+      remaining="$(mj_docker ps -a --filter "name=^/${name}$" --format '{{.Names}}')" || return 2
+      [[ -z "$remaining" ]] || return 2
+    done
+  fi
   return 1
 }
 
@@ -328,7 +334,11 @@ case "$cmd" in
       obs_compose down >/dev/null 2>&1 || true
       die "observability verification failed; containers removed, volumes retained"
     fi
-    enforce_core_invariance "$core_before" rollback || die "core runtime identity changed; observability rolled back"
+    enforce_core_invariance "$core_before" rollback || {
+      invariance_status=$?
+      [[ "$invariance_status" -ne 2 ]] || die "core runtime identity changed and observability rollback could not be proven"
+      die "core runtime identity changed; observability containers removed"
+    }
     ok "CORE_INVARIANCE_PASS containers=9"
     ok "NAS observability runtime PASS (notification route: $([[ -n "$slack" ]] && echo configured || echo PENDING))"
     ;;
