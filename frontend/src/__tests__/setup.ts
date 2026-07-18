@@ -1,5 +1,41 @@
 import '@testing-library/jest-dom'
 
+function createWorkerLocalStorage(): Storage {
+  const values = new Map<string, string>()
+
+  return {
+    get length() {
+      return values.size
+    },
+    clear() {
+      values.clear()
+    },
+    getItem(key: string) {
+      return values.get(String(key)) ?? null
+    },
+    key(index: number) {
+      return [...values.keys()][index] ?? null
+    },
+    removeItem(key: string) {
+      values.delete(String(key))
+    },
+    setItem(key: string, value: string) {
+      values.set(String(key), String(value))
+    },
+  }
+}
+
+// Node 26 exposes an experimental process-global localStorage. Without
+// --localstorage-file it is undefined; with a shared file Vitest workers race
+// through clear()/setItem(). Test storage must therefore be worker-local and
+// independent from the host Node process.
+const localStorage = createWorkerLocalStorage()
+const sessionStorage = createWorkerLocalStorage()
+for (const target of new Set<object>([globalThis, window, document.defaultView].filter(Boolean) as object[])) {
+  Object.defineProperty(target, 'localStorage', { configurable: true, value: localStorage })
+  Object.defineProperty(target, 'sessionStorage', { configurable: true, value: sessionStorage })
+}
+
 // jsdom은 ResizeObserver 미지원 — LWC v4 차트 컴포넌트 테스트 시 polyfill
 if (typeof ResizeObserver === 'undefined') {
   global.ResizeObserver = class ResizeObserver {

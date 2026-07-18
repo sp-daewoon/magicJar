@@ -1,6 +1,6 @@
 # 브랜치 운영 실전 가이드 (v3 · 3단 hierarchy + 병렬 worktree 허용)
 
-ADR 0033·0034·0035·0036 정합. 오케스트라 판단 하 병렬 worktree·1단 머지·model 차등·3단 hierarchy(최고 관리자 → 오케스트라 → architect → 실무 sub-agents). **QA 게이트는 본 새 repo에서 배제** (사용자 명시 — 실서비스 진입 시 별도 ADR로 회귀 검토).
+ADR 0033·0034·0036·0080·0094 정합. 오케스트라 판단 하 병렬 worktree·1단 머지·3단 hierarchy(최고 관리자 → 오케스트라 → architect → 실무 sub-agents). 운영 단계의 qa는 Visual·E2E·DR drill 품질 헌터 역할을 담당한다.
 
 ## 베이스라인 태그·release 브랜치 (ADR 0031)
 
@@ -8,9 +8,9 @@ ADR 0033·0034·0035·0036 정합. 오케스트라 판단 하 병렬 worktree·1
 |-----------|------|------------|------|
 | 마이그레이션 | TBD | TBD | 새 repo 진입 직후 |
 
-- `release/v*` 브랜치는 **체크아웃 전용**. push·머지·삭제 모두 금지 (pre-push hook + 정책)
+- `release/v*` 브랜치는 **immutable 베이스라인**. 신규 ref 생성만 허용하고 기존 ref update/delete는 금지한다(pre-push hook 정합).
 - hotfix는 받지 않는다. 살 붙이기·버그 수정은 main 트렁크에서, 다음 베이스라인 컷 시 `vX.Y.0` 새 태그 + `release/vX.Y` 신설
-- `v*.*.*` 태그 push 시 `release.yml`이 ghcr.io 이미지 + GitHub Release draft 자동 생성
+- GitHub Actions workflow는 사용하지 않는다. release는 `scripts/release.sh`와 로컬 검증 절차가 권위다.
 
 ## 한눈에 보는 흐름
 
@@ -44,14 +44,14 @@ gh pr create --base main --fill         # base = main 직접 (ADR 0034)
 node scripts/task.mjs done --pr N
         │
         ▼
-[셀프 리뷰 + pre-commit/pre-push 자동 검사로 충분]
+[구현자 셀프 리뷰 + 독립 qa/reviewer + pre-commit/pre-push 검사]
         │
         ▼
 [사용자 승인] gh pr merge N --rebase --delete-branch
         │
         ▼
 [오케스트라 — 머지 후 정리 의무 (ADR 0033 §결과)]
-   ├─ git worktree unlock + remove --force
+   ├─ git worktree unlock + remove (dirty면 중단·보고, 기본 force 금지)
    ├─ git branch -d agent/<a>/<task>
    ├─ git worktree prune + 빈 디렉토리 청소
    └─ node scripts/task.mjs archive T-...
@@ -80,14 +80,13 @@ git switch main && git pull
 
 영속 브랜치 = `main` 단 하나.
 
-## 모델 차등 (ADR 0035)
+## 모델 정책 (ADR 0080 · ADR 0094 amend)
 
 | 에이전트 | 기본 모델 |
 |---------|----------|
-| architect, ai-engineer, strategy-engine | **opus** |
-| backend-core, market-data, frontend | **sonnet** |
+| architect, backend-core, market-data, strategy-engine, ai-engineer, frontend, qa | **opus** |
 
-**에스컬레이션**: 결과 부족 시 1회 opus 재시도. 또 부족하면 작업 분할 또는 사용자 결정.
+`model: opus` 별칭은 최신 opus를 추종한다. 사용자가 모델을 내리기 전까지 전 역할 동일 정책을 유지한다.
 
 ## Git author per agent (ADR 0036)
 
