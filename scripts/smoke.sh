@@ -18,16 +18,6 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# MAGICJAR_DOCKER_CONTEXT=nas routes container checks to the NAS without
-# changing the global Docker context. API_URL should point to the frontend
-# proxy (for example an SSH tunnel at http://127.0.0.1:3000).
-# shellcheck source=scripts/lib/docker-target.sh
-source "$PWD/scripts/lib/docker-target.sh"
-if [[ -n "${MAGICJAR_DOCKER_CONTEXT:-}" ]] && ! mj_assert_expected_endpoint; then
-  echo "✗ remote Docker endpoint attestation 실패 — smoke 중단" >&2
-  exit 1
-fi
-
 API="${API_URL:-http://localhost:8080}"
 CONSUMER="${CONSUMER_URL:-http://localhost:8082}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-magicjar-kafka}"
@@ -112,11 +102,7 @@ require jq
 
 # postgres 단발 query helper (-tA: tuple only, unaligned)
 psql_scalar() {
-  mj_docker exec "$PG_CONTAINER" psql -U magicjar -d magicjar -tAc "$1" 2>/dev/null | tr -d '[:space:]'
-}
-
-container_running() {
-  mj_docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${1}$"
+  docker exec "$PG_CONTAINER" psql -U magicjar -d magicjar -tAc "$1" 2>/dev/null | tr -d '[:space:]'
 }
 
 #───── 시나리오 1: 백테스트 실행·영속 ─────
@@ -126,7 +112,7 @@ container_running() {
 scenario_1() {
   echo
   echo "[1/3] 백테스트 실행·영속 (POST /api/backtests)"
-  if ! container_running "$PG_CONTAINER"; then
+  if ! docker ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
     mark_skip "scenario-1 backtest" "$PG_CONTAINER 미기동 — strategyId 조회 불가"
     return 0
   fi
@@ -178,12 +164,12 @@ scenario_1() {
 scenario_2() {
   echo
   echo "[2/3] 실시간 시세 tick → 시그널 경로"
-  if ! container_running "$KAFKA_CONTAINER"; then
+  if ! docker ps --format '{{.Names}}' | grep -q "^${KAFKA_CONTAINER}$"; then
     mark_skip "scenario-2 tick→signal" "$KAFKA_CONTAINER 미기동"
     return 0
   fi
   local payload='{"symbol":"005930","price":75000,"volume":100,"ts":"2026-04-27T10:00:00Z"}'
-  if ! echo "$payload" | mj_docker exec -i "$KAFKA_CONTAINER" \
+  if ! echo "$payload" | docker exec -i "$KAFKA_CONTAINER" \
        /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 \
        --topic kafka.consumer.evt.market.tick.v1 >/dev/null 2>&1; then
     mark_fail "scenario-2 tick→signal" "kafka publish 실패"
@@ -191,20 +177,12 @@ scenario_2() {
   fi
   sleep 2
   local consumer_health
-  if [[ -n "${MAGICJAR_DOCKER_CONTEXT:-}" ]]; then
-    if mj_docker exec magicjar-consumer wget -qO- http://127.0.0.1:8082/actuator/health 2>/dev/null | grep -q '"status":"UP"'; then
-      consumer_health=200
-    else
-      consumer_health=000
-    fi
-  else
-    consumer_health=$(curl -sf -o /dev/null -w '%{http_code}' "$CONSUMER/actuator/health" 2>/dev/null) || consumer_health=000
-  fi
+  consumer_health=$(curl -sf -o /dev/null -w '%{http_code}' "$CONSUMER/actuator/health" 2>/dev/null) || consumer_health=000
   if [[ ! "$consumer_health" =~ ^2 ]]; then
     mark_fail "scenario-2 tick→signal" "consumer health $consumer_health"
     return 0
   fi
-  if ! container_running "$PG_CONTAINER"; then
+  if ! docker ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
     mark_skip "scenario-2 tick→signal" "$PG_CONTAINER 미기동 — signal 테이블 검증 불가 (tick publish + consumer UP까지 확인)"
     return 0
   fi

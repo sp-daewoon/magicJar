@@ -16,12 +16,9 @@
 ## 0. 사전 조건
 
 - macOS 환경 (Linux 사용자는 §5 참조)
-- 대상 Docker daemon 연결 + `magicjar-postgres` · `magicjar-redis` 컨테이너 running
+- Docker Desktop 실행 + `magicjar-postgres` · `magicjar-redis` 컨테이너 running
 - `scripts/backup/pg-dump-daily.sh` · `scripts/backup/redis-snapshot.sh` executable
 - 호스트 디스크 여유 공간 ≥ 100MB (PostgreSQL 7일 + Redis 3일 baseline ~50MB)
-
-NAS runtime(ADR-0141)에서는 backup script에 `MAGICJAR_DOCKER_CONTEXT=nas`를
-지정한다. dump/RDB 산출물은 계속 Mac의 ignored `_workspace/backups/`에 저장된다.
 
 확인:
 
@@ -45,11 +42,11 @@ cron 등록 전에 수동 1회 실행으로 환경 정합 검증:
 
 ```bash
 # PostgreSQL backup 1회
-MAGICJAR_DOCKER_CONTEXT=nas bash scripts/backup/pg-dump-daily.sh
+bash scripts/backup/pg-dump-daily.sh
 # 정상 종료 시 마지막 로그: "exit 0 — 정상 완료"
 
 # Redis snapshot 1회
-MAGICJAR_DOCKER_CONTEXT=nas bash scripts/backup/redis-snapshot.sh
+bash scripts/backup/redis-snapshot.sh
 # 정상 종료 시 마지막 로그: "exit 0 — 정상 완료"
 
 # 산출물 확인
