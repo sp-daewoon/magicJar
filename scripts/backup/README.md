@@ -1,6 +1,6 @@
 # magicJar backup 스크립트
 
-> ADR 0096 §2·§3 정합 — PostgreSQL daily full dump + Redis snapshot
+> ADR 0096 §3-4·§3-5 정합 — NAS DSM Task Scheduler combined set이 autonomous primary다. 아래 split Mac scripts는 명시적으로 승인한 manual/off-host fallback이며 readiness 근거가 아니다. Primary 설치·exact-six·PENDING gate는 [`docs/operations/backup-setup.md`](../../docs/operations/backup-setup.md)를 따른다.
 
 ## 스크립트 매트릭스
 
@@ -38,9 +38,9 @@ bash scripts/backup/pg-dump-daily.sh
 bash scripts/backup/redis-snapshot.sh
 ```
 
-### cron 등록 (사용자 macOS 단독 운영자)
+### Legacy macOS cron (선택적 off-host fallback)
 
-자세한 가이드: [`docs/operations/backup-setup.md`](../../docs/operations/backup-setup.md)
+기본 운영 경로가 아니다. Mac sleep 의존성을 수용하고 off-host 자동화를 별도 승인한 경우에만 사용한다. 자세한 가이드: [`docs/operations/backup-setup.md`](../../docs/operations/backup-setup.md)
 
 요약:
 

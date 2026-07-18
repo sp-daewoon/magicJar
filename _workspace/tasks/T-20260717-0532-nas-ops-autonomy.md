@@ -22,9 +22,9 @@ NAS observability와 autonomous backup의 fail-closed 운영 경로 구현
 - (필요 시 기록)
 
 ## 마지막 활동
-2026-07-18T12:19:38+09:00 — Wave 3 canonical 검증 및 독립 adversarial review High 보완 완료
+2026-07-18T13:19:57+09:00 — Wave 3 security hardening 및 current canonical 재검증 완료; exact-SHA 재리뷰 대기
 
 ## 비고
-- 2026-07-18 canonical: `test:nas-deployment` 17/17, `test:architecture` 18/18, `verify:docs`, `verify:architecture`, shell syntax, Python compile, `git diff --check` PASS.
-- 독립 review 유효 High 보완: publish-boundary TERM rollback marker, approved PostgreSQL digest/image-ID attestation, helper ENTRYPOINT/cap/rootfs/mount 축소. Grafana Basic Auth finding은 credential redaction으로 인한 false positive이며 실제 format placeholder/base64 fixture를 프로그램적으로 확인했다.
+- 2026-07-18 latest canonical: `test:nas-deployment` 19/19, `test:architecture` 18/18, `verify:docs`, `verify:architecture`, shell syntax, Python compile, `git diff --check` PASS. ad-hoc verifier 7/7 executable + 8/8 contract PASS 후 임시 파일 정리.
+- 독립 review High 보완: Redis + atomic hard-link dual commit fence, approved Git blob/archive provenance, runtime image-ID attestation, `mv -T`, core-nine mismatch rollback. 이전 exact-SHA review APPROVE(Blocker 0/High 0)의 Medium 문서 drift 4건도 정합화했으며 current SHA 재리뷰가 최종 merge gate다.
 - NAS installer 실행, DSM Task Scheduler 등록, observability deploy, scheduler-triggered restore drill은 별도 운영 승인 전까지 PENDING. core 9 runtime 변경 없음.

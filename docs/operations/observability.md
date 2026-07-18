@@ -270,7 +270,7 @@ name == "die" || name == "oom" || (name == "health_status" && attributes["health
 ## 7. 운영 진입 후속 작업 (ADR 0094 P0-OPS-3·4·5·6)
 
 - P0-OPS-3 — SLO/SLA 정의 + Slack/PagerDuty alertmanager routing — **ADR 0095 Accepted (2026-05-21)**
-- P0-OPS-4 — DR/backup 자동화 (pg_dump cron + S3 업로드) — **완료 (PR baseline)**
+- P0-OPS-4 — DR/backup 구현 — **코드·절차 완료 / NAS scheduler artifact·restore drill readiness PENDING**
 - P0-OPS-5 — runbook 5 시나리오 (Postgres down·Kafka lag·KIS rate limit·메모리 누수·디스크 가득) — **완료 (49f1bc31)**
 - P0-OPS-6 — persistence-shared monitoring (Outbox drain lag · SystemEvent counter · SLO Timer) — **완료 (본 PR — Stage 1 R3)**
 
@@ -281,8 +281,8 @@ name == "die" || name == "oom" || (name == "health_status" && attributes["health
 | P0-OPS-1 | logback JSON encoder | #650 (26f83f39) | ✅ |
 | P0-OPS-2 | Actuator/Prometheus exporter + Grafana | #650 (26f83f39) | ✅ |
 | P0-OPS-3 | SLO/SLA 정의 + alert routing (ADR 0095) | (b89eed6b) | ✅ |
-| P0-OPS-4 | DR/backup 자동화 | baseline | ✅ |
+| P0-OPS-4 | DR/backup 구현 | NAS combined-set implementation | ⚠ runtime evidence PENDING |
 | P0-OPS-5 | runbook 5 시나리오 | (49f1bc31) | ✅ |
 | P0-OPS-6 | persistence monitoring + SLO source wiring + Grafana | **본 PR** | ✅ |
 
-**Stage 1 P0 OPS 6/6 완료** → **Stage 2 정리 진입 ready** (v3.8.0 운영 baseline P0 마감).
+**Stage 1 P0 OPS implementation 6/6 완료**. 단, ADR 0096/0141의 NAS backup runtime readiness는 installer·DSM scheduler artifact·restore drill evidence 전까지 별도 PENDING이다.

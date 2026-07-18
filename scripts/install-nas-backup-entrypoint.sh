@@ -36,6 +36,22 @@ case "${1:-}" in -h|--help|help) usage; exit 0 ;; "") ;; *) usage >&2; exit 2 ;;
 [[ "$BACKUP_ROOT" == /volume1/docker/magicjar/backups ]] || { echo "✗ unsafe backup root: $BACKUP_ROOT" >&2; exit 1; }
 
 mj_require_release_provenance "$REPO_ROOT"
+SNAPSHOT_DIR="$(mktemp -d -t magicjar-backup-installer.XXXXXX)"
+cleanup_snapshot() { rm -rf "$SNAPSHOT_DIR"; }
+trap cleanup_snapshot EXIT
+trap 'cleanup_snapshot; exit 129' HUP
+trap 'cleanup_snapshot; exit 130' INT
+trap 'cleanup_snapshot; exit 143' TERM
+SOURCE_SNAPSHOT="$SNAPSHOT_DIR/nas-task-scheduler-backup.sh"
+COMPOSE_SNAPSHOT="$SNAPSHOT_DIR/docker-compose.nas.yml"
+git show "$MAGICJAR_EXPECTED_GIT_SHA:scripts/backup/nas-task-scheduler-backup.sh" > "$SOURCE_SNAPSHOT" || {
+  echo "✗ approved backup entrypoint blob unavailable" >&2
+  exit 1
+}
+git show "$MAGICJAR_EXPECTED_GIT_SHA:docker/docker-compose.nas.yml" > "$COMPOSE_SNAPSHOT" || {
+  echo "✗ approved NAS Compose blob unavailable" >&2
+  exit 1
+}
 mj_require_remote_docker
 actual_endpoint="$(mj_docker_endpoint)"
 [[ "$actual_endpoint" == "$MAGICJAR_EXPECTED_DOCKER_ENDPOINT" ]] || {
@@ -55,7 +71,7 @@ actual_endpoint="$(mj_docker_endpoint)"
   echo "✗ magicjar-postgres Compose service mismatch" >&2
   exit 1
 }
-expected_image="$(python3 - "$REPO_ROOT/docker/docker-compose.nas.yml" <<'PY'
+expected_image="$(python3 - "$COMPOSE_SNAPSHOT" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 match = re.search(r"(?ms)^  postgres:\n(?:(?:    .*|\s*)\n)*?    image:\s*(\S+)\s*$", text)
@@ -73,7 +89,7 @@ expected_image_id="$(mj_docker image inspect "$expected_image" --format '{{.Id}}
   exit 1
 }
 
-local_sha="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
+local_sha="$(shasum -a 256 "$SOURCE_SNAPSHOT" | awk '{print $1}')"
 provision_result="$(mj_docker run --rm --pull never --network none --read-only \
   --entrypoint sh --cap-drop ALL --security-opt no-new-privileges -i \
   -v /volume1:/nas-volume1:ro \
@@ -132,7 +148,7 @@ provision_result="$(mj_docker run --rm --pull never --network none --read-only \
     trap - EXIT HUP INT TERM
     printf "%s %s\n" "$post_sha" "$mode"
   ' sh "$local_sha" \
-  < "$SOURCE")"
+  < "$SOURCE_SNAPSHOT")"
 read -r remote_sha remote_mode <<<"$provision_result"
 [[ "$local_sha" == "$remote_sha" ]] || { echo "✗ provisioned checksum mismatch" >&2; exit 1; }
 [[ "$remote_mode" == 700 ]] || { echo "✗ provisioned mode mismatch" >&2; exit 1; }

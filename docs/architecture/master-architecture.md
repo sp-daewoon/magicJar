@@ -413,7 +413,7 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 
 ## §6. 모듈 매트릭스 (영역 × 앱)
 
-### 6-1. 컨테이너 7 + sidecar 1 = 8 (W4 시점)
+### 6-1. NAS core 9 + 별도 observability 3
 
 (JVM 모듈은 9개 — `domain`·`pattern-engine`·`indicator-impl`·`strategy-engine`·`persistence-shared`·`market-trend-engine`은 라이브러리 jar로 컨테이너 0. ADR 0054·0083·0088·0092·0100 정합 · 목록 권위 = settings.gradle.kts)
 
@@ -426,7 +426,10 @@ strategy-engine/src/main/kotlin/kr/spdaewoon/magicjar/strategy/
 | `postgres` | (인프라) | 영속 |
 | `redis` | (인프라) | 캐시 |
 | `kafka` | (인프라) | 이벤트 백본 |
-| `mcp` (W4) | Kotlin | MCP 서버 sidecar (1차는 api 내부 endpoint 옵션) |
+| `kafka-ui` | (운영 UI) | Kafka 관측 — NAS loopback only |
+| `dozzle` | (운영 UI) | container log 관측 — NAS loopback only |
+
+Prometheus·Grafana·Alertmanager는 core 9와 분리된 `magicjar-observability` Compose project다. 실제 배포·검증 전에는 observability 3 readiness를 주장하지 않는다. MCP server는 W4 후속이며 현재 core runtime container가 아니다(ADR 0141).
 
 ### 6-2. 영속 저장 (PostgreSQL + Flyway 단일 인스턴스)
 
@@ -560,9 +563,9 @@ class KrxSource(...) : IndicatorSource                // KRX 공식 발행 (post
 
 ---
 
-## §10. 핵심 ADR 인덱스 (0001~0057 Accepted + 0061·0062·0063·0066·0067·0068·0069·0070·0071·0072·0074·0075·0079·0080·0081·0083·0086·0087·0091·0092·**0094**·**0095**·**0096**·**0097**·**0098**·**0099**·**0100**·**0101**·**0102**·**0103**·**0104**·**0105**·**0106**·**0107**·**0108**·**0109**·**0110**·**0111**·**0112**·**0115**·**0116**·**0118**·**0119**·**0120**·**0122**·**0124** Accepted + 0084 Accepted P0 baseline + 0064·0076·0077·0078·0082·0089·0090·0093·0113·**0114·0117·0121·0123** Proposed + 0073 Superseded by 0075 + 0035 Superseded by 0080 + **0085 Superseded by 0094** · ADR 인덱스 정합 권위 = `_workspace/arch/adr/README.md` §0)
+## §10. 핵심 ADR lookup
 
-상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`. 분류 카테고리는 `_workspace/arch/adr/README.md` §1~§10-4 정합. 본 §10은 한 줄 요약 인덱스 — 신규 ADR 발행 시 본 표 + README 동시 갱신 (ADR 0030 SoT 운영 규약).
+총 건수·상태·최신 번호는 `_workspace/arch/adr/README.md` §0이 단일 권위다. 상세 본문은 `_workspace/arch/adr/<NNNN>-*.md`; 아래 표는 architecture 이해에 필요한 핵심 결정만 선별하며 상태 inventory를 복제하지 않는다. 현행 NAS core-nine runtime 및 분리 observability/backup gate는 ADR 0141이 권위다.
 
 | ADR | 제목 | 카테고리 | Wave/시점 |
 |---|---|---|---|

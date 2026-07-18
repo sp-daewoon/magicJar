@@ -282,6 +282,8 @@ test('Grafana verification uses the desired env-file credential rather than the 
   try {
     const deploy = readFileSync(join(root, 'scripts/deploy-nas-observability.sh'), 'utf8')
     assert.match(deploy, /\.RestartCount/)
+    assert.match(deploy, /git archive "\$MAGICJAR_EXPECTED_GIT_SHA"/)
+    assert.match(deploy, /APPROVED_ROOT/)
     const functionStart = deploy.indexOf('verify_grafana_auth() {')
     const functionEnd = deploy.indexOf('\nverify_targets() {', functionStart)
     assert.ok(functionStart >= 0 && functionEnd > functionStart)
@@ -328,6 +330,29 @@ verify_grafana_auth desired-admin desired-password-123456789
   }
 })
 
+test('observability core invariance mismatch executes rollback', () => {
+  const deploy = readFileSync(join(root, 'scripts/deploy-nas-observability.sh'), 'utf8')
+  const start = deploy.indexOf('enforce_core_invariance() {')
+  const end = deploy.indexOf('\n}\n', start)
+  assert.ok(start >= 0 && end > start)
+  const fn = deploy.slice(start, end + 3)
+  const fixture = mkdtempSync(join(tmpdir(), 'magicjar-core-invariance-'))
+  try {
+    const rollbackLog = join(fixture, 'rollback.log')
+    const result = run('bash', ['-ceu', `${fn}
+snapshot_core_runtime() { printf '%s\\n' changed; }
+obs_compose() { printf '%s\\n' "$*" > "$ROLLBACK_LOG"; }
+enforce_core_invariance original rollback
+`], {
+      env: { ...process.env, ROLLBACK_LOG: rollbackLog },
+    })
+    assert.notEqual(result.status, 0)
+    assert.equal(readFileSync(rollbackLog, 'utf8').trim(), 'down')
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
+})
+
 test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler', () => {
   const backup = readFileSync(join(root, 'scripts/backup/nas-task-scheduler-backup.sh'), 'utf8')
   const installer = readFileSync(join(root, 'scripts/install-nas-backup-entrypoint.sh'), 'utf8')
@@ -337,6 +362,9 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   assert.match(backup, /redis-cli --raw SET "\$LOCK_KEY" "\$LOCK_TOKEN" NX PX/)
   assert.match(backup, /redis\.call\("pexpire"/)
   assert.match(backup, /redis\.call\("del"/)
+  assert.match(backup, /ln "\$LOCK_CANDIDATE" "\$LOCK_FILE"/)
+  assert.match(backup, /assert_filesystem_lock_owned/)
+  assert.match(backup, /"\$MV_BIN" -T "\$PARTIAL_SET" "\$FINAL_SET"/)
   assert.match(backup, /random_lock_token/)
   assert.match(backup, /\/proc\/sys\/kernel\/random\/uuid|\/dev\/urandom/)
   assert.match(backup, /cd "\$SET_ROOT"/)
@@ -352,12 +380,12 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   assert.match(backup, /com\.docker\.compose\.service/)
   assert.match(backup, /sha256sum|shasum -a 256/)
   assert.match(backup, /AFTER_SAVE.*-gt.*BEFORE_SAVE/)
-  assert.match(backup, /"\$MV_BIN" "\$PARTIAL_SET" "\$FINAL_SET"/)
-  assert.ok(backup.indexOf('published backup set shape invalid before publish') < backup.indexOf('"$MV_BIN" "$PARTIAL_SET" "$FINAL_SET"'))
+  const publishCommand = '"$MV_BIN" -T "$PARTIAL_SET" "$FINAL_SET"'
+  assert.ok(backup.indexOf('published backup set shape invalid before publish') < backup.indexOf(publishCommand))
   assert.match(backup, /\[ ! -L "\$PARTIAL_SET\/\$required" \].*\[ -f "\$PARTIAL_SET\/\$required" \]/)
   assert.match(backup, /PUBLISHED_UNCOMMITTED/)
   assert.match(backup, /\.publish-owner/)
-  assert.ok(backup.indexOf('PUBLISHED_UNCOMMITTED=1') < backup.indexOf('"$MV_BIN" "$PARTIAL_SET" "$FINAL_SET"'))
+  assert.ok(backup.indexOf('PUBLISHED_UNCOMMITTED=1') < backup.indexOf(publishCommand))
   assert.match(backup, /\/volume1\/docker\/magicjar\/backups/)
   assert.doesNotMatch(backup, /synoschedtask|crontab/)
 
@@ -371,6 +399,9 @@ test('NAS backup scheduler entrypoint is atomic and never bypasses DSM scheduler
   assert.match(installer, /--read-only/)
   assert.match(installer, /--format '\{\{\.Image\}\}'/)
   assert.match(installer, /docker-compose\.nas\.yml/)
+  assert.match(installer, /git show "\$MAGICJAR_EXPECTED_GIT_SHA:scripts\/backup\/nas-task-scheduler-backup\.sh"/)
+  assert.match(installer, /SOURCE_SNAPSHOT/)
+  assert.doesNotMatch(installer, /< "\$SOURCE"/)
   assert.match(installer, /\.Config\.Image/)
   assert.match(installer, /image inspect/)
   assert.match(installer, /\/volume1\/docker\/magicjar\/ops/)
@@ -489,6 +520,12 @@ case "$cmd" in
         *State.Running*) printf '%s\\n' true ;;
         *compose.project*) printf '%s\\n' "\${FAKE_PROJECT:-magicjar}" ;;
         *compose.service*) [ "$container" = magicjar-postgres ] && printf '%s\\n' postgres || printf '%s\\n' redis ;;
+        *Config.Image*)
+          if [ -n "\${FAKE_CONFIG_IMAGE:-}" ]; then printf '%s\\n' "$FAKE_CONFIG_IMAGE"
+          elif [ "$container" = magicjar-postgres ]; then printf '%s\\n' 'postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777'
+          else printf '%s\\n' 'redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99'; fi
+          ;;
+        *'{{.Image}}'*) printf 'sha256:%064d\\n' 0 ;;
       esac
     fi
     ;;
@@ -536,6 +573,7 @@ case "$cmd" in
       *) exit 3 ;;
     esac
     ;;
+  image) printf 'sha256:%064d\\n' 0 ;;
   cp)
     printf '%s\\n' FAKE_RDB > "$2"
     ;;
@@ -544,6 +582,9 @@ esac
 `,
     )
     chmodSync(fakeDocker, 0o755)
+    const fakeMv = join(fixture, 'mv-no-target-directory')
+    writeFileSync(fakeMv, '#!/bin/sh\n[ "${1:-}" != -T ] || shift\n/bin/mv "$@"\n')
+    chmodSync(fakeMv, 0o755)
 
     const backupRoot = join(fixture, 'backups')
     mkdirSync(backupRoot, { recursive: true })
@@ -557,6 +598,7 @@ esac
       env: {
         ...process.env,
         MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_MV_BIN: fakeMv,
         MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
         MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
         FAKE_DOCKER_STATE: fakeState,
@@ -596,6 +638,20 @@ esac
     assert.match(rejected.stderr, /unexpected Compose project/)
     assert.equal(readdirSync(join(rejectedRoot, 'sets')).length, 0)
 
+    const wrongImageRoot = join(fixture, 'wrong-image')
+    mkdirSync(join(wrongImageRoot, 'sets'), { recursive: true })
+    const wrongImage = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...process.env,
+        MAGICJAR_DOCKER_BIN: fakeDocker,
+        MAGICJAR_NAS_BACKUP_ROOT: wrongImageRoot,
+        MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
+        FAKE_CONFIG_IMAGE: 'postgres:mutable',
+      },
+    })
+    assert.notEqual(wrongImage.status, 0)
+    assert.match(wrongImage.stderr, /unexpected approved image reference/)
+
     const staleRdbRoot = join(fixture, 'stale-rdb')
     mkdirSync(join(staleRdbRoot, 'sets'), { recursive: true })
     const staleRdb = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
@@ -634,7 +690,7 @@ esac
     const publishSignalRoot = join(fixture, 'publish-signal')
     mkdirSync(join(publishSignalRoot, 'sets'), { recursive: true })
     const signalAfterMove = join(fixture, 'signal-after-move')
-    writeFileSync(signalAfterMove, '#!/bin/sh\n/bin/mv "$@"\nkill -TERM "$PPID"\n')
+    writeFileSync(signalAfterMove, '#!/bin/sh\n[ "${1:-}" != -T ] || shift\n/bin/mv "$@"\nkill -TERM "$PPID"\n')
     chmodSync(signalAfterMove, 0o755)
     const publishSignal = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
       env: {
@@ -675,6 +731,11 @@ case "$cmd" in
       *State.Running*) printf '%s\\n' true ;;
       *compose.project*) printf '%s\\n' magicjar ;;
       *compose.service*) [ "$container" = magicjar-postgres ] && printf '%s\\n' postgres || printf '%s\\n' redis ;;
+      *Config.Image*)
+        if [ "$container" = magicjar-postgres ]; then printf '%s\\n' 'postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777'
+        else printf '%s\\n' 'redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99'; fi
+        ;;
+      *'{{.Image}}'*) printf 'sha256:%064d\\n' 0 ;;
     esac
     ;;
   exec)
@@ -727,15 +788,20 @@ case "$cmd" in
       *) exit 3 ;;
     esac
     ;;
+  image) printf 'sha256:%064d\\n' 0 ;;
   cp) printf '%s\\n' FAKE_RDB > "$2" ;;
   *) exit 4 ;;
 esac
 `)
     chmodSync(fakeDocker, 0o755)
+    const fakeMv = join(fixture, 'mv-no-target-directory')
+    writeFileSync(fakeMv, '#!/bin/sh\n[ "${1:-}" != -T ] || shift\n/bin/mv "$@"\n')
+    chmodSync(fakeMv, 0o755)
 
     const concurrentEnv = {
       ...process.env,
       MAGICJAR_DOCKER_BIN: fakeDocker,
+      MAGICJAR_MV_BIN: fakeMv,
       MAGICJAR_NAS_BACKUP_ROOT: backupRoot,
       MAGICJAR_NAS_BACKUP_MIN_FREE_KB: '1',
       MAGICJAR_NAS_BACKUP_LOCK_TTL_MS: '30000',
@@ -779,6 +845,22 @@ esac
     assert.match(lostLease.stderr, /lease was lost before publish/)
     assert.equal(readdirSync(join(lostRoot, 'sets')).length, 0)
     assert.equal(readFileSync(join(fixture, 'lost-lease-key/token'), 'utf8').trim(), 'replacement-token')
+
+    const commitFenceRoot = join(fixture, 'commit-fence')
+    mkdirSync(join(commitFenceRoot, 'sets'), { recursive: true })
+    const commitFence = run('sh', ['scripts/backup/nas-task-scheduler-backup.sh'], {
+      env: {
+        ...concurrentEnv,
+        MAGICJAR_NAS_BACKUP_ROOT: commitFenceRoot,
+        FAKE_DOCKER_DELAY: '0',
+        FAKE_DOCKER_STATE: join(fixture, 'commit-fence-lastsave'),
+        FAKE_LEASE_DIR: join(fixture, 'commit-fence-key'),
+        FAKE_DROP_LEASE_ON_ASSERT: '5',
+      },
+    })
+    assert.notEqual(commitFence.status, 0)
+    assert.match(commitFence.stderr, /lease was lost at commit boundary/)
+    assert.equal(readdirSync(join(commitFenceRoot, 'sets')).length, 0)
 
     const renewFailureRoot = join(fixture, 'renew-failure')
     mkdirSync(join(renewFailureRoot, 'sets'), { recursive: true })
@@ -832,6 +914,12 @@ esac
   } finally {
     rmSync(fixture, { recursive: true, force: true })
   }
+})
+
+test('R4 recovery commands pin the NAS Docker context', () => {
+  const runbook = readFileSync(join(root, 'docs/operations/runbook/R4-db-recovery.md'), 'utf8')
+  assert.doesNotMatch(runbook, /^docker (?!--context nas\b)/m)
+  assert.match(runbook, /docker --context nas stop magicjar-api magicjar-batch magicjar-consumer/)
 })
 
 test('cutover refuses to run without the explicit confirmation flag', () => {

@@ -108,3 +108,10 @@
 - Docker 실행과 데이터 영속 위치는 NAS로 단일화하면서 build/test 제어는 기존 Mac workflow를 보존한다.
 - NAS 연결 또는 SSH key가 준비되지 않으면 배포는 fail-closed하며 로컬 healthy stack을 유지한다.
 - 호스트 포트와 context 오발사를 코드화된 guard 및 fixture test로 차단한다.
+
+## §6. 변경 이력
+
+| 날짜 | 변경 | 결정자 |
+|---|---|---|
+| 2026-07-16 | ADR 0141 Accepted — Mac build/control plane, NAS core 9 runtime/data plane, cold PostgreSQL cutover와 split-brain fail-closed 결정. | 사용자(최고 관리자) |
+| 2026-07-18 | Amendment Accepted — core 9와 분리된 NAS observability 3, approved config/digest/core invariance gate, NAS-native combined backup 및 각 runtime 승인 gate 추가. | 사용자(최고 관리자) |

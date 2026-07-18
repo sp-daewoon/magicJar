@@ -45,8 +45,11 @@ DSM Control Panel → Task Scheduler에서 **root 사용자**의 사용자 정�
 `postgres.dump{,.sha256,.meta}`와 `redis.rdb{,.sha256,.meta}`다. 두 컨테이너의
 Compose project/service label을 확인하고 fresh Redis BGSAVE와 양쪽 checksum 검증 후
 timestamp directory 전체를 한 번 rename해 atomic publish한다. 동시 실행은 Redis
-`SET NX PX` lease로 직렬화하고 token 비교 Lua로 갱신·해제한다. lease 갱신 실패 또는
-publish 직전 ownership 불일치는 fail-closed하며, 1일이 지난 crash partial만 정리한다.
+`SET NX PX` lease와 pinned backup root의 token-owned atomic hard-link fence로 이중
+직렬화한다. marker 제거 직전에 두 ownership을 모두 재검증하며, lease 갱신 실패나
+fence 불일치는 fail-closed한다. signal/normal exit는 자기 token의 fence만 제거하고,
+crash로 남은 `.nas-backup.lock`은 자동 탈취하지 않으므로 원인 조사 후 수동 제거한다.
+1일이 지난 crash partial만 active dual fence 소유 중 정리한다.
 installer는 DSM task를 대신 등록하거나 crontab을 우회 수정하지 않는다. Task Scheduler가
 만든 artifact의 checksum·PostgreSQL restore drill을 확인하기 전에는 autonomous backup readiness를 주장하지 않는다.
 

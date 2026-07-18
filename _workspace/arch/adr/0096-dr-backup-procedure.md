@@ -147,6 +147,24 @@ manual/off-host 보조 경로로 유지하며 자동 primary readiness의 근거
 
 외부 storage/3-2-1 copy는 이 amendment 범위 밖이며 별도 사용자 결재 대상으로 유지한다.
 
+### 3-5. 2026-07-18 security amendment — cross-system commit fence
+
+§3-4의 “filesystem fallback 금지”는 Redis lease를 대체하는 best-effort fallback을
+금지한 결정이었다. exact-six commit marker 제거는 Redis와 NAS filesystem 사이에서
+원자화할 수 없으므로, Redis TTL 만료·재시작·whole-system pause 뒤 stale process가
+commit하는 경계를 닫기 위해 다음 **dual fence**를 의무화한다.
+
+1. Redis `SET NX PX` token lease + compare-renew/delete는 기존대로 유지한다.
+2. pinned `backups/sets` parent에 같은 token의 atomic hard-link lock을 추가하고,
+   두 fence의 소유권을 marker 제거 직전에 모두 재검증한다.
+3. filesystem fence는 Redis의 fallback이 아니라 commit serialization의 필수 2차 fence다.
+4. signal/normal exit는 token 일치 시에만 fence를 제거한다. crash residue는 자동 탈취하지
+   않고 조사 후 수동 제거해 fail-closed availability를 선택한다.
+
+따라서 §3-4 동시성 행의 “filesystem fallback 금지”는 유지하되, **필수 dual commit
+fence에는 적용하지 않는 것으로 supersede**한다. readiness evidence에는 overlapping
+scheduler 차단과 commit-boundary lease-loss fault injection을 포함한다.
+
 ---
 
 ## 4. RPO/RTO 정의
@@ -411,3 +429,5 @@ manual/off-host 보조 경로로 유지하며 자동 primary readiness의 근거
 | 날짜 | 변경 | 결정자 |
 |------|------|--------|
 | 2026-05-21 | **ADR 0096 Accepted — P0-OPS-4 DR/backup 절차 본문화** (ADR 0094 §3-7 P0-OPS-4 task 본문화 + 운영 헌법 §9-4 backup 매트릭스 amend + PostgreSQL daily 03:00 KST + 7일 retention + Redis snapshot 매일 03:30 + 3일 retention + RPO 24h + RTO 30분 + R-4 runbook cross-link + DR drill 분기 의무 + qa Visual E2E 5 시나리오 + 운영 ADR 양식 3 슬롯 두 번째 적용 사례 + `_workspace/backups/` .gitignore + 사용자 macOS crontab 가이드 + backend-core P0-OPS-4 후속 wiring 5건 권고). 운영 코드 0 touch. | architect (ADR 0094 §3-7 task 본문화 의무) |
+| 2026-07-18 | **NAS combined backup amendment Accepted** — ADR 0141 NAS runtime의 autonomous primary를 DSM Task Scheduler 단일 PG+Redis exact-six set으로 전환. Mac split scripts는 manual/off-host fallback으로 강등하고 scheduler artifact·restore drill 전 readiness PENDING. | 사용자(최고 관리자) |
+| 2026-07-18 | **Cross-system commit fence security amendment Accepted** — Redis lease와 token-owned atomic hard-link filesystem fence를 marker 제거까지 함께 보유·검증. crash fence 자동 탈취 금지. | 사용자 승인 하 release-gate 보강 |
