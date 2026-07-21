@@ -1,43 +1,25 @@
 #!/usr/bin/env node
-// autopilot-seed-strategies.mjs — magicjar-autopilot Phase 1 첫 전략 세트(6종) 시드 (spec 2026-06-22 §Phase 1)
-//
-// owner=AUTOPILOT · user_id=74683223(canary) · status=PAUSED 로 6 단타 전략을 멱등 upsert 한다.
-// 오케스트라가 개장 전 harness 스모크(칭 위반 거부·kill·롤백 실증) 통과 후에만 status를 ACTIVE 로 전환한다.
-// **이 스크립트는 절대 ACTIVE 로 만들지 않는다** (실돈 안전 — 활성화는 orchestrator 의 명시 행위).
-//
-// 가설 레지스트리: _workspace/autopilot/hypotheses-2026-06-22.md
-// DSL 검증: strategy-engine AutopilotSeedStrategyDslTest (파싱+정적검증+엔진매핑 GREEN — 라이브 평가 가능 식만 사용).
-//
-// DB 접속: 기존 ops/snapshot 스크립트 컨벤션(scripts/autopilot-snapshot.mjs)과 동일 —
-//   `docker exec magicjar-postgres psql -U magicjar -d magicjar` (별도 드라이버 의존 0).
+// magicjar-autopilot Phase 1 첫 전략 세트(6종)를 exact 사용자에게 PAUSED로만 시드한다.
+// 기존 전략은 수정하지 않으며, ACTIVE 전환은 fresh backtest와 명시적 상태 전환 API를 별도로 통과해야 한다.
 //
 // 사용:
-//   node scripts/autopilot-seed-strategies.mjs            # upsert 실행
-//   node scripts/autopilot-seed-strategies.mjs --dry-run  # SQL·universe 출력만, DB 변경 0
-//
-// 멱등성: (owner='AUTOPILOT', name) 으로 식별. 이미 있으면 DSL/TP/SL/codes/intervals 를 UPDATE(upsert),
-//   없으면 INSERT. **status 는 신규 INSERT 시에만 'PAUSED' 로 설정하고, 기존 행의 status 는 절대 건드리지 않는다**
-//   (오케스트라가 ACTIVE 전환한 전략을 재실행이 PAUSED 로 되돌리는 사고 방지).
+//   node scripts/autopilot-seed-strategies.mjs --user-id <id> --docker-context <context>
+//   node scripts/autopilot-seed-strategies.mjs --user-id <id> --docker-context <context> --dry-run
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-const DRY_RUN = process.argv.includes('--dry-run');
-
-const CANARY_USER_ID = '74683223';
 const OWNER = 'AUTOPILOT';
 const ORIGIN = 'USER_DSL'; // chk_strategy_origin 허용값(USER_DSL|PAPER_DISCOVERY). autopilot 식별은 owner='AUTOPILOT' 가 권위.
 const UNIVERSE_MARKET = 'KOSPI';
 const VI_ACTION_POLICY = 'ALERT_ONLY';
-const UNIVERSE_CAP = 24; // universe 총 코드 상한(실돈 안전 — 과도 구독 방지).
+const PG_BIGINT_MAX = 9223372036854775807n;
 // 휩쏘 완화 minHold (사용자 결재 2026-07-03 · V97__strategy_wipsaw_mitigation 정합) — 진입 후 N봉 동안
-//   DSL 매도 무시(손절·익절 라인은 MinHoldGuard 우회 — 안전망 우선). INSERT 시 명시 주입 +
-//   UPDATE 시 COALESCE(NULL 만 채움 — 사용자가 튜닝한 기존 값은 덮지 않음).
+//   DSL 매도 무시(손절·익절 라인은 MinHoldGuard 우회 — 안전망 우선). INSERT 시에만 명시 주입한다.
 const MIN_HOLD_BARS = 8;
 
-const PSQL_BASE = 'docker exec magicjar-postgres psql -U magicjar -d magicjar';
-
 // ── 유동성 앵커 (KOSPI 대형주 고유동성 8종) — 체결·슬리피지 안전, 깊은 호가 ──────────────
-const LIQUIDITY_ANCHORS = [
+export const LIQUIDITY_ANCHORS = [
   '005930', // 삼성전자
   '000660', // SK하이닉스
   '035420', // NAVER
@@ -51,7 +33,7 @@ const LIQUIDITY_ANCHORS = [
 // ── 6 전략 정의 (가설 레지스트리 hypotheses-2026-06-22.md 와 1:1, DSL 은 AutopilotSeedStrategyDslTest 와 1:1) ──
 // dslExit 0.3% 버퍼 (사용자 결재 2026-07-03 · V97 정합 — 휩쏘 완화): 하향 이탈 청산은 `* 0.997`,
 //   vwap-reversion 이익 실현 방향은 `* 1.003`. 재실행 upsert 가 V97 적용분을 되돌리지 않도록 시드 원문도 버퍼판 유지.
-const STRATEGIES = [
+export const STRATEGIES = [
   {
     name: 'autopilot-momentum-breakout',
     nameKo: '오토파일럿 모멘텀 돌파',
@@ -109,30 +91,30 @@ const STRATEGIES = [
 ];
 
 // ── psql helper ──────────────────────────────────────────────────────────────
-// 필드 구분자는 파이프(|) — 종목코드·상태·id 에 등장하지 않는 안전 문자(tab 의 shell escape 함정 회피).
 const FS = '|';
-function psqlQuery(sql) {
-  const cmd = `${PSQL_BASE} -t -A -F'${FS}' -c "${sql.replace(/"/g, '\\"')}"`;
-  try {
-    const out = execSync(cmd, { encoding: 'utf8' });
-    return out
-      .trim()
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => l.split(FS));
-  } catch (e) {
-    console.error(`[error] 쿼리 실패: ${sql.slice(0, 80)}... → ${e.message.split('\n')[0]}`);
-    throw e;
-  }
-}
-
-function psqlExec(sql) {
-  if (DRY_RUN) {
-    console.log(`-- [dry-run] ${sql}`);
-    return;
-  }
-  const cmd = `${PSQL_BASE} -v ON_ERROR_STOP=1 -c "${sql.replace(/"/g, '\\"')}"`;
-  execSync(cmd, { encoding: 'utf8', stdio: 'inherit' });
+export function createPsqlClient(dockerContext, execFile = execFileSync) {
+  const dockerArgs = ['--context', dockerContext, 'exec', '-i', 'magicjar-postgres', 'psql', '-U', 'magicjar', '-d', 'magicjar'];
+  return {
+    query(sql) {
+      const out = execFile('docker', [...dockerArgs, '-t', '-A', `-F${FS}`, '-v', 'ON_ERROR_STOP=1'], {
+        input: `${sql}\n`,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return out
+        .trim()
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => line.split(FS));
+    },
+    exec(sql) {
+      execFile('docker', [...dockerArgs, '-v', 'ON_ERROR_STOP=1'], {
+        input: `${sql}\n`,
+        encoding: 'utf8',
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+    },
+  };
 }
 
 // SQL string literal 안전 이스케이프(작은따옴표 doubling).
@@ -164,104 +146,146 @@ function estimateComplexity(entry, exit) {
   return { astDepth, nodeCount, indicatorCallCount, estimatedEvalTimeMs, complexityClass };
 }
 
-// ── universe 구성: 앵커 + discovery_scorecard 최신 snapshot TOP3/preset ──────────
-function buildUniverse() {
-  const codes = [...LIQUIDITY_ANCHORS];
-  let discoveryAdded = [];
+function validateUserId(raw) {
+  if (typeof raw !== 'string' || !/^[0-9]+$/.test(raw)) throw new Error('--user-id must be a positive decimal PostgreSQL BIGINT');
+  const value = BigInt(raw);
+  if (value <= 0n || value > PG_BIGINT_MAX) throw new Error('--user-id must be a positive decimal PostgreSQL BIGINT');
+  return value.toString();
+}
+
+export function parseArgs(argv) {
+  let userId;
+  let dockerContext;
+  let dryRun = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--user-id') {
+      if (userId !== undefined || i + 1 >= argv.length) throw new Error('exactly one --user-id is required');
+      userId = argv[++i];
+    } else if (arg === '--docker-context') {
+      if (dockerContext !== undefined || i + 1 >= argv.length) throw new Error('exactly one --docker-context is required');
+      dockerContext = argv[++i];
+    } else if (arg === '--dry-run') {
+      if (dryRun) throw new Error('--dry-run may be specified only once');
+      dryRun = true;
+    } else {
+      throw new Error('unsupported argument');
+    }
+  }
+  if (userId === undefined) throw new Error('exactly one --user-id is required');
+  if (dockerContext === undefined) throw new Error('exactly one --docker-context is required');
+  if (!/^[A-Za-z0-9._-]+$/.test(dockerContext)) throw new Error('--docker-context contains unsupported characters');
+  return { userId: validateUserId(userId), dockerContext, dryRun };
+}
+
+function targetNamesSql() {
+  return STRATEGIES.map((strategy) => `(${lit(strategy.name)})`).join(', ');
+}
+
+export function buildPreflightSql(rawUserId) {
+  const userId = validateUserId(rawUserId);
+  return `WITH target_names(name) AS (VALUES ${targetNamesSql()}), ` +
+    `scoped AS (` +
+    `SELECT s.name, s.status, s.allow_overnight FROM strategy s JOIN target_names t ON t.name = s.name ` +
+    `WHERE s.user_id = ${userId} AND s.owner = ${lit(OWNER)}` +
+    `) SELECT ` +
+    `(SELECT count(*) FROM user_account WHERE user_id = ${lit(userId)}), ` +
+    `(SELECT count(*) FROM user_kis_credential WHERE user_id = ${lit(userId)} AND account_type = 'REAL'), ` +
+    `count(*), count(*) FILTER (WHERE status <> 'PAUSED'), ` +
+    `count(*) - count(DISTINCT name), count(*) FILTER (WHERE allow_overnight) FROM scoped;`;
+}
+
+function insertSql(strategy, userId) {
+  const complexity = estimateComplexity(strategy.dslEntry, strategy.dslExit);
+  return `INSERT INTO strategy (` +
+    `user_id, owner, name, name_ko, dsl_entry, dsl_exit, universe_market, tf, codes, intervals, ` +
+    `take_profit_pct, fixed_stop_loss_pct, min_hold_bars, scale_in_config, partial_exits, entry_policy, ` +
+    `ast_depth, node_count, indicator_call_count, estimated_eval_time_ms, complexity_class, ` +
+    `origin, status, allow_overnight, vi_action_policy, created_at, updated_at` +
+    `) SELECT ` +
+    `${userId}, ${lit(OWNER)}, ${lit(strategy.name)}, ${lit(strategy.nameKo)}, ${lit(strategy.dslEntry)}, ${lit(strategy.dslExit)}, ` +
+    `${lit(UNIVERSE_MARKET)}, ${lit(strategy.tf)}, ${jsonbArrayLit(LIQUIDITY_ANCHORS)}, ${jsonbArrayLit([strategy.tf])}, ` +
+    `${strategy.takeProfitPct}, ${strategy.fixedStopLossPct}, ${MIN_HOLD_BARS}, NULL, NULL, NULL, ` +
+    `${complexity.astDepth}, ${complexity.nodeCount}, ${complexity.indicatorCallCount}, ${complexity.estimatedEvalTimeMs}, ` +
+    `${lit(complexity.complexityClass)}, ${lit(ORIGIN)}, 'PAUSED', false, ${lit(VI_ACTION_POLICY)}, now(), now() ` +
+    `WHERE NOT EXISTS (` +
+    `SELECT 1 FROM strategy WHERE user_id = ${userId} AND owner = ${lit(OWNER)} AND name = ${lit(strategy.name)}` +
+    `);`;
+}
+
+export function buildTransactionalSeedSql(rawUserId) {
+  const userId = validateUserId(rawUserId);
+  const names = `ARRAY[${STRATEGIES.map((strategy) => lit(strategy.name)).join(', ')}]`;
+  const prerequisites = `DO $seed$ BEGIN ` +
+    `PERFORM 1 FROM user_account WHERE user_id = ${lit(userId)} FOR UPDATE; ` +
+    `IF NOT FOUND THEN RAISE EXCEPTION 'seed user account prerequisite failed'; END IF; ` +
+    `PERFORM 1 FROM user_kis_credential WHERE user_id = ${lit(userId)} AND account_type = 'REAL' FOR UPDATE; ` +
+    `IF NOT FOUND THEN RAISE EXCEPTION 'seed REAL credential prerequisite failed'; END IF; ` +
+    `IF EXISTS (SELECT 1 FROM strategy WHERE user_id = ${userId} AND owner = ${lit(OWNER)} AND name = ANY(${names}) ` +
+    `GROUP BY name HAVING count(*) > 1) THEN RAISE EXCEPTION 'duplicate autopilot seed target'; END IF; ` +
+    `IF EXISTS (SELECT 1 FROM strategy WHERE user_id = ${userId} AND owner = ${lit(OWNER)} AND name = ANY(${names}) ` +
+    `AND status <> 'PAUSED') THEN RAISE EXCEPTION 'non-PAUSED autopilot seed target'; END IF; ` +
+    `IF EXISTS (SELECT 1 FROM strategy WHERE user_id = ${userId} AND owner = ${lit(OWNER)} AND name = ANY(${names}) ` +
+    `AND allow_overnight) THEN RAISE EXCEPTION 'overnight-enabled autopilot seed target'; END IF; ` +
+    `END $seed$;`;
+  const verify = `DO $verify$ BEGIN ` +
+    `IF (SELECT count(*) FROM strategy WHERE user_id = ${userId} AND owner = ${lit(OWNER)} AND name = ANY(${names}) ` +
+    `AND status = 'PAUSED' AND allow_overnight = false) <> ${STRATEGIES.length} ` +
+    `THEN RAISE EXCEPTION 'autopilot seed postcondition failed'; END IF; END $verify$;`;
+  return [
+    'BEGIN;',
+    `SET LOCAL lock_timeout = '5s';`,
+    `SELECT pg_advisory_xact_lock(hashtextextended('magicjar-autopilot-seed-strategies', 0));`,
+    `LOCK TABLE strategy IN SHARE ROW EXCLUSIVE MODE;`,
+    prerequisites,
+    ...STRATEGIES.map((strategy) => insertSql(strategy, userId)),
+    verify,
+    'COMMIT;',
+  ].join('\n');
+}
+
+export function runSeed({ args, client, logger = console }) {
+  const { userId, dockerContext, dryRun } = parseArgs(args);
+  const db = client ?? createPsqlClient(dockerContext);
+  let rows;
   try {
-    const rows = psqlQuery(
-      "SELECT DISTINCT instrument_code FROM discovery_scorecard " +
-        "WHERE snapshot_date = (SELECT max(snapshot_date) FROM discovery_scorecard) " +
-        "AND rank <= 3 ORDER BY instrument_code",
-    );
-    discoveryAdded = rows.map((r) => r[0]).filter((c) => c && /^[0-9A-Z]{4,12}$/.test(c) && !codes.includes(c));
-  } catch (e) {
-    console.error(`[warn] discovery_scorecard 조회 실패 — 앵커만으로 universe 구성: ${e.message.split('\n')[0]}`);
+    rows = db.query(buildPreflightSql(userId));
+  } catch {
+    logger.error('[error] autopilot seed preflight failed');
+    throw new Error('autopilot seed preflight failed');
   }
-  for (const c of discoveryAdded) {
-    if (codes.length >= UNIVERSE_CAP) break;
-    codes.push(c);
+  if (rows.length !== 1 || rows[0].length !== 6) throw new Error('autopilot seed preflight returned an invalid shape');
+  const [userCount, credentialCount, targetCount, nonPausedCount, duplicateCount, overnightCount] = rows[0].map(Number);
+  if (userCount !== 1) throw new Error('exact user account prerequisite failed');
+  if (credentialCount !== 1) throw new Error('exact REAL credential prerequisite failed');
+  if (duplicateCount !== 0) throw new Error('duplicate autopilot seed target detected');
+  if (nonPausedCount !== 0) throw new Error('non-PAUSED autopilot seed target detected');
+  if (overnightCount !== 0) throw new Error('overnight-enabled autopilot seed target detected');
+  if (!Number.isInteger(targetCount) || targetCount < 0 || targetCount > STRATEGIES.length) {
+    throw new Error('autopilot seed target count is invalid');
   }
-  return { codes, anchorCount: LIQUIDITY_ANCHORS.length, discoveryCount: codes.length - LIQUIDITY_ANCHORS.length };
+
+  const insertCount = STRATEGIES.length - targetCount;
+  logger.log(`autopilot PAUSED seed existing=${targetCount} insert=${insertCount} ${dryRun ? '[DRY-RUN]' : ''}`);
+  if (!dryRun) {
+    try {
+      db.exec(buildTransactionalSeedSql(userId));
+    } catch {
+      logger.error('[error] autopilot seed transaction failed');
+      throw new Error('autopilot seed transaction failed');
+    }
+  }
+  logger.log(dryRun ? 'dry-run complete: DB mutation 0' : 'seed complete: all targets remain PAUSED');
+  return { userId, dockerContext, dryRun, existingCount: targetCount, insertCount };
 }
 
-// ── upsert 한 전략 ────────────────────────────────────────────────────────────
-function upsertStrategy(s, codes) {
-  const c = estimateComplexity(s.dslEntry, s.dslExit);
-  // intervals = 전략 tf 단일. codes = universe 공통.
-  const intervals = [s.tf];
-
-  // 멱등: 존재 여부 확인.
-  const existing = psqlQuery(
-    `SELECT id, status FROM strategy WHERE owner = ${lit(OWNER)} AND name = ${lit(s.name)} LIMIT 1`,
-  );
-
-  const codesLit = jsonbArrayLit(codes);
-  const intervalsLit = jsonbArrayLit(intervals);
-
-  if (existing.length > 0) {
-    const [id, status] = existing[0];
-    // UPDATE — DSL/TP/SL/codes/intervals/복잡도 정합. **status 는 절대 건드리지 않는다**(ACTIVE 전환 보존).
-    const sql =
-      `UPDATE strategy SET ` +
-      `name_ko = ${lit(s.nameKo)}, ` +
-      `dsl_entry = ${lit(s.dslEntry)}, ` +
-      `dsl_exit = ${lit(s.dslExit)}, ` +
-      `universe_market = ${lit(UNIVERSE_MARKET)}, ` +
-      `tf = ${lit(s.tf)}, ` +
-      `codes = ${codesLit}, ` +
-      `intervals = ${intervalsLit}, ` +
-      `take_profit_pct = ${s.takeProfitPct}, ` +
-      `fixed_stop_loss_pct = ${s.fixedStopLossPct}, ` +
-      `min_hold_bars = COALESCE(min_hold_bars, ${MIN_HOLD_BARS}), ` +
-      `scale_in_config = NULL, ` +
-      `partial_exits = NULL, ` +
-      `entry_policy = NULL, ` +
-      `ast_depth = ${c.astDepth}, ` +
-      `node_count = ${c.nodeCount}, ` +
-      `indicator_call_count = ${c.indicatorCallCount}, ` +
-      `estimated_eval_time_ms = ${c.estimatedEvalTimeMs}, ` +
-      `complexity_class = ${lit(c.complexityClass)}, ` +
-      `origin = ${lit(ORIGIN)}, ` +
-      `vi_action_policy = ${lit(VI_ACTION_POLICY)}, ` +
-      `updated_at = now() ` +
-      `WHERE id = ${id}`;
-    psqlExec(sql);
-    console.log(`  ↻ upsert(update) [${s.name}] id=${id} status=${status}(보존) tf=${s.tf} TP=${s.takeProfitPct}% SL=${s.fixedStopLossPct}%`);
-  } else {
-    // INSERT — 신규는 status='PAUSED' 강제(절대 ACTIVE 아님).
-    const sql =
-      `INSERT INTO strategy (` +
-      `user_id, owner, name, name_ko, dsl_entry, dsl_exit, universe_market, tf, codes, intervals, ` +
-      `take_profit_pct, fixed_stop_loss_pct, min_hold_bars, scale_in_config, partial_exits, entry_policy, ` +
-      `ast_depth, node_count, indicator_call_count, estimated_eval_time_ms, complexity_class, ` +
-      `origin, status, vi_action_policy, created_at, updated_at` +
-      `) VALUES (` +
-      `${CANARY_USER_ID}, ${lit(OWNER)}, ${lit(s.name)}, ${lit(s.nameKo)}, ${lit(s.dslEntry)}, ${lit(s.dslExit)}, ` +
-      `${lit(UNIVERSE_MARKET)}, ${lit(s.tf)}, ${codesLit}, ${intervalsLit}, ` +
-      `${s.takeProfitPct}, ${s.fixedStopLossPct}, ${MIN_HOLD_BARS}, NULL, NULL, NULL, ` +
-      `${c.astDepth}, ${c.nodeCount}, ${c.indicatorCallCount}, ${c.estimatedEvalTimeMs}, ${lit(c.complexityClass)}, ` +
-      `${lit(ORIGIN)}, 'PAUSED', ${lit(VI_ACTION_POLICY)}, now(), now()` +
-      `)`;
-    psqlExec(sql);
-    console.log(`  + insert(PAUSED) [${s.name}] tf=${s.tf} TP=${s.takeProfitPct}% SL=${s.fixedStopLossPct}% complexity=${c.complexityClass}`);
-  }
-}
-
-// ── main ──────────────────────────────────────────────────────────────────────
 function main() {
-  console.log(`magicjar-autopilot 첫 전략 세트 시드 — owner=${OWNER} user_id=${CANARY_USER_ID} status=PAUSED ${DRY_RUN ? '[DRY-RUN]' : ''}`);
-  const { codes, anchorCount, discoveryCount } = buildUniverse();
-  console.log(`universe: ${codes.length}종 (유동성앵커 ${anchorCount} + 발굴후보 ${discoveryCount}, cap=${UNIVERSE_CAP})`);
-  console.log(`  codes=${JSON.stringify(codes)}`);
-  console.log(`전략 ${STRATEGIES.length}건 upsert:`);
-  for (const s of STRATEGIES) {
-    upsertStrategy(s, codes);
+  try {
+    runSeed({ args: process.argv.slice(2) });
+  } catch (error) {
+    console.error(`[error] ${error.message}`);
+    process.exitCode = 1;
   }
-  console.log('');
-  console.log(`완료. ${DRY_RUN ? '(dry-run — DB 변경 0)' : '6전략 owner=AUTOPILOT status=PAUSED 시드됨.'}`);
-  console.log('⚠ ACTIVE 전환은 orchestrator 가 harness 스모크(칭 위반 거부·kill·롤백 실증) 통과 후에만 수행.');
-  console.log('⚠ consumer 평가 hot path 가 owner=USER 만 조회 — ACTIVE 전환 전 owner=AUTOPILOT 평가 wiring 필요(가설 레지스트리 §발견 참조).');
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
