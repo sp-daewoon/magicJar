@@ -3,10 +3,10 @@ id: T-20260720-0456-autopilot-seed-safety
 agent: strategy
 model: opus
 branch: agent/strategy/autopilot-seed-safety
-status: RUNNING
+status: DONE
 startedAt: 2026-07-20T04:56:13.540+09:00
-completedAt: null
-pr: null
+completedAt: 2026-07-21T10:26:00.042+09:00
+pr: #1184
 parentPhase: ?
 ---
 
