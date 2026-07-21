@@ -28,10 +28,10 @@ class StrategyJpaEntity(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     val id: Long? = null,
-    // V88 — SYSTEM 시드 프리셋은 소유 사용자가 없어 nullable (spec 2026-06-18 §5.1). USER 행은 항상 non-null.
+    // V88 — SYSTEM 시드 프리셋은 소유 사용자가 없어 nullable (spec 2026-06-18 §5.1). USER/AUTOPILOT 행은 항상 non-null.
     @Column(name = "user_id")
     val userId: Long? = null,
-    // V88 — 소유 주체. SYSTEM=시드 프리셋(자동매매 비대상)/USER=사용자 전략. DEFAULT 'USER'(기존 26행 무손실).
+    // V88+V91 — SYSTEM=시드 프리셋, USER=사용자 전략, AUTOPILOT=자율 루프 격리 전략. DEFAULT 'USER'.
     @Column(name = "owner", nullable = false, length = 16)
     val owner: String = "USER",
     @Column(name = "name", nullable = false, length = 200)

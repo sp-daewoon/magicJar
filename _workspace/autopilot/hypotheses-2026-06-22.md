@@ -2,8 +2,9 @@
 
 > **권위**: spec `_workspace/specs/2026-06-22-autopilot-self-augmentation.md` §학습 조건 A~F.
 > **발행 주체**: strategy-engine (agent/strategy/autopilot-strategies).
-> **상태**: 6전략 전부 `owner=AUTOPILOT` · `status=PAUSED` 로 시드(`scripts/autopilot-seed-strategies.mjs`).
-> 오케스트라가 개장 전 harness 스모크(칭 위반 거부·kill·롤백 실증) 통과 후에만 ACTIVE 전환.
+> **상태**: `scripts/autopilot-seed-strategies.mjs`는 exact 사용자·REAL credential을 검증한 뒤 신규 6전략을
+> `owner=AUTOPILOT` · `status=PAUSED` · `allow_overnight=false`로만 원자적 시드한다. 기존 전략은 수정하지 않는다.
+> ACTIVE 전환은 최종 DSL·종목·interval 기준 fresh 성공 백테스트와 사용자 명시 전환을 별도로 통과해야 한다.
 > **DSL 검증**: 6 entry + 6 exit 전부 `AutopilotSeedStrategyDslTest`(strategy-engine) GREEN — 파싱 + 정적검증 + **엔진 매핑(라이브 평가 가능)** 통과.
 
 ## 공통 전제 (학습 조건 — 협상 대상 아님)
@@ -46,13 +47,13 @@
 
 ## universe (종목 선정 방식)
 
-`scripts/autopilot-seed-strategies.mjs` 가 codes/intervals 를 다음 결정론 규칙으로 채운다(자본 안전 + 학습 신호 균형):
+`scripts/autopilot-seed-strategies.mjs` 가 codes/intervals 를 다음 결정론 규칙으로 채운다(자본 안전 + 재현성):
 
 1. **유동성 앵커 (필수)** — KOSPI 대형주 고유동성 8종 고정: 삼성전자 005930, SK하이닉스 000660, NAVER 035420, 현대차 005380, 기아 000270, KB금융 105560, 카카오 035720, LG화학 051910. (실돈 단타에서 체결·슬리피지 안전 — 깊은 호가.)
-2. **발굴 후보 (학습 신호)** — `discovery_scorecard` 최신 snapshot_date 의 preset 별 TOP 3 코드 union 을 추가(중복 제거). 단타 발굴 레이어(forward-tested)가 "오늘 뭐가 움직이나"를 공급. snapshot 부재(휴장 직후 등)면 앵커만으로 가동(빈 universe 방지).
-3. **상한** — universe 총 코드수는 안전상 상한(default 24)으로 cap. 앵커 우선 채움 후 발굴 후보로 채움.
+2. **발굴 후보 자동 확장 없음** — production seed 결과가 실행 시점의 `discovery_scorecard`에 따라 달라지지 않도록 고정한다.
+3. 첫 REAL canary는 PAUSED 상태에서 normal strategy update flow로 선택 전략을 1종목·1 interval로 좁힌 뒤 fresh backtest한다.
 
-→ **유동성 깊은 대형주(체결 안전) + 발굴 후보(학습 신호)** 의 합집합. 첫날은 앵커 비중이 슬리피지 리스크를 낮추고, 발굴 후보가 "단타가 먹히는 종목"을 탐색한다.
+→ seed는 재현 가능한 유동성 앵커만 제공한다. 동적 후보 발굴은 seed와 분리하며, canary 종목은 fresh evidence로 별도 결재한다.
 
 ## 첫날 학습 가설 (메타)
 
