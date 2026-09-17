@@ -1,4 +1,9 @@
-# 캔들 데이터 정책
+# 캔들 데이터 정책 (운영 상세)
+
+> **⚠️ 권위 이관 (2026-09-17 하네스 재편)**: "지금 무엇이 권위인가"의 단일 위치는 이제 **[candle-data-canon.md](candle-data-canon.md)** 다.
+> 본 문서는 **운영 상세**(흐름·mermaid·estimate·컴포넌트 대장)를 보유하는 참조 문서로 격하된다.
+> 아래 17개 amend 노트는 결정 이력으로 보존하되, 값이 캐논과 충돌하면 **캐논이 이긴다**.
+> 감사 근거: [`2026-09-17-chart-data-integrity-audit.md`](../../_workspace/audit/2026-09-17-chart-data-integrity-audit.md) §2 (본 문서 17 amend 누적이 문서 부채로 지목됨).
 
 - 작성일: TBD
 - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 재정의.

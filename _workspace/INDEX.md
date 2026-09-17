@@ -67,7 +67,8 @@ PR 머지마다 row 추가. anchor 기반 슬롯 (ADR 0050).
 ### 외부 통합
 - **KIS API 레퍼런스**: [docs/operations/kis-api-reference.md](../docs/operations/kis-api-reference.md)
 - **외부 API 정책**: [docs/architecture/external-api-policy.md](../docs/architecture/external-api-policy.md)
-- **캔들 데이터 정책**: [docs/architecture/candle-data-policy-v2.md](../docs/architecture/candle-data-policy-v2.md)
+- **★ 캔들 데이터 캐논 (단일 권위)**: [docs/architecture/candle-data-canon.md](../docs/architecture/candle-data-canon.md) — 캔들/가격/차트 "지금 무엇이 권위인가"의 단일 위치 (2026-09-17 하네스 재편). ADR 94건·v2 17 amend를 5개 권위 표로 응축.
+- **캔들 데이터 정책 (운영 상세)**: [docs/architecture/candle-data-policy-v2.md](../docs/architecture/candle-data-policy-v2.md) — 캐논 하위 참조(흐름·mermaid·estimate·컴포넌트 대장)
 - **캔들/오더블럭 스크리닝 baseline**: [_workspace/baseline/v3.10.0/](baseline/v3.10.0/) — `3m`·`4h`·`12h`, 사용자 실행형 screener, 캔들 재수집 UX
 - **시나리오 리플레이 sandbox baseline**: [_workspace/baseline/v3.11.0/](baseline/v3.11.0/) — 실주문 경로와 분리된 전략 QA 리플레이 진입점
 

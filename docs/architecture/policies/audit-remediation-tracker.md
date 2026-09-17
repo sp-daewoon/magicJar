@@ -21,7 +21,7 @@
 | ① | BoundaryAggregator 1m 풀스캔 (단조 악화) | **완료** — `ConsumerCandleJpaRepository.findTsByCodeAndIntervalAndTsBetween` 범위 조회 사용 |
 | ② | LEGACY 백테스트 SL/TP 미평가 | **완료** — LEGACY 경로 SL/TP 산식 및 회귀 테스트 반영. INTRADAY_REALISTIC 기본 승격은 별도 정책 의제 |
 | ③ | WS slot priority eviction 미구현 | **완료** — ADR 0138 Accepted + priority victim 선택·HOLDING/PENDING_BUY 비축출 회귀 테스트 반영 |
-| ④ | DSL close 수정주가 vs 지표 원주가 혼합 | **이연** — 가격 소스 정책 단일화는 자본 흐름 결합, 별도 ADR 발의 후 진행 (감사 §9 권고) |
+| ④ | DSL close 수정주가 vs 지표 원주가 혼합 | **이연 → 후속 트랙 승계** — raw 고정으로 1차 교정 완료(감사 §1-⑤). ADJUSTED 모드 양측 threading은 [chart-data-integrity-remediation.md](chart-data-integrity-remediation.md) **P2-A**로 승계 (2026-09-17 감사 재확인) |
 | ⑤ | tick 0원 캔들 영속 (sanity 가드 0) | **완료** — parser 가격 가드 + `TickToMinuteAggregator` OHLC sanity reject counter·테스트 반영 |
 | ⑥ | NEW_MKOP_CLS_CODE 세션 미파싱 (ADR 0124 수용 기준 위반) | **부분 완료** — `KisWsMessageParser.parseH0Uncnt0`가 index 34를 `TickEvent.session`으로 전파. 코드값별 예상체결 제외 정책은 KIS 원문/라이브 evidence 확보 전 이연 |
 | ⑦ | "WS 30초 단절→전 종목 polling" 폴백 no-op·문서 오정보 | **문서 정정 완료** (candle-data-policy-v2 §6-A·CLAUDE.md) · HOLDING 한정 폴백 편입 여부는 후속 ADR 의제 |
