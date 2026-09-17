@@ -3,10 +3,10 @@ id: T-20260917-2334-chart-data-integrity-audit
 agent: architect
 model: opus
 branch: docs/chart-data-integrity-audit
-status: RUNNING
+status: DONE
 startedAt: 2026-09-17T23:34:45.949+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-17T23:41:34.928+09:00
+pr: #1185
 parentPhase: ?
 ---
 
