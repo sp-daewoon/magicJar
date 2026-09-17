@@ -108,6 +108,51 @@ class KisOrderHttpAdapterTest {
         assertThat(body["SLL_TYPE"]).isEqualTo("01")
     }
 
+    // ── ORD_UNPR 최종 호가단위(tick) 정렬 방어선 (2026-09-17 사용자 최우선 "원하는 값=실주문 값") ──
+
+    @Test
+    fun `(tick-1) 미정렬 LIMIT 주문단가는 KIS body에서 KRX 호가단위로 floor 정렬된다`() {
+        val cred = stubCredential()
+        // 12,345원 = 5,000~19,999 구간(10원 단위) → 12,340으로 내림 정렬돼야 KIS가 접수.
+        val intent = buildIntent(OrderSide.BUY, OrderPriceType.LIMIT, limit = BigDecimal("12345"))
+
+        val body = adapter.buildOrderCashBody(cred, intent)
+
+        assertThat(body["ORD_UNPR"]).isEqualTo("12340")
+    }
+
+    @Test
+    fun `(tick-2) 이미 호가단위에 맞는 LIMIT 주문단가는 변경 없이 그대로 전달`() {
+        val cred = stubCredential()
+        // 49,950원 = 20,000~49,999 구간(50원 단위) 정확히 정렬됨 → 불변.
+        val intent = buildIntent(OrderSide.SELL, OrderPriceType.LIMIT, limit = BigDecimal("49950"))
+
+        val body = adapter.buildOrderCashBody(cred, intent)
+
+        assertThat(body["ORD_UNPR"]).isEqualTo("49950")
+    }
+
+    @Test
+    fun `(tick-3) 구간 경계 직하 가격은 하위 구간 호가단위로 정렬 (49,990 → 49,950)`() {
+        val cred = stubCredential()
+        // 49,990원: 50,000 직하이므로 50원 단위 구간(20,000~49,999). 100원 단위로 과도 하향(49,900) 금지.
+        val intent = buildIntent(OrderSide.BUY, OrderPriceType.LIMIT, limit = BigDecimal("49990"))
+
+        val body = adapter.buildOrderCashBody(cred, intent)
+
+        assertThat(body["ORD_UNPR"]).isEqualTo("49950")
+    }
+
+    @Test
+    fun `(tick-4) MARKET 주문은 tick 정렬 무관하게 ORD_UNPR=0`() {
+        val cred = stubCredential()
+        val intent = buildIntent(OrderSide.BUY, OrderPriceType.MARKET, limit = null)
+
+        val body = adapter.buildOrderCashBody(cred, intent)
+
+        assertThat(body["ORD_UNPR"]).isEqualTo("0")
+    }
+
     @Test
     fun `hashkey rate-limit timeout은 order-cash 미전송 REJECT 사유로 반환`() {
         every { credentialRepository.findAllByAccountType("MOCK") } returns listOf(stubCredential())

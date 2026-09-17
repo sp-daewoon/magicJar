@@ -23,6 +23,7 @@ import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
 import kr.spdaewoon.magicjar.domain.order.execution.port.KisOrderPort
 import kr.spdaewoon.magicjar.domain.secret.port.SecretCipher
 import kr.spdaewoon.magicjar.domain.user.AccountType
+import kr.spdaewoon.magicjar.strategy.entry.KrxTickSize
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -529,11 +530,29 @@ class KisOrderHttpAdapter(
 
     /**
      * raw 출처: domestic_stock_functions.py L10097~L10213 (def order_cash) body 정합.
+     *
+     * ## ORD_UNPR 최종 호가단위(tick) 정렬 방어선 (2026-09-17 — 사용자 최우선 결재 "원하는 값=실주문 값")
+     * LIMIT 주문의 주문단가는 KIS에 보내기 직전 [KrxTickSize.floorToTick]으로 최종 정렬한다.
+     * 상류([EntryPricePolicy]·익절 [takeProfitLimitPrice]·추세선 restamp)가 이미 정렬하지만, OrderIntent를
+     * 만드는 경로가 여러 개(진입·익절·손절·수동주문·autopilot)라 어느 하나라도 미정렬 가격이 흘러오면
+     * KIS가 "호가단위 오류"로 거부하거나 사용자가 원한 가격과 다른 가격에 접수된다. 본 어댑터가 **자본 흐름
+     * 마지막 단일 지점**이므로 여기서 정렬을 강제해 "원하는 값이 실제 주문에 정확히 실린다"를 보장한다.
+     *
+     * 정렬 방향 = 내림(floor, 양 side 공통 — 보수적):
+     *   - BUY LIMIT: 내림하면 원가 이하로만 접수 → 더 비싸게 사지 않음(자본 보호).
+     *   - SELL LIMIT: 내림하면 체결 확률 유지([takeProfitLimitPrice] SELL 내림 정책과 정합).
+     * 정렬로 값이 바뀌면 WARN — 상류에서 미정렬 가격이 왔다는 관측 신호(silent 금지 · 헌법 §11-2).
      */
     internal fun buildOrderCashBody(
         cred: ConsumerUserKisCredentialJpaEntity,
         intent: OrderIntent,
     ): Map<String, String> {
+        val ordUnpr =
+            if (intent.priceType == OrderPriceType.MARKET) {
+                "0"
+            } else {
+                alignLimitPriceToTick(intent)
+            }
         val base =
             mutableMapOf(
                 "CANO" to cred.accountNumber,
@@ -541,7 +560,7 @@ class KisOrderHttpAdapter(
                 "PDNO" to intent.code,
                 "ORD_DVSN" to intent.priceType.ordDvsn,
                 "ORD_QTY" to intent.quantity.toString(),
-                "ORD_UNPR" to if (intent.priceType == OrderPriceType.MARKET) "0" else (intent.limitPrice?.toPlainString() ?: "0"),
+                "ORD_UNPR" to ordUnpr,
                 "EXCG_ID_DVSN_CD" to "KRX",
                 "CNDT_PRIC" to "0",
             )
@@ -549,6 +568,36 @@ class KisOrderHttpAdapter(
             base["SLL_TYPE"] = "01" // 일반매도 (raw L10130)
         }
         return base
+    }
+
+    /**
+     * LIMIT 주문단가를 KRX 호가단위로 최종 정렬(내림). limitPrice 미가용·비양수면 "0" fallback(기존 동작 보존).
+     * 정렬 결과가 원 값과 다르면 WARN(상류 미정렬 관측). 양수 정렬 결과만 반영, 정렬로 0이 되면 원 값 유지(과도 하향 차단).
+     */
+    private fun alignLimitPriceToTick(intent: OrderIntent): String {
+        val raw = intent.limitPrice
+        if (raw == null || raw.signum() <= 0) return "0"
+        val aligned = KrxTickSize.floorToTick(raw)
+        // 정렬 결과가 0(원 값이 최소 호가단위 미만 — 비정상)이면 원 값 유지(주문 접수는 KIS가 최종 판정).
+        if (aligned.signum() <= 0) {
+            log.warn(
+                "주문단가 tick 정렬 결과 0 — 원 값 유지(비정상 저가 의심): code={} side={} raw={}",
+                intent.code,
+                intent.side,
+                raw.toPlainString(),
+            )
+            return raw.toPlainString()
+        }
+        if (aligned.compareTo(raw) != 0) {
+            log.warn(
+                "주문단가 호가단위 미정렬 — 최종 방어선에서 floor 정렬: code={} side={} raw={} aligned={} (상류 정렬 누락 관측)",
+                intent.code,
+                intent.side,
+                raw.toPlainString(),
+                aligned.toPlainString(),
+            )
+        }
+        return aligned.toPlainString()
     }
 
     private fun maskUserId(userId: String): String = if (userId.length >= 4) userId.take(4) + "****" else "****"

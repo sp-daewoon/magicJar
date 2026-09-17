@@ -161,6 +161,16 @@ class StrategyResearchEngine(
             }
 
             val returnPct = ((exitPrice - entryPrice) / entryPrice) * 100.0
+            // 실전 거래비용 반영 (2026-09-17) — 발굴 순수익률을 실전 체결 기준으로 보정(낙관 편향 제거).
+            //   슬리피지: 진입 시 불리하게 매수(체결가 상승)·청산 시 불리하게 매도(체결가 하락) = 편도 각 slippagePctPerSide.
+            //   수수료: 매수·매도 각 편도 commissionPctPerSide (왕복 2회).
+            //   세금: 매도 시 sellTaxPct (증권거래세).
+            // gross returnPct에서 왕복 비용률(진입슬리피지+청산슬리피지+왕복수수료+매도세금)을 차감한다.
+            val roundTripCostPct =
+                request.slippagePctPerSide * 2.0 +
+                    request.commissionPctPerSide * 2.0 +
+                    request.sellTaxPct
+            val netReturnPct = returnPct - roundTripCostPct
             trades +=
                 StrategyResearchTrade(
                     signalTime = candles[signalIndex].ts,
@@ -168,10 +178,10 @@ class StrategyResearchEngine(
                     exitTime = candles[exitIndex].ts,
                     entryPrice = bd(entryPrice),
                     exitPrice = bd(exitPrice),
-                    returnPct = round(returnPct),
+                    returnPct = round(netReturnPct),
                     exitReason = exitReason,
                     barsHeld = max(1, exitIndex - entryIndex + 1),
-                    reason = "진입 조건 충족 (${candles[signalIndex].ts}) 후 다음 candle 시가 체결",
+                    reason = "진입 조건 충족 (${candles[signalIndex].ts}) 후 다음 candle 시가 체결 (실전비용 차감 ${round(roundTripCostPct)}%p)",
                 )
             index = exitIndex + 1
         }
@@ -245,6 +255,7 @@ class StrategyResearchEngine(
             "동시에 1포지션만 보유",
             "신호 candle 종가가 아니라 다음 candle 시가 체결로 평가",
             "같은 candle에서 익절·손절이 모두 닿으면 손절을 우선 적용",
+            "실전 거래비용 차감: 슬리피지 편도·왕복 수수료·매도 증권거래세 반영(낙관 편향 제거)",
         )
 
     private fun exitDsl(request: StrategyResearchRequest): String =
@@ -362,6 +373,22 @@ data class StrategyResearchRequest(
     val targetProfitPct: Double = 1.5,
     val stopLossPct: Double = 0.8,
     val maxHoldBars: Int = 12,
+    /**
+     * 실전 거래비용 반영 파라미터 (2026-09-17 — 발굴 정확도를 실전 백테스트 엔진과 정합).
+     *
+     * 종전 발굴 리서치는 슬리피지·수수료·세금 0을 가정해 승률·수익률이 **체계적 낙관 편향**이었다
+     * (JvmBacktestEngine은 KisDirectCommissionModel·KoreanStockTaxModel·slippage를 이미 반영). 사용자가
+     * 발굴 결과를 믿고 전략을 만들면 실전에서 실망하는 근본 원인. default는 KIS-first 실전값이며, 이 값을
+     * 유지하면 발굴 리서치의 순수익률이 실전 체결 비용을 차감한 값이 된다.
+     *
+     * KIS-first 출처(코드 인용):
+     * - 수수료: `KisDirectCommissionModel` — 위탁 0.015% + 유관기관 0.0036%, VAT 1.10 → 편도 ≈ 0.02046%.
+     * - 세금: `KoreanStockTaxModel` — 매도 증권거래세 0.18%(농특세는 종목군별이라 보수적으로 거래세만 반영).
+     * - 슬리피지: 백테스트 default `fixed_0.05`(편도 0.05%) 정합.
+     */
+    val commissionPctPerSide: Double = 0.02046,
+    val sellTaxPct: Double = 0.18,
+    val slippagePctPerSide: Double = 0.05,
 )
 
 data class ResearchCandle(
