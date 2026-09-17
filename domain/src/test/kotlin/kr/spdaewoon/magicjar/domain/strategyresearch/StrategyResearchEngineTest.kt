@@ -2,6 +2,7 @@ package kr.spdaewoon.magicjar.domain.strategyresearch
 
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.doubles.shouldBeGreaterThan
+import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import kotlinx.datetime.Instant
@@ -45,6 +46,40 @@ class StrategyResearchEngineTest {
         trade.returnPct.shouldBeGreaterThan(0.0)
         candidate.stats.totalReturnPct.shouldBeGreaterThan(0.0)
         candidate.riskRules.joinToString(" ") shouldContain "다음 candle 시가"
+    }
+
+    @Test
+    fun `realistic trading cost is subtracted from trade return (no optimistic bias)`() {
+        // 거래비용 0(gross) vs 실전 비용 default(net) returnPct 차이가 왕복 비용률과 일치함을 검증.
+        val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
+
+        val zeroCost =
+            request(targetProfitPct = 1.0, stopLossPct = 0.8, maxHoldBars = 4)
+                .copy(commissionPctPerSide = 0.0, sellTaxPct = 0.0, slippagePctPerSide = 0.0)
+        val realCost = request(targetProfitPct = 1.0, stopLossPct = 0.8, maxHoldBars = 4)
+
+        val grossTrade =
+            engine
+                .research(zeroCost, washoutCandles())
+                .candidates
+                .first { it.key == "VOLUME_WASHOUT_REBOUND" }
+                .trades
+                .first()
+        val netTrade =
+            engine
+                .research(realCost, washoutCandles())
+                .candidates
+                .first { it.key == "VOLUME_WASHOUT_REBOUND" }
+                .trades
+                .first()
+
+        // net은 gross보다 왕복 비용률(commission 0.02046×2 + tax 0.18 + slippage 0.05×2 ≈ 0.32%p)만큼 낮다.
+        val expectedCostPct = 0.02046 * 2 + 0.18 + 0.05 * 2
+        val diff = grossTrade.returnPct - netTrade.returnPct
+        // 각 returnPct가 소수 2자리 반올림되므로 반올림 오차(±0.01) 허용 범위로 검증.
+        diff.shouldBeGreaterThan(expectedCostPct - 0.02)
+        diff.shouldBeLessThan(expectedCostPct + 0.02)
+        netTrade.returnPct.shouldBeLessThan(grossTrade.returnPct)
     }
 
     @Test
