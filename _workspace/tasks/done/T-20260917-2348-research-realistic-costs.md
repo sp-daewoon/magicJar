@@ -3,10 +3,10 @@ id: T-20260917-2348-research-realistic-costs
 agent: strategy
 model: opus
 branch: agent/strategy-engine/research-realistic-costs
-status: RUNNING
+status: DONE
 startedAt: 2026-09-17T23:48:25.199+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T00:00:43.548+09:00
+pr: #1187
 parentPhase: ?
 ---
 
