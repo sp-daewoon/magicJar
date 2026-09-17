@@ -83,6 +83,30 @@ class StrategyResearchEngineTest {
     }
 
     @Test
+    fun `regular session filter suppresses entry signals outside 09-00 to 15-30 KST`() {
+        // 진입 신호가 항상 index 26에서 나도록 하는 stub. 봉 ts를 시간외(KST 08시대)로 두면 진입이 억제된다.
+        val alwaysAt26 = CandidateEntryEvaluator { _, _, index -> index == 26 }
+
+        // 정규장 밖(UTC 22:30 = KST 07:30 시작) 봉 세트 — index 26은 KST 07:56 → 정규장 밖.
+        val preMarketCandles = washoutCandlesStartingAt(t("2026-04-27T22:30:00Z"))
+        val filtered =
+            StrategyResearchEngine(entryEvaluator = alwaysAt26, regularSessionOnly = true)
+                .research(request(maxHoldBars = 4), preMarketCandles)
+                .candidates
+                .first { it.key == "VOLUME_WASHOUT_REBOUND" }
+        // 정규장 밖이라 진입 0.
+        filtered.trades shouldBe emptyList()
+
+        // 필터 off면 동일 봉에서 진입 발생(대조군) — 필터가 원인임을 입증.
+        val unfiltered =
+            StrategyResearchEngine(entryEvaluator = alwaysAt26, regularSessionOnly = false)
+                .research(request(maxHoldBars = 4), preMarketCandles)
+                .candidates
+                .first { it.key == "VOLUME_WASHOUT_REBOUND" }
+        unfiltered.trades.shouldNotBeEmpty()
+    }
+
+    @Test
     fun `insufficient candles returns warnings without candidates`() {
         val engine = StrategyResearchEngine(entryEvaluator = washoutStub)
 
@@ -131,9 +155,13 @@ class StrategyResearchEngineTest {
             maxHoldBars = maxHoldBars,
         )
 
-    private fun washoutCandles(size: Int = 45): List<ResearchCandle> {
+    private fun washoutCandles(size: Int = 45): List<ResearchCandle> = washoutCandlesStartingAt(t("2026-04-28T00:00:00Z"), size)
+
+    private fun washoutCandlesStartingAt(
+        baseTs: Instant,
+        size: Int = 45,
+    ): List<ResearchCandle> {
         val candles = mutableListOf<ResearchCandle>()
-        val baseTs = t("2026-04-28T00:00:00Z")
         repeat(size) { index ->
             val ts = Instant.fromEpochSeconds(baseTs.epochSeconds + index * 60L)
             val open: String

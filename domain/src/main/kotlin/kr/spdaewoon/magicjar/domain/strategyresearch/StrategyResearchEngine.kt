@@ -1,6 +1,8 @@
 package kr.spdaewoon.magicjar.domain.strategyresearch
 
 import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import java.math.BigDecimal
 import kotlin.math.abs
 import kotlin.math.max
@@ -14,12 +16,21 @@ import kotlin.math.min
  * - 후보 메타(key·title·entryDsl 등)는 [ResearchCandidateProvider]로 공급(기본 [BuiltinResearchCandidates] = V74 시드 정합).
  * - 진입 시그널은 [CandidateEntryEvaluator]로 `entryDsl`을 평가(api 모듈이 strategy-engine 어댑터 주입).
  *
+ * ### 정규장 세션 필터 (2026-09-18 — NXT 통합거래로 복잡해진 캔들 대응)
+ * KRX 정규장이 예전 15:30 마감에서 NXT 통합거래(08:00~20:00 KST)로 확장되며 시간외 단일가·프리/애프터
+ * 구간의 얇은 유동성 봉이 캔들에 섞였다. 이 구간에서 나온 진입 신호는 실전 체결 가능성/가격 신뢰도가
+ * 낮아 발굴 승률을 낙관 편향시킨다. [regularSessionOnly]=true(default)면 intraday interval에서
+ * **정규장(09:00~15:30 KST) 봉의 진입 신호만** 채택한다(JvmBacktestEngine legacy.regularSessionOnly 정합).
+ * 일봉 이상(1d·1wk·1mo·1y)은 ts가 장중 시각 의미가 없어 필터 미적용.
+ *
  * @param entryEvaluator 진입 DSL 평가기. 기본값은 항상 미진입(false)을 내는 no-op — domain 단독 테스트/안전망.
  * @param candidateProvider 후보 정의 공급자. 기본값은 코드 권위 [BuiltinResearchCandidates].
+ * @param regularSessionOnly 정규장 진입만 채택(default true). intraday interval에만 적용.
  */
 class StrategyResearchEngine(
     private val entryEvaluator: CandidateEntryEvaluator = CandidateEntryEvaluator { _, _, _ -> false },
     private val candidateProvider: ResearchCandidateProvider = BuiltinResearchCandidates,
+    private val regularSessionOnly: Boolean = true,
 ) {
     fun research(
         request: StrategyResearchRequest,
@@ -105,11 +116,26 @@ class StrategyResearchEngine(
     ): Set<Int> {
         val signals = mutableSetOf<Int>()
         for (index in 1 until candles.lastIndex) {
+            // 정규장 세션 게이트 (2026-09-18) — intraday interval에서 정규장(09:00~15:30 KST) 밖 봉의
+            // 진입 신호는 억제(시간외 단일가·NXT 프리/애프터 얇은 유동성 → 실전 괴리). 일봉 이상은 미적용.
+            if (regularSessionOnly && isIntradayInterval(candles[index].interval) && !isRegularSessionKst(candles[index].ts)) {
+                continue
+            }
             if (entryEvaluator.evaluateEntry(entryDsl, candles, index)) {
                 signals += index
             }
         }
         return signals
+    }
+
+    /** intraday(분·시봉) 여부 — 정규장 세션 필터 적용 대상. 일봉 이상(1d·1wk·1mo·1y)은 ts 장중시각 의미 없어 제외. */
+    private fun isIntradayInterval(interval: String): Boolean = interval in setOf("1m", "3m", "5m", "15m", "30m", "90m", "1h", "4h", "12h")
+
+    /** 봉 ts(KST)가 KRX 정규장(09:00 이상 ~ 15:30 미만)인지. JvmBacktestEngine REGULAR_SESSION 창 정합. */
+    private fun isRegularSessionKst(ts: Instant): Boolean {
+        val kst = ts.toLocalDateTime(TimeZone.of("Asia/Seoul"))
+        val minOfDay = kst.hour * 60 + kst.minute
+        return minOfDay >= REGULAR_OPEN_MIN && minOfDay < REGULAR_CLOSE_MIN
     }
 
     private fun simulate(
@@ -361,6 +387,12 @@ class StrategyResearchEngine(
 
     private companion object {
         const val MIN_CANDLES = 40
+
+        /** KRX 정규장 시작 09:00 KST (분 단위). JvmBacktestEngine REGULAR_SESSION_OPEN_KST 정합. */
+        const val REGULAR_OPEN_MIN = 9 * 60
+
+        /** KRX 정규장 종료 15:30 KST (분 단위, exclusive). JvmBacktestEngine REGULAR_SESSION_CLOSE_KST 정합. */
+        const val REGULAR_CLOSE_MIN = 15 * 60 + 30
     }
 }
 
