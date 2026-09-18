@@ -14,10 +14,10 @@
 
 | # | 항목 | 대상 파일 | 조치 | 검증 | 상태 |
 |---|------|-----------|------|------|------|
-| **P0-A** | 캔들 writer 8경로 난립 + DO NOTHING/UPDATE 혼재 | `ConsumerCandleRepositoryAdapter`·`CandleRefreshService`·`BoundaryAggregator`·`MarketDaily*`·`*GapFill*` | 모든 캔들 쓰기를 단일 `CandleWriteArbiter` 진입점으로 통합. 8경로는 arbiter 호출로 교체 | arbiter 미경유 직접 UPSERT 0건 (grep `insertOrUpdate\|upsertAll` → arbiter 내부만) + 통합 테스트 | 미착수 |
-| **P0-B** | 무가드 DO UPDATE가 확정봉을 덮음 | `ConsumerCandleRepositoryAdapter.kt:86-88` | `source` → enum + `source_priority` 컬럼 도입. DO UPDATE에 `WHERE EXCLUDED.source_priority >= candle.source_priority` 가드 | 낮은 신뢰(WS-live)가 높은 신뢰(daily-close-finalized) 덮기 시도 → 무시되는 테스트 | 미착수 |
+| **P0-A** | 캔들 writer 8경로 난립 + DO NOTHING/UPDATE 혼재 | `ConsumerCandleRepositoryAdapter`·`CandleRefreshService`·`BoundaryAggregator`·`MarketDaily*`·`*GapFill*` | 모든 캔들 쓰기를 단일 `CandleWriteArbiter` 진입점으로 통합. 8경로는 arbiter 호출로 교체. 설계: [`2026-09-18-candle-write-arbiter-design.md`](../../../_workspace/specs/2026-09-18-candle-write-arbiter-design.md) (5-Phase strangler) | arbiter 미경유 직접 UPSERT 0건 + 통합 테스트 | **Phase A-1 완료** (domain `CandleWriteArbiter`+`CandleSource` 순수 판정 + 테스트, 자본영향0). A-2~B 결재 대기 |
+| **P0-B** | 무가드 DO UPDATE가 확정봉을 덮음 | `ConsumerCandleRepositoryAdapter.kt:86-88` | `source` → enum + `source_priority` 컬럼 도입. DO UPDATE에 `WHERE EXCLUDED.source_priority >= candle.source_priority` 가드 | 낮은 신뢰(WS-live)가 높은 신뢰(daily-close-finalized) 덮기 시도 → 무시되는 테스트 | **판정 로직 완료** (CandleWriteArbiter.decide). DB 가드 배선은 Phase A-2 |
 | **P0-C** | date repair DELETE가 KIS 일시 미보유를 영구삭제 오판 | `MarketDailyDateRepairService.kt:405-420` | DELETE → tombstone/quarantine 상태 전환. KIS 확정 재조회 성공 시에만 실제 교체 | rt_cd=0 + 빈 응답 시 DELETE 0건 + quarantine row 생성 테스트 | 미착수 |
-| **P0-D** | source 필드 12종 표준 불일치 (하이픈/언더스코어) | 12개 writer 전체 + `candle.source` 컬럼 | source 값 enum 정규화(대문자·언더스코어 통일) + Flyway migration | enum 외 값 INSERT 시 CHECK 위반 + 기존 12종 매핑 백필 검증 | 미착수 |
+| **P0-D** | source 필드 12종 표준 불일치 (하이픈/언더스코어) | 12개 writer 전체 + `candle.source` 컬럼 | source 값 enum 정규화(대문자·언더스코어 통일) + Flyway migration | enum 외 값 INSERT 시 CHECK 위반 + 기존 12종 매핑 백필 검증 | **enum 정의 완료** (`CandleSource` + fromLabel 12종 매핑 테스트). DB 마이그레이션은 Phase A-2 |
 
 ### P1 — 차트 신뢰성 (사용자 화면 = 자동매매 데이터 일치)
 
