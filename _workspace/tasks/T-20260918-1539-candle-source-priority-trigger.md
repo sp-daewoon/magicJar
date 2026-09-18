@@ -3,10 +3,10 @@ id: T-20260918-1539-candle-source-priority-trigger
 agent: backend-core
 model: opus
 branch: agent/backend-core/candle-source-priority-trigger
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T15:39:26.434+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T15:44:22.277+09:00
+pr: #1201
 parentPhase: ?
 ---
 
