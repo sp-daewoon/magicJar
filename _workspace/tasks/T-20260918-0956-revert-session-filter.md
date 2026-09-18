@@ -3,10 +3,10 @@ id: T-20260918-0956-revert-session-filter
 agent: strategy
 model: opus
 branch: agent/strategy-engine/revert-session-filter
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T09:56:17.038+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T09:57:38.347+09:00
+pr: #1191
 parentPhase: ?
 ---
 
