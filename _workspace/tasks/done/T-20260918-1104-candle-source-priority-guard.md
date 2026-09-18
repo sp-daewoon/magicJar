@@ -6,7 +6,7 @@ branch: agent/backend-core/candle-source-priority-guard
 status: DONE
 startedAt: 2026-09-18T11:04:04.943+09:00
 completedAt: 2026-09-18T11:08:35.585+09:00
-pr: #0
+pr: #1195
 parentPhase: ?
 ---
 
