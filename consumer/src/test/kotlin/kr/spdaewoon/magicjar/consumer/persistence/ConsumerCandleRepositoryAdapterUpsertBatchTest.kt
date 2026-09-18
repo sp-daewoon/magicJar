@@ -105,4 +105,73 @@ class ConsumerCandleRepositoryAdapterUpsertBatchTest {
         // 첫 chunk(500) + 둘째 chunk(10) → batchUpdate 2회.
         verify(exactly = 2) { jdbc.batchUpdate(any(), any<Array<SqlParameterSource>>()) }
     }
+
+    // ── precedence 가드 UPSERT (P0-A Phase A-2 · P0-B) ──
+
+    @Test
+    fun `upsertAllWithPrecedence — DO UPDATE에 source_priority 가드 WHERE절 포함`() {
+        val jdbc = mockk<NamedParameterJdbcTemplate>()
+        val sqlSlot = slot<String>()
+        every { jdbc.batchUpdate(capture(sqlSlot), any<Array<SqlParameterSource>>()) } returns intArrayOf(1, 1)
+        val adapter = ConsumerCandleRepositoryAdapter(jpa, jdbc)
+
+        adapter.upsertAllWithPrecedence(
+            listOf(candle(1, 100), candle(2, 200)),
+            kr.spdaewoon.magicjar.domain.market.candle.CandleSource.WS_LIVE,
+        )
+
+        // precedence 가드: 신규가 기존보다 신뢰 같거나 높을 때만(작거나 같은 priority) 갱신.
+        assertThat(sqlSlot.captured).contains("ON CONFLICT (code, interval, ts) DO UPDATE")
+        assertThat(sqlSlot.captured).contains("WHERE EXCLUDED.source_priority <= COALESCE(candle.source_priority, 3)")
+        assertThat(sqlSlot.captured).contains("source_priority")
+    }
+
+    @Test
+    fun `upsertAllWithPrecedence — source enum label과 priority가 params에 실린다`() {
+        val jdbc = mockk<NamedParameterJdbcTemplate>()
+        val paramsSlot = slot<Array<SqlParameterSource>>()
+        every { jdbc.batchUpdate(any(), capture(paramsSlot)) } returns intArrayOf(1)
+        val adapter = ConsumerCandleRepositoryAdapter(jpa, jdbc)
+
+        adapter.upsertAllWithPrecedence(
+            listOf(candle(1, 100)),
+            kr.spdaewoon.magicjar.domain.market.candle.CandleSource.OFFICIAL_DAILY_CLOSE,
+        )
+
+        val p = paramsSlot.captured.single()
+        // 공식 마감가 = priority 1, 표준 라벨 KIS_DAILY_CLOSE.
+        assertThat(p.getValue("sourcePriority")).isEqualTo(1)
+        assertThat(p.getValue("source")).isEqualTo("KIS_DAILY_CLOSE")
+    }
+
+    @Test
+    fun `upsertAllWithPrecedence — 가드로 skip된 행(update count 0)은 affected 미포함`() {
+        val jdbc = mockk<NamedParameterJdbcTemplate>()
+        // 낮은 신뢰 배치가 기존 고신뢰 봉을 못 덮어 update count 0 반환되는 행 혼재.
+        every { jdbc.batchUpdate(any(), any<Array<SqlParameterSource>>()) } returns intArrayOf(1, 0, 1)
+        val adapter = ConsumerCandleRepositoryAdapter(jpa, jdbc)
+
+        val affected =
+            adapter.upsertAllWithPrecedence(
+                listOf(candle(1, 100), candle(2, 200), candle(3, 300)),
+                kr.spdaewoon.magicjar.domain.market.candle.CandleSource.POLLING_FALLBACK,
+            )
+
+        assertThat(affected).isEqualTo(2) // 0(skip)은 미포함
+    }
+
+    @Test
+    fun `upsertAllWithPrecedence — 빈 list는 batchUpdate 0회`() {
+        val jdbc = mockk<NamedParameterJdbcTemplate>(relaxed = true)
+        val adapter = ConsumerCandleRepositoryAdapter(jpa, jdbc)
+
+        val affected =
+            adapter.upsertAllWithPrecedence(
+                emptyList(),
+                kr.spdaewoon.magicjar.domain.market.candle.CandleSource.WS_LIVE,
+            )
+
+        assertThat(affected).isEqualTo(0)
+        verify(exactly = 0) { jdbc.batchUpdate(any(), any<Array<SqlParameterSource>>()) }
+    }
 }
