@@ -3,10 +3,10 @@ id: T-20260918-1104-candle-source-priority-guard
 agent: backend-core
 model: opus
 branch: agent/backend-core/candle-source-priority-guard
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T11:04:04.943+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T11:08:35.585+09:00
+pr: #0
 parentPhase: ?
 ---
 
