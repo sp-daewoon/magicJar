@@ -26,6 +26,27 @@ interface CandleRepository {
      */
     fun upsertAll(candles: List<Candle>): Int
 
+    /**
+     * precedence 가드 캔들 일괄 upsert (P0-A Phase A-2 · P0-B — canon §1 진실원 우선순위).
+     *
+     * ## 왜 별도 경로인가 (zero-regression)
+     * 기존 [upsertAll]은 무가드 DO UPDATE(마지막 writer 승리)라 낮은 신뢰 source(polling fallback)가
+     * 높은 신뢰 확정봉(공식 마감가)을 덮을 수 있다(감사 §1-②). 본 메서드는 DB UPSERT의 DO UPDATE에
+     * `WHERE EXCLUDED.source_priority <= candle.source_priority` 가드를 걸어 **신규가 기존보다 신뢰가
+     * 같거나 높을 때만 갱신**한다([CandleWriteArbiter.decide] SQL 반영). 기존 [upsertAll] 호출부는
+     * 무변경(flag 뒤 신규 경로만 본 메서드로 전환) — 회귀 0.
+     *
+     * @param candles 저장할 캔들(각 candle.source가 등급 판정 근거).
+     * @param source 이 배치 전체의 출처 등급(모든 candle 동일 출처 전제 — writer별 단일 source).
+     * @return INSERT 또는 (가드 통과) UPDATE 된 row 수. 가드로 skip된 행은 미포함.
+     *
+     * 기본 구현은 [upsertAll] 위임(가드 없는 구현체 호환 — 회귀 0). consumer 어댑터가 native SQL로 override.
+     */
+    fun upsertAllWithPrecedence(
+        candles: List<Candle>,
+        source: kr.spdaewoon.magicjar.domain.market.candle.CandleSource,
+    ): Int = upsertAll(candles)
+
     fun countByCodeAndInterval(
         code: String,
         interval: CandleInterval,

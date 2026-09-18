@@ -47,6 +47,27 @@ class ConsumerCandleRepositoryAdapter(
 
         /** JDBC batch chunk — 대량(종목당 ~2,000봉) 시 단일 statement 과대 방지(메모리·드라이버 한계). */
         const val UPSERT_BATCH_CHUNK = 500
+
+        /**
+         * precedence 가드 UPSERT (P0-A Phase A-2 · P0-B — canon §1).
+         * source_priority 를 함께 적재하고, DO UPDATE 를 **신규가 기존보다 신뢰 같거나 높을 때만**(가드) 수행.
+         * priority 작을수록 신뢰 높음 → `EXCLUDED.source_priority <= candle.source_priority` 일 때만 갱신.
+         * 기존 [UPSERT_SQL](무가드)과 분리 — flag 뒤 신규 경로만 사용(회귀 0).
+         */
+        private const val UPSERT_PRECEDENCE_SQL =
+            """
+            INSERT INTO candle (code, interval, ts, open_raw, high_raw, low_raw, close_raw, volume, source, source_priority)
+            VALUES (:code, :interval, :ts, :openRaw, :highRaw, :lowRaw, :closeRaw, :volume, :source, :sourcePriority)
+            ON CONFLICT (code, interval, ts) DO UPDATE SET
+                open_raw = EXCLUDED.open_raw,
+                high_raw = EXCLUDED.high_raw,
+                low_raw = EXCLUDED.low_raw,
+                close_raw = EXCLUDED.close_raw,
+                volume = EXCLUDED.volume,
+                source = EXCLUDED.source,
+                source_priority = EXCLUDED.source_priority
+            WHERE EXCLUDED.source_priority <= COALESCE(candle.source_priority, 3)
+            """
     }
 
     @Transactional
@@ -103,6 +124,54 @@ class ConsumerCandleRepositoryAdapter(
         log.debug("candle upsert (consumer · batch): total={} affected={}", candles.size, affected)
         return affected
     }
+
+    /**
+     * precedence 가드 캔들 일괄 upsert (P0-A Phase A-2 · P0-B) — [UPSERT_PRECEDENCE_SQL] batch.
+     *
+     * source_priority 를 함께 적재하고, DO UPDATE 를 신규가 기존보다 신뢰 같거나 높을 때만 수행한다
+     * (낮은 신뢰가 높은 신뢰 확정봉 못 덮음 — canon §1). 배치 전체 동일 [source] 등급 전제(writer별 단일 출처).
+     * 반환: 실제 반영(INSERT 또는 가드 통과 UPDATE) row 수. 가드로 skip된 행(0 반환)은 미포함.
+     */
+    @Transactional
+    override fun upsertAllWithPrecedence(
+        candles: List<Candle>,
+        source: kr.spdaewoon.magicjar.domain.market.candle.CandleSource,
+    ): Int {
+        if (candles.isEmpty()) return 0
+        var affected = 0
+        for (chunk in candles.chunked(UPSERT_BATCH_CHUNK)) {
+            val params: Array<SqlParameterSource> =
+                chunk.map { toPrecedenceUpsertParams(it, source) }.toTypedArray()
+            val counts = jdbcTemplate.batchUpdate(UPSERT_PRECEDENCE_SQL, params)
+            // 가드로 skip된 행은 update count 0. 음수(SUCCESS_NO_INFO=-2 등)만 1로 보정.
+            affected += counts.sumOf { if (it >= 0) it else 1 }
+        }
+        log.debug(
+            "candle upsert precedence (consumer · batch): total={} affected={} source={}(p{})",
+            candles.size,
+            affected,
+            source.name,
+            source.priority,
+        )
+        return affected
+    }
+
+    /** precedence UPSERT용 named-param — [toUpsertParams] + source_priority(등급). source 라벨은 enum 표준 label. */
+    private fun toPrecedenceUpsertParams(
+        candle: Candle,
+        source: kr.spdaewoon.magicjar.domain.market.candle.CandleSource,
+    ): SqlParameterSource =
+        MapSqlParameterSource()
+            .addValue("code", candle.code)
+            .addValue("interval", candle.interval.code)
+            .addValue("ts", java.sql.Timestamp.from(Instant.ofEpochSecond(candle.ts.epochSeconds)), Types.TIMESTAMP)
+            .addValue("openRaw", candle.openRaw, Types.NUMERIC)
+            .addValue("highRaw", candle.highRaw, Types.NUMERIC)
+            .addValue("lowRaw", candle.lowRaw, Types.NUMERIC)
+            .addValue("closeRaw", candle.closeRaw, Types.NUMERIC)
+            .addValue("volume", candle.volume, Types.BIGINT)
+            .addValue("source", source.label)
+            .addValue("sourcePriority", source.priority, Types.SMALLINT)
 
     /**
      * Candle → [UPSERT_SQL] named-param 매핑 (insertOrUpdate @Param 시그니처와 1:1).
