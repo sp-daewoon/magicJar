@@ -56,5 +56,7 @@ class CandleWriteArbiterTest {
         CandleSource.fromLabel("KIS") shouldBe CandleSource.WS_LIVE
         CandleSource.fromLabel(null) shouldBe CandleSource.WS_LIVE
         CandleSource.fromLabel("") shouldBe CandleSource.WS_LIVE
+        // POOL/_BF backfill 약어 보강 (V101 — KIS-POOL-1M-BF 실측 발견).
+        CandleSource.fromLabel("KIS-POOL-1M-BF") shouldBe CandleSource.REST_CONFIRMED
     }
 }

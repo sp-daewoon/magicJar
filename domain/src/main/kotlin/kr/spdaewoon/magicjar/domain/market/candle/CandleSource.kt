@@ -49,7 +49,9 @@ enum class CandleSource(
                     norm.contains("GAPFILL") ||
                     norm.contains("MKT_DAILY") ||
                     norm.contains("RANGE") ||
-                    norm.contains("KSDINFO") -> REST_CONFIRMED
+                    norm.contains("KSDINFO") ||
+                    norm.contains("POOL") ||
+                    norm.endsWith("_BF") -> REST_CONFIRMED
                 norm.contains("POLLING") || norm.contains("NOTICK") || norm.contains("FALLBACK") -> POLLING_FALLBACK
                 else -> WS_LIVE
             }
