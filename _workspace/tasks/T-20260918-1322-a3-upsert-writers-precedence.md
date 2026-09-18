@@ -3,10 +3,10 @@ id: T-20260918-1322-a3-upsert-writers-precedence
 agent: backend-core
 model: opus
 branch: agent/backend-core/a3-upsert-writers-precedence
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T13:22:08.237+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T13:28:47.756+09:00
+pr: #1197
 parentPhase: ?
 ---
 
