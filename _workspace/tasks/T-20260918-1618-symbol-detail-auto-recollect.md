@@ -3,10 +3,10 @@ id: T-20260918-1618-symbol-detail-auto-recollect
 agent: frontend
 model: opus
 branch: agent/frontend/symbol-detail-auto-recollect
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T16:18:22.069+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T16:25:52.327+09:00
+pr: #1204
 parentPhase: ?
 ---
 
