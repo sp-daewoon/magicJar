@@ -1,6 +1,9 @@
 package kr.spdaewoon.magicjar.consumer.aggregation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Tags
+import io.micrometer.core.instrument.Timer
 import kr.spdaewoon.magicjar.consumer.cache.RedisCandleCache
 import kr.spdaewoon.magicjar.consumer.persistence.ConsumerCandleJpaRepository
 import kr.spdaewoon.magicjar.domain.market.candle.BoundaryDetector
@@ -63,10 +66,22 @@ class BoundaryAggregator(
     private val redisCandleCache: RedisCandleCache,
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
+    /**
+     * 성능 계측 registry (Phase B — 사용자 "안정 성능 다 잡자"). nullable + default null —
+     * 기존 단위 테스트(직접 생성자 호출) 무수정 보존(TickToMinuteAggregator 동일 패턴).
+     * boundary 합산 hot path의 fetch 소요시간·1m row 수·interval별 처리 횟수를 관측해 최적화 근거를 만든다.
+     */
+    private val meterRegistry: MeterRegistry? = null,
 ) {
     private val log = LoggerFactory.getLogger(BoundaryAggregator::class.java)
 
     companion object {
+        /** boundary 합산 1건 소요시간(fetch+aggregate+cache+DB+Kafka) Timer — magicjar_boundary_aggregate_seconds. */
+        const val METRIC_AGGREGATE_TIMER = "magicjar.boundary.aggregate"
+
+        /** boundary fetch한 1m row 수 분포 — magicjar_boundary_fetch_rows. fetch 비용 관측(캐시화 근거). */
+        const val METRIC_FETCH_ROWS = "magicjar.boundary.fetch.rows"
+
         private val TARGET_INTERVALS =
             listOf(
                 THREE_MIN,
@@ -177,7 +192,11 @@ class BoundaryAggregator(
         val boundaryStartInstant = Instant.ofEpochSecond(boundaryStartTs.epochSeconds)
         val boundaryCloseInstant = Instant.ofEpochSecond(tickTs.epochSeconds)
 
+        // 성능 계측 (Phase B) — boundary 합산 hot path 소요시간 관측(캐시화 최적화 근거).
+        val timerSample = meterRegistry?.let { Timer.start(it) }
+
         val oneMinCandles = fetchBoundaryOneMinutes(code, boundaryStartInstant, boundaryCloseInstant)
+        recordFetchRows(target, oneMinCandles.size)
         if (oneMinCandles.isEmpty()) {
             log.warn(
                 "BoundaryAggregator 1m data 없음: code={} interval={} boundaryStart={}",
@@ -207,6 +226,15 @@ class BoundaryAggregator(
 
         // 6. DB UPSERT (gapfill row 교정 + idempotent)
         insertBarToDb(bar, target)
+
+        // 성능 계측 종료 — fetch~cache~DB 전체 구간(interval 태그).
+        timerSample?.stop(
+            Timer
+                .builder(METRIC_AGGREGATE_TIMER)
+                .description("boundary 합산 1건 소요시간(fetch+aggregate+cache+DB)")
+                .tags(Tags.of("interval", target.code))
+                .register(meterRegistry!!),
+        )
 
         // 7. Kafka publish market.candle.{interval}.closed.v1 (ADR 0064 C-1)
         publishToKafka(code, target, bar)
@@ -240,6 +268,22 @@ class BoundaryAggregator(
         return candleJpaRepository
             .findByCodeAndIntervalAndTsBetweenOrderByTsAsc(code, "1m", boundaryStartInstant, boundaryCloseInstant)
             .mapNotNull { entity -> entity.toDomain() }
+    }
+
+    /** boundary fetch한 1m row 수 분포 기록 — registry 부재(fixture)·등록 실패 시 no-op graceful. */
+    private fun recordFetchRows(
+        interval: CandleInterval,
+        rows: Int,
+    ) {
+        val registry = meterRegistry ?: return
+        runCatching {
+            io.micrometer.core.instrument.DistributionSummary
+                .builder(METRIC_FETCH_ROWS)
+                .description("boundary 합산 시 fetch한 1m row 수(캐시화 최적화 근거)")
+                .tags(Tags.of("interval", interval.code))
+                .register(registry)
+                .record(rows.toDouble())
+        }.onFailure { e -> log.trace("recordFetchRows skip: err={}", e.message) }
     }
 
     private fun insertBarToDb(
