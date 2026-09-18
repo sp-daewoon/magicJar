@@ -3,10 +3,10 @@ id: T-20260918-1346-boundary-aggregator-metrics
 agent: backend-core
 model: opus
 branch: agent/backend-core/boundary-aggregator-metrics
-status: RUNNING
+status: DONE
 startedAt: 2026-09-18T13:46:17.931+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-18T13:51:31.153+09:00
+pr: #1199
 parentPhase: ?
 ---
 
