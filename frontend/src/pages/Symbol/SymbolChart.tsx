@@ -36,6 +36,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { IChartApi, ISeriesApi, SeriesMarker, UTCTimestamp } from 'lightweight-charts'
 import { useSymbolCandles } from '../../api/hooks/useSymbolCandles'
 import { useCandleRecollectJob, useCandleRefresh } from '../../api/hooks/useCandleRefresh'
+import { useCandleHealth } from '../../api/hooks/useCandleHealth'
 import { signalApi, type SignalDto } from '../../api/signal'
 import type { CandleInterval, CandleDto, CandleMinutePayload } from '../../api/symbol'
 import type { ChartPriceTimePoint, LiveTick } from './LightweightChart'
@@ -270,6 +271,40 @@ export const SymbolChart = memo(function SymbolChart({
     },
     [recollectCandles],
   )
+
+  // ── 진입 시 stale 자동 재수집 (2026-09-18 — "종목 상세 진입 프로세스 정립") ──
+  // 사용자가 종목 상세에 들어갔을 때 차트가 stale(예: 한국석유 7/31)이면 수동 버튼 없이 자동 복구.
+  // candle-health가 STALE + 데이터 결손 사유(장마감/실시간정상 제외)일 때만, 종목·interval당 1회 트리거.
+  // KIS 호출 유발이므로 dedupe로 폭주 차단(진입/interval 전환당 1회).
+  const autoRecollectHealth = useCandleHealth(code, { enabled: Boolean(code) })
+  const autoRecollectLockRef = useRef<string | null>(null)
+  useEffect(() => {
+    const health = autoRecollectHealth.data
+    if (!health) return
+    // 데이터 결손으로 stale인 경우만 자동 복구 대상. 장마감/실시간정상은 정상이므로 제외.
+    const dataGapReasons = new Set([
+      'WS_NOT_SUBSCRIBED',
+      'NO_TICK',
+      'BACKFILL_FAILED',
+      'BACKFILL_PERMANENT_GAP',
+      'UNKNOWN',
+    ])
+    const needsRecollect =
+      (health.status === 'STALE' || health.status === 'NO_DATA') &&
+      health.reason !== 'MARKET_CLOSED' &&
+      health.reason !== 'OK_REALTIME' &&
+      (health.status === 'NO_DATA' || dataGapReasons.has(health.reason))
+    if (!needsRecollect) return
+
+    // 종목+interval당 1회만 (진입/interval 전환 시 재무장). 재수집 진행 중이면 skip.
+    const lockKey = `${code}:${interval}`
+    if (autoRecollectLockRef.current === lockKey) return
+    if (isRecollecting) return
+    autoRecollectLockRef.current = lockKey
+
+    showToast(`차트가 오래되어 자동 재수집합니다 (${health.reasonDetail || health.status})`, 'info')
+    recollectCandles({ intervals: [interval] })
+  }, [autoRecollectHealth.data, code, interval, isRecollecting, recollectCandles, showToast])
 
   const activeRecollectProgress =
     recollectProgress && (recollectProgress.status === 'QUEUED' || recollectProgress.status === 'RUNNING')
