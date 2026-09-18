@@ -7,10 +7,12 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.consumer.reconciliation.MarketDailyUniverseProvider
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisMultiPricePort
 import kr.spdaewoon.magicjar.domain.market.port.MultiPriceQuote
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.time.LocalDate
 import java.time.ZoneId
@@ -55,6 +57,9 @@ class MarketDailyNightlySnapshotService(
     private val objectMapper: ObjectMapper,
     private val properties: MarketDailySnapshotProperties,
     private val dailyFamilyRollupRunner: DailyFamilyRollupRunner,
+    // P0-A Phase A-3 (canon §1) — precedence 가드 전환 flag. false(default) 시 기존 upsertAll(무가드) 그대로.
+    @param:Value("\${magicjar.candle.precedence-guard.enabled:false}")
+    private val precedenceGuardEnabled: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyNightlySnapshotService::class.java)
 
@@ -191,7 +196,12 @@ class MarketDailyNightlySnapshotService(
                 upsertedRows +=
                     try {
                         // 대상일 1d 봉 ON CONFLICT DO UPDATE — DailyCloseFinalizer INSERT 를 공식 종가로 덮음(권위).
-                        candleRepository.upsertAll(candles)
+                        // P0-A Phase A-3 — flag on 시 precedence 가드 경로(공식 마감가 = 최고 신뢰 OFFICIAL_DAILY_CLOSE). off 시 기존 무가드.
+                        if (precedenceGuardEnabled) {
+                            candleRepository.upsertAllWithPrecedence(candles, CandleSource.OFFICIAL_DAILY_CLOSE)
+                        } else {
+                            candleRepository.upsertAll(candles)
+                        }
                     } catch (e: Exception) {
                         log.warn(
                             "MarketDailyNightlySnapshot upsert 실패(다음 chunk 진행): runId={} chunkIdx={} size={} err={}",

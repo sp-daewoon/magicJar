@@ -11,8 +11,10 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THIRTY_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.THREE_MIN
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.TWELVE_HOUR
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 
 /**
@@ -43,6 +45,9 @@ import org.springframework.stereotype.Component
 @Component
 class AggregateBackfillRunner(
     private val candleRepository: CandleRepository,
+    // P0-A Phase A-3 (canon §1) — precedence 가드 전환 flag. false(default) 시 기존 upsertAll(무가드) 그대로.
+    @param:Value("\${magicjar.candle.precedence-guard.enabled:false}")
+    private val precedenceGuardEnabled: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(AggregateBackfillRunner::class.java)
 
@@ -102,7 +107,13 @@ class AggregateBackfillRunner(
             try {
                 val aggregated = CandleAggregator.aggregate(oneMinCandles, target)
                 if (aggregated.isNotEmpty()) {
-                    val inserted = candleRepository.upsertAll(aggregated)
+                    // P0-A Phase A-3 — flag on 시 precedence 가드 경로(합산봉 재생성 = REST 확정 등급). off 시 기존 무가드 upsertAll.
+                    val inserted =
+                        if (precedenceGuardEnabled) {
+                            candleRepository.upsertAllWithPrecedence(aggregated, CandleSource.REST_CONFIRMED)
+                        } else {
+                            candleRepository.upsertAll(aggregated)
+                        }
                     result[target.code] = IntervalBackfillResult(inserted = inserted, latestBar = aggregated.last())
                     log.debug(
                         "AggregateBackfillRunner interval 완료: code={} interval={} aggregated={} inserted={}",

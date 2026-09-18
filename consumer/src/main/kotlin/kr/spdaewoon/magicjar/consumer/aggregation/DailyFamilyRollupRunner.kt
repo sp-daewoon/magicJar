@@ -7,9 +7,11 @@ import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_DAY
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_MONTH
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_WEEK
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval.ONE_YEAR
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.candle.DailyRollupAggregator
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 
 /**
@@ -37,6 +39,9 @@ import org.springframework.stereotype.Component
 @Component
 class DailyFamilyRollupRunner(
     private val candleRepository: CandleRepository,
+    // P0-A Phase A-3 (canon §1) — precedence 가드 전환 flag. false(default) 시 기존 upsertAll(무가드) 그대로.
+    @param:Value("\${magicjar.candle.precedence-guard.enabled:false}")
+    private val precedenceGuardEnabled: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(DailyFamilyRollupRunner::class.java)
 
@@ -125,7 +130,13 @@ class DailyFamilyRollupRunner(
                 //   이미 직전 full-regen/incremental 으로 정확 적재된 불변 봉이므로 건드리지 않는 게 정합.
                 val rolled = if (windowTruncated) rolledAll.drop(1) else rolledAll
                 if (rolled.isNotEmpty()) {
-                    val upserted = candleRepository.upsertAll(rolled)
+                    // P0-A Phase A-3 — flag on 시 precedence 가드 경로(rollup = 1m/1d 기반 재생 REST 확정 등급). off 시 기존 무가드.
+                    val upserted =
+                        if (precedenceGuardEnabled) {
+                            candleRepository.upsertAllWithPrecedence(rolled, CandleSource.REST_CONFIRMED)
+                        } else {
+                            candleRepository.upsertAll(rolled)
+                        }
                     // ★ 고아 앵커 정리 (ADR 0120 amend — 2026-06-11 P1 fix).
                     //   진행 월/년봉 앵커가 전진(6/9→6/10)하면 옛 앵커 행이 같은 버킷에 고아로 남는다.
                     //   이번에 산출한 각 봉의 기간 버킷 안에서 산출 앵커(ts) ≠ 인 같은 (code,interval) 행을 삭제.

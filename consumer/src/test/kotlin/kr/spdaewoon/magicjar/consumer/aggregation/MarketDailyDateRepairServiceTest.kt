@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.consumer.reconciliation.MarketDailyUniverseProvider
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyRangeUnavailableException
@@ -107,6 +108,7 @@ class MarketDailyDateRepairServiceTest {
         rollup: DailyFamilyRollupRunner = noopRollup(),
         throttle: BackfillThrottleGate = passThroughThrottle(),
         audit: ConsumerAuditTrailJpaRepository = mockk(relaxed = true),
+        precedenceGuardEnabled: Boolean = false,
     ): MarketDailyDateRepairService =
         MarketDailyDateRepairService(
             universeProvider = prov,
@@ -117,6 +119,7 @@ class MarketDailyDateRepairServiceTest {
             auditRepository = audit,
             objectMapper = ObjectMapper(),
             properties = properties,
+            precedenceGuardEnabled = precedenceGuardEnabled,
         )
 
     @Test
@@ -317,5 +320,43 @@ class MarketDailyDateRepairServiceTest {
         assertThat(r.deletedCorruptRows).isEqualTo(5L)
         assertThat(r.failedSymbols).isEqualTo(0)
         verify(exactly = 10) { rangePort.fetchDailyCandlesInRange(any(), targetDate, targetDate) }
+    }
+
+    // ── P0-A Phase A-3 — precedence 가드 flag 전환 (canon §1) ──────────────────────────
+
+    @Test
+    fun `precedence flag on - upsertAllWithPrecedence(REST_CONFIRMED) 경유, 무가드 upsertAll 미호출`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        every { rangePort.fetchDailyCandlesInRange("005930", targetDate, targetDate) } returns
+            listOf(candle("005930", targetDate, open = "70000", high = "71000", low = "69500", close = "70500", volume = 5_000_000L))
+        val upsertSlot = slot<List<Candle>>()
+        every { candleRepo.upsertAllWithPrecedence(capture(upsertSlot), CandleSource.REST_CONFIRMED) } returns 1
+
+        // flag on — date repair 는 KIS range REST 확정 등급.
+        val svc = newService(props(), provider(listOf("005930")), rangePort, candleRepo, precedenceGuardEnabled = true)
+        val r = svc.repairDate(targetDate)
+
+        assertThat(r.status).isEqualTo(MarketDailyDateRepairService.RepairStatus.COMPLETED)
+        assertThat(r.repairedSymbols).isEqualTo(1)
+        verify(exactly = 1) { candleRepo.upsertAllWithPrecedence(any(), CandleSource.REST_CONFIRMED) }
+        verify(exactly = 0) { candleRepo.upsertAll(any()) }
+        assertThat(upsertSlot.captured).hasSize(1)
+        assertThat(upsertSlot.captured.first().source).isEqualTo(MarketDailyBackfillCampaign.BACKFILL_SOURCE)
+    }
+
+    @Test
+    fun `precedence flag off(default) - 기존 무가드 upsertAll 경유(zero-regression)`() {
+        val rangePort = mockk<KisDailyCandleRangePort>()
+        val candleRepo = mockk<CandleRepository>(relaxed = true)
+        every { rangePort.fetchDailyCandlesInRange("005930", targetDate, targetDate) } returns
+            listOf(candle("005930", targetDate, open = "70000", high = "71000", low = "69500", close = "70500", volume = 5_000_000L))
+        every { candleRepo.upsertAll(any()) } returns 1
+
+        val svc = newService(props(), provider(listOf("005930")), rangePort, candleRepo)
+        svc.repairDate(targetDate)
+
+        verify(exactly = 1) { candleRepo.upsertAll(any()) }
+        verify(exactly = 0) { candleRepo.upsertAllWithPrecedence(any(), any()) }
     }
 }
