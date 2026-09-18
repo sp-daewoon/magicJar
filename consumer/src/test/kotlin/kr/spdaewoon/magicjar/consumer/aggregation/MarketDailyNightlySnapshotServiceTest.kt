@@ -11,6 +11,7 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.consumer.reconciliation.MarketDailyUniverseProvider
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisMultiPricePort
 import kr.spdaewoon.magicjar.domain.market.port.MultiPriceQuote
@@ -71,6 +72,7 @@ class MarketDailyNightlySnapshotServiceTest {
         candleRepo: CandleRepository,
         auditRepo: ConsumerAuditTrailJpaRepository = mockk(relaxed = true),
         rollupRunner: DailyFamilyRollupRunner = mockk(relaxed = true),
+        precedenceGuardEnabled: Boolean = false,
     ) = MarketDailyNightlySnapshotService(
         universeProvider = provider,
         kisMultiPricePort = multiPricePort,
@@ -79,6 +81,7 @@ class MarketDailyNightlySnapshotServiceTest {
         objectMapper = ObjectMapper(),
         properties = properties,
         dailyFamilyRollupRunner = rollupRunner,
+        precedenceGuardEnabled = precedenceGuardEnabled,
     )
 
     @Test
@@ -318,5 +321,43 @@ class MarketDailyNightlySnapshotServiceTest {
         assertThat(actions).contains("MARKET_DAILY_SNAPSHOT_START", "MARKET_DAILY_SNAPSHOT_DONE")
         assertThat(auditSlot.all { it.actor == "market-data" }).isTrue
         assertThat(auditSlot.all { it.entityId == MarketDailyNightlySnapshotService.AUDIT_ENTITY_ID }).isTrue
+    }
+
+    // ── P0-A Phase A-3 — precedence 가드 flag 전환 (canon §1) ──────────────────────────
+
+    @Test
+    fun `precedence flag on — upsertAllWithPrecedence(OFFICIAL_DAILY_CLOSE) 경유, 무가드 upsertAll 미호출`() {
+        val provider = mockk<MarketDailyUniverseProvider> { every { resolveCodes() } returns listOf("005930") }
+        val multiPricePort =
+            mockk<KisMultiPricePort> { every { fetchMultiPrice(any(), any()) } returns listOf(quote("005930")) }
+        val candleRepo =
+            mockk<CandleRepository> {
+                every { upsertAllWithPrecedence(any(), CandleSource.OFFICIAL_DAILY_CLOSE) } answers
+                    { firstArg<List<Candle>>().size }
+            }
+        // flag on — 공식 마감가는 최고 신뢰(OFFICIAL_DAILY_CLOSE).
+        val service = newService(props(), provider, multiPricePort, candleRepo, precedenceGuardEnabled = true)
+
+        val result = service.runSnapshot()
+
+        verify(exactly = 1) { candleRepo.upsertAllWithPrecedence(any(), CandleSource.OFFICIAL_DAILY_CLOSE) }
+        verify(exactly = 0) { candleRepo.upsertAll(any()) }
+        assertThat(result.upsertedRows).isEqualTo(1)
+    }
+
+    @Test
+    fun `precedence flag off(default) — 기존 무가드 upsertAll 경유(zero-regression)`() {
+        val provider = mockk<MarketDailyUniverseProvider> { every { resolveCodes() } returns listOf("005930") }
+        val multiPricePort =
+            mockk<KisMultiPricePort> { every { fetchMultiPrice(any(), any()) } returns listOf(quote("005930")) }
+        val candleRepo =
+            mockk<CandleRepository> { every { upsertAll(any()) } answers { firstArg<List<Candle>>().size } }
+        // flag default(false)
+        val service = newService(props(), provider, multiPricePort, candleRepo)
+
+        service.runSnapshot()
+
+        verify(exactly = 1) { candleRepo.upsertAll(any()) }
+        verify(exactly = 0) { candleRepo.upsertAllWithPrecedence(any(), any()) }
     }
 }

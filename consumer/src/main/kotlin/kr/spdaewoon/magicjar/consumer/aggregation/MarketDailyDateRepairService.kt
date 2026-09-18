@@ -17,10 +17,12 @@ import kr.spdaewoon.magicjar.consumer.persistence.ConsumerAuditTrailJpaRepositor
 import kr.spdaewoon.magicjar.consumer.reconciliation.MarketDailyUniverseProvider
 import kr.spdaewoon.magicjar.domain.market.candle.Candle
 import kr.spdaewoon.magicjar.domain.market.candle.CandleInterval
+import kr.spdaewoon.magicjar.domain.market.candle.CandleSource
 import kr.spdaewoon.magicjar.domain.market.port.CandleRepository
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyCandleRangePort
 import kr.spdaewoon.magicjar.domain.market.port.KisDailyRangeUnavailableException
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.time.Instant
@@ -77,6 +79,9 @@ class MarketDailyDateRepairService(
     private val auditRepository: ConsumerAuditTrailJpaRepository,
     private val objectMapper: ObjectMapper,
     private val properties: MarketDailyBackfillProperties,
+    // P0-A Phase A-3 (canon §1) — precedence 가드 전환 flag. false(default) 시 기존 upsertAll(무가드) 그대로.
+    @param:Value("\${magicjar.candle.precedence-guard.enabled:false}")
+    private val precedenceGuardEnabled: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(MarketDailyDateRepairService::class.java)
 
@@ -387,7 +392,12 @@ class MarketDailyDateRepairService(
                 targetCandle.copy(interval = INTERVAL, source = MarketDailyBackfillCampaign.BACKFILL_SOURCE)
             upserted =
                 try {
-                    candleRepository.upsertAll(listOf(repairBar))
+                    // P0-A Phase A-3 — flag on 시 precedence 가드 경로(date repair = KIS range REST 확정 등급). off 시 기존 무가드.
+                    if (precedenceGuardEnabled) {
+                        candleRepository.upsertAllWithPrecedence(listOf(repairBar), CandleSource.REST_CONFIRMED)
+                    } else {
+                        candleRepository.upsertAll(listOf(repairBar))
+                    }
                 } catch (e: Exception) {
                     log.warn("MarketDailyDateRepair upsert 실패: code={} date={} err={}", code, targetDate, e.message)
                     audit(

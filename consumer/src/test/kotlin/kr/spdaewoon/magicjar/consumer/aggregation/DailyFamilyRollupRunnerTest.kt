@@ -343,4 +343,52 @@ class DailyFamilyRollupRunnerTest {
         verify(exactly = 0) { repo.upsertAll(any()) }
         verify(exactly = 0) { repo.deleteStaleBucketAnchors(any(), any(), any(), any(), any()) }
     }
+
+    // ── P0-A Phase A-3 — precedence 가드 flag 전환 (canon §1) ──────────────────────────
+
+    @Test
+    fun `precedence flag on — upsertAllWithPrecedence(REST_CONFIRMED) 경유, 무가드 upsertAll 미호출`() {
+        val oneDays =
+            listOf(
+                oneDay(dayTs(2026, 6, 8), o = 293000, h = 315500, l = 292500, c = 295500, v = 38_929_682),
+                oneDay(dayTs(2026, 6, 9), o = 310000, h = 324000, l = 300000, c = 322000, v = 30_124_249),
+            )
+        val repo = mockk<CandleRepository>()
+        every { repo.findByCodeAndInterval(code, CandleInterval.ONE_DAY) } returns oneDays
+        every {
+            repo.upsertAllWithPrecedence(any(), kr.spdaewoon.magicjar.domain.market.candle.CandleSource.REST_CONFIRMED)
+        } answers { firstArg<List<Candle>>().size }
+        every { repo.deleteStaleBucketAnchors(any(), any(), any(), any(), any()) } returns 0
+        // flag on
+        val runner = DailyFamilyRollupRunner(repo, precedenceGuardEnabled = true)
+
+        runner.rollupDetailed(code)
+
+        // 1wk·1mo·1y 3종 모두 precedence 경로(REST_CONFIRMED)로 upsert — rollup 은 1d 기반 재생 REST 등급.
+        verify(exactly = 3) {
+            repo.upsertAllWithPrecedence(any(), kr.spdaewoon.magicjar.domain.market.candle.CandleSource.REST_CONFIRMED)
+        }
+        // 무가드 경로는 호출 안 됨(zero-regression flag 전환).
+        verify(exactly = 0) { repo.upsertAll(any()) }
+    }
+
+    @Test
+    fun `precedence flag off(default) — 기존 무가드 upsertAll 경유(zero-regression)`() {
+        val oneDays =
+            listOf(
+                oneDay(dayTs(2026, 6, 8), o = 293000, h = 315500, l = 292500, c = 295500, v = 38_929_682),
+                oneDay(dayTs(2026, 6, 9), o = 310000, h = 324000, l = 300000, c = 322000, v = 30_124_249),
+            )
+        val repo = mockk<CandleRepository>()
+        every { repo.findByCodeAndInterval(code, CandleInterval.ONE_DAY) } returns oneDays
+        every { repo.upsertAll(any()) } answers { firstArg<List<Candle>>().size }
+        every { repo.deleteStaleBucketAnchors(any(), any(), any(), any(), any()) } returns 0
+        // flag default(false)
+        val runner = DailyFamilyRollupRunner(repo)
+
+        runner.rollupDetailed(code)
+
+        verify(exactly = 3) { repo.upsertAll(any()) }
+        verify(exactly = 0) { repo.upsertAllWithPrecedence(any(), any()) }
+    }
 }

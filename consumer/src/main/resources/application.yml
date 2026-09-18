@@ -393,6 +393,13 @@ magicjar:
   #   default-max-pages: 누락 키 fallback (회귀 안전)
   # ─────────────────────────────────────────────────
   candle:
+    # P0-A Phase A-3 (candle-write-arbiter-design §4, canon §1) — precedence 가드 writer 전환 feature flag.
+    #   default false: 기존 upsertAll(무가드 DO UPDATE) 그대로(zero-regression).
+    #   true: upsertAllWithPrecedence(candles, source) 경유 — 낮은 신뢰 source가 높은 신뢰 확정봉을 못 덮음(P0-B).
+    #   strangler 롤백 지점 — 전환 대상: MarketDailyNightlySnapshotService·MarketDailyDateRepairService·
+    #     DailyFamilyRollupRunner·AggregateBackfillRunner.
+    precedence-guard:
+      enabled: ${MAGICJAR_CANDLE_PRECEDENCE_GUARD_ENABLED:false}
     max-pages-by-interval:
       "[1m]": 48
       "[3m]": 38
