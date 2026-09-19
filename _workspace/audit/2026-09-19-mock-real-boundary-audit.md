@@ -108,10 +108,10 @@ env(`MAGICJAR_MODE`/`MAGICJAR_ALLOW_REAL`)는 **REAL 상한 잠금**으로만 �
 - **체결 반영(⑦/⑦')에 2개 gap 발견** — MOCK 주문의 체결이 파이프라인으로 되돌아오는 경로가 불완전:
   - **GAP-1**: MOCK 체결통보 WS(H0STCNI9) 전용 VPS 물리 세션 미구현
     (KisWebSocketBridge 주석 명시 — "Phase 1에는 전용 VPS physical session이 없으므로 발사 전 차단").
-  - **GAP-2**: 체결 REST backfill(KisExecutionBackfillService)이 accountType을 env `magicjarMode`로 정함
-    (`RuntimeModeParser.accountTypeOrMock`). PR #1214로 활성 모드가 DB로 이관됐으므로,
-    env=REAL 상한 + DB활성=MOCK으로 MOCK 주문을 낸 경우 backfill은 여전히 REAL 계좌를 조회 →
-    MOCK 체결이 backfill되지 않는다.
+  - **GAP-2 (해소 — PR 진행 중)**: 체결 REST backfill/sync가 accountType을 env `magicjarMode`로 정하던 것을
+    **DB 활성모드 기준(ActiveAccountTypeResolver = min(env 상한, DB 활성모드))**으로 교정.
+    KisExecutionBackfillService.runBackfill + SignalGeneratedKafkaListener 체결 sync 경로 적용.
+    OrderRouter/WsListener/StuckAck는 이미 주문 실제 mode(order_request.mode) 기준이라 정합 유지.
 
 ### 후속 (별도 PR 대상 — 이번 실증 범위 외)
 1. GAP-2 우선: 체결 backfill/sync가 **DB 활성모드(ActiveTradingModePort)** 기준으로 accountType을 정하도록 교정.
