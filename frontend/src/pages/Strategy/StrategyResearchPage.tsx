@@ -233,6 +233,28 @@ function candidateTone(candidate: StrategyResearchCandidateDto): string {
   return 'border-amber-800 bg-amber-950/20'
 }
 
+/** 신뢰도 미달 사유 코드 → 한국어 1줄 (수익 기능 B). 모르는 코드는 원문 표시. */
+function confidenceReasonLabel(reason: string): string {
+  switch (reason) {
+    case 'INSUFFICIENT_SAMPLE':
+      return '표본 부족(거래 <20)'
+    case 'LOW_WIN_RATE':
+      return '승률 낮음(<40%)'
+    case 'NEGATIVE_EXPECTANCY':
+      return '기대수익 음성(비용 차감 후)'
+    case 'MDD_EXCEEDED':
+      return 'MDD 초과(>15%)'
+    case 'LOW_CONFIDENCE':
+      return '데이터 정합성 낮음'
+    case 'INSUFFICIENT_DATA':
+      return '데이터 부족'
+    case 'BACKTEST_ERROR':
+      return '검증 오류'
+    default:
+      return reason
+  }
+}
+
 function instrumentDisplay(result: InstrumentSearchResultDto): string {
   return `${result.name} (${result.code})`
 }
@@ -1510,6 +1532,29 @@ export function StrategyResearchPage() {
                     <div>
                       <div className="text-sm font-semibold text-gray-100">{candidate.title}</div>
                       <div className="mt-1 text-xs text-gray-500">{candidate.marketFit}</div>
+                      {candidate.confidence && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          {candidate.confidence.passed ? (
+                            <span className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                              ✓ 신뢰도 통과
+                            </span>
+                          ) : (
+                            <>
+                              <span className="rounded bg-red-900/50 px-1.5 py-0.5 text-[10px] font-semibold text-red-300">
+                                기준 미달
+                              </span>
+                              {candidate.confidence.failReasons.slice(0, 2).map((reason) => (
+                                <span
+                                  key={reason}
+                                  className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400"
+                                >
+                                  {confidenceReasonLabel(reason)}
+                                </span>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <span className="rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-400">
                       {candidate.score}
