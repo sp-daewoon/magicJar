@@ -91,6 +91,7 @@ class StrategyResearchEngine(
             stats = bestVariant.stats,
             trades = bestVariant.trades,
             score = bestVariant.score,
+            confidence = ResearchConfidenceEvaluator.evaluate(bestVariant.stats),
         )
     }
 
@@ -448,6 +449,8 @@ data class StrategyResearchCandidate(
     val stats: StrategyResearchStats,
     val trades: List<StrategyResearchTrade>,
     val score: Double,
+    /** 신뢰도 판정 (수익 기능 B — autopilot 게이트 동일 기준). null이면 미판정(하위호환). */
+    val confidence: ResearchConfidenceVerdict? = null,
 )
 
 data class StrategyResearchStats(
