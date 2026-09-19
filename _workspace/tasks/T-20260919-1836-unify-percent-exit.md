@@ -3,10 +3,10 @@ id: T-20260919-1836-unify-percent-exit
 agent: strategy
 model: opus
 branch: agent/strategy-engine/unify-percent-exit
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T18:36:19.857+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T18:40:21.129+09:00
+pr: #1206
 parentPhase: ?
 ---
 
