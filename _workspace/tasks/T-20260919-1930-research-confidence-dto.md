@@ -3,10 +3,10 @@ id: T-20260919-1930-research-confidence-dto
 agent: backend-core
 model: opus
 branch: agent/backend-core/research-confidence-dto
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T19:30:50.085+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T19:32:23.521+09:00
+pr: #1210
 parentPhase: ?
 ---
 
