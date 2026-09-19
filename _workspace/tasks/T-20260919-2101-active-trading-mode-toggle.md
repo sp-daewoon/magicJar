@@ -14,7 +14,7 @@ parentPhase: ?
 활성 주문 모드 전환 UI — 설정 화면 MOCK/REAL 토글(PUT /api/system-config/trading-mode) + RuntimeFlagsIndicator가 DB 활성모드 표시. 시세 REAL 고정 무관. REAL 전환은 조건 충족 시에만.
 
 ## 결과물 체크리스트
-- [ ] onboarding.ts activeTradingMode 타입+useUpdateTradingMode
+- [x] onboarding.ts activeTradingMode 타입+useUpdateTradingMode
 - [x] runtime.ts activeTradingMode
 - [x] TradingModeSection 컴포넌트
 - [x] RuntimeFlagsIndicator 활성모드 반영
