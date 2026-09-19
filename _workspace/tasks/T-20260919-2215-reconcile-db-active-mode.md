@@ -15,13 +15,13 @@ GAP-2 잔여 — reconcile/balance/snapshot 경로 8곳이 accountType을 env ma
 
 ## 결과물 체크리스트
 - [x] ExecutionCostReconcileWorker
-- [ ] KisReconcileBalanceAdapter
-- [ ] KisLedgerSelfHealWorker
-- [ ] ManualReconcileService
-- [ ] BalanceReconcileJob
-- [ ] ConsumerRiskPositionAdapter
-- [ ] KisCapitalSnapshotProviderAdapter
-- [ ] ExternalOrderAccountResolver 정합
+- [x] KisReconcileBalanceAdapter
+- [x] KisLedgerSelfHealWorker
+- [x] ManualReconcileService
+- [x] BalanceReconcileJob
+- [x] ConsumerRiskPositionAdapter
+- [x] KisCapitalSnapshotProviderAdapter
+- [x] ExternalOrderAccountResolver 정합
 - [x] 회귀 확인
 
 ## 의존성
