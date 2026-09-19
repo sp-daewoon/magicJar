@@ -3,10 +3,10 @@ id: T-20260919-2215-reconcile-db-active-mode
 agent: backend-core
 model: opus
 branch: agent/backend-core/reconcile-db-active-mode
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T22:15:25.911+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T22:20:42.372+09:00
+pr: #1226
 parentPhase: ?
 ---
 
