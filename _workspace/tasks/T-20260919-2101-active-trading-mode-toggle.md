@@ -3,10 +3,10 @@ id: T-20260919-2101-active-trading-mode-toggle
 agent: frontend
 model: opus
 branch: agent/frontend/active-trading-mode-toggle
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T21:01:07.588+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T21:06:42.603+09:00
+pr: #1218
 parentPhase: ?
 ---
 
