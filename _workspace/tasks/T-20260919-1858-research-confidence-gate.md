@@ -3,10 +3,10 @@ id: T-20260919-1858-research-confidence-gate
 agent: strategy
 model: opus
 branch: agent/strategy-engine/research-confidence-gate
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T18:58:07.686+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T19:01:37.643+09:00
+pr: #1208
 parentPhase: ?
 ---
 
