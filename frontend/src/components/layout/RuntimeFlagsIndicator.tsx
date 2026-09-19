@@ -118,13 +118,17 @@ export function RuntimeFlagsIndicator({ userId }: RuntimeFlagsIndicatorProps) {
 }
 
 /**
- * 우선순위 매트릭스 (불변 LOCK):
+ * 우선순위 매트릭스 (불변 LOCK · 감사 2026-09-19 §5 반영):
  *  1. killSwitchEnabled=true → 회색 "정지" — 모든 주문 차단
- *  2. mode=REAL && !allowReal → 노랑 "실전·차단" — MAGICJAR_ALLOW_REAL 환경변수 미허용
- *  3. mode=REAL && userConsented=false → 노랑 "실전·동의대기" + 경고 — 사용자 동의 토글 미체결
- *  4. mode=REAL && userConsented=null → 노랑 "실전·계좌확인" — userId 없이 조회되어 동의 판정 불가
- *  5. mode=REAL && allowReal && userConsented=true → 빨강 "실전" — 실주문 가능
- *  6. mode=MOCK → 녹색 "모의"
+ *  2. activeTradingMode=MOCK → 녹색 "모의" — env가 REAL 상한이어도 실제 주문은 MOCK (DB 활성모드가 진실원)
+ *  3. activeTradingMode=REAL 인데 env 상한 미충족(!allowReal) → 노랑 "실전·차단"
+ *  4. activeTradingMode=REAL 인데 userConsented=false → 노랑 "실전·동의대기" + 경고
+ *  5. activeTradingMode=REAL 인데 userConsented=null → 노랑 "실전·계좌확인"
+ *  6. activeTradingMode=REAL + allowReal + userConsented=true → 빨강 "실전" — 실주문 가능
+ *
+ * 핵심: 표시 기준은 env `mode`가 아니라 **실제 활성 모드 `activeTradingMode`(DB)**.
+ * env mode=REAL 상한이 열려도 DB 활성모드가 MOCK이면 실제 주문은 MOCK이므로 "모의"로 표시한다.
+ * (시세/차트/지표는 모드 무관 항상 REAL — 표시 대상 아님)
  */
 export function decideDisplayState(flags: {
   mode: 'MOCK' | 'REAL'
@@ -132,6 +136,7 @@ export function decideDisplayState(flags: {
   killSwitchEnabled: boolean
   killSwitchReason: string | null
   userConsented: boolean | null
+  activeTradingMode?: 'MOCK' | 'REAL'
 }): DisplayState {
   if (flags.killSwitchEnabled) {
     return {
@@ -142,14 +147,16 @@ export function decideDisplayState(flags: {
     }
   }
 
-  if (flags.mode === 'REAL') {
+  // 실제 활성 모드 = DB activeTradingMode(진실원). 미제공(구버전 backend) 시 env mode로 fallback.
+  const effectiveMode = flags.activeTradingMode ?? flags.mode
+
+  if (effectiveMode === 'REAL') {
     if (!flags.allowReal) {
       return {
         color: 'yellow',
         label: '실전·차단',
         showWarn: true,
-        title:
-          '실전 모드지만 MAGICJAR_ALLOW_REAL=false — 환경변수 검토 후 재기동 필요',
+        title: '실전 활성이지만 MAGICJAR_ALLOW_REAL=false — 환경변수 검토 필요',
       }
     }
     if (flags.userConsented === false) {
@@ -157,8 +164,7 @@ export function decideDisplayState(flags: {
         color: 'yellow',
         label: '실전·동의대기',
         showWarn: true,
-        title:
-          '실전 모드 활성 + ALLOW_REAL=true이지만 사용자 동의 미체결 — 설정 > 실거래 동의 토글 확인',
+        title: '실전 활성 + ALLOW_REAL=true이지만 사용자 동의 미체결 — 설정 > 실거래 동의 토글 확인',
       }
     }
     if (flags.userConsented === null) {
@@ -166,23 +172,25 @@ export function decideDisplayState(flags: {
         color: 'yellow',
         label: '실전·계좌확인',
         showWarn: true,
-        title:
-          '실전 모드 활성 + ALLOW_REAL=true이지만 userId 없이 조회되어 동의 상태를 판정하지 못했습니다',
+        title: '실전 활성 + ALLOW_REAL=true이지만 userId 없이 조회되어 동의 상태를 판정하지 못했습니다',
       }
     }
     return {
       color: 'red',
       label: '실전',
       showWarn: false,
-      title: '실전 모드 활성 — 3중 게이트 모두 통과 (실주문 가능)',
+      title: '실전 모드 활성 — 3중 게이트 모두 통과 (실주문 가능). 시세는 항상 실시간(REAL).',
     }
   }
 
-  // MOCK
+  // MOCK (activeTradingMode=MOCK — env가 REAL 상한이어도 실제 주문은 모의)
   return {
     color: 'green',
     label: '모의',
     showWarn: false,
-    title: '모의 모드 — 안전한 학습/테스트 상태 (KIS 모의계좌)',
+    title:
+      flags.mode === 'REAL'
+        ? '모의 주문 모드 (실전 상한은 열려 있으나 활성 모드=모의). 시세는 항상 실시간(REAL).'
+        : '모의 모드 — 안전한 학습/테스트 상태. 시세는 항상 실시간(REAL).',
   }
 }

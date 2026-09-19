@@ -38,6 +38,8 @@ export interface RuntimeFlagsDto {
   killSwitchEnabled: boolean
   killSwitchReason: string | null
   userConsented: boolean | null
+  /** 활성 주문 모드 (DB 단일 권위, 재기동 없이 전환). env `mode`는 REAL 상한, 실제 활성은 이 값. 시세는 항상 REAL. */
+  activeTradingMode: RuntimeMode
   fetchedAt: string
 }
 
@@ -50,6 +52,7 @@ interface RuntimeFlagsBackendDto {
   killSwitchActive?: boolean
   killSwitchReason?: string | null
   userConsented?: boolean | null
+  activeTradingMode?: RuntimeMode
   fetchedAt?: string
 }
 
@@ -75,6 +78,7 @@ export const runtimeApi = {
       killSwitchEnabled: raw.killSwitchEnabled ?? raw.killSwitchActive ?? false,
       killSwitchReason: raw.killSwitchReason ?? null,
       userConsented: raw.userConsented ?? null,
+      activeTradingMode: raw.activeTradingMode ?? 'MOCK',
       fetchedAt: raw.fetchedAt ?? new Date().toISOString(),
     }
   },
