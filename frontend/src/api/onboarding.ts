@@ -70,6 +70,19 @@ export interface SystemConfigResponse {
   dartApiKey?: string | null
   slackWebhookUrl?: string | null
   realtimeFallbackBuyEnabled: boolean
+  /** 활성 주문 모드 (DB 단일 권위, 재기동 없이 전환). 시세는 이와 무관하게 항상 REAL. */
+  activeTradingMode: 'REAL' | 'MOCK'
+  updatedAt: string // ISO 8601
+}
+
+/** PUT /api/system-config/trading-mode — 요청 */
+export interface TradingModeUpdateRequest {
+  mode: 'REAL' | 'MOCK'
+}
+
+/** PUT /api/system-config/trading-mode — 응답 (200) */
+export interface TradingModeUpdateResponse {
+  activeTradingMode: 'REAL' | 'MOCK'
   updatedAt: string // ISO 8601
 }
 
@@ -214,6 +227,28 @@ export function useSystemConfig() {
     },
     retry: 1,
     staleTime: 0,
+  })
+}
+
+/**
+ * 활성 주문 모드 변경 mutation (감사 2026-09-19 §5) — 재기동 없는 MOCK↔REAL 전환.
+ *
+ * PUT /api/system-config/trading-mode
+ * - MOCK 전환은 항상 허용. REAL 전환은 backend가 env 상한+동의를 검사(미충족 시 412).
+ * - 시세/차트/지표는 이와 무관하게 항상 REAL.
+ * - 성공 시 systemConfig + runtime flags 쿼리 invalidate → 인디케이터 즉시 갱신.
+ */
+export function useUpdateTradingMode() {
+  const queryClient = useQueryClient()
+  return useMutation<TradingModeUpdateResponse, unknown, TradingModeUpdateRequest>({
+    mutationFn: async (req) => {
+      const res = await apiClient.put<TradingModeUpdateResponse>('/system-config/trading-mode', req)
+      return res.data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'systemConfig'] })
+      void queryClient.invalidateQueries({ queryKey: ['runtime', 'flags'] })
+    },
   })
 }
 

@@ -25,6 +25,7 @@ import { KillSwitchSection } from './sections/KillSwitchSection'
 import { RealTradingConsentSection } from './sections/RealTradingConsentSection'
 import { RealtimeFallbackPolicySection } from './sections/RealtimeFallbackPolicySection'
 import { SystemConfigSection } from './sections/SystemConfigSection'
+import { TradingModeSection } from './sections/TradingModeSection'
 import { TrendPreferenceSection } from '../../features/settings/components/TrendPreferenceSection'
 
 interface Props {
@@ -90,6 +91,9 @@ export function SettingsModal({ onClose }: Props) {
         <div className="divide-y divide-gray-800">
           {/* Section 1: 실거래 동의 */}
           <RealTradingConsentSection />
+
+          {/* Section 1.5: 주문 모드 (모의/실거래 전환) — 감사 2026-09-19 §5, 재기동 없는 전환 */}
+          <TradingModeSection />
 
           {/* Section 2: KIS 키 관리 */}
           <KisCredentialSection />
