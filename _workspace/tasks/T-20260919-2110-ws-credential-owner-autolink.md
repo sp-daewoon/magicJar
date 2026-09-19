@@ -3,10 +3,10 @@ id: T-20260919-2110-ws-credential-owner-autolink
 agent: backend-core
 model: opus
 branch: agent/backend-core/ws-credential-owner-autolink
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T21:10:30.127+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T21:13:41.599+09:00
+pr: #1220
 parentPhase: ?
 ---
 
