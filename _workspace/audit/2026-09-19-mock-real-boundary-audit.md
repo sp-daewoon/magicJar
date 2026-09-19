@@ -86,6 +86,40 @@ env(`MAGICJAR_MODE`/`MAGICJAR_ALLOW_REAL`)는 **REAL 상한 잠금**으로만 �
 - WS owner 자동연결은 "등록된 REAL 계정이 유일할 때만" — 타 계정 세션 위험 0.
 - 이번 작업 중 실주문 발사 0. flag 뒤 zero-regression.
 
+## 8. MOCK = REAL 동형성 실증 (2026-09-19 · 코드 경로 추적)
+
+목표: MOCK 모드가 REAL과 **동일 파이프라인**을 타는지 코드로 검증(실주문 0). 단계별 결과:
+
+| 단계 | 경로 | MOCK/REAL 분기 | 동형? |
+|---|---|---|---|
+| ① WS 실시간 시세 | KisWebSocketBridge | **분기 없음 — 항상 REAL** | ✅ 공통(설계상 REAL 고정) |
+| ② 시그널 생성 | RealtimeSignalGenerator | 분기 없음 | ✅ 동형 |
+| ③ 리스크 게이트 | SignalGeneratedKafkaListener | 분기 없음 | ✅ 동형 |
+| ④ 주문 라우팅 | OrderRouterKafkaListener | `resolveMode`로 mode 1회 결정(유일 분기점) | ✅ 동형(단일 리스너) |
+| ⑤ order_request INSERT | 동일 테이블 | mode 컬럼 값만 다름 | ✅ 동형 |
+| ⑥ KIS 주문 제출 | KisOrderHttpAdapter.submit(intent, **mode**) | endpoint(prod/vps) + trId(TTTC/VTTC) + credential(REAL/MOCK)만 | ✅ 동형(단일 submit, 나머지 로직 완전 동일) |
+| ⑦ 체결 통보(WS) | KisWebSocketBridge H0STCNI0/H0STCNI9 | **REAL만 prod 세션 수신. MOCK(H0STCNI9)은 전용 VPS 세션 미구현으로 발사 차단** | ⚠ **GAP-1** |
+| ⑦' 체결 backfill(REST) | KisExecutionBackfillService | accountType을 **env magicjarMode** 기준(`accountTypeOrMock`) — DB 활성모드 미반영 | ⚠ **GAP-2** |
+| ⑧ 포지션/PnL | order_execution → strategy_position | 분기 없음 | ✅ 동형 |
+
+### 결론
+- **①~⑥, ⑧은 완전 동형** — MOCK은 REAL과 같은 코드 경로를 타고 endpoint/tr_id/credential만 다르다.
+  즉 "모의투자로 실거래와 동일하게 처리"의 핵심 파이프라인은 이미 동형이다.
+- **체결 반영(⑦/⑦')에 2개 gap 발견** — MOCK 주문의 체결이 파이프라인으로 되돌아오는 경로가 불완전:
+  - **GAP-1**: MOCK 체결통보 WS(H0STCNI9) 전용 VPS 물리 세션 미구현
+    (KisWebSocketBridge 주석 명시 — "Phase 1에는 전용 VPS physical session이 없으므로 발사 전 차단").
+  - **GAP-2**: 체결 REST backfill(KisExecutionBackfillService)이 accountType을 env `magicjarMode`로 정함
+    (`RuntimeModeParser.accountTypeOrMock`). PR #1214로 활성 모드가 DB로 이관됐으므로,
+    env=REAL 상한 + DB활성=MOCK으로 MOCK 주문을 낸 경우 backfill은 여전히 REAL 계좌를 조회 →
+    MOCK 체결이 backfill되지 않는다.
+
+### 후속 (별도 PR 대상 — 이번 실증 범위 외)
+1. GAP-2 우선: 체결 backfill/sync가 **DB 활성모드(ActiveTradingModePort)** 기준으로 accountType을 정하도록 교정.
+   (PR #1214 포트 재사용 — env→DB 일관성 마무리.)
+2. GAP-1: MOCK 체결통보 전용 VPS 세션 도입 또는 MOCK은 backfill(REST)만으로 체결 반영하는 정책 확정.
+
+실증 방식: 실주문 발사 0 — 코드 경로 정적 추적만. 각 어댑터의 mode 분기를 소스에서 직접 확인.
+
 ## 7. 단계적 실행 (PR 분리)
 
 1. (진단) 본 문서 + architect 설계 확정.
