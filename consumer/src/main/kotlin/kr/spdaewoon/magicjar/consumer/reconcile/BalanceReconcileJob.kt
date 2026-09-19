@@ -38,6 +38,7 @@ class BalanceReconcileJob(
      * ObjectProvider graceful — 어댑터 미합류 시 strategy_position 정합 skip(BalanceReconcile 본체는 정상).
      */
     private val strategyPositionReconcileWorkerProvider: ObjectProvider<StrategyPositionReconcileWorker>,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
 ) {
@@ -61,7 +62,9 @@ class BalanceReconcileJob(
      * @param triggerSource CRON · MANUAL · API
      */
     internal fun runForAllActiveUsers(triggerSource: ReconcileTriggerSource) {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val activeCreds = credentialRepository.findAllByAccountType(accountType.name)
         if (activeCreds.isEmpty()) {
             log.info("BalanceReconcileJob — 활성 사용자 0명 idle (accountType={})", accountType.name)

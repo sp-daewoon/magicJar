@@ -62,6 +62,7 @@ import java.util.concurrent.ConcurrentHashMap
 class KisCapitalSnapshotProviderAdapter(
     private val balanceQueryPortProvider: ObjectProvider<KisBalanceQueryPort>? = null,
     private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // F10 — 최근 성공 capital snapshot 유효 시간(분). 이 시간 내면 조회 실패 시 직전 성공값(stale)을 재사용.
@@ -107,7 +108,9 @@ class KisCapitalSnapshotProviderAdapter(
      * KIS 가 성공적으로 0 을 반환한 경우에만 발생(그 경우만 정상 POSITION_LIMIT 평가 대상).
      */
     override fun capitalOutcome(userId: String): CapitalOutcome {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         accountSnapshotCoordinatorProvider?.getIfAvailable()?.let { coordinator ->
             return try {
                 val snapshot =

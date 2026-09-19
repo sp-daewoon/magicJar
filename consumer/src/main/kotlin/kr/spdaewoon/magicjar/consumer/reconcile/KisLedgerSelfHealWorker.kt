@@ -63,6 +63,7 @@ class KisLedgerSelfHealWorker(
     private val reconcileLockAdapter: ReconcileLockAdapter,
     private val systemEventLoggerProvider: ObjectProvider<SystemEventLogger>,
     private val holdingPositionIndexProvider: ObjectProvider<HoldingPositionIndex>,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.reconcile.kis-ledger-self-heal.enabled:false}")
@@ -98,7 +99,9 @@ class KisLedgerSelfHealWorker(
      * @return 정정 적용된 (user×code) 건수 — 로깅·테스트용.
      */
     internal fun runForAllActiveUsers(): Int {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val creds =
             try {
                 credentialRepository.findAllByAccountType(accountType.name)

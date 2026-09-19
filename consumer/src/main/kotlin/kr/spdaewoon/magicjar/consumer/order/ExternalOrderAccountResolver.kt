@@ -35,6 +35,7 @@ import org.springframework.stereotype.Component
 @Component
 class ExternalOrderAccountResolver(
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
 ) {
@@ -94,7 +95,9 @@ class ExternalOrderAccountResolver(
         }
 
         // 다중 매칭(REAL+MOCK 동일 계좌번호) 시 runtime mode 우선, 그래도 ambiguous면 첫 row + WARN.
-        val runtimeAccountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val runtimeAccountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val chosen =
             creds.firstOrNull { AccountType.valueOf(it.id.accountType) == runtimeAccountType }
                 ?: creds.first()

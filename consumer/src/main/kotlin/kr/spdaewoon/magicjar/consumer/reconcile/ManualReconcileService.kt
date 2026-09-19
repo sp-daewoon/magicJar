@@ -31,6 +31,7 @@ class ManualReconcileService(
     private val strategyPositionReconcileWorkerProvider: ObjectProvider<StrategyPositionReconcileWorker>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
 ) {
     private val log = LoggerFactory.getLogger(ManualReconcileService::class.java)
 
@@ -72,7 +73,11 @@ class ManualReconcileService(
     /** strategy_position drift 정합 — ObjectProvider graceful (BalanceReconcileJob.reconcileStrategyPositions 정합). */
     private fun reconcileStrategyPositions(userId: String) {
         val worker = strategyPositionReconcileWorkerProvider.getIfAvailable() ?: return
-        val modeName = RuntimeModeParser.accountTypeOrMock(magicjarMode).name
+        val modeName =
+            (
+                activeAccountTypeResolver?.activeAccountType()
+                    ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
+            ).name
         runCatching { worker.reconcileForUser(userId, modeName) }
             .onFailure { e ->
                 log.warn(
