@@ -90,6 +90,29 @@ data class StrategyResearchCandidateDto(
     val stats: StrategyResearchStatsDto,
     val trades: List<StrategyResearchTradeDto>,
     val score: Double,
+    /** 신뢰도 판정 (수익 기능 B — autopilot 게이트 동일 기준). null이면 미판정(하위호환). */
+    val confidence: StrategyResearchConfidenceDto? = null,
+)
+
+/**
+ * 발굴 후보 신뢰도 판정 DTO (수익 기능 B Phase2) — [ResearchConfidenceVerdict] 노출.
+ *
+ * 프론트 배지/필터의 데이터 계약: verdict="PASS"(믿을 만함, 초록)/"FAIL"(기준 미달, 사유 표시).
+ * failReasons는 미달 사유 코드(INSUFFICIENT_SAMPLE·LOW_WIN_RATE·NEGATIVE_EXPECTANCY·MDD_EXCEEDED).
+ *
+ * @param verdict "PASS"/"FAIL".
+ * @param passed 편의 boolean(verdict=="PASS").
+ * @param failReasons 미달 사유 코드 리스트(PASS면 빈 배열).
+ * @param winRatePct 승률%(echo). avgTradeReturnPct 1거래당 순수익률%(echo). maxDrawdownPct MDD%(echo). trades 표본수(echo).
+ */
+data class StrategyResearchConfidenceDto(
+    val verdict: String,
+    val passed: Boolean,
+    val failReasons: List<String>,
+    val winRatePct: Double,
+    val avgTradeReturnPct: Double,
+    val maxDrawdownPct: Double,
+    val trades: Int,
 )
 
 data class StrategyResearchStatsDto(
