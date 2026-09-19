@@ -46,6 +46,7 @@ class RuntimeFlagsController(
     private val magicjarAllowReal: Boolean,
     private val killSwitchWriteJpaRepository: KillSwitchWriteJpaRepository,
     private val userAccountJpaRepository: UserAccountJpaRepository,
+    private val systemConfigJpaRepository: kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(RuntimeFlagsController::class.java)
 
@@ -77,23 +78,44 @@ class RuntimeFlagsController(
         val normalizedMode = magicjarMode.trim().uppercase().takeIf { it in MODE_ALLOWED } ?: "MOCK"
         val killSwitchActive = resolveKillSwitchActive(userId)
         val userConsented = resolveUserConsented(userId)
+        val activeTradingMode = resolveActiveTradingMode()
         log.debug(
-            "GET /api/runtime/flags — userId={} mode={} allowReal={} killSwitch={} consent={}",
+            "GET /api/runtime/flags — userId={} mode={} allowReal={} killSwitch={} consent={} active={}",
             userId,
             normalizedMode,
             magicjarAllowReal,
             killSwitchActive,
             userConsented,
+            activeTradingMode,
         )
         return RuntimeFlagsResponse(
             magicjarMode = normalizedMode,
             magicjarAllowReal = magicjarAllowReal,
             killSwitchActive = killSwitchActive,
             userConsented = userConsented,
+            activeTradingMode = activeTradingMode,
         )
     }
 
     // --- private helper ---
+
+    /**
+     * 활성 주문 모드(DB system_config.active_trading_mode) — 재기동 없는 전환 결과.
+     * 조회 실패/미정의 → "MOCK" fail-closed(자본 안전 기본값).
+     */
+    private fun resolveActiveTradingMode(): String =
+        try {
+            val raw =
+                systemConfigJpaRepository
+                    .findSingleton()
+                    ?.activeTradingMode
+                    ?.trim()
+                    ?.uppercase()
+            if (raw in MODE_ALLOWED) raw!! else "MOCK"
+        } catch (e: Exception) {
+            log.error("RuntimeFlags active_trading_mode 조회 실패 — MOCK fail-closed: err={}", e.message)
+            "MOCK"
+        }
 
     /**
      * KillSwitch active 여부 해석.
@@ -165,4 +187,10 @@ data class RuntimeFlagsResponse(
         nullable = true,
     )
     val userConsented: Boolean?,
+    @field:Schema(
+        description = "활성 주문 모드 (MOCK·REAL — DB 단일 권위, 재기동 없이 전환). 시세는 이와 무관하게 항상 REAL.",
+        example = "MOCK",
+        allowableValues = ["MOCK", "REAL"],
+    )
+    val activeTradingMode: String = "MOCK",
 )

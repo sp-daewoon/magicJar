@@ -32,17 +32,26 @@ import java.util.Optional
 class RuntimeFlagsControllerTest {
     private val killSwitchRepo = mockk<KillSwitchWriteJpaRepository>(relaxed = true)
     private val userAccountRepo = mockk<UserAccountJpaRepository>(relaxed = true)
+    private val systemConfigRepo =
+        mockk<kr.spdaewoon.magicjar.persistence.shared.system.SystemConfigJpaRepository>(relaxed = true)
 
     private fun controller(
         mode: String = "MOCK",
         allowReal: Boolean = false,
-    ): RuntimeFlagsController =
-        RuntimeFlagsController(
+        activeMode: String = "MOCK",
+    ): RuntimeFlagsController {
+        every { systemConfigRepo.findSingleton() } returns
+            kr.spdaewoon.magicjar.persistence.shared.system
+                .SystemConfigJpaEntity(id = 1)
+                .also { it.activeTradingMode = activeMode }
+        return RuntimeFlagsController(
             magicjarMode = mode,
             magicjarAllowReal = allowReal,
             killSwitchWriteJpaRepository = killSwitchRepo,
             userAccountJpaRepository = userAccountRepo,
+            systemConfigJpaRepository = systemConfigRepo,
         )
+    }
 
     private fun killSwitchRow(
         userId: String,
@@ -174,5 +183,32 @@ class RuntimeFlagsControllerTest {
 
         assertThat(response.killSwitchActive).isTrue
         assertThat(response.userConsented).isFalse
+    }
+
+    @Test
+    fun `(10) activeTradingMode — DB 값을 그대로 노출한다`() {
+        every { killSwitchRepo.findAll() } returns emptyList()
+
+        val response = controller(mode = "REAL", allowReal = true, activeMode = "REAL").getFlags(userId = null)
+
+        assertThat(response.activeTradingMode).isEqualTo("REAL")
+    }
+
+    @Test
+    fun `(11) activeTradingMode — 조회 실패 시 MOCK fail-closed`() {
+        every { killSwitchRepo.findAll() } returns emptyList()
+        every { systemConfigRepo.findSingleton() } throws IllegalStateException("db down")
+        val controller =
+            RuntimeFlagsController(
+                magicjarMode = "REAL",
+                magicjarAllowReal = true,
+                killSwitchWriteJpaRepository = killSwitchRepo,
+                userAccountJpaRepository = userAccountRepo,
+                systemConfigJpaRepository = systemConfigRepo,
+            )
+
+        val response = controller.getFlags(userId = null)
+
+        assertThat(response.activeTradingMode).isEqualTo("MOCK")
     }
 }
