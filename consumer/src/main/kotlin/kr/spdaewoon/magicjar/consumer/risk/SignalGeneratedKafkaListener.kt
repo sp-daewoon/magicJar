@@ -135,6 +135,8 @@ class SignalGeneratedKafkaListener(
     // 개선 G (2026-06-22) — 슬롯 starve 된 owner=AUTOPILOT BUY 를 페이퍼 섀도로 스코어링(실자본 0·학습 신호).
     //   ObjectProvider graceful — autopilot 패키지 미합류·disabled 시 no-op = 기존 경로 그대로(zero-regression).
     private val autopilotPaperShadowRecorderProvider: ObjectProvider<AutopilotPaperShadowRecorder>? = null,
+    // GAP-2(감사 §8) — 체결 sync/잔고 조회 accountType을 DB 활성모드 기준으로. null(구 테스트)이면 env fallback.
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
     // 2026-06-18 P0 hotfix — 분할매수 회차 비중 적용 게이트. generator(RealtimeSignalGenerator.scaleInEnabled)와
@@ -722,7 +724,7 @@ class SignalGeneratedKafkaListener(
         context: RiskContext,
     ): RiskGatewayResult.Blocked? {
         if (signal.side != SignalSide.SELL) return null
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType = resolveActiveAccountType()
         val snapshot =
             try {
                 accountSnapshotCoordinatorProvider
@@ -796,7 +798,7 @@ class SignalGeneratedKafkaListener(
                     "kisHoldingQty" to kisHoldingQty,
                     "foreignReservedSellQty" to foreignReservedSellQty,
                     "availableSellQty" to (kisHoldingQty - foreignReservedSellQty).coerceAtLeast(0),
-                    "accountType" to RuntimeModeParser.accountTypeOrMock(magicjarMode).name,
+                    "accountType" to resolveActiveAccountType().name,
                     "reasonCode" to reasonCode,
                 ),
         )
@@ -820,7 +822,7 @@ class SignalGeneratedKafkaListener(
      * - 실제 주문 발행/취소 액션의 MOCK/REAL 분기(실돈 게이트)는 무변경 — 본 함수는 "조회·상태 보정"만.
      */
     private fun ensureKisExecutionSync(signal: Signal): RiskGatewayResult.Blocked? {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType = resolveActiveAccountType()
         val syncService =
             executionBackfillServiceProvider.getIfAvailable()
                 ?: return syncBlocked(signal, "SYNC_SERVICE_UNAVAILABLE")
@@ -2045,6 +2047,14 @@ class SignalGeneratedKafkaListener(
 
     /** 반복 차단 알람 쿨다운 타임스탬프 — key=`userId:strategyId:code:rule` → 마지막 fanout epoch ms (hotfix #5 보너스). */
     private val blockedAlarmCooldownAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * 체결 sync·잔고 조회 대상 계좌 타입 (GAP-2 감사 §8) — DB 활성모드 기준.
+     * resolver 미주입(구 테스트)이면 env magicjarMode fallback(zero-regression).
+     */
+    private fun resolveActiveAccountType() =
+        activeAccountTypeResolver?.activeAccountType()
+            ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
 
     private companion object {
         val OPEN_STATUSES =

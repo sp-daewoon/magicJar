@@ -85,6 +85,8 @@ class KisExecutionBackfillService(
     private val webSocketBridge: KisWebSocketBridge,
     private val strategyPositionExecutionReplayServiceProvider: ObjectProvider<StrategyPositionExecutionReplayService>? = null,
     private val accountSnapshotCoordinatorProvider: ObjectProvider<AccountSnapshotCoordinator>? = null,
+    // GAP-2(감사 §8) — 체결 backfill accountType을 DB 활성모드 기준으로. null(구 테스트)이면 env fallback(zero-regression).
+    private val activeAccountTypeResolver: ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.order.ws-backfill.enabled:true}")
@@ -193,8 +195,10 @@ class KisExecutionBackfillService(
      * 본 backfill 진입점 — REAL 사용자별 KIS REST 일별 체결 조회 + 누락 INSERT.
      */
     internal fun runBackfill() {
-        // 자격증명 사용자별 backfill 분기 (MOCK·REAL 모두 분기)
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        // 자격증명 사용자별 backfill 분기 — DB 활성모드 기준(GAP-2). resolver 부재 시 env fallback.
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val creds = credentialRepository.findAllByAccountType(accountType.name)
         if (creds.isEmpty()) {
             log.info(
