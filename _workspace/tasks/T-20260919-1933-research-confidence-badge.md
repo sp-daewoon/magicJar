@@ -3,10 +3,10 @@ id: T-20260919-1933-research-confidence-badge
 agent: frontend
 model: opus
 branch: agent/frontend/research-confidence-badge
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T19:33:04.235+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T19:36:00.516+09:00
+pr: #1212
 parentPhase: ?
 ---
 
