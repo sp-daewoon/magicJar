@@ -3,10 +3,10 @@ id: T-20260919-2023-active-trading-mode-db-authority
 agent: backend-core
 model: opus
 branch: agent/backend-core/active-trading-mode-db-authority
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T20:23:55.477+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T20:29:46.309+09:00
+pr: #1214
 parentPhase: ?
 ---
 
