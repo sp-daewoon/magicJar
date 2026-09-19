@@ -1,10 +1,10 @@
 package kr.spdaewoon.magicjar.domain.strategyresearch
 
 import kotlinx.datetime.Instant
+import kr.spdaewoon.magicjar.domain.market.sim.PercentExitSimulator
 import java.math.BigDecimal
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 전략 후보 리서치 엔진.
@@ -135,30 +135,38 @@ class StrategyResearchEngine(
                 continue
             }
 
-            val targetPrice = entryPrice * (1.0 + request.targetProfitPct / 100.0)
-            val stopPrice = entryPrice * (1.0 - request.stopLossPct / 100.0)
-            val maxExitIndex = min(candles.lastIndex, entryIndex + request.maxHoldBars)
-            var exitIndex = maxExitIndex
-            var exitPrice = candles[maxExitIndex].close.toDouble()
-            var exitReason = StrategyResearchExitReason.TIME_EXIT
-
-            for (cursor in entryIndex..maxExitIndex) {
-                val candle = candles[cursor]
-                val low = candle.low.toDouble()
-                val high = candle.high.toDouble()
-                if (low <= stopPrice) {
-                    exitIndex = cursor
-                    exitPrice = stopPrice
-                    exitReason = StrategyResearchExitReason.STOP_LOSS
-                    break
+            // 청산 판정 — 공통 순수함수 PercentExitSimulator 위임(중복 제거 A · 2026-09-19).
+            // entryIndex 봉부터의 OHLC 시퀀스를 넘기면 SL 우선 + TP + 시간청산을 단일 출처로 판정한다.
+            val exitBars =
+                (entryIndex..candles.lastIndex).map { i ->
+                    PercentExitSimulator.Bar(
+                        high = candles[i].high.toDouble(),
+                        low = candles[i].low.toDouble(),
+                        close = candles[i].close.toDouble(),
+                    )
                 }
-                if (high >= targetPrice) {
-                    exitIndex = cursor
-                    exitPrice = targetPrice
-                    exitReason = StrategyResearchExitReason.TAKE_PROFIT
-                    break
-                }
+            val exit =
+                PercentExitSimulator.simulate(
+                    entryPrice = entryPrice,
+                    targetProfitPct = request.targetProfitPct,
+                    stopLossPct = request.stopLossPct,
+                    bars = exitBars,
+                    maxHoldBars = request.maxHoldBars,
+                )
+            if (exit == null) {
+                // entryPrice > 0 ∧ exitBars 비어있지 않음(entryIndex ≤ lastIndex)이라 도달 불가 — 방어적 skip.
+                index += 1
+                continue
             }
+
+            val exitIndex = entryIndex + exit.barsFromEntry
+            val exitPrice = exit.exitPrice
+            val exitReason =
+                when (exit.reason) {
+                    PercentExitSimulator.ExitReason.STOP_LOSS -> StrategyResearchExitReason.STOP_LOSS
+                    PercentExitSimulator.ExitReason.TAKE_PROFIT -> StrategyResearchExitReason.TAKE_PROFIT
+                    PercentExitSimulator.ExitReason.TIME_EXIT -> StrategyResearchExitReason.TIME_EXIT
+                }
 
             val returnPct = ((exitPrice - entryPrice) / entryPrice) * 100.0
             // 실전 거래비용 반영 (2026-09-17) — 발굴 순수익률을 실전 체결 기준으로 보정(낙관 편향 제거).
