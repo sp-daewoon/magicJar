@@ -70,8 +70,8 @@
   <div class="banner-cards">
     <div class="banner-card release">
       <div class="label">현재 Release</div>
-      <div class="value">v3.17.0</div>
-      <div class="sub">2026-07-06</div>
+      <div class="value">v3.18.0</div>
+      <div class="sub">2026-09-19</div>
     </div>
     <div class="banner-card cycle">
       <div class="label">현재 사이클 단계</div>
@@ -86,7 +86,7 @@
   </div>
   <div class="banner-timeline">
     <div class="label">📍 이번 작업 사이클 timeline</div>
-    <div>test(qa): s16 추세매매 Phase2 R3 Visual 회귀 가드 spec (6  → chore(release): v3.17.0 — 추세매매 Phase 2 + 운영 수선 min</div>
+    <div>chore(release): v3.18.0 README 버전 배지 갱신</div>
   </div>
 </div>
 
@@ -112,7 +112,7 @@
       <div class="card">
         <div class="card-title">📄 README.md</div>
         <div class="card-sub">🪄 magicJar Master Index</div>
-        <div class="card-meta">638 lines · 갱신 2026-07-06</div>
+        <div class="card-meta">650 lines · 갱신 2026-09-19</div>
       </div>
     
       <div class="card">
@@ -124,13 +124,13 @@
       <div class="card">
         <div class="card-title">📄 _workspace/INDEX.md</div>
         <div class="card-sub">🧭 의도별 진입 경로</div>
-        <div class="card-meta">134 lines · 갱신 2026-07-05</div>
+        <div class="card-meta">135 lines · 갱신 2026-09-17</div>
       </div>
     
       <div class="card">
         <div class="card-title">📄 docs/architecture/master-architecture.md</div>
         <div class="card-sub">§1. 시스템 비전 (사용자 정정 2026-05-02 반영)</div>
-        <div class="card-meta">828 lines · 갱신 2026-07-05</div>
+        <div class="card-meta">798 lines · 갱신 2026-09-17</div>
       </div>
     
   </div>
@@ -141,6 +141,12 @@
     
     <h3>최근 ADR 5건</h3>
     <div class="adr-recent">
+      
+        <div class="adr-card" style="border-left:3px solid #4caf50">
+          <div class="adr-number">0142</div>
+          <div class="adr-title">KIS WebSocket Gate Recovery: prod 시세 세션 고정 + 실행 readiness 분리</div>
+          <div class="adr-meta">Accepted · -</div>
+        </div>
       
         <div class="adr-card" style="border-left:3px solid #4caf50">
           <div class="adr-number">0140</div>
@@ -166,20 +172,21 @@
           <div class="adr-meta">Accepted · -</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #4caf50">
-          <div class="adr-number">0136</div>
-          <div class="adr-title">KIS 실잔고 ↔ strategy_position self-heal (체결→ledger 정합 누락 근본fix + 자동 정합 워커)</div>
-          <div class="adr-meta">Accepted · -</div>
-        </div>
-      
     </div>
-    <h3>전체 136건 (검색·정렬 가능)</h3>
+    <h3>전체 137건 (검색·정렬 가능)</h3>
     <input class="cat-search" data-cat="C" placeholder="ADR 검색…" />
     <table class="adr-table" data-sortable>
       <thead>
         <tr><th data-sort="number">번호</th><th data-sort="title">제목</th><th data-sort="status">status</th><th data-sort="date">날짜</th></tr>
       </thead>
       <tbody>
+        
+          <tr data-search="142 kis websocket gate recovery: prod 시세 세션 고정 + 실행 readiness 분리 accepted">
+            <td>0142</td>
+            <td><a href="_workspace/arch/adr/0142-kis-ws-gate-recovery.md">KIS WebSocket Gate Recovery: prod 시세 세션 고정 + 실행 readiness 분리</a></td>
+            <td><span style="color:#4caf50">Accepted</span></td>
+            <td>-</td>
+          </tr>
         
           <tr data-search="140 기울어진 추세선 라이브 매매 연동 (trendlineref dsl 노드) accepted">
             <td>0140</td>
@@ -1145,7 +1152,7 @@
         <div class="card">
           <div class="card-title">📍 audit-remediation-tracker</div>
           <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: 감사 보고서 [`_workspace/audit/2026-07-03-system-audit.md`](../../../_workspace/audi…</div>
-          <div class="card-meta">📄 docs/architecture/policies/audit-remediation-tracker.md · 갱신 2026-07-05</div>
+          <div class="card-meta">📄 docs/architecture/policies/audit-remediation-tracker.md · 갱신 2026-09-17</div>
         </div>
       
         <div class="card">
@@ -1161,9 +1168,15 @@
         </div>
       
         <div class="card">
+          <div class="card-title">📍 chart-data-integrity-remediation</div>
+          <div class="card-sub">> **권위**: 본 문서. 조치 머지마다 상태 갱신. > **결정 이력**: 감사 [`_workspace/audit/2026-09-17-chart-data-integrity-audit.md`](../../../_w…</div>
+          <div class="card-meta">📄 docs/architecture/policies/chart-data-integrity-remediation.md · 갱신 2026-09-18</div>
+        </div>
+      
+        <div class="card">
           <div class="card-title">📍 kis-credential-identity</div>
           <div class="card-sub">> **권위**: 본 문서. 변경 시 직접 갱신. > **결정 이력**: ADR-0046 (Onboarding 도입), backlog §23 (REAL/MOCK 불일치 의제), PR #246 (firstOrNull …</div>
-          <div class="card-meta">📄 docs/architecture/policies/kis-credential-identity.md · 갱신 2026-05-08</div>
+          <div class="card-meta">📄 docs/architecture/policies/kis-credential-identity.md · 갱신 2026-09-17</div>
         </div>
       
         <div class="card">
@@ -1199,7 +1212,7 @@
         <div class="card">
           <div class="card-title">📍 task-cycle</div>
           <div class="card-sub">> **권위**: 본 문서 + `scripts/task.mjs` 동작. > **결정 이력**: ADR-0036 §1 (사이클 정의), 운영 헌법 §1·§2, ADR-0051 (default fun trap 영향) >…</div>
-          <div class="card-meta">📄 docs/architecture/policies/task-cycle.md · 갱신 2026-05-08</div>
+          <div class="card-meta">📄 docs/architecture/policies/task-cycle.md · 갱신 2026-09-17</div>
         </div>
       
         <div class="card">
@@ -1216,20 +1229,20 @@
       
         <div class="card">
           <div class="card-title">📍 candle-data-policy-v2</div>
-          <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **ADR 0057 KIS-only data source 정합** — Yahoo Finance 전면 폐기. 본 문서 §3·§4·§5·§6 매트릭스 KIS-only로 …</div>
-          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-07-05</div>
+          <div class="card-sub">> **⚠️ 권위 이관 (2026-09-17 하네스 재편)**: "지금 무엇이 권위인가"의 단일 위치는 이제 **[candle-data-canon.md](candle-data-canon.md)** 다. > 본 문서는…</div>
+          <div class="card-meta">📄 docs/architecture/candle-data-policy-v2.md · 갱신 2026-09-17</div>
         </div>
       
         <div class="card">
           <div class="card-title">📍 external-api-policy</div>
           <div class="card-sub">- 작성일: TBD - 2026-05-11 갱신: **Yahoo Finance §3 전면 제거** — ADR 0057 (KIS OpenAPI 단일 데이터 출처) 정합. 사용자 명시 "kis에 있는 데이터만 사용하라고…</div>
-          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-06-13</div>
+          <div class="card-meta">📄 docs/architecture/external-api-policy.md · 갱신 2026-09-17</div>
         </div>
       
         <div class="card">
           <div class="card-title">📍 tracks-roadmap</div>
           <div class="card-sub">> **선행**: `docs/architecture/master-architecture.md` > **작성일**: TBD</div>
-          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-06-13</div>
+          <div class="card-meta">📄 docs/architecture/tracks-roadmap.md · 갱신 2026-09-17</div>
         </div>
       
     </div>
@@ -1661,7 +1674,7 @@
 
   <div class="cat-content" data-cat="D" data-group-content-cat="권위" data-active="false">
     
-    <h3>최근 spec 10건 / 전체 108건</h3>
+    <h3>최근 spec 10건 / 전체 111건</h3>
     <input class="cat-search" data-cat="D" placeholder="spec 검색…" />
     <div class="spec-list">
       
@@ -1958,6 +1971,21 @@
         <div class="card" data-search="pr-5-w1-bootstrap-design.md pr-5 w1 모듈 부트스트랩 설계 가이드">
           <div class="card-title">PR #5 PR-5 W1 모듈 부트스트랩 설계 가이드</div>
           <div class="card-meta">📄 _workspace/specs/pr-5-w1-bootstrap-design.md </div>
+        </div>
+      
+        <div class="card" data-search="2026-09-18-candle-write-arbiter-design.md candlewritearbiter 설계 (p0-a) — 정합성 + 성능 동시 설계">
+          <div class="card-title">📄 CandleWriteArbiter 설계 (P0-A) — 정합성 + 성능 동시 설계</div>
+          <div class="card-meta">📄 _workspace/specs/2026-09-18-candle-write-arbiter-design.md · 2026-09-18</div>
+        </div>
+      
+        <div class="card" data-search="2026-07-16-kis-ws-gate-recovery-phase1.md kis websocket gate recovery phase 1 구현 spec">
+          <div class="card-title">📄 KIS WebSocket Gate Recovery Phase 1 구현 spec</div>
+          <div class="card-meta">📄 _workspace/specs/2026-07-16-kis-ws-gate-recovery-phase1.md · 2026-07-16</div>
+        </div>
+      
+        <div class="card" data-search="2026-07-15-wave0-baseline-stability-plan.md wave 0 baseline stabilization plan">
+          <div class="card-title">📄 Wave 0 Baseline Stabilization Plan</div>
+          <div class="card-meta">📄 _workspace/specs/2026-07-15-wave0-baseline-stability-plan.md · 2026-07-15</div>
         </div>
       
         <div class="card" data-search="2026-07-06-trendline-phase2-spec.md spec: 추세매매 phase 2 — 기울어진 추세선 라이브 매매 연동 (trendlineref dsl 노드)">
@@ -2259,6 +2287,12 @@
     <div class="adr-recent">
       
         <div class="adr-card" style="border-left:3px solid #ff9800">
+          <div class="adr-number">v3.18.0</div>
+          <div class="adr-title">v3.18.0 — MOCK/REAL 경계 정합 대개편 (재기동 없는 모드 전환) minor cut</div>
+          <div class="adr-meta">2026-09-19</div>
+        </div>
+      
+        <div class="adr-card" style="border-left:3px solid #ff9800">
           <div class="adr-number">v3.17.0</div>
           <div class="adr-title">v3.17.0 — 추세매매 Phase 2 (기울선 라이브 연동, ADR 0140) + 운영 수선 minor cut</div>
           <div class="adr-meta">2026-07-06</div>
@@ -2282,17 +2316,13 @@
           <div class="adr-meta">2026-06-30</div>
         </div>
       
-        <div class="adr-card" style="border-left:3px solid #ff9800">
-          <div class="adr-number">v3.14.2</div>
-          <div class="adr-title">v3.14.2 — v3.14.2 릴리즈</div>
-          <div class="adr-meta">2026-06-26</div>
-        </div>
-      
     </div>
     <h3>전체 30건</h3>
     <table>
       <thead><tr><th>tag</th><th>날짜</th><th>title</th></tr></thead>
       <tbody>
+        
+          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.18.0">v3.18.0</a></td><td>2026-09-19</td><td>v3.18.0 — MOCK/REAL 경계 정합 대개편 (재기동 없는 모드 전환) minor cut</td></tr>
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.17.0">v3.17.0</a></td><td>2026-07-06</td><td>v3.17.0 — 추세매매 Phase 2 (기울선 라이브 연동, ADR 0140) + 운영 수선 minor cut</td></tr>
         
@@ -2352,8 +2382,6 @@
         
           <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.1">v3.7.1</a></td><td>2026-05-19</td><td>v3.7.1 — v3.7.1 릴리즈</td></tr>
         
-          <tr><td><a href="https://github.com/sp-daewoon/magicJar/releases/tag/v3.7.0">v3.7.0</a></td><td>2026-05-19</td><td>v3.7.0 — v3.7.0 릴리즈</td></tr>
-        
       </tbody>
     </table>
   
@@ -2361,63 +2389,63 @@
 
   <div class="cat-content" data-cat="I" data-group-content-cat="시계열" data-active="false">
     
-    <h3>전체 529건 · status별 분포</h3>
+    <h3>전체 552건 · status별 분포</h3>
     <div class="cat-cards">
       
-        <div class="card"><div class="card-title">DONE</div><div class="card-sub">529건</div></div>
+        <div class="card"><div class="card-title">DONE</div><div class="card-sub">552건</div></div>
       
     </div>
     <h3>최근 10건</h3>
     <div class="spec-list">
       
         <div class="card">
-          <div class="card-title">T-20260623-1257-autopilot-hardening-levers.md</div>
-          <div class="card-meta">DONE · strategy · PR #1116</div>
+          <div class="card-title">T-20260919-2215-reconcile-db-active-mode.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1226</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260623-1059-autopilot-trading-hardening.md</div>
-          <div class="card-meta">DONE · architect · PR #1114</div>
+          <div class="card-title">T-20260919-2154-execution-sync-db-active-mode.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1224</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260618-1034-strategy-start-screen.md</div>
-          <div class="card-meta">DONE · frontend · PR #1044</div>
+          <div class="card-title">T-20260919-2132-mock-real-isomorphism-verification.md</div>
+          <div class="card-meta">DONE · architect · PR #1222</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260618-0331-strategy-owner-datamodel.md</div>
-          <div class="card-meta">DONE · backend-core </div>
+          <div class="card-title">T-20260919-2110-ws-credential-owner-autolink.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1220</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260616-1404-stop-loss-current-candle-fallback.md</div>
-          <div class="card-meta">DONE · backend-core · PR #1013</div>
+          <div class="card-title">T-20260919-2101-active-trading-mode-toggle.md</div>
+          <div class="card-meta">DONE · frontend · PR #1218</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260616-1246-realtime-candle-degraded-feed.md</div>
-          <div class="card-meta">DONE · backend-core · PR #1009</div>
+          <div class="card-title">T-20260919-2054-active-trading-mode-api.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1216</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260616-1102-ws-no-tick-gapfill-fallback.md</div>
-          <div class="card-meta">DONE · backend-core · PR #1006</div>
+          <div class="card-title">T-20260919-2023-active-trading-mode-db-authority.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1214</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260615-1959-redis-standard-key-cutover.md</div>
-          <div class="card-meta">DONE · backend-core </div>
+          <div class="card-title">T-20260919-1933-research-confidence-badge.md</div>
+          <div class="card-meta">DONE · frontend · PR #1212</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260615-1937-redis-key-registry-migration.md</div>
-          <div class="card-meta">DONE · backend-core · PR #995</div>
+          <div class="card-title">T-20260919-1930-research-confidence-dto.md</div>
+          <div class="card-meta">DONE · backend-core · PR #1210</div>
         </div>
       
         <div class="card">
-          <div class="card-title">T-20260615-1740-watchlist-polling-and-strategy-drift.md</div>
-          <div class="card-meta">DONE · backend-core · PR #992</div>
+          <div class="card-title">T-20260919-1858-research-confidence-gate.md</div>
+          <div class="card-meta">DONE · strategy · PR #1208</div>
         </div>
       
     </div>
@@ -2438,12 +2466,12 @@
   <div class="cat-content" data-cat="F" data-group-content-cat="시계열" data-active="false">
     
     <div class="devlog-latest">
-      <a href="_workspace/devlog/2026-06-10.html">
-        <div class="card-title">📔 2026-06-10.html <span class="badge">최신</span></div>
+      <a href="_workspace/devlog/2026-07-06.html">
+        <div class="card-title">📔 2026-07-06.html <span class="badge">최신</span></div>
       </a>
     </div>
     <div class="devlog-rest">
-      <a href="_workspace/devlog/2026-06-04.html" class="card-mini">📔 2026-06-04</a><a href="_workspace/devlog/2026-06-03.html" class="card-mini">📔 2026-06-03</a><a href="_workspace/devlog/2026-06-02.html" class="card-mini">📔 2026-06-02</a><a href="_workspace/devlog/2026-06-01.html" class="card-mini">📔 2026-06-01</a><a href="_workspace/devlog/2026-05-31.html" class="card-mini">📔 2026-05-31</a><a href="_workspace/devlog/2026-05-30.html" class="card-mini">📔 2026-05-30</a><a href="_workspace/devlog/2026-05-29.html" class="card-mini">📔 2026-05-29</a><a href="_workspace/devlog/2026-05-26.html" class="card-mini">📔 2026-05-26</a><a href="_workspace/devlog/2026-05-25.html" class="card-mini">📔 2026-05-25</a><a href="_workspace/devlog/2026-05-24.html" class="card-mini">📔 2026-05-24</a><a href="_workspace/devlog/2026-05-23.html" class="card-mini">📔 2026-05-23</a><a href="_workspace/devlog/2026-05-22.html" class="card-mini">📔 2026-05-22</a><a href="_workspace/devlog/2026-05-21.html" class="card-mini">📔 2026-05-21</a><a href="_workspace/devlog/2026-05-20.html" class="card-mini">📔 2026-05-20</a><a href="_workspace/devlog/2026-05-19.html" class="card-mini">📔 2026-05-19</a><a href="_workspace/devlog/2026-05-18.html" class="card-mini">📔 2026-05-18</a><a href="_workspace/devlog/2026-05-17.html" class="card-mini">📔 2026-05-17</a><a href="_workspace/devlog/2026-05-16.html" class="card-mini">📔 2026-05-16</a><a href="_workspace/devlog/2026-05-15.html" class="card-mini">📔 2026-05-15</a><a href="_workspace/devlog/2026-05-14.html" class="card-mini">📔 2026-05-14</a><a href="_workspace/devlog/2026-05-13.html" class="card-mini">📔 2026-05-13</a><a href="_workspace/devlog/2026-05-12.html" class="card-mini">📔 2026-05-12</a><a href="_workspace/devlog/2026-05-11.html" class="card-mini">📔 2026-05-11</a><a href="_workspace/devlog/2026-05-10.html" class="card-mini">📔 2026-05-10</a><a href="_workspace/devlog/2026-05-09.html" class="card-mini">📔 2026-05-09</a><a href="_workspace/devlog/2026-05-08.html" class="card-mini">📔 2026-05-08</a><a href="_workspace/devlog/2026-05-07.html" class="card-mini">📔 2026-05-07</a><a href="_workspace/devlog/2026-05-06.html" class="card-mini">📔 2026-05-06</a><a href="_workspace/devlog/2026-05-05.html" class="card-mini">📔 2026-05-05</a><a href="_workspace/devlog/2026-05-04.html" class="card-mini">📔 2026-05-04</a><a href="_workspace/devlog/2026-05-03.html" class="card-mini">📔 2026-05-03</a><a href="_workspace/devlog/2026-05-02.html" class="card-mini">📔 2026-05-02</a><a href="_workspace/devlog/2026-05-01.html" class="card-mini">📔 2026-05-01</a><a href="_workspace/devlog/2026-04-30.html" class="card-mini">📔 2026-04-30</a><a href="_workspace/devlog/2026-04-29.html" class="card-mini">📔 2026-04-29</a><a href="_workspace/devlog/2026-04-28.html" class="card-mini">📔 2026-04-28</a><a href="_workspace/devlog/2026-04-27.html" class="card-mini">📔 2026-04-27</a><a href="_workspace/devlog/2026-04-26.html" class="card-mini">📔 2026-04-26</a><a href="_workspace/devlog/2026-04-25.html" class="card-mini">📔 2026-04-25</a>
+      <a href="_workspace/devlog/2026-06-10.html" class="card-mini">📔 2026-06-10</a><a href="_workspace/devlog/2026-06-04.html" class="card-mini">📔 2026-06-04</a><a href="_workspace/devlog/2026-06-03.html" class="card-mini">📔 2026-06-03</a><a href="_workspace/devlog/2026-06-02.html" class="card-mini">📔 2026-06-02</a><a href="_workspace/devlog/2026-06-01.html" class="card-mini">📔 2026-06-01</a><a href="_workspace/devlog/2026-05-31.html" class="card-mini">📔 2026-05-31</a><a href="_workspace/devlog/2026-05-30.html" class="card-mini">📔 2026-05-30</a><a href="_workspace/devlog/2026-05-29.html" class="card-mini">📔 2026-05-29</a><a href="_workspace/devlog/2026-05-26.html" class="card-mini">📔 2026-05-26</a><a href="_workspace/devlog/2026-05-25.html" class="card-mini">📔 2026-05-25</a><a href="_workspace/devlog/2026-05-24.html" class="card-mini">📔 2026-05-24</a><a href="_workspace/devlog/2026-05-23.html" class="card-mini">📔 2026-05-23</a><a href="_workspace/devlog/2026-05-22.html" class="card-mini">📔 2026-05-22</a><a href="_workspace/devlog/2026-05-21.html" class="card-mini">📔 2026-05-21</a><a href="_workspace/devlog/2026-05-20.html" class="card-mini">📔 2026-05-20</a><a href="_workspace/devlog/2026-05-19.html" class="card-mini">📔 2026-05-19</a><a href="_workspace/devlog/2026-05-18.html" class="card-mini">📔 2026-05-18</a><a href="_workspace/devlog/2026-05-17.html" class="card-mini">📔 2026-05-17</a><a href="_workspace/devlog/2026-05-16.html" class="card-mini">📔 2026-05-16</a><a href="_workspace/devlog/2026-05-15.html" class="card-mini">📔 2026-05-15</a><a href="_workspace/devlog/2026-05-14.html" class="card-mini">📔 2026-05-14</a><a href="_workspace/devlog/2026-05-13.html" class="card-mini">📔 2026-05-13</a><a href="_workspace/devlog/2026-05-12.html" class="card-mini">📔 2026-05-12</a><a href="_workspace/devlog/2026-05-11.html" class="card-mini">📔 2026-05-11</a><a href="_workspace/devlog/2026-05-10.html" class="card-mini">📔 2026-05-10</a><a href="_workspace/devlog/2026-05-09.html" class="card-mini">📔 2026-05-09</a><a href="_workspace/devlog/2026-05-08.html" class="card-mini">📔 2026-05-08</a><a href="_workspace/devlog/2026-05-07.html" class="card-mini">📔 2026-05-07</a><a href="_workspace/devlog/2026-05-06.html" class="card-mini">📔 2026-05-06</a><a href="_workspace/devlog/2026-05-05.html" class="card-mini">📔 2026-05-05</a><a href="_workspace/devlog/2026-05-04.html" class="card-mini">📔 2026-05-04</a><a href="_workspace/devlog/2026-05-03.html" class="card-mini">📔 2026-05-03</a><a href="_workspace/devlog/2026-05-02.html" class="card-mini">📔 2026-05-02</a><a href="_workspace/devlog/2026-05-01.html" class="card-mini">📔 2026-05-01</a><a href="_workspace/devlog/2026-04-30.html" class="card-mini">📔 2026-04-30</a><a href="_workspace/devlog/2026-04-29.html" class="card-mini">📔 2026-04-29</a><a href="_workspace/devlog/2026-04-28.html" class="card-mini">📔 2026-04-28</a><a href="_workspace/devlog/2026-04-27.html" class="card-mini">📔 2026-04-27</a><a href="_workspace/devlog/2026-04-26.html" class="card-mini">📔 2026-04-26</a><a href="_workspace/devlog/2026-04-25.html" class="card-mini">📔 2026-04-25</a>
       <a href="_workspace/devlog/index.html" class="card-mini">📚 전체 index</a>
     </div>
   
