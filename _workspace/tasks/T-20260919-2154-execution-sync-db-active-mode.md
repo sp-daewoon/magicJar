@@ -3,10 +3,10 @@ id: T-20260919-2154-execution-sync-db-active-mode
 agent: backend-core
 model: opus
 branch: agent/backend-core/execution-sync-db-active-mode
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T21:54:33.946+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T21:59:36.817+09:00
+pr: #1224
 parentPhase: ?
 ---
 
