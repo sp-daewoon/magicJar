@@ -3,10 +3,10 @@ id: T-20260919-2054-active-trading-mode-api
 agent: backend-core
 model: opus
 branch: agent/backend-core/active-trading-mode-api
-status: RUNNING
+status: DONE
 startedAt: 2026-09-19T20:54:34.191+09:00
-completedAt: null
-pr: null
+completedAt: 2026-09-19T20:59:38.143+09:00
+pr: #1216
 parentPhase: ?
 ---
 
