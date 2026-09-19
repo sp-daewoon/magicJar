@@ -27,6 +27,8 @@ import java.time.ZoneId
 class ExecutionCostReconcileWorker(
     private val executionCostReconcileService: ExecutionCostReconcileService,
     private val credentialRepository: ConsumerUserKisCredentialJpaRepository,
+    // GAP-2 잔여(감사 §8) — accountType을 DB 활성모드 기준으로. null(구 테스트)이면 env fallback.
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.performance.cost-reconcile.enabled:true}")
@@ -55,7 +57,9 @@ class ExecutionCostReconcileWorker(
         from: LocalDate,
         to: LocalDate,
     ): List<ExecutionCostReconcileResult> {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         if (accountType != AccountType.REAL) {
             log.info("비용 reconcile — REAL 아님(accountType={}) skip. KIS 손익 TR 은 REAL 전용.", accountType.name)
             return emptyList()

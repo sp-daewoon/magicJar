@@ -27,6 +27,7 @@ import kotlinx.datetime.Instant as KInstant
 class ConsumerRiskPositionAdapter(
     private val positionJpaRepository: PositionJpaRepository,
     private val jdbcTemplate: NamedParameterJdbcTemplate,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String = "MOCK",
 ) : RiskPositionPort {
@@ -115,7 +116,11 @@ class ConsumerRiskPositionAdapter(
             BigDecimal::class.java,
         ) ?: BigDecimal.ZERO
 
-    private fun currentSource(): String = RuntimeModeParser.accountTypeOrMock(magicjarMode).name
+    private fun currentSource(): String =
+        (
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        ).name
 
     private data class ReplayPositionState(
         var qty: BigDecimal = BigDecimal.ZERO,

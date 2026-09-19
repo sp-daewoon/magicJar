@@ -72,6 +72,7 @@ class KisReconcileBalanceAdapter(
     private val kisBaseProd: String,
     @Value("\${magicjar.kis.base-url-vps:https://openapivts.koreainvestment.com:29443}")
     private val kisBaseVps: String,
+    private val activeAccountTypeResolver: kr.spdaewoon.magicjar.consumer.order.ActiveAccountTypeResolver? = null,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
 ) : ReconcileKisBalancePort {
@@ -94,7 +95,9 @@ class KisReconcileBalanceAdapter(
      * AccountType 분기는 `inquire-balance` 호출 시 tr_id만 다를 뿐 — REAL 기본.
      */
     override fun fetchAllBalances(userId: String): List<ReconcileHolding> {
-        val accountType = RuntimeModeParser.accountTypeOrMock(magicjarMode)
+        val accountType =
+            activeAccountTypeResolver?.activeAccountType()
+                ?: RuntimeModeParser.accountTypeOrMock(magicjarMode)
         val cred =
             credentialRepository
                 .findAllByAccountType(accountType.name)
