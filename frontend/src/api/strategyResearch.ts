@@ -200,6 +200,20 @@ export interface StrategyResearchCandidateDto {
   stats: StrategyResearchStatsDto
   trades: StrategyResearchTradeDto[]
   score: number
+  /** 신뢰도 판정 (수익 기능 B — autopilot 게이트 동일 기준). 미판정이면 undefined. */
+  confidence?: StrategyResearchConfidenceDto | null
+}
+
+/** 발굴 후보 신뢰도 판정 (수익 기능 B Phase2). */
+export interface StrategyResearchConfidenceDto {
+  verdict: 'PASS' | 'FAIL' | (string & {})
+  passed: boolean
+  /** 미달 사유 코드 — INSUFFICIENT_SAMPLE·LOW_WIN_RATE·NEGATIVE_EXPECTANCY·MDD_EXCEEDED 등 */
+  failReasons: string[]
+  winRatePct: number
+  avgTradeReturnPct: number
+  maxDrawdownPct: number
+  trades: number
 }
 
 export interface StrategyResearchStatsDto {
