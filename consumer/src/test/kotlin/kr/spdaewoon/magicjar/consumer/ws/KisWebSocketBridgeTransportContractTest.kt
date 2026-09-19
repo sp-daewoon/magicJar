@@ -144,6 +144,71 @@ class KisWebSocketBridgeTransportContractTest {
         verify(exactly = 0) { priceMetricsPort.fetchPriceMetrics(any(), any()) }
     }
 
+    // ── 감사 2026-09-19 §5 B — WS credential owner 자동연결 (env 의존 제거) ──────
+
+    @Test
+    fun `env owner 미설정 + 등록된 REAL이 유일하면 자동 연결한다`() {
+        val repository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { repository.findAllByAccountType("REAL") } returns listOf(credential("74683223"))
+        // credentialOwnerId/legacyUserId 모두 blank → env 미설정 상태
+        val bridge =
+            buildBridge(
+                mode = "REAL",
+                credentialOwnerId = "",
+                legacyUserId = "",
+                credentialRepository = repository,
+            )
+
+        assertThat(invokePrivate<String?>(bridge, "resolveWsCredentialOwnerId")).isEqualTo("74683223")
+    }
+
+    @Test
+    fun `env owner 미설정 + REAL이 2개 이상(모호)이면 자동 연결하지 않는다`() {
+        val repository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { repository.findAllByAccountType("REAL") } returns
+            listOf(credential("74683223"), credential("11112222"))
+        val bridge =
+            buildBridge(
+                mode = "REAL",
+                credentialOwnerId = "",
+                legacyUserId = "",
+                credentialRepository = repository,
+            )
+
+        assertThat(invokePrivate<String?>(bridge, "resolveWsCredentialOwnerId")).isNull()
+    }
+
+    @Test
+    fun `env owner 미설정 + REAL이 0개면 자동 연결하지 않는다`() {
+        val repository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        every { repository.findAllByAccountType("REAL") } returns emptyList()
+        val bridge =
+            buildBridge(
+                mode = "REAL",
+                credentialOwnerId = "",
+                legacyUserId = "",
+                credentialRepository = repository,
+            )
+
+        assertThat(invokePrivate<String?>(bridge, "resolveWsCredentialOwnerId")).isNull()
+    }
+
+    @Test
+    fun `env owner 명시 설정이 있으면 자동 연결보다 우선(exact-match 존중)한다`() {
+        val repository = mockk<ConsumerUserKisCredentialJpaRepository>()
+        // REAL이 여러 개여도 configured owner를 그대로 존중
+        every { repository.findAllByAccountType("REAL") } returns
+            listOf(credential("74683223"), credential("11112222"))
+        val bridge =
+            buildBridge(
+                mode = "REAL",
+                credentialOwnerId = "credential-owner",
+                credentialRepository = repository,
+            )
+
+        assertThat(invokePrivate<String?>(bridge, "resolveWsCredentialOwnerId")).isEqualTo("credential-owner")
+    }
+
     @Test
     fun `approval 발급 실패여도 모든 market local demand는 reconnect replay용으로 보존한다`() {
         val bridge = buildBridge(mode = "REAL", approvalFailure = true)

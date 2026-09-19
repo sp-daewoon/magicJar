@@ -1988,10 +1988,10 @@ class KisWebSocketBridge(
         }
     }
 
-    /** 시드 REST 호출 owner resolve — repository 부재·configured owner 불일치·조회 실패는 seed를 중단한다. */
+    /** 시드 REST 호출 owner resolve — WS approval과 동일 해소(자동연결 포함). 비해소 시 seed 중단. */
     private fun resolveSeedUserId(): String? {
-        val credentialOwnerId = wsTransport.resolvedCredentialOwnerId
-        if (credentialOwnerId.isBlank()) return null
+        val credentialOwnerId = resolveWsCredentialOwnerId()
+        if (credentialOwnerId.isNullOrBlank()) return null
         val repo = credentialRepositoryProvider.ifAvailable ?: return null
         return try {
             repo
@@ -2636,11 +2636,11 @@ class KisWebSocketBridge(
      * @return approval_key 문자열. 자격증명 미등록·user-id 미설정 시 null 반환.
      */
     private fun getApprovalKey(): String? {
-        val credentialOwnerId = wsTransport.resolvedCredentialOwnerId
-        if (credentialOwnerId.isBlank()) {
+        val credentialOwnerId = resolveWsCredentialOwnerId()
+        if (credentialOwnerId.isNullOrBlank()) {
             log.warn(
-                "KIS WS credential-owner-id 미설정 — approval_key 발급 불가. " +
-                    "SetupWizard에서 REAL 자격증명 등록 후 재부팅하세요.",
+                "KIS WS credential-owner-id 미해소 — approval_key 발급 불가. " +
+                    "SetupWizard에서 REAL 자격증명을 등록하세요(등록된 REAL 키가 1개면 자동 연결됩니다).",
             )
             return null
         }
@@ -2650,13 +2650,62 @@ class KisWebSocketBridge(
         } catch (e: IllegalStateException) {
             log.warn(
                 "KIS WS approval_key 발급 불가 — REAL 자격증명 미등록 " +
-                    "(SetupWizard에서 REAL KIS 키 등록 후 재부팅 필요 — KIS 표준: You have to restart your app!!!): " +
+                    "(SetupWizard에서 REAL KIS 키 등록 필요 — KIS 표준: You have to restart your app!!!): " +
                     "userId={}",
                 maskUserId(credentialOwnerId),
             )
             null
         } catch (e: Exception) {
             log.error("KIS WS approval_key 발급 실패: userId={} type={}", maskUserId(credentialOwnerId), e.javaClass.simpleName)
+            null
+        }
+    }
+
+    /**
+     * WS 시세 credential owner 해소 (감사 2026-09-19 §5 B — env 의존 제거).
+     *
+     * 시세 approval_key는 모드와 무관하게 **항상 REAL credential**로 발급한다(사용자 제약).
+     * 해소 우선순위:
+     *  1. env 명시 설정(magicjar.kis.ws.credential-owner-id / user-id) — 있으면 그대로 존중(exact-match).
+     *  2. env 미설정(blank) → 등록된 REAL credential이 **정확히 1개일 때만** 그 userId 자동 사용.
+     *     - 단일 사용자 시스템에서 온보딩만으로 시세가 자동 연결되게 함("키 넣었는데 시세 안 옴" 해소).
+     *  3. REAL credential이 0개 또는 2개 이상(모호) → null 반환(기존처럼 안전 skip).
+     *     - 2개 이상에서 임의 선택은 타 계정 세션 위험이므로 금지(KisApprovalAdapter exact-match 정책 정합).
+     *
+     * @return 해소된 REAL credential owner userId. 미설정+비유일 시 null.
+     */
+    private fun resolveWsCredentialOwnerId(): String? {
+        val configured = wsTransport.resolvedCredentialOwnerId
+        if (configured.isNotBlank()) return configured
+
+        // env 미설정 — 등록된 REAL credential이 유일하면 자동 연결.
+        val repo = credentialRepositoryProvider.ifAvailable ?: return null
+        return try {
+            val realUserIds =
+                repo
+                    .findAllByAccountType("REAL")
+                    .map { it.id.userId }
+                    .distinct()
+            when (realUserIds.size) {
+                1 -> {
+                    log.info(
+                        "KIS WS credential-owner-id 자동 연결 — 등록된 유일 REAL credential 사용: userId={}",
+                        maskUserId(realUserIds.first()),
+                    )
+                    realUserIds.first()
+                }
+                0 -> null
+                else -> {
+                    log.warn(
+                        "KIS WS credential-owner-id 자동 연결 불가 — REAL credential {}개(모호). " +
+                            "magicjar.kis.ws.credential-owner-id를 명시 설정하세요.",
+                        realUserIds.size,
+                    )
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            log.warn("KIS WS credential-owner-id 자동 연결 조회 실패: type={}", e.javaClass.simpleName)
             null
         }
     }
