@@ -3,6 +3,7 @@ package kr.spdaewoon.magicjar.consumer.order
 import kr.spdaewoon.magicjar.domain.order.execution.DenyReason
 import kr.spdaewoon.magicjar.domain.order.execution.OrderResult
 import kr.spdaewoon.magicjar.domain.order.execution.TradingMode
+import kr.spdaewoon.magicjar.domain.order.execution.port.ActiveTradingModePort
 import kr.spdaewoon.magicjar.domain.order.execution.port.RealTradingConsentPort
 import kr.spdaewoon.magicjar.domain.order.execution.port.TradingModeGate
 import kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
@@ -41,6 +42,7 @@ import org.springframework.stereotype.Component
 @Component
 class TradingModeGateImpl(
     private val realTradingConsentPortProvider: ObjectProvider<RealTradingConsentPort>,
+    private val activeTradingModePortProvider: ObjectProvider<ActiveTradingModePort>,
     @Value("\${magicjar.mode:MOCK}")
     private val magicjarMode: String,
     @Value("\${magicjar.allow-real:false}")
@@ -63,13 +65,14 @@ class TradingModeGateImpl(
             return OrderResult.Right(TradingMode.MOCK)
         }
 
-        // 조건 1: env mode가 REAL이 아니면 → MOCK 강제 (안전 default — §14-3)
+        // 조건 1: env mode가 REAL이 아니면 → MOCK 강제 (안전 상한 — §14-3).
+        // env 상한이 MOCK이면 DB active_trading_mode 와 무관하게 무조건 MOCK (상한이 절대 · 자본 사고 방지).
         if (!RuntimeModeParser.isRealMode(magicjarMode)) {
             log.debug("TradingModeGate MOCK fallback: userId={} env.mode={}", userId, magicjarMode)
             return OrderResult.Right(TradingMode.MOCK)
         }
 
-        // 조건 2: ALLOW_REAL flag 필수
+        // 조건 2: ALLOW_REAL flag 필수 (env 상한 이중 잠금)
         if (!RuntimeModeParser.allowReal(magicjarAllowReal)) {
             log.warn(
                 "TradingModeGate REJECTED — MAGICJAR_ALLOW_REAL=false: userId={}",
@@ -101,7 +104,22 @@ class TradingModeGateImpl(
             return OrderResult.Left(DenyReason.RealGateDenied("CONSENT_NOT_GIVEN"))
         }
 
-        log.info("TradingModeGate ALLOWED REAL: userId={} consentAt={}", userId, consentAt)
+        // 조건 4 (감사 2026-09-19 §5 A): env REAL 상한이 모두 열린 뒤, DB 활성 모드가 최종 스위치.
+        // DB active_trading_mode=MOCK 이면 사용자가 (재기동 없이) MOCK 으로 내린 것 → MOCK 존중.
+        // DB=REAL 일 때만 REAL 진입. 즉 min(env 상한=REAL, DB 활성모드).
+        // 이 스위치는 상한을 "넘어" REAL 을 열지 못한다 — 상한이 MOCK이면 조건 1에서 이미 차단됨.
+        // 포트 미합류/조회 실패는 어댑터가 MOCK fail-closed 로 반환 → 안전.
+        val activeModePort = activeTradingModePortProvider.getIfAvailable()
+        val dbActiveMode = activeModePort?.activeMode() ?: TradingMode.MOCK
+        if (dbActiveMode != TradingMode.REAL) {
+            log.info(
+                "TradingModeGate DB 활성모드=MOCK — REAL 상한 열렸으나 MOCK 존중(재기동 없는 전환): userId={}",
+                userId,
+            )
+            return OrderResult.Right(TradingMode.MOCK)
+        }
+
+        log.info("TradingModeGate ALLOWED REAL: userId={} consentAt={} dbActiveMode=REAL", userId, consentAt)
         return OrderResult.Right(TradingMode.REAL)
     }
 }
