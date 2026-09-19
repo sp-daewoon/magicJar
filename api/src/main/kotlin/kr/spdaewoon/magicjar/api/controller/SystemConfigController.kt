@@ -66,6 +66,35 @@ class SystemConfigController(
     fun getSystemConfig(): SystemConfigResponse = onboardingService.getSystemConfig()
 
     @Operation(
+        summary = "활성 주문 모드 변경 (재기동 없는 MOCK/REAL 전환)",
+        description =
+            "주문 경로의 활성 모드를 REAL 또는 MOCK로 전환합니다(감사 2026-09-19 §5). " +
+                "시세/차트/지표는 이와 무관하게 항상 REAL로 조회됩니다. " +
+                "MOCK 전환은 항상 허용됩니다. REAL 전환은 env 상한(MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=true)과 " +
+                "사용자 실거래 동의가 모두 충족될 때만 허용되며, 하나라도 미충족 시 412를 반환합니다. " +
+                "저장 후에도 실 REAL 주문은 TradingModeGate 3중 게이트를 다시 통과해야 합니다(이중 방어).",
+    )
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "변경 성공 — 적용된 활성 모드 반환"),
+        ApiResponse(
+            responseCode = "400",
+            description = "mode 값 오류 (REAL/MOCK 외)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+        ApiResponse(
+            responseCode = "412",
+            description = "REAL 전환 조건 미충족 (env 상한 잠금 또는 동의 미완)",
+            content = [Content(schema = Schema(implementation = ErrorResponse::class))],
+        ),
+    )
+    @PutMapping("/trading-mode")
+    fun updateTradingMode(
+        @Parameter(description = "활성 주문 모드 변경 요청 (REAL/MOCK)")
+        @Valid
+        @RequestBody request: TradingModeUpdateRequest,
+    ): TradingModeUpdateResponse = onboardingService.updateActiveTradingMode(request.mode)
+
+    @Operation(
         summary = "KillSwitch 현재 상태 조회",
         description =
             "KillSwitch enabled/reason/updatedAt/updatedBy를 반환합니다. " +

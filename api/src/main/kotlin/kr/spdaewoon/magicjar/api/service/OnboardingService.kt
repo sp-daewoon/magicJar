@@ -10,6 +10,7 @@ import kr.spdaewoon.magicjar.api.controller.OnboardingCompleteResponse
 import kr.spdaewoon.magicjar.api.controller.OnboardingStatus
 import kr.spdaewoon.magicjar.api.controller.SystemConfigRequest
 import kr.spdaewoon.magicjar.api.controller.SystemConfigResponse
+import kr.spdaewoon.magicjar.api.controller.TradingModeUpdateResponse
 import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaEntity
 import kr.spdaewoon.magicjar.api.persistence.AuditTrailJpaRepository
 import kr.spdaewoon.magicjar.api.persistence.UserAccountJpaEntity
@@ -54,6 +55,10 @@ class OnboardingService(
     private val aesGcmCipher: AesGcmCipher,
     private val eventPublisher: ApplicationEventPublisher,
     private val webClient: WebClient,
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.mode:MOCK}")
+    private val magicjarMode: String = "MOCK",
+    @org.springframework.beans.factory.annotation.Value("\${magicjar.allow-real:false}")
+    private val magicjarAllowReal: String = "false",
 ) {
     private val log = LoggerFactory.getLogger(OnboardingService::class.java)
 
@@ -106,6 +111,7 @@ class OnboardingService(
             dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
             slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
             realtimeFallbackBuyEnabled = config.realtimeFallbackBuyEnabled,
+            activeTradingMode = config.activeTradingMode,
             updatedAt = config.updatedAt,
         )
     }
@@ -369,8 +375,89 @@ class OnboardingService(
             dartApiKey = decryptSystemConfigValue(config.dartApiKey, "dart_api_key"),
             slackWebhookUrl = decryptSystemConfigValue(config.notificationSlackWebhook, "notification_slack_webhook"),
             realtimeFallbackBuyEnabled = config.realtimeFallbackBuyEnabled,
+            activeTradingMode = config.activeTradingMode,
             updatedAt = now,
         )
+    }
+
+    /**
+     * 활성 주문 모드 변경 (감사 2026-09-19 §5 A·C) — 재기동 없는 MOCK↔REAL 전환.
+     *
+     * 시세는 이와 무관하게 항상 REAL. 이 값은 주문 경로(TradingModeGate)에만 영향.
+     *
+     * ### 안전 (자본 사고 방지)
+     * - MOCK 으로의 변경은 항상 허용(안전 방향).
+     * - REAL 로의 변경은 env 상한(MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=true) + 사용자 동의가
+     *   모두 충족될 때만 허용. 하나라도 미충족 → 412 거부(DB에 REAL 못 박는 상태 혼선 방지).
+     * - 저장 후에도 실 REAL 주문은 TradingModeGate 3중 게이트를 다시 통과해야 함(이중 방어).
+     */
+    @Transactional
+    fun updateActiveTradingMode(mode: String): TradingModeUpdateResponse {
+        val normalized = mode.trim().uppercase()
+        if (normalized != "REAL" && normalized != "MOCK") {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                """{"code":"INVALID_MODE","message":"mode는 REAL 또는 MOCK여야 합니다"}""",
+            )
+        }
+
+        // REAL 승격은 env 상한 + 사용자 동의 검사 (MOCK 은 항상 허용).
+        if (normalized == "REAL") {
+            if (!kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+                    .isRealMode(magicjarMode)
+            ) {
+                throw ResponseStatusException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    """{"code":"REAL_MODE_LOCKED","message":"실거래 모드가 서버에서 잠겨 있습니다(MAGICJAR_MODE)"}""",
+                )
+            }
+            if (!kr.spdaewoon.magicjar.domain.runtime.RuntimeModeParser
+                    .allowReal(magicjarAllowReal)
+            ) {
+                throw ResponseStatusException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    """{"code":"ALLOW_REAL_LOCKED","message":"실거래 허용 플래그가 꺼져 있습니다(MAGICJAR_ALLOW_REAL)"}""",
+                )
+            }
+            val hasConsent =
+                userAccountJpaRepository
+                    .findFirstUserIds(PageRequest.of(0, 1))
+                    .firstOrNull()
+                    ?.let { userAccountJpaRepository.findById(it).orElse(null)?.realTradingConsentAt != null }
+                    ?: false
+            if (!hasConsent) {
+                throw ResponseStatusException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    """{"code":"CONSENT_REQUIRED","message":"실거래 동의 후 REAL 모드로 전환할 수 있습니다"}""",
+                )
+            }
+        }
+
+        val config =
+            systemConfigJpaRepository.findSingleton()
+                ?: throw ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    """{"code":"SYSTEM_CONFIG_NOT_FOUND","message":"시스템 설정을 찾을 수 없습니다"}""",
+                )
+
+        val now = Instant.now()
+        config.activeTradingMode = normalized
+        config.updatedAt = now
+        systemConfigJpaRepository.save(config)
+
+        auditTrailJpaRepository.save(
+            AuditTrailJpaEntity(
+                actor = AUDIT_ACTOR,
+                action = "ACTIVE_TRADING_MODE_CHANGED",
+                entityType = "system_config",
+                entityId = "1",
+                detailJson = """{"activeTradingMode":"$normalized"}""",
+                occurredAt = now,
+            ),
+        )
+        log.info("활성 주문 모드 변경 — mode={}", normalized)
+
+        return TradingModeUpdateResponse(activeTradingMode = normalized, updatedAt = now)
     }
 
     private fun decryptSystemConfigValue(

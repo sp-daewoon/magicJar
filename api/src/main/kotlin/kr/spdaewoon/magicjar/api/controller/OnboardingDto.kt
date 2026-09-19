@@ -180,7 +180,45 @@ data class SystemConfigResponse(
     val slackWebhookUrl: String? = null,
     @Schema(description = "fallback source candle 신규 BUY 허용 여부", example = "true")
     val realtimeFallbackBuyEnabled: Boolean = true,
+    @Schema(
+        description = "활성 주문 모드 (REAL·MOCK — DB 단일 권위, 재기동 없이 전환). 시세는 이와 무관하게 항상 REAL.",
+        example = "MOCK",
+        allowableValues = ["REAL", "MOCK"],
+    )
+    val activeTradingMode: String = "MOCK",
     @Schema(description = "갱신 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
+    val updatedAt: Instant,
+)
+
+// ─── PUT /api/system-config/trading-mode ─────────────────────────────────────
+
+/**
+ * 활성 주문 모드 변경 요청 (감사 2026-09-19 §5 A·C).
+ *
+ * 재기동 없이 MOCK↔REAL 주문 모드를 전환하는 창구. 시세는 이와 무관하게 항상 REAL.
+ *
+ * ### 안전 (자본 사고 방지)
+ * - MOCK 으로의 변경은 항상 허용(안전 방향).
+ * - REAL 로의 변경은 env 상한(MAGICJAR_MODE=REAL + MAGICJAR_ALLOW_REAL=true) + 사용자 동의가
+ *   모두 충족될 때만 허용. 하나라도 미충족 시 412 거부(DB에 REAL 못 박는 상태 혼선 방지).
+ * - 저장 후에도 실제 REAL 주문은 TradingModeGate 3중 게이트를 다시 통과해야 한다(이중 방어).
+ */
+@Schema(description = "활성 주문 모드 변경 요청")
+data class TradingModeUpdateRequest(
+    @field:NotBlank
+    @field:Pattern(regexp = "^(REAL|MOCK)$", message = "mode는 REAL 또는 MOCK여야 합니다")
+    @Schema(description = "전환할 주문 모드", example = "REAL", allowableValues = ["REAL", "MOCK"])
+    val mode: String,
+)
+
+/**
+ * 활성 주문 모드 변경 응답.
+ */
+@Schema(description = "활성 주문 모드 변경 결과")
+data class TradingModeUpdateResponse(
+    @Schema(description = "적용된 활성 주문 모드", example = "REAL", allowableValues = ["REAL", "MOCK"])
+    val activeTradingMode: String,
+    @Schema(description = "변경 시각 (UTC ISO-8601)", example = "2026-05-07T10:23:45.123Z")
     val updatedAt: Instant,
 )
 
