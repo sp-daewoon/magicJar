@@ -184,6 +184,18 @@ class StrategyResearchService(
             stats = stats.toDto(),
             trades = trades.map { it.toDto() },
             score = score,
+            confidence =
+                confidence?.let { c ->
+                    StrategyResearchConfidenceDto(
+                        verdict = c.verdict.name,
+                        passed = c.passed,
+                        failReasons = c.failReasons.map { it.name },
+                        winRatePct = c.winRatePct,
+                        avgTradeReturnPct = c.avgTradeReturnPct,
+                        maxDrawdownPct = c.maxDrawdownPct,
+                        trades = c.trades,
+                    )
+                },
         )
 
     private fun StrategyResearchStats.toDto(): StrategyResearchStatsDto =
