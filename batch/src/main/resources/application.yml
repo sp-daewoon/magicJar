@@ -38,7 +38,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info, metrics, prometheus, loggers, env
+        include: health, info, metrics, prometheus, loggers, env, instrumentSync
   endpoint:
     health:
       show-details: always
