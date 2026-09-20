@@ -1,0 +1,86 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>magicJar devlog · 2026-09-20</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{--brown:#5b3a1f;--paper:#fff8ed;--line:#d8d4c8;--muted:#666}
+body{font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",sans-serif;background:#fafaf7;color:#222;max-width:960px;margin:0 auto;padding:40px 24px 80px;line-height:1.6}
+h1{color:var(--brown);border-bottom:2px solid var(--brown);padding-bottom:10px}
+h2{color:var(--brown);margin-top:36px;border-left:4px solid var(--brown);padding-left:10px;font-size:1.15rem}
+.meta{color:var(--muted);font-size:.9rem;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.86rem;background:#fff}
+th{background:var(--paper);color:var(--brown);text-align:left;padding:8px 10px;border:1px solid var(--line)}
+td{padding:7px 10px;border:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#fffdf7}
+code{background:#f3efe6;padding:1px 5px;border-radius:3px;font-size:.82em}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.74rem;font-weight:600;vertical-align:1px}
+.b-ok{background:#e3f4e3;color:#1d6b2f}.b-warn{background:#fdf3d0;color:#8a6d00}.b-pending{background:#e3edfa;color:#1d4f8f}.b-todo{background:#fbe3ef;color:#a01a5e}.b-mute{background:#eee;color:#666}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:12px 0}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:.88rem}
+.card b{color:var(--brown)}
+ul{margin:6px 0;padding-left:20px}li{margin:3px 0;font-size:.9rem}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);color:#888;font-size:.82rem}
+</style></head><body>
+
+<h1>2026-09-20 (일) — 차트 데이터 정합성 근원 수술: 관리 유니버스 축소 + clean-reset + 일봉 완주 자동화</h1>
+<div class="meta">세션 범위 2026-09-20(일) 17:00 ~ 09-21(월) 00:30 KST · ADR 0143 · V103 · PR #1232·#1233 · 전 세션 KiroCrew(kiro-cli 아님)</div>
+
+<div class="grid">
+<div class="card"><b>계기</b><br/>사용자 지적 — "전종목 차트 가격 데이터 오염, 정합성 안 맞는데 서비스 불가". 감사 <code>2026-09-17-chart-data-integrity-audit</code>(5.2/10) 근원 재확인</div>
+<div class="card"><b>유니버스 축소</b><br/>3,610종목 → <b>대·중형 687</b> (KIS avls_scale∈{1,2}). 소형·SPAC·저유동성 제외, 온디맨드 편입로만 합류</div>
+<div class="card"><b>일봉 완주</b><br/><b>687/687 100%</b> · 약 140만 candle 행 · auto-runner가 remaining=0까지 자동 이어받기 실증</div>
+<div class="card"><b>머지 PR 2건</b><br/>#1232(유니버스 축소) · #1233(완주 자동화+actuator) — 전부 --rebase</div>
+</div>
+
+<h2>① 인과 — 왜 이 작업을 했나</h2>
+<ul>
+<li>감사 §0 결론: "데이터가 오염돼 못 한 게 아니라, 캔들 단일 진실원을 못 확보한 채 기능을 얹어 최종값이 실행 순서에 의존. 오염은 증상." 진실원 6단·writer 8경로·DO NOTHING/UPDATE 혼재.</li>
+<li>사용자 방향: 전종목 관리가 오염 갱신·TPS·계산량을 키운다 → <b>관리 대상을 대·중형으로 좁히고</b>, 필요한 소형주는 온디맨드로만 편입.</li>
+<li>DailyCloseFinalizer가 <code>insertIgnore</code>(DO NOTHING)로 공식 마감가(priority 1)를 쓰던 역전 결함도 확인(진행값이 확정가를 못 덮게 되려 반대로 작동).</li>
+</ul>
+
+<h2>② 머지 PR 매트릭스 (2건)</h2>
+<table>
+<tr><th>PR</th><th>제목</th><th>트랙</th><th>비고</th></tr>
+<tr><td>#1232</td><td>관리 유니버스 축소 — 대·중형 온보딩 필터 + 온디맨드 편입</td><td>ADR 0143</td><td>V103 managed_manual · InstrumentSyncJob 필터 · admit endpoint <span class="badge b-ok">머지</span></td></tr>
+<tr><td>#1233</td><td>일봉 backfill 완주 자동 오퍼레이션 + acquire timeout 하드닝 + 종목마스터 sync actuator 트리거</td><td>ADR 0143</td><td>AutoRunner · MARKET_DATA · timeout 5s→60s · InstrumentSyncEndpoint <span class="badge b-ok">머지·배포</span></td></tr>
+</table>
+<p>circuit-breaker(ADR 0037 Phase 3, <a>PR #1231</a>)는 세션 초반 별건으로 분리 처리. #1232는 circuit-breaker 커밋 혼입을 main에서 재분리해 clean 발행.</p>
+
+<h2>③ PostgreSQL 변경</h2>
+<table>
+<tr><th>Flyway</th><th>내용</th></tr>
+<tr><td><code>V103</code></td><td>instrument.managed_manual BOOLEAN (add-only) — 온디맨드 편입 플래그. 대·중형은 avls_scale 파생 판정이라 무관, 편입 종목만 true</td></tr>
+</table>
+<p><b>clean-reset 실행</b>: instrument 3,610 + candle 1,133만 + strategy 51(+자식) wipe → 대·중형 재적재. 백업 <code>_backups/db/</code>(candle 제외 slim 12MB, gitignore). 미청산 보유 0건 실측이라 청산 대상 없음.</p>
+
+<h2>④ 완주 자동화 — cap 절대값 종료의 3대 공백 보강</h2>
+<p>사용자 지적: "6000콜 절대값에서 자르고 마는 건, 완주 보장·실패 알람 오퍼레이션이 없으면 정합성 서비스가 아니다." → <code>MarketDailyBackfillAutoRunner</code>(@Scheduled 5분)로 보강.</p>
+<ul>
+<li><b>자동 재시도 트리거</b> — CAP_REACHED 시 다음 tick이 자동 이어받기 (사람 run 반복 불필요)</li>
+<li><b>완주 판정</b> — remaining=0/COMPLETED → <code>SystemEventCategory.MARKET_DATA</code> INFO emit + idle</li>
+<li><b>정체 알람</b> — 3회 연속 진행 0 → WARN emit + 자동 재시도 중단(KIS 무한 타격 방지), /system 가시화, resumeAfterStall() 수동 재개</li>
+<li><b>실증</b>: 23:51 첫 tick에서 <code>status=COMPLETED remaining=0</code> — 남은 2종목(KIS 일시 status=500)까지 자동 완주.</li>
+</ul>
+
+<h2>⑤ 성능 — backfill 병목 진단·해소</h2>
+<ul>
+<li>초기 배치 12종목·실패 67%. 원인: KIS 일봉 endpoint <b>100건/호출</b> 페이지네이션 × BG버킷 <b>초당 2토큰</b> + 버킷 합 불일치(12≠capacity10 → 단일버킷 fallback) → acquire timeout(우리 rate-limiter 자체 실패, KIS 아님).</li>
+<li>해소: 매매 트래픽 0 구간에 env <b>BG8 + concurrency8 + capacity16</b>(합 정합) + <b>acquire timeout 5s→60s</b>(경합 시 실패 대신 대기, gap 원천 차단).</li>
+<li>효과: 배치당 12 → <b>225~270종목</b>, 실패율 67% → &lt;1%. env는 미커밋(운영 튜닝), 완주 후 원복 예정.</li>
+</ul>
+
+<h2>⑥ 수집 유니버스 검증 (임의 종목 수집 0 확인)</h2>
+<ul>
+<li><b>일봉</b>: MarketDailyUniverseProvider가 instrument 테이블 보통주(ST) 직접 쿼리 = 대·중형 687만. 하드코딩 리스트 0.</li>
+<li><b>분봉</b>: 전종목 아님 — active-strategy·watchlist·차트진입 온디맨드만(ADR 0119가 전종목 1m storm 폐지). 전략 편입 시 그 종목만 warmup+WS집계 → DSL 평가.</li>
+<li>현재 전략·watchlist 0이라 실시간 WS 수집 대상 0 확인.</li>
+</ul>
+
+<h2>⑦ 미결 (backlog)</h2>
+<ul>
+<li>온디맨드 편입 <b>검색 KIS 폴백</b> — 현재 admit은 로컬 보유 종목만. 검색 미스→KIS 단건 조회 흐름 후속 PR</li>
+<li>중간 gap 정합성 체크 — isSymbolComplete는 recency+rows 기반, 중간 결측 미검출 가능. 봉 연속성 검증 후속</li>
+<li>env 튜닝(BG8 등) 원복 — 매매 재개 전 BG3 복귀 검토</li>
+<li>DailyCloseFinalizer insertIgnore→arbiter precedence 전환 (감사 P0-A 잔여)</li>
+</ul>
+
+<footer>KiroCrew 세션(kiro-cli 아님) · 호스트 메모리 TIGHT 지속(2.8~3.8GB) — 타겟 컴파일·직렬 진행. docker 배포는 앱 샌드박스 TCC 제약으로 사용자 터미널 실행. ADR 0143 Accepted·구현 완료 기록·README 인덱스 등재 완료.</footer>
+</body></html>

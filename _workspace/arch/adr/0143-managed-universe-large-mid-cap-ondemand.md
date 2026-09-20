@@ -89,3 +89,16 @@ val kisRaws = kisAdapter.fetchAllRaw()
 ## 10. 변경 이력
 
 - 2026-09-20: 신설(Proposed). 관리 유니버스 = 대·중형 + 온디맨드 + 보유. 온보딩 필터 + 온디맨드 편입 + clean-reset 절차 LOCK. 착수 전 결재 대기.
+- 2026-09-20: **Accepted** (사용자 결재 3건 승인). PR #1232 — V103 `managed_manual` + InstrumentSyncJob 대·중형 필터 + admit endpoint 머지.
+- 2026-09-20: **clean-reset 실행 완료** (§6). instrument·strategy·candle wipe(백업 `_backups/db/`) → consumer 재적재. 실측 미청산 보유 0건이라 청산 대상 없음.
+- 2026-09-21: **재온보딩 + 완주 자동화 구현** (PR #1233).
+  - `InstrumentSyncEndpoint`(batch actuator `POST /actuator/instrumentSync`) — 영업일 게이트 우회 재온보딩. 대·중형 694 적재.
+  - **자동 완주 오퍼레이션** `MarketDailyBackfillAutoRunner`(@Scheduled 5분) — cap(6000콜) 절대값 종료의 3대 공백 보강: (1) 자동 재시도 트리거 (2) 완주 판정(remaining=0 → MARKET_DATA INFO) (3) 정체 알람(3회 진행0 → WARN + 자동 재시도 중단). "cap으로 자르고 마는 건 정합성 서비스가 아니다"(사용자) 해소.
+  - `KisRestCandleAdapter` BACKFILL acquire timeout 5s→60s (4곳) — 토큰 경합 시 실패(중간 gap 유발) 대신 대기.
+  - `SystemEventCategory.MARKET_DATA` 신규.
+  - **결과: 대·중형 687종목 1d 일봉 100% 완주** (auto-runner가 remaining=0까지 자동 이어받기 실증). BG버킷·동시성·cap은 env 튜닝(매매 0 구간 BG8+concurrency8).
+
+## 11. 후속 (backlog)
+- 온디맨드 편입의 **검색 KIS 폴백** — 현재 admit은 로컬 보유 종목만. 검색 미스 시 KIS 단건 조회로 존재 확인하는 흐름은 후속 PR.
+- 중간 gap 정합성 체크 — `isSymbolComplete`는 recency+rows 기반이라 중간 결측은 못 잡을 수 있음. 봉 연속성 검증 후속.
+- auto-runner 정체 중단(`stalledStop`) 수동 재개 admin endpoint 노출(현재 `resumeAfterStall()` 메서드만).
