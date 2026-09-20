@@ -104,8 +104,16 @@ class BatchKisRateLimiterConfiguration {
     @Bean
     fun batchKisRateLimiterPort(
         batchKisRateLimitProxyManager: ProxyManager<String>,
+        batchKisRateLimitRedisConnection: StatefulRedisConnection<String, ByteArray>,
         props: BatchKisRateLimitProperties,
         @Autowired(required = false) systemEventLogger: SystemEventLogger?,
         @Autowired(required = false) meterRegistry: MeterRegistry?,
-    ): KisRateLimiterPort = BatchRedisKisRateLimiterAdapter(batchKisRateLimitProxyManager, props, systemEventLogger, meterRegistry)
+    ): KisRateLimiterPort =
+        BatchRedisKisRateLimiterAdapter(
+            batchKisRateLimitProxyManager,
+            props,
+            systemEventLogger,
+            meterRegistry,
+            batchKisRateLimitRedisConnection,
+        )
 }
