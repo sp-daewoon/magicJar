@@ -505,7 +505,7 @@ class KisRestCandleAdapter(
         var acquired = false
         try {
             // §5-1 LOCK — BACKFILL(BG) 버킷 고정. USER_PATH·INGESTION 절대 침범 0.
-            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = TR_ID_DAILY)
+            kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 60_000L, trId = TR_ID_DAILY)
             acquired = true
             val body =
                 webClient
@@ -802,7 +802,7 @@ class KisRestCandleAdapter(
             try {
                 // ADR 0132 §D2-3 — backtest 선수집은 BACKFILL(최저) 로 라이브 매매·warmup 쿼터 침범 0.
                 // USER_PATH(SymbolDetail) 는 즉시성 위해 짧은 timeout, BACKFILL 은 라이브 양보 위해 긴 timeout.
-                val acquireTimeout = if (priority == KisCallPriority.BACKFILL) 5000L else 3000L
+                val acquireTimeout = if (priority == KisCallPriority.BACKFILL) 60_000L else 3000L
                 kisRateLimiterPort.acquire(priority, timeoutMillis = acquireTimeout, trId = TR_ID_1MIN)
                 acquired = true
 
@@ -999,7 +999,7 @@ class KisRestCandleAdapter(
                     try {
                         // Rate Limit acquire (spec PR #564 §2-2 LOCK — BACKFILL priority)
                         // ADR 0037 초당 10건 한도. 1m 페이지네이션 backfill path → BACKFILL 우선순위
-                        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = TR_ID_1MIN)
+                        kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 60_000L, trId = TR_ID_1MIN)
                         pageAcquired = true
 
                         val body =
@@ -1139,7 +1139,7 @@ class KisRestCandleAdapter(
                                 var retryAcquired = false
                                 try {
                                     // Rate Limit acquire 재진입 (spec PR #564 §2-2 — retry path BACKFILL)
-                                    kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 5000L, trId = TR_ID_1MIN)
+                                    kisRateLimiterPort.acquire(KisCallPriority.BACKFILL, timeoutMillis = 60_000L, trId = TR_ID_1MIN)
                                     retryAcquired = true
                                     val retryBody =
                                         webClient
