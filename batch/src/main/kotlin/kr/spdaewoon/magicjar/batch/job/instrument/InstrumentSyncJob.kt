@@ -62,6 +62,9 @@ class InstrumentSyncJob(
         private val SYNC_LAST_AT_KEY = RedisKeyRegistry.Instrument.syncLastAt()
         private const val SYNC_LOCK_TTL_SECONDS = 600L
         private const val KAFKA_TOPIC = KafkaTopics.Data.INSTRUMENT_UPDATED
+
+        /** ADR 0143 — 관리 유니버스 대·중형 KIS 시총규모 등급(avls_scal_cls_code). 1=대(KOSPI)/KOSDAQ100, 2=중/KOSDAQmid300. */
+        private val ADMITTED_SCALES = setOf("1", "2")
     }
 
     /**
@@ -106,8 +109,21 @@ class InstrumentSyncJob(
         // 2. KIS fetch — PR-21a: raw 70+ 필드 fetch
         val kisRaws: List<KisInstrumentRaw>
         try {
-            kisRaws = kisAdapter.fetchAllRaw()
-            log.info("[instrument-sync] cron={} KIS raw fetch 완료 — {} 건", cronTag, kisRaws.size)
+            val fetched = kisAdapter.fetchAllRaw()
+            // ADR 0143 — 관리 유니버스 필터: 대·중형(avls_scale ∈ {1,2}) + 사용자 온디맨드 편입(managed_manual=true)만 수집.
+            // 대·중형 밖 미편입 종목은 애초에 upsert 대상에서 제외 → 유니버스 축소(3,610 → 대·중형+편입).
+            // 보유 종목(quantity>0)은 편입 플래그로 관리되므로 별도 분기 불필요(admit 시 managed_manual=true).
+            val admittedCodes = instrumentRepo.findManagedManualCodes().toHashSet()
+            kisRaws =
+                fetched.filter { raw ->
+                    raw.avlsScale in ADMITTED_SCALES || admittedCodes.contains(raw.code)
+                }
+            log.info(
+                "[instrument-sync] cron={} KIS raw fetch 완료 — 전체 {} 건 → 관리 유니버스 필터(대·중형+편입) {} 건",
+                cronTag,
+                fetched.size,
+                kisRaws.size,
+            )
         } catch (e: Exception) {
             log.warn(
                 "[instrument-sync] cron={} KIS fetch 실패 — 시드 fallback 유지. err={}",

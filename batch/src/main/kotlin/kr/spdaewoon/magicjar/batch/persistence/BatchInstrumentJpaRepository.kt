@@ -28,6 +28,13 @@ interface BatchInstrumentJpaRepository : JpaRepository<BatchInstrumentJpaEntity,
     fun countByActiveTrue(): Long
 
     /**
+     * ADR 0143 — 사용자 온디맨드 편입 종목 코드 (managed_manual=true).
+     * 온보딩 필터에서 대·중형 밖이라도 편입 종목은 수집 대상으로 유지하기 위한 예외 목록.
+     */
+    @Query(value = "SELECT code FROM instrument WHERE managed_manual = true", nativeQuery = true)
+    fun findManagedManualCodes(): List<String>
+
+    /**
      * ON CONFLICT upsert — 종목 마스터 INSERT 또는 UPDATE.
      * PR-21a: 70+ 필드 전체 매핑 (Tier 1·2·3·4).
      * DELIST 시 active=false, delisted_at=today — 다른 필드 변경 0 (감사 가능성 보전).

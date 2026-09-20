@@ -57,6 +57,9 @@ class InstrumentSyncJobTest {
         every { redisTemplate.keys(any()) } returns emptySet()
         every { valueOps.set(any(), any(), any<Duration>()) } returns Unit
 
+        // ADR 0143 — 관리 유니버스 필터의 편입 예외 목록 stub (default 빈 목록)
+        every { instrumentRepo.findManagedManualCodes() } returns emptyList()
+
         // ADR 0090 Phase 1 — status history repo mock (active row 부재 default — INSERT만 호출)
         every { statusHistoryRepo.findActiveByCode(any()) } returns null
         every { statusHistoryRepo.closeActiveStatus(any(), any()) } returns 1
@@ -213,8 +216,114 @@ class InstrumentSyncJobTest {
         verify(exactly = 0) { instrumentRepo.markDelisted(any(), any()) }
     }
 
-    // ─── Helper ──────────────────────────────────────────────────────────
+    @Test
+    fun `ADR 0143 — 대·중형만 통과 + 소형 제외 + 편입 종목 예외`() {
+        // given: 대형(1)·중형(2)·소형(3) 각 1건 + 소형이지만 편입된 종목 1건
+        val kisRaws =
+            listOf(
+                makeRaw("005930", "삼성전자", InstrumentMarket.KOSPI, avlsScaleValue = "1"), // 대형 → 통과
+                makeRaw("035720", "카카오", InstrumentMarket.KOSPI, avlsScaleValue = "2"), // 중형 → 통과
+                makeRaw("004090", "한국석유", InstrumentMarket.KOSPI, avlsScaleValue = "3"), // 소형 → 제외
+                makeRaw("111111", "편입소형", InstrumentMarket.KOSDAQ, avlsScaleValue = "3"), // 소형이나 편입 → 통과
+            )
+        every { kisAdapter.fetchAllRaw() } returns kisRaws
+        every { instrumentRepo.findManagedManualCodes() } returns listOf("111111") // 편입 종목
+        every { instrumentRepo.findAllByActiveTrue() } returns emptyList()
+        every {
+            instrumentRepo.upsertFull(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+            )
+        } returns Unit
+        justRun { aliasRepo.upsert(any(), any(), any()) }
+        every { kafkaTemplate.send(any<String>(), any(), any()) } returns mockk { every { isDone } returns false }
 
+        // when
+        val result = job.run("test")
+
+        // then: 대형1 + 중형1 + 편입소형1 = 3건 통과, 소형(004090) 제외
+        assertEquals(3, result.fetched, "대·중형(2) + 편입 소형(1) = 3건만 관리 유니버스 통과 (소형 004090 제외)")
+        assertEquals(3, result.inserted, "3건 INSERT")
+    }
+
+    // ─── Helper ──────────────────────────────────────────────────────────
     private fun makeEntity(
         code: String,
         name: String,
@@ -233,6 +342,7 @@ class InstrumentSyncJobTest {
         code: String,
         name: String,
         market: InstrumentMarket,
+        avlsScaleValue: String? = "1", // ADR 0143 — default 대형(필터 통과). 소형 케이스는 "3" 지정.
     ) = KisInstrumentRaw(
         code = code,
         isin = null,
@@ -257,7 +367,7 @@ class InstrumentSyncJobTest {
         creditDays = null,
         marginRate = null,
         shortOverheatedStatus = "0",
-        avlsScale = null,
+        avlsScale = avlsScaleValue,
         industryLarge = null,
         industryMedium = null,
         industrySmall = null,
