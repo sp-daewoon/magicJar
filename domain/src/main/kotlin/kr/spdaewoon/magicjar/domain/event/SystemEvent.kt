@@ -56,6 +56,14 @@ enum class SystemEventCategory {
     /** P3 — Redis fail */
     REDIS,
 
+    /**
+     * P2 — 시세/캔들 데이터 파이프라인 (일봉 backfill 완주·정체·실패 알람).
+     *
+     * emit point: consumer `MarketDailyBackfillAutoRunner` — 완주(INFO)·재시도 소진 정체(WARN)·KIS 반복 실패(WARN).
+     * ADR 0143 자동 완주 오퍼레이션 — cap 절대값 종료가 아니라 remaining=0까지 자동 이어받기 + 정체 시 가시화.
+     */
+    MARKET_DATA,
+
     /** 확장용 — 향후 catalog 추가 시 임시 분류 */
     OTHER,
 }
