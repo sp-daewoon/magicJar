@@ -45,6 +45,22 @@ interface InstrumentJpaRepository :
     )
 
     /**
+     * ADR 0143 — 온디맨드 편입: managed_manual=true + active=true 로 관리 유니버스 합류.
+     * 대·중형 밖 종목이라도 사용자 확인 후 편입되면 온보딩 sync가 유지하고 수집·발굴 대상이 된다.
+     */
+    @Modifying
+    @Query(
+        """
+        UPDATE InstrumentJpaEntity i
+        SET i.managedManual = true, i.active = true, i.updatedAt = CURRENT_TIMESTAMP
+        WHERE i.code = :code
+        """,
+    )
+    fun markManagedManual(
+        @Param("code") code: String,
+    )
+
+    /**
      * JPQL fallback 검색 (pg_trgm 미가용 시 LIKE 기반).
      * name·nameNorm 부분 일치 + code prefix/contains 부분 일치.
      * 정규화: 공백·점 제거 + lowercase는 InstrumentSearchService에서 전처리.

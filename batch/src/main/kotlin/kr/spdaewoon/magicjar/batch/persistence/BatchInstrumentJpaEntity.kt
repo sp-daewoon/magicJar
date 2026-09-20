@@ -106,6 +106,8 @@ class BatchInstrumentJpaEntity(
     var kospi200Sector: String? = null, // kospi200_apnt_cls_code (KOSPI만)
     @Column(name = "avls_scale", length = 1)
     var avlsScale: String? = null, // avls_scal_cls_code
+    @Column(name = "managed_manual", nullable = false)
+    var managedManual: Boolean = false, // ADR 0143 — 사용자 온디맨드 편입 플래그
     @Column(name = "is_kospi100", nullable = false)
     var isKospi100: Boolean = false, // kospi100_issu_yn (KOSPI만)
     @Column(name = "is_kospi50", nullable = false)

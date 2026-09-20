@@ -437,6 +437,29 @@ class InstrumentController(
             "B" -> "커뮤니케이션"
             else -> null
         }
+
+    /**
+     * ADR 0143 — 온디맨드 편입. 관리 유니버스(대·중형) 밖 종목을 사용자 확인 후 관리 대상에 편입한다.
+     * managed_manual=true + active=true 로 마킹 → 온보딩 sync가 유지하고 수집·발굴 대상이 된다.
+     * (candle backfill 트리거는 후속 — 편입 직후 배경 워커가 대·중형과 동일 경로로 채운다.)
+     *
+     * 존재하지 않는 code(로컬 미보유)는 404 — 검색 시 KIS 폴백으로 존재 확인하는 흐름은 후속 PR.
+     */
+    @PostMapping("/{code}/admit")
+    @org.springframework.transaction.annotation.Transactional
+    fun admitInstrument(
+        @PathVariable code: String,
+    ): Map<String, Any> {
+        if (!instrumentJpaRepository.existsByCode(code)) {
+            throw org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "종목 없음: $code (검색 KIS 폴백은 후속 PR)",
+            )
+        }
+        instrumentJpaRepository.markManagedManual(code)
+        log.info("[instrument-admit] ADR 0143 온디맨드 편입: code={} managed_manual=true", code)
+        return mapOf("code" to code, "admitted" to true)
+    }
 }
 
 private data class SectorInfo(

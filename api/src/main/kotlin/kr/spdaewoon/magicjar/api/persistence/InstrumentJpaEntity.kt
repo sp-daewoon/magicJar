@@ -118,6 +118,9 @@ class InstrumentJpaEntity(
     /** 시총규모 (avls_scal_cls_code). KOSPI: 0/1대/2중/3소, KOSDAQ: 0/1:KOSDAQ100/2:mid300/3:small. */
     @Column(name = "avls_scale", length = 1)
     var avlsScale: String? = null,
+    /** ADR 0143 — 사용자 온디맨드 편입 플래그. 대·중형 밖 종목을 검색→확인 후 관리 유니버스에 편입 시 true. */
+    @Column(name = "managed_manual", nullable = false)
+    var managedManual: Boolean = false,
     /** KOSPI100 여부 (kospi100_issu_yn) — KOSPI 단독. */
     @Column(name = "is_kospi100", nullable = false)
     var isKospi100: Boolean = false,
