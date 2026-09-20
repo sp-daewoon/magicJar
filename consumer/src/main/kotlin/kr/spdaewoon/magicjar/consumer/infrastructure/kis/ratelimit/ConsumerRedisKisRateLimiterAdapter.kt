@@ -11,6 +11,8 @@ import kr.spdaewoon.magicjar.domain.event.SystemEventCategory
 import kr.spdaewoon.magicjar.domain.event.SystemEventSeverity
 import kr.spdaewoon.magicjar.domain.event.port.SystemEventLogger
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCallPriority
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCircuitBreakerDecision
+import kr.spdaewoon.magicjar.domain.market.ratelimit.KisCircuitOpenException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimitTimeoutException
 import kr.spdaewoon.magicjar.domain.market.ratelimit.KisRateLimiterPort
 import org.slf4j.LoggerFactory
@@ -63,6 +65,12 @@ class ConsumerRedisKisRateLimiterAdapter(
      * 노출 metric: `kis_ratelimit_bucket_consumed_total{bucket}`·`_acquire_timeout_total{priority}`·`_tps_exceeded_total{last_bucket}`.
      */
     private val meterRegistry: MeterRegistry? = null,
+    /**
+     * Circuit Breaker 상태 공유용 Lettuce connection (ADR 0037 Phase 3 · api·batch 동일 패턴).
+     * Bucket4j와 동일 Redis connection 재사용 — 3 JVM(api/consumer/batch)이 동일 circuit 키 공유.
+     * nullable LOCK + 생성자 말단 — 미주입(기존 positional 단위 테스트) 시 circuit 무력화(항상 CLOSED)로 zero-regression.
+     */
+    private val circuitRedisConnection: io.lettuce.core.api.StatefulRedisConnection<String, ByteArray>? = null,
 ) : KisRateLimiterPort {
     private val log = LoggerFactory.getLogger(ConsumerRedisKisRateLimiterAdapter::class.java)
 
@@ -86,6 +94,11 @@ class ConsumerRedisKisRateLimiterAdapter(
         val EMIT_AGGREGATOR_WINDOW: Duration = Duration.ofMinutes(5)
         const val ACTOR = "ConsumerRedisKisRateLimiterAdapter"
         const val ACTION_TPS_EXCEEDED = "KIS_TPS_EXCEEDED"
+
+        /** Circuit Breaker Redis 키 (ADR 0037 Phase 3 · 3 JVM 공유 · bucketKey와 동일 prefix · api·batch 동일 LOCK). */
+        const val CIRCUIT_OPEN_SUFFIX = ":circuit:open"
+        const val CIRCUIT_FAIL_SUFFIX = ":circuit:fail"
+        const val CIRCUIT_SUCCESS_SUFFIX = ":circuit:success"
 
         /** priority별 버킷 key suffix (api·batch 동일 LOCK — 동일 Redis 3 key 정합 · ADR 0116 §2-B). */
         const val USER_KEY_SUFFIX = ":user"
@@ -234,6 +247,9 @@ class ConsumerRedisKisRateLimiterAdapter(
         timeoutMillis: Long,
         trId: String?,
     ) {
+        // Circuit Breaker (ADR 0037 Phase 3) — OPEN이면 배경 호출 차단(USER_PATH는 정책 C로 통과).
+        enforceCircuit(priority)
+
         val deadlineNanos = System.nanoTime() + timeoutMillis * 1_000_000L
         var attempts = 0
 
@@ -319,6 +335,7 @@ class ConsumerRedisKisRateLimiterAdapter(
             lastBucket,
         )
         recordTpsExceeded(lastBucket)
+        recordCircuitFailure()
         emitSystemEventIfThresholdReached(cumulative, lastBucket)
     }
 
@@ -389,6 +406,78 @@ class ConsumerRedisKisRateLimiterAdapter(
                 count,
                 tpsExceededCount.get(),
             )
+        }
+        recordCircuitSuccess()
+    }
+
+    // ── Circuit Breaker (ADR 0037 Phase 3 · Redis 3 JVM 공유 · 판정=domain 순수함수 · api·batch 동일) ──
+
+    /**
+     * 회로 OPEN 여부 조회 — Redis `:circuit:open` 키 존재 확인.
+     * connection 미주입/조회 실패 시 CLOSED(false)로 fail-safe(회로가 배경 수집을 성급히 죽이지 않도록).
+     */
+    private fun isCircuitOpen(): Boolean {
+        val conn = circuitRedisConnection ?: return false
+        return try {
+            conn.sync().get(props.bucketKey + CIRCUIT_OPEN_SUFFIX) != null
+        } catch (e: Exception) {
+            log.warn("[KisRateLimit/consumer] circuit OPEN 조회 실패 — CLOSED fail-safe: {}", e.message)
+            false
+        }
+    }
+
+    /** acquire 진입 시 회로 차단 판정 — 판정은 domain 순수함수. USER_PATH는 OPEN이어도 통과(정책 C). */
+    private fun enforceCircuit(priority: KisCallPriority) {
+        if (circuitRedisConnection == null) return
+        val open = isCircuitOpen()
+        if (KisCircuitBreakerDecision.shouldBlock(open, priority)) {
+            val openUntil = System.currentTimeMillis() + props.circuitBreakerOpenDurationSeconds * 1000L
+            log.warn("[KisRateLimit/consumer] circuit OPEN — 배경 호출 차단: priority={} (USER_PATH 제외)", priority)
+            throw KisCircuitOpenException(openUntil)
+        }
+    }
+
+    /** EGW00201/429 발생 → fail 윈도 카운터 INCR + 임계 도달 시 OPEN 플래그 SET. */
+    private fun recordCircuitFailure() {
+        val conn = circuitRedisConnection ?: return
+        try {
+            val sync = conn.sync()
+            val failKey = props.bucketKey + CIRCUIT_FAIL_SUFFIX
+            val successKey = props.bucketKey + CIRCUIT_SUCCESS_SUFFIX
+            val fail = sync.incr(failKey)
+            if (fail == 1L) sync.expire(failKey, props.circuitBreakerWindowSeconds)
+            val success = sync.get(successKey)?.toString(Charsets.UTF_8)?.toLongOrNull() ?: 0L
+            if (KisCircuitBreakerDecision.shouldOpen(fail, success, props.circuitBreakerFailureRate)) {
+                val openKey = props.bucketKey + CIRCUIT_OPEN_SUFFIX
+                sync.setex(
+                    openKey,
+                    props.circuitBreakerOpenDurationSeconds,
+                    System.currentTimeMillis().toString().toByteArray(Charsets.UTF_8),
+                )
+                log.error(
+                    "[KisRateLimit/consumer] circuit OPEN 전환 — fail={} success={} rate>={} openFor={}s (배경 호출 {}s 차단)",
+                    fail,
+                    success,
+                    props.circuitBreakerFailureRate,
+                    props.circuitBreakerOpenDurationSeconds,
+                    props.circuitBreakerOpenDurationSeconds,
+                )
+            }
+        } catch (e: Exception) {
+            log.warn("[KisRateLimit/consumer] circuit failure 기록 실패: {}", e.message)
+        }
+    }
+
+    /** 정상 응답 → success 윈도 카운터 INCR (fail rate 분모). */
+    private fun recordCircuitSuccess() {
+        val conn = circuitRedisConnection ?: return
+        try {
+            val sync = conn.sync()
+            val successKey = props.bucketKey + CIRCUIT_SUCCESS_SUFFIX
+            val success = sync.incr(successKey)
+            if (success == 1L) sync.expire(successKey, props.circuitBreakerWindowSeconds)
+        } catch (e: Exception) {
+            log.warn("[KisRateLimit/consumer] circuit success 기록 실패: {}", e.message)
         }
     }
 

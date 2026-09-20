@@ -99,8 +99,16 @@ class ConsumerKisRateLimiterConfiguration {
     @Bean
     fun consumerKisRateLimiterPort(
         consumerKisRateLimitProxyManager: ProxyManager<String>,
+        consumerKisRateLimitRedisConnection: StatefulRedisConnection<String, ByteArray>,
         props: ConsumerKisRateLimitProperties,
         @Autowired(required = false) systemEventLogger: SystemEventLogger?,
         @Autowired(required = false) meterRegistry: MeterRegistry?,
-    ): KisRateLimiterPort = ConsumerRedisKisRateLimiterAdapter(consumerKisRateLimitProxyManager, props, systemEventLogger, meterRegistry)
+    ): KisRateLimiterPort =
+        ConsumerRedisKisRateLimiterAdapter(
+            consumerKisRateLimitProxyManager,
+            props,
+            systemEventLogger,
+            meterRegistry,
+            consumerKisRateLimitRedisConnection,
+        )
 }

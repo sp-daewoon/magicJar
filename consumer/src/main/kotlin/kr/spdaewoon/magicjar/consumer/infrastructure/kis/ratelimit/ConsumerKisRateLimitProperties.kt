@@ -87,4 +87,10 @@ data class ConsumerKisRateLimitProperties(
      * env override: MAGICJAR_KIS_RATE_LIMITER_TPS_EXCEEDED_WARN_THRESHOLD.
      */
     val tpsExceededWarnThreshold: Int = 5,
+    /** Circuit Breaker — fail rate 임계 (default 0.5 = 50%). ADR 0037 Phase 3 (api·batch Properties 동일 LOCK). */
+    val circuitBreakerFailureRate: Double = 0.5,
+    /** Circuit Breaker — 윈도 초 (default 300 = 5분). ADR 0037 Phase 3 (api·batch Properties 동일 LOCK). */
+    val circuitBreakerWindowSeconds: Long = 300L,
+    /** Circuit Breaker — OPEN 유지 초 (default 300 = 5분). ADR 0037 Phase 3 (api·batch Properties 동일 LOCK). */
+    val circuitBreakerOpenDurationSeconds: Long = 300L,
 )
