@@ -99,3 +99,6 @@ coverage/
 docker/docker-compose.prd.yml
 
 .superpowers/
+
+# DB 백업 (온보딩 재세팅 전 스냅샷 — candle 제외 slim)
+_backups/

@@ -61,6 +61,28 @@ interface InstrumentJpaRepository :
     )
 
     /**
+     * ADR 0143 — 온디맨드 편입 KIS 폴백: 로컬에 없는 code를 stub row로 선등록한다.
+     * KIS 종목 마스터는 전종목 .mst 파일 일괄 fetch 방식이라 api에서 단건 조회가 없다.
+     * 대신 managed_manual=true + active=false stub을 넣어두면, 다음 InstrumentSyncJob이
+     * admittedCodes(=managed_manual)로 이 code를 KIS 마스터에서 찾아 실데이터로 INSERT(active=true)한다.
+     * stub은 active=false라 findActiveTrue 계열 조회·수집·검색에는 노출되지 않는다(편입 완료 전까지).
+     * 멱등: 이미 있으면 managed_manual만 갱신(markManagedManual 경로로 흡수).
+     */
+    @Modifying
+    @Query(
+        value =
+            """
+            INSERT INTO instrument (code, name, market, type, active, managed_manual, created_at, updated_at)
+            VALUES (:code, :code, 'UNKNOWN', 'STOCK', false, true, now(), now())
+            ON CONFLICT (code) DO UPDATE SET managed_manual = true, updated_at = now()
+            """,
+        nativeQuery = true,
+    )
+    fun insertManagedManualStub(
+        @Param("code") code: String,
+    )
+
+    /**
      * JPQL fallback 검색 (pg_trgm 미가용 시 LIKE 기반).
      * name·nameNorm 부분 일치 + code prefix/contains 부분 일치.
      * 정규화: 공백·점 제거 + lowercase는 InstrumentSearchService에서 전처리.

@@ -185,6 +185,13 @@ function buildBackfillRiskToast(r: RiskEventDto, createdAt?: string): ToastSpec 
 const BACKFILL_LIMIT = 100
 const BACKFILL_CHANNELS: StompBackfillChannel[] = ['order', 'signal', 'risk']
 
+/**
+ * backfill 이벤트를 토스트로 재생할 최대 경과 시간(ms).
+ * 이보다 오래된 이벤트는 "이미 지난 알림"이므로 토스트 재생하지 않는다(알림센터·매매일지엔 그대로 존재).
+ * 근본: 새로고침/재연결이 오래된 체결을 토스트로 다시 띄우는 오동작 차단 (대운님 지적 2026-09-21).
+ */
+const BACKFILL_TOAST_MAX_AGE_MS = 5 * 60 * 1000 // 5분
+
 // ──────────────────────────────────────────────
 // 메인 hook
 // ──────────────────────────────────────────────
@@ -213,67 +220,83 @@ export function useStompReconnect({
 }: UseStompReconnectOptions): void {
   const { showToast } = useOptionalToast()
   const inFlightRef = useRef(false)
+  // 최초 연결(페이지 로드/새로고침)인지 실제 재연결인지 구분.
+  // 최초 연결엔 backfill 토스트를 재생하지 않는다 — 새로고침은 "놓친" 것이 아니라 화면만 다시 그린 것.
+  const hasConnectedRef = useRef(false)
 
-  const runBackfill = useCallback(async () => {
-    if (userId === null) return
-    if (inFlightRef.current) return
-    inFlightRef.current = true
+  const runBackfill = useCallback(
+    async (suppressToasts: boolean) => {
+      if (userId === null) return
+      if (inFlightRef.current) return
+      inFlightRef.current = true
 
-    try {
-      const since = readLastSeenAt(userId)
+      try {
+        const since = readLastSeenAt(userId)
 
-      const unreadByChannel = await Promise.all(
-        BACKFILL_CHANNELS.map(async (channel) => ({
-          channel,
-          unread: await stompBackfillApi.getUnreadCount(userId, since, channel),
-        })),
-      )
-      const missedCount = unreadByChannel.reduce((sum, item) => sum + item.unread.count, 0)
-
-      if (missedCount === 0) {
-        writeLastSeenAt(userId, new Date().toISOString())
-        return
-      }
-
-      // 100건 초과 누락 시 사용자에게 안내 (정확한 모든 토스트 노출은 spam 우려)
-      if (missedCount > BACKFILL_LIMIT) {
-        showToast(
-          `누락된 이벤트 ${missedCount}건 감지 — 최근 ${BACKFILL_LIMIT}건만 표시. 매매일지·주문 내역 확인 권장.`,
-          'warning',
+        const unreadByChannel = await Promise.all(
+          BACKFILL_CHANNELS.map(async (channel) => ({
+            channel,
+            unread: await stompBackfillApi.getUnreadCount(userId, since, channel),
+          })),
         )
+        const missedCount = unreadByChannel.reduce((sum, item) => sum + item.unread.count, 0)
+
+        if (missedCount === 0) {
+          writeLastSeenAt(userId, new Date().toISOString())
+          return
+        }
+
+        // 100건 초과 누락 시 사용자에게 안내 (정확한 모든 토스트 노출은 spam 우려)
+        // 최초 연결(새로고침)에는 안내도 생략 — 놓친 것이 아니므로.
+        if (!suppressToasts && missedCount > BACKFILL_LIMIT) {
+          showToast(
+            `누락된 이벤트 ${missedCount}건 감지 — 최근 ${BACKFILL_LIMIT}건만 표시. 매매일지·주문 내역 확인 권장.`,
+            'warning',
+          )
+        }
+
+        const eventsByChannel = await Promise.all(
+          unreadByChannel
+            .filter((item) => item.unread.count > 0)
+            .map((item) => stompBackfillApi.list(userId, since, BACKFILL_LIMIT, item.channel)),
+        )
+        const events = eventsByChannel
+          .flat()
+          .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+          .slice(0, BACKFILL_LIMIT)
+          .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+
+        // 토스트 재생 정책:
+        //  - 최초 연결(새로고침)이면 재생하지 않는다 (suppressToasts).
+        //  - 실제 재연결이어도 오래된(> BACKFILL_TOAST_MAX_AGE_MS) 이벤트는 "지난 알림"이므로 재생하지 않는다.
+        // 어느 경우든 lastSeenAt은 아래에서 갱신되어 알림센터·매매일지 흐름은 영향 없음.
+        if (!suppressToasts) {
+          const now = Date.now()
+          for (const ev of events) {
+            const ageMs = now - Date.parse(ev.createdAt)
+            if (Number.isFinite(ageMs) && ageMs > BACKFILL_TOAST_MAX_AGE_MS) continue
+            const toastSpec = buildBackfillToast(ev)
+            if (toastSpec) showToast(toastSpec.message, toastSpec.type)
+          }
+        }
+
+        // 결함 3-B 정합: lastSeenAt 갱신 보장
+        // - 정상 케이스: lastTs · 이벤트 createdAt 중 최신값을 anchor 로 사용 (옛 이벤트 재 backfill 방지)
+        // - fallback: lastTs/createdAt 둘 다 없는 edge case 도 now() 로 갱신 → 다음 reconnect 시 재 backfill 무한루프 차단
+        const lastTsValues = unreadByChannel
+          .map((item) => item.unread.lastTs)
+          .filter((value): value is string => Boolean(value))
+        const createdAtValues = events.map((event) => event.createdAt)
+        const newAnchor = newestIsoInstant([...lastTsValues, ...createdAtValues])
+        writeLastSeenAt(userId, newAnchor ?? new Date().toISOString())
+      } catch {
+        // backend 미구현 / 네트워크 fail — graceful, 다음 reconnect 시 재시도
+      } finally {
+        inFlightRef.current = false
       }
-
-      const eventsByChannel = await Promise.all(
-        unreadByChannel
-          .filter((item) => item.unread.count > 0)
-          .map((item) => stompBackfillApi.list(userId, since, BACKFILL_LIMIT, item.channel)),
-      )
-      const events = eventsByChannel
-        .flat()
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-        .slice(0, BACKFILL_LIMIT)
-        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
-
-      for (const ev of events) {
-        const toastSpec = buildBackfillToast(ev)
-        if (toastSpec) showToast(toastSpec.message, toastSpec.type)
-      }
-
-      // 결함 3-B 정합: lastSeenAt 갱신 보장
-      // - 정상 케이스: lastTs · 이벤트 createdAt 중 최신값을 anchor 로 사용 (옛 이벤트 재 backfill 방지)
-      // - fallback: lastTs/createdAt 둘 다 없는 edge case 도 now() 로 갱신 → 다음 reconnect 시 재 backfill 무한루프 차단
-      const lastTsValues = unreadByChannel
-        .map((item) => item.unread.lastTs)
-        .filter((value): value is string => Boolean(value))
-      const createdAtValues = events.map((event) => event.createdAt)
-      const newAnchor = newestIsoInstant([...lastTsValues, ...createdAtValues])
-      writeLastSeenAt(userId, newAnchor ?? new Date().toISOString())
-    } catch {
-      // backend 미구현 / 네트워크 fail — graceful, 다음 reconnect 시 재시도
-    } finally {
-      inFlightRef.current = false
-    }
-  }, [userId, showToast])
+    },
+    [userId, showToast],
+  )
 
   useEffect(() => {
     if (!enabled || userId === null) return
@@ -290,13 +313,19 @@ export function useStompReconnect({
           // 이전 callback 실패는 backfill 진행에 영향 없음
         }
       }
+      // 최초 연결(새로고침/최초 로드)이면 토스트 재생 suppress, 이후 재연결부터만 재생.
+      const isReconnect = hasConnectedRef.current
+      hasConnectedRef.current = true
       // 비동기 backfill — 실패는 내부에서 graceful handle
-      void runBackfill()
+      void runBackfill(!isReconnect)
     }
 
     // 이미 연결돼 있으면 즉시 backfill 1회 실행 (StrictMode double-mount 안전 — in-flight flag)
+    // mount 시점의 이미-연결됨 = 최초 연결(새로고침 직후)이므로 토스트 suppress.
     if (client.connected) {
-      void runBackfill()
+      const isReconnect = hasConnectedRef.current
+      hasConnectedRef.current = true
+      void runBackfill(!isReconnect)
     }
 
     return () => {
