@@ -97,8 +97,10 @@ val kisRaws = kisAdapter.fetchAllRaw()
   - `KisRestCandleAdapter` BACKFILL acquire timeout 5s→60s (4곳) — 토큰 경합 시 실패(중간 gap 유발) 대신 대기.
   - `SystemEventCategory.MARKET_DATA` 신규.
   - **결과: 대·중형 687종목 1d 일봉 100% 완주** (auto-runner가 remaining=0까지 자동 이어받기 실증). BG버킷·동시성·cap은 env 튜닝(매매 0 구간 BG8+concurrency8).
+- 2026-09-21: **온디맨드 편입 KIS 폴백 구현** — admit(code)이 로컬 DB에 없는 code(clean-reset로 빠진 소형주, 예: 한국석유 004090)를 404 대신 처리한다. KIS 종목 마스터는 전종목 .mst 파일 일괄 fetch 방식이라 api 단건 조회가 없으므로, admit이 `managed_manual=true + active=false` **stub row를 선등록**(`InstrumentJpaRepository.insertManagedManualStub`, native INSERT … ON CONFLICT, §6 준수). 다음 `InstrumentSyncJob`이 `admittedCodes`(=managed_manual) 필터로 이 code를 KIS 마스터에서 찾아 실데이터로 INSERT(active=true)한다. stub은 active=false라 편입 완료 전까지 조회·수집·검색에 노출 안 됨. 응답에 `pendingSync` 플래그 + 즉시 반영 안내(`POST /actuator/instrumentSync`). 새 테이블 0(기존 admittedCodes 로직 재사용).
 
 ## 11. 후속 (backlog)
-- 온디맨드 편입의 **검색 KIS 폴백** — 현재 admit은 로컬 보유 종목만. 검색 미스 시 KIS 단건 조회로 존재 확인하는 흐름은 후속 PR.
 - 중간 gap 정합성 체크 — `isSymbolComplete`는 recency+rows 기반이라 중간 결측은 못 잡을 수 있음. 봉 연속성 검증 후속.
 - auto-runner 정체 중단(`stalledStop`) 수동 재개 admin endpoint 노출(현재 `resumeAfterStall()` 메서드만).
+- admit KIS 폴백 stub의 **편입 완료 자동 트리거** — 현재 stub 선등록 후 다음 sync(스케줄러/수동)를 기다림. admit 직후 batch sync를 자동 호출해 즉시 편입하는 흐름은 모듈 간 결합(api→batch)이라 후속 검토.
+- admit stub이 KIS 마스터에도 없는 무효 code(오타·상폐)면 active=false stub이 남음 — sync 후 미채움 stub 정리(GC) 후속.

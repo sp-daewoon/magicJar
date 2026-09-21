@@ -441,24 +441,36 @@ class InstrumentController(
     /**
      * ADR 0143 — 온디맨드 편입. 관리 유니버스(대·중형) 밖 종목을 사용자 확인 후 관리 대상에 편입한다.
      * managed_manual=true + active=true 로 마킹 → 온보딩 sync가 유지하고 수집·발굴 대상이 된다.
-     * (candle backfill 트리거는 후속 — 편입 직후 배경 워커가 대·중형과 동일 경로로 채운다.)
      *
-     * 존재하지 않는 code(로컬 미보유)는 404 — 검색 시 KIS 폴백으로 존재 확인하는 흐름은 후속 PR.
+     * KIS 폴백(ADR 0143 §5 후속 구현): 로컬 DB에 code가 없으면(clean-reset로 빠진 소형주 등)
+     * 404 대신 managed_manual=true + active=false stub을 선등록한다. KIS 종목 마스터는 전종목 .mst
+     * 파일 일괄 fetch 방식이라 단건 조회가 없으므로, 다음 InstrumentSyncJob이 이 code를 KIS 마스터에서
+     * 찾아 실데이터로 채운다(active=true). 즉시 반영이 필요하면 batch actuator POST /actuator/instrumentSync.
      */
     @PostMapping("/{code}/admit")
     @org.springframework.transaction.annotation.Transactional
     fun admitInstrument(
         @PathVariable code: String,
     ): Map<String, Any> {
-        if (!instrumentJpaRepository.existsByCode(code)) {
-            throw org.springframework.web.server.ResponseStatusException(
-                org.springframework.http.HttpStatus.NOT_FOUND,
-                "종목 없음: $code (검색 KIS 폴백은 후속 PR)",
-            )
+        val alreadyPresent = instrumentJpaRepository.existsByCode(code)
+        if (alreadyPresent) {
+            instrumentJpaRepository.markManagedManual(code)
+            log.info("[instrument-admit] ADR 0143 온디맨드 편입(기존): code={} managed_manual=true", code)
+            return mapOf("code" to code, "admitted" to true, "pendingSync" to false)
         }
-        instrumentJpaRepository.markManagedManual(code)
-        log.info("[instrument-admit] ADR 0143 온디맨드 편입: code={} managed_manual=true", code)
-        return mapOf("code" to code, "admitted" to true)
+        // KIS 폴백: 미보유 code stub 선등록 → 다음 sync가 KIS 마스터에서 채움
+        instrumentJpaRepository.insertManagedManualStub(code)
+        log.info(
+            "[instrument-admit] ADR 0143 온디맨드 편입 KIS 폴백(신규 stub): code={} " +
+                "managed_manual=true active=false — 다음 instrumentSync가 KIS 마스터에서 채움",
+            code,
+        )
+        return mapOf(
+            "code" to code,
+            "admitted" to true,
+            "pendingSync" to true,
+            "message" to "종목 마스터 동기화 후 편입 완료됩니다. 즉시 반영: POST /actuator/instrumentSync",
+        )
     }
 }
 
